@@ -1,12 +1,12 @@
 # greenroom
 
-Monorepo: pnpm workspaces + Turborepo + TypeScript + Biome.
+Monorepo: Go daemon in `apps/daemon`; pnpm workspaces + Turborepo + Biome wrap it and any TypeScript packages.
 
-- `apps/` - deployable things (control plane, GitHub app, CLI)
-- `packages/` - shared libraries (SDK, MCP server, protocol types)
+- `apps/daemon` - the Go daemon and CLI (`greenroom`). Other deployables land beside it.
+- `packages/` - TypeScript libraries only when needed (JS SDK, run viewer). Empty for now.
 - `docs/` - product and architecture notes. `docs/adr/` holds system-wide ADRs.
 
-Commands: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
+Commands: `pnpm lint`, `pnpm test`, `pnpm build` at the root; `go build ./...` and `go test ./...` inside `apps/daemon`.
 
 Read `docs/00-idea.md` before proposing features. The product is not decided yet;
 the open questions at the bottom of that doc are the current agenda.

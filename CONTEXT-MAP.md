@@ -10,9 +10,9 @@ not before.
 
 | Context    | Path                 | Owns                                                   | Status  |
 | ---------- | -------------------- | ------------------------------------------------------ | ------- |
-| protocol   | `packages/protocol/` | Shared types: tools, machines, runs, evidence manifest | planned |
+| protocol   | `apps/daemon/internal/protocol/` | Shared types: tools, machines, runs, evidence manifest | planned |
 | daemon     | `apps/daemon/`       | VM lifecycle on the host Mac, snapshots, run recording | planned |
-| mcp        | `packages/mcp/`      | MCP server mapping agent tools onto the daemon API     | planned |
+| mcp        | `apps/daemon/internal/mcp/` | MCP tool surface over the daemon                | planned |
 | guest      | `packages/guest/`    | What runs inside the VM: helper for screenshot, input, accessibility tree | planned |
 
 ## Shared vocabulary (cross-context)

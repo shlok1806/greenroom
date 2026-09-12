@@ -1,6 +1,6 @@
 # Tech stack report
 
-Status: revised proposal after research, 2026-09-11. Becomes ADR 0004 once agreed.
+Status: accepted 2026-09-11 as [ADR 0004](adr/0004-go-daemon-official-mcp-sdk.md).
 
 ## What kind of application this is
 
