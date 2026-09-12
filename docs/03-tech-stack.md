@@ -1,92 +1,124 @@
 # Tech stack report
 
-Status: proposal for discussion. Becomes ADR 0004 once agreed.
+Status: revised proposal after research, 2026-09-11. Becomes ADR 0004 once agreed.
 
 ## What kind of application this is
 
 greenroom v0 is a **background service on the developer's Mac** with no GUI. It owns
 VMs, records runs, and speaks MCP so Claude Code can call it. A small CLI starts it,
-pulls images, and lists runs. That is the whole application.
+pulls images, and lists runs. The hosted version later is the same service on a fleet
+of Mac minis behind an API.
 
-The hosted version later is the same service running on a fleet of Mac minis behind an
-API. Nothing in v0 should assume a single host or a single user, but nothing in v0
-should build for more than one either.
+## Where the latency actually is
 
-## Recommended stack
+The question "is Go faster than TypeScript" is the wrong question for this system. The
+measured cost of the language in an MCP server is under a millisecond per request, and
+every other step in the loop is hundreds to thousands of times slower.
 
-| Layer                 | Choice                                  | Why                                                                 |
-| --------------------- | --------------------------------------- | ------------------------------------------------------------------- |
-| Language              | TypeScript on Node 26                   | One language for daemon, MCP, protocol, CLI. Best MCP SDK. Team fluency. |
-| VM engine             | Tart CLI, driven as a subprocess        | Already wraps Virtualization.framework, images exist, clone/suspend/exec built in. |
-| MCP                   | `@modelcontextprotocol/sdk`, Streamable HTTP transport | Official SDK. HTTP lets the daemon outlive Claude Code sessions and is the same interface hosted. |
-| HTTP server           | Hono                                    | Small, standards-based, runs on Node now and on anything later.     |
-| Schemas               | Zod                                     | The MCP SDK uses it for tool input; reuse for protocol types.       |
-| Run storage           | `node:sqlite` + files on disk           | Built into Node, zero deps, single file. Evidence (PNGs, logs) as plain files next to it. |
-| Guest exec            | `tart exec` (guest agent), ssh fallback | No key management for commands. ssh + rsync for file sync.          |
-| File sync             | system `rsync` over ssh                 | Do not reimplement rsync. Respects excludes, fast on repeat syncs.  |
-| Screenshot            | `screencapture` in the guest            | Built into macOS. Copy back over the same channel.                  |
-| Computer use (M2)     | Small Swift CLI in the guest            | CGEvent for input, AXUIElement for the accessibility tree. Only Swift can do this. |
-| CLI                   | Same package as the daemon, `commander` | `greenroom daemon`, `greenroom images pull`, `greenroom runs list`. |
-| Tests                 | Vitest; Tart-backed e2e behind a flag   | Unit tests everywhere; the e2e suite needs a Mac with Tart.         |
-| Build                 | tsc only                                | No bundler until there is a reason.                                 |
+| Step in one agent turn                    | Cost (order of magnitude)     | Set by                     |
+| ----------------------------------------- | ----------------------------- | -------------------------- |
+| MCP request handling in the daemon        | 0.5 ms (Go), 0.8 ms (TS)      | language                   |
+| `tart exec` round trip to the guest       | tens of ms (gRPC to agent)    | Tart, measured in spike    |
+| Screenshot: capture, encode, transfer     | 100 ms to 1 s                 | resolution, format, channel|
+| rsync of the working tree                 | 100 ms to seconds             | delta size                 |
+| Build inside the VM                       | seconds to minutes            | the project                |
+| Machine create: clone plus boot           | seconds (cold), less if resumed from suspend | Tart, snapshot strategy |
+| The model thinking about the screenshot   | seconds                       | the LLM                    |
 
-## Why the daemon is TypeScript and not Go or Swift
+Numbers for the first row come from a cross-language MCP benchmark over Streamable HTTP
+on Apple silicon: proxy p50 of 0.50 ms for Go and 0.76 ms for TypeScript. The rest are
+estimates to be replaced by spike measurements.
 
-The daemon's job is orchestration: spawn `tart`, talk to a guest, move files, write a
-manifest, serve MCP. None of that is CPU-bound and all of it is ecosystem-bound.
+What makes greenroom fast is therefore none of the language choice and all of:
 
-- **Go** gives a single static binary and is a natural daemon language. The cost is a
-  second language and a younger MCP SDK. Worth it if distribution becomes the problem.
-- **Swift** could call Virtualization.framework directly and drop Tart. Tart already
-  does that well and is maintained. Swift is reserved for the in-guest helper, where it
-  is the only option.
-- **Python** would work. TypeScript wins on the MCP SDK and on being what Claude Code
-  users already have installed.
+- **Warm machines.** `tart suspend` a booted, logged-in machine and resume it, instead
+  of cold booting per run. Keep one warm clone ready.
+- **Cheap screenshots.** Capture at reduced scale, JPEG not PNG when the agent is just
+  looking, stream back over the exec channel rather than a second ssh session.
+- **Persistent channels.** One connection to the guest per machine, not one per call.
+- **Incremental sync.** rsync deltas, excludes for build output.
 
-## Why MCP over HTTP from a persistent daemon, not a stdio server
+## The daemon language, decided on the right criteria
 
-A stdio MCP server is a child of the Claude Code session. When the session ends, the
-process dies and the VM it owned is orphaned or must be killed. A daemon that Claude
-Code connects to over `http://localhost` keeps the VM alive across sessions, can be
-started once by launchd, and is the exact interface the hosted product exposes. Claude
-Code adds it with one command:
+Given latency is a wash, the criteria that remain are: memory footprint on a host that
+shares its RAM with two VMs, single-binary distribution and launchd installation,
+concurrency model for managing several machines, and fit with the surrounding
+ecosystem.
 
-```sh
-claude mcp add --transport http greenroom http://localhost:7777/mcp
-```
+| Criterion                        | Go                                        | TypeScript                                  |
+| -------------------------------- | ----------------------------------------- | ------------------------------------------- |
+| Idle memory (benchmark RSS)      | 21 MB                                     | 162 MB                                      |
+| Startup                          | 33 ms                                     | 287 ms                                      |
+| Distribution                     | one static binary; `brew install`, launchd plist | needs Node runtime; npm global or bundle |
+| Concurrency for N machines       | goroutines, contexts, cancellation built in | async fine, cancellation clumsier          |
+| ssh client                       | `golang.org/x/crypto/ssh`, native         | `ssh2` package or shell out                 |
+| gRPC (Tart's guest agent speaks it) | native, first class                    | usable, heavier                             |
+| Official MCP SDK                 | `modelcontextprotocol/go-sdk` v1.7, tier 1, maintained with Google, supports 2026-07-28 | `@modelcontextprotocol/sdk` v2, the reference implementation, what Claude Code's own client uses |
+| Spec churn risk                  | Go SDK ships spec changes weeks after TS  | first to get everything                     |
+| Neighbours                       | Tart's guest agent, Docker, Tailscale are Go | most community MCP servers are TS          |
 
-## Guest side
+**Recommendation: Go for the daemon.** Not for latency, but because it is a daemon:
+it should be a single small binary that installs with one command, idles in 20 MB
+next to two VMs, and manages concurrent machines with goroutines and contexts. That is
+what Go is for, and it is what Tart's own guest agent, Docker, and Tailscale chose for
+the same reasons.
 
-Cirrus images ship sshd with `admin`/`admin` and, in recent versions, the Tart guest
-agent that `tart exec` talks to. The spike confirms which of these work out of the box
-on `macos-tahoe-base`. If `tart exec` works, commands and screenshots go through it and
-ssh is only for rsync. If not, everything goes over ssh with a key injected at first
-boot.
+The one real cost is spec churn on the MCP layer: the 2026-07-28 protocol revision was
+a large rewrite, and the Go SDK caught up weeks after TypeScript. The MCP surface here
+is five tools; that surface is thin enough that lagging a spec revision by a few weeks
+does not hurt.
 
-## What is deliberately not chosen yet
+## MCP choice
 
-- **Web UI for runs.** Not until someone wants to look at a run outside the terminal.
-  When it comes it is React, served by the same daemon.
-- **Auth, multi-tenancy, control plane, Postgres, queue.** Hosted concerns.
-- **Distribution.** `pnpm` from the repo is enough for v0. Homebrew or a single
-  binary later.
+- **SDK:** the official `github.com/modelcontextprotocol/go-sdk`, v1.7 or later. Not
+  the older community `mcp-go`; the official SDK is where maintenance and spec support
+  now go.
+- **Transport:** Streamable HTTP on `http://localhost:7777/mcp`, served by the daemon.
+  Claude Code connects with `claude mcp add --transport http greenroom <url>`, treats
+  HTTP servers as reconnectable (five backoff attempts, versus none for stdio), and
+  since v2.1.232 negotiates the 2026-07-28 revision with HTTP servers automatically.
+- **Session model:** stateless at the MCP layer, as the 2026-07-28 revision wants and as
+  the Go SDK requires for that revision. All real state (machines, runs, run ids) lives
+  in the daemon's own store, keyed by run id, which is what ADR 0003 asked for anyway.
+  A Claude Code session dying never loses a machine.
 
-## How it maps onto the repo
+## Rest of the stack
 
-```
-apps/daemon        the service and its CLI
-packages/mcp       tool definitions and the MCP transport (imported by the daemon)
-packages/protocol  Zod schemas and types shared by daemon, mcp, and future clients
-packages/guest     the Swift helper, added at M2
-```
+| Layer               | Choice                                        | Why                                                     |
+| ------------------- | --------------------------------------------- | ------------------------------------------------------- |
+| VM engine           | Tart CLI as a subprocess                      | Wraps Virtualization.framework; clone, suspend, exec, pull built in |
+| Guest exec          | `tart exec` (gRPC to Tart's guest agent, included in non-vanilla Cirrus images); ssh fallback | No network or keys needed for commands |
+| File sync           | system `rsync` over ssh                       | Do not reimplement rsync                                |
+| Screenshot          | `screencapture` in the guest, via exec        | Built in; needs screen-recording permission in the image|
+| Computer use (M2)   | Swift CLI in the guest (CGEvent, AXUIElement) | Only Swift can do this on macOS                         |
+| Run store           | SQLite (`modernc.org/sqlite`, pure Go) plus evidence files under `~/.greenroom/` | Single file, no cgo, no server |
+| HTTP                | `net/http` stdlib                             | Enough for MCP plus a small JSON API                    |
+| CLI                 | same binary, `cobra` subcommands              | `greenroom daemon`, `greenroom images pull`, `greenroom runs` |
+| Tests               | `go test`; Tart-backed e2e behind a build tag | Unit tests everywhere; e2e needs a Mac with Tart        |
+| TypeScript in repo  | kept for a future JS SDK and run viewer only  | pnpm/turbo skeleton stays; nothing TS is on the v0 path |
 
-`packages/mcp` stays separate from the daemon only so the tool surface can be reused by
-a future stdio shim or SDK. If that separation costs anything in v0, fold it into the
-daemon.
+## A competitive signal found on the way
+
+OpenAI maintains a fork of `tart-guest-agent`. Someone there is running macOS VMs on
+Tart, most plausibly for Codex. That confirms the wedge is real and that the platform
+risk in the idea doc is not hypothetical. Worth watching.
 
 ## Decisions needed
 
-1. TypeScript for the daemon (vs Go). Recommendation: TypeScript.
-2. MCP over HTTP from a launchd daemon (vs stdio child process). Recommendation: HTTP daemon.
-3. Hono + node:sqlite + Zod as the boring core. Any objections?
-4. Port and paths: `localhost:7777`, state in `~/.greenroom/`. Fine?
+1. Go for the daemon and the guest side, TypeScript only for a later SDK and UI.
+2. Official Go MCP SDK over Streamable HTTP, stateless MCP sessions, state in the daemon.
+3. `~/.greenroom/` for state and `localhost:7777` for the endpoint.
+
+## Sources
+
+- [MCP benchmark across five languages](https://github.com/desty2k/mcp-benchmark)
+- [Go SDK v1.7.0 release](https://github.com/modelcontextprotocol/go-sdk/releases/tag/v1.7.0)
+- [Go SDK repository](https://github.com/modelcontextprotocol/go-sdk)
+- [TypeScript SDK v2 docs](https://ts.sdk.modelcontextprotocol.io/v2/)
+- [MCP 2026-07-28 specification post](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
+- [SDK betas for 2026-07-28](https://blog.modelcontextprotocol.io/posts/sdk-betas-2026-07-28/)
+- [Claude Code MCP docs](https://code.claude.com/docs/en/mcp)
+- [Tart guest agent announcement](https://tart.run/blog/2025/06/01/bridging-the-gaps-with-the-tart-guest-agent/)
+- [cirruslabs/tart-guest-agent](https://github.com/cirruslabs/tart-guest-agent)
+- [openai/tart-guest-agent fork](https://github.com/openai/tart-guest-agent)
+- [Tart FAQ](https://tart.run/faq/)
