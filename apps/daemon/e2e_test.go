@@ -1,0 +1,135 @@
+//go:build tart
+
+// End-to-end test against a real Tart VM. Run with:
+//
+//	go test -tags tart -run TestEndToEnd -v -timeout 10m .
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/mcpserver"
+)
+
+func TestEndToEnd(t *testing.T) {
+	root := t.TempDir()
+	mgr, err := machine.NewManager(root, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := mcpserver.New(mgr, defaultImage)
+	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+	client := mcp.NewClient(&mcp.Implementation{Name: "e2e", Version: "0"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	call := func(name string, args map[string]any, out any) *mcp.CallToolResult {
+		t.Helper()
+		started := time.Now()
+		res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if res.IsError {
+			t.Fatalf("%s: tool error: %s", name, contentText(res))
+		}
+		if out != nil {
+			data, _ := json.Marshal(res.StructuredContent)
+			if err := json.Unmarshal(data, out); err != nil {
+				t.Fatalf("%s: decode structured content: %v", name, err)
+			}
+		}
+		t.Logf("%s took %.1fs", name, time.Since(started).Seconds())
+		return res
+	}
+
+	var created struct {
+		RunID       string  `json:"runId"`
+		IP          string  `json:"ip"`
+		BootSeconds float64 `json:"bootSeconds"`
+	}
+	call("machine_create", nil, &created)
+	if created.RunID == "" || created.IP == "" {
+		t.Fatalf("bad create result: %+v", created)
+	}
+	t.Logf("machine %s at %s booted in %.1fs", created.RunID, created.IP, created.BootSeconds)
+	defer call("machine_destroy", map[string]any{"runId": created.RunID}, nil)
+
+	var execOut machine.ExecResult
+	call("machine_exec", map[string]any{"runId": created.RunID, "command": "sw_vers -productVersion && whoami"}, &execOut)
+	if execOut.ExitCode != 0 || execOut.Stdout == "" {
+		t.Fatalf("exec: %+v", execOut)
+	}
+	t.Logf("guest says: %q", execOut.Stdout)
+
+	call("machine_exec", map[string]any{"runId": created.RunID, "command": "exit 3"}, &execOut)
+	if execOut.ExitCode != 3 {
+		t.Fatalf("expected exit 3, got %+v", execOut)
+	}
+
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(src, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "node_modules", "junk"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var syncOut machine.SyncResult
+	call("machine_sync", map[string]any{"runId": created.RunID, "source": src, "exclude": []string{"node_modules"}}, &syncOut)
+	call("machine_exec", map[string]any{"runId": created.RunID, "command": "ls", "cwd": syncOut.Dest}, &execOut)
+	if execOut.Stdout != "hello.txt\n" {
+		t.Fatalf("sync: expected only hello.txt, got %q", execOut.Stdout)
+	}
+
+	res := call("machine_screenshot", map[string]any{"runId": created.RunID}, nil)
+	var img *mcp.ImageContent
+	for _, c := range res.Content {
+		if i, ok := c.(*mcp.ImageContent); ok {
+			img = i
+		}
+	}
+	if img == nil || len(img.Data) < 8 || string(img.Data[1:4]) != "PNG" {
+		t.Fatalf("screenshot: no PNG image content in result")
+	}
+	t.Logf("screenshot: %d bytes, %s", len(img.Data), img.MIMEType)
+
+	entries, _ := os.ReadDir(filepath.Join(root, "runs", created.RunID))
+	names := []string{}
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	t.Logf("run dir: %v", names)
+	if len(names) < 3 {
+		t.Fatalf("expected manifest, steps and a screenshot in the run dir, got %v", names)
+	}
+}
+
+func contentText(res *mcp.CallToolResult) string {
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			return tc.Text
+		}
+	}
+	return ""
+}
