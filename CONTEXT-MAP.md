@@ -10,9 +10,10 @@ not before.
 
 | Context    | Path                 | Owns                                                   | Status  |
 | ---------- | -------------------- | ------------------------------------------------------ | ------- |
-| protocol   | `apps/daemon/internal/protocol/` | Shared types: tools, machines, runs, evidence manifest | planned |
-| daemon     | `apps/daemon/`       | VM lifecycle on the host Mac, snapshots, run recording | planned |
-| mcp        | `apps/daemon/internal/mcp/` | MCP tool surface over the daemon                | planned |
+| machine    | `apps/daemon/internal/machine/` | Machine lifecycle, run recording (manifest, steps, artifacts) | exists  |
+| daemon     | `apps/daemon/`       | The `greenroom` binary: HTTP server, CLI, wiring       | exists  |
+| mcp        | `apps/daemon/internal/mcpserver/` | MCP tool surface over the machine manager   | exists  |
+| tart       | `apps/daemon/internal/tart/` | Subprocess wrapper around the Tart CLI            | exists  |
 | guest      | `packages/guest/`    | What runs inside the VM: helper for screenshot, input, accessibility tree | planned |
 
 ## Shared vocabulary (cross-context)

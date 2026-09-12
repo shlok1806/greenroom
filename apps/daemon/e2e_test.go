@@ -61,17 +61,20 @@ func TestEndToEnd(t *testing.T) {
 		return res
 	}
 
-	var created struct {
-		RunID       string  `json:"runId"`
-		IP          string  `json:"ip"`
-		BootSeconds float64 `json:"bootSeconds"`
-	}
+	var created machine.Machine
 	call("machine_create", nil, &created)
-	if created.RunID == "" || created.IP == "" {
+	if created.RunID == "" || created.Status != machine.Booting {
 		t.Fatalf("bad create result: %+v", created)
 	}
-	t.Logf("machine %s at %s booted in %.1fs", created.RunID, created.IP, created.BootSeconds)
 	defer call("machine_destroy", map[string]any{"runId": created.RunID}, nil)
+
+	for created.Status == machine.Booting {
+		call("machine_wait", map[string]any{"runId": created.RunID, "timeoutSeconds": 45}, &created)
+	}
+	if created.Status != machine.Ready || created.IP == "" {
+		t.Fatalf("machine did not become ready: %+v", created)
+	}
+	t.Logf("machine %s at %s booted in %.1fs", created.RunID, created.IP, created.BootSeconds)
 
 	var execOut machine.ExecResult
 	call("machine_exec", map[string]any{"runId": created.RunID, "command": "sw_vers -productVersion && whoami"}, &execOut)
@@ -109,8 +112,8 @@ func TestEndToEnd(t *testing.T) {
 			img = i
 		}
 	}
-	if img == nil || len(img.Data) < 8 || string(img.Data[1:4]) != "PNG" {
-		t.Fatalf("screenshot: no PNG image content in result")
+	if img == nil || img.MIMEType != "image/jpeg" || len(img.Data) < 4 || img.Data[0] != 0xFF || img.Data[1] != 0xD8 {
+		t.Fatalf("screenshot: no JPEG image content in result")
 	}
 	t.Logf("screenshot: %d bytes, %s", len(img.Data), img.MIMEType)
 

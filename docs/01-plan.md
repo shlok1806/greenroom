@@ -11,13 +11,17 @@ You are in Claude Code on your Mac and say:
 
 Claude Code calls greenroom's MCP tools, which run on your Mac:
 
-1. `machine.create` - clone a snapshot, boot it, return `{ runId, machineId }`
-2. `machine.sync` - copy the working tree into the machine
-3. `machine.exec` - run a command, get stdout, stderr, exit code
-4. `machine.screenshot` - get a PNG of the machine's screen
-5. `machine.destroy`
+1. `machine_create` - clone a snapshot and start it; returns `runId` at once with status `booting`
+2. `machine_wait` - block until the machine is `ready` (or `failed`); returns ip and bootSeconds
+3. `machine_sync` - rsync a host directory into the machine
+4. `machine_exec` - run a command, get stdout, stderr, exit code
+5. `machine_screenshot` - JPEG of the screen for the agent, lossless PNG saved in the run
+6. `machine_destroy`
+7. `machine_list` - live machines and their status, to recover a runId after a session restart
 
-That is the whole surface. Every response carries the `runId`.
+Create is asynchronous because a boot under load took 62 to 81 s in testing and Claude
+Code gives an HTTP tool call 60 s to produce its first byte. Every response carries the
+`runId`; every call is appended to the run's `steps.jsonl`.
 
 ## Components
 
@@ -48,9 +52,10 @@ Tart (Cirrus Labs) over Apple's Virtualization.framework.
 run a command, take a screenshot, view it. Record pull time, disk used, clone-to-ssh
 time, screenshot latency in `docs/02-spike.md`.
 
-**M1 - the five tools over MCP.** Done when, from a Claude Code session, the agent can
-create a machine, sync a repo, build it, launch it, screenshot it, and destroy it,
-without the developer touching the VM.
+**M1 - the tools over MCP.** Status 2026-09-12: daemon built (`apps/daemon`), Tart-backed
+end-to-end test passes, a headless Claude Code session created, drove, screenshotted and
+destroyed a machine through the tools. Remaining for M1: build and launch a real GUI app
+from a synced repo, and the greenroom base image (prompt-free, ssh key baked in).
 
 **M2 - computer use.** Click, type, key, scroll, accessibility tree. Then the xcode
 image and a real Mac app.

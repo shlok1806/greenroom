@@ -2,8 +2,12 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"image/jpeg"
+	"image/png"
 	"math"
 	"time"
 
@@ -13,40 +17,53 @@ import (
 )
 
 // Version is stamped into the MCP server implementation info.
-const Version = "0.0.1"
+const Version = "0.0.2"
+
+const (
+	defaultWait = 45 * time.Second
+	maxWait     = 50 * time.Second // stay under the MCP client's 60 s first-byte timer
+	jpegQuality = 80
+)
 
 // New builds the MCP server over mgr. defaultImage is used when a caller
 // does not name one.
 func New(mgr *machine.Manager, defaultImage string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "greenroom", Version: Version}, &mcp.ServerOptions{
-		Instructions: "greenroom gives you a disposable macOS machine. Call machine_create once, keep its runId, " +
-			"then machine_sync to copy a project in, machine_exec to build and run, machine_screenshot to look at " +
-			"the screen, and machine_destroy when done. Every run is recorded under ~/.greenroom/runs/<runId>.",
+		Instructions: "greenroom gives you a disposable macOS machine. Call machine_create once and keep its runId, " +
+			"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_exec to build " +
+			"and run, machine_screenshot to look at the screen, and machine_destroy when done. " +
+			"Every run is recorded under ~/.greenroom/runs/<runId>.",
 	})
 
 	type createIn struct {
 		Image string `json:"image,omitempty" jsonschema:"OCI image to clone. Defaults to the daemon's configured image."`
 	}
-	type createOut struct {
-		RunID       string  `json:"runId"`
-		MachineName string  `json:"machineName"`
-		IP          string  `json:"ip"`
-		Image       string  `json:"image"`
-		BootSeconds float64 `json:"bootSeconds"`
-	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "machine_create",
-		Description: "Clone and boot a fresh macOS machine. Takes about 35 seconds. Returns the runId every other tool needs.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, createOut, error) {
+		Name: "machine_create",
+		Description: "Clone and start a fresh macOS machine. Returns at once with status booting and the runId every " +
+			"other tool needs. Call machine_wait next; boot takes 30 to 90 seconds.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, *machine.Machine, error) {
 		image := in.Image
 		if image == "" {
 			image = defaultImage
 		}
-		mc, boot, err := mgr.Create(ctx, image)
-		if err != nil {
-			return nil, createOut{}, err
+		return wrap(mgr.Create(ctx, image))
+	})
+
+	type waitIn struct {
+		RunID          string `json:"runId" jsonschema:"runId from machine_create"`
+		TimeoutSeconds int    `json:"timeoutSeconds,omitempty" jsonschema:"How long to wait before returning the current status. Default 45, max 50."`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "machine_wait",
+		Description: "Wait for a machine to finish booting. Returns its status: booting (call again), ready (ip and " +
+			"bootSeconds are set), or failed (error is set).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitIn) (*mcp.CallToolResult, *machine.Machine, error) {
+		timeout := defaultWait
+		if in.TimeoutSeconds > 0 {
+			timeout = min(time.Duration(in.TimeoutSeconds)*time.Second, maxWait)
 		}
-		return nil, createOut{RunID: mc.RunID, MachineName: mc.Name, IP: mc.IP, Image: mc.Image, BootSeconds: round(boot)}, nil
+		return wrap(mgr.Wait(ctx, in.RunID, timeout))
 	})
 
 	type listOut struct {
@@ -54,7 +71,7 @@ func New(mgr *machine.Manager, defaultImage string) *mcp.Server {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "machine_list",
-		Description: "List live machines and their runIds, for example to pick up a machine from an earlier session.",
+		Description: "List live machines with their runIds and status, for example to pick up a machine from an earlier session.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listOut, error) {
 		return nil, listOut{Machines: mgr.List()}, nil
 	})
@@ -101,18 +118,23 @@ func New(mgr *machine.Manager, defaultImage string) *mcp.Server {
 		Bytes int    `json:"bytes"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "machine_screenshot",
-		Description: "Capture the machine's screen. Returns the PNG image and the path where it was saved in the run directory.",
+		Name: "machine_screenshot",
+		Description: "Capture the machine's screen. Returns a JPEG of the screen to look at, and the path of the " +
+			"lossless PNG saved in the run directory.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in screenshotIn) (*mcp.CallToolResult, screenshotOut, error) {
-		png, path, err := mgr.Screenshot(ctx, in.RunID)
+		pngBytes, path, err := mgr.Screenshot(ctx, in.RunID)
 		if err != nil {
 			return nil, screenshotOut{}, err
 		}
-		out := screenshotOut{Path: path, Bytes: len(png)}
+		jpg, err := toJPEG(pngBytes)
+		if err != nil {
+			return nil, screenshotOut{}, err
+		}
+		out := screenshotOut{Path: path, Bytes: len(pngBytes)}
 		meta, _ := json.Marshal(out)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.ImageContent{Data: png, MIMEType: "image/png"},
+				&mcp.ImageContent{Data: jpg, MIMEType: "image/jpeg"},
 				&mcp.TextContent{Text: string(meta)},
 			},
 		}, out, nil
@@ -135,6 +157,26 @@ func New(mgr *machine.Manager, defaultImage string) *mcp.Server {
 	})
 
 	return s
+}
+
+// wrap adapts (value, error) pairs to the handler's three return values.
+func wrap(mc *machine.Machine, err error) (*mcp.CallToolResult, *machine.Machine, error) {
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, mc, nil
+}
+
+func toJPEG(pngBytes []byte) ([]byte, error) {
+	img, err := png.Decode(bytes.NewReader(pngBytes))
+	if err != nil {
+		return nil, fmt.Errorf("decode screenshot: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: jpegQuality}); err != nil {
+		return nil, fmt.Errorf("encode jpeg: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 func round(f float64) float64 { return math.Round(f*100) / 100 }

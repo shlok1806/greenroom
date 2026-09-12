@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,19 +25,42 @@ const (
 	namePrefix   = "greenroom-"
 	guestUser    = "admin"
 	readyTimeout = 3 * time.Minute
+	readyGrace   = 20 * time.Second // how long guest tools wait for a booting machine
 	stopTimeout  = 30 * time.Second
 )
 
 // Machine is a running VM bound to one run.
 type Machine struct {
-	RunID     string    `json:"runId"`
-	Name      string    `json:"name"`
-	Image     string    `json:"image"`
-	IP        string    `json:"ip"`
-	CreatedAt time.Time `json:"createdAt"`
-	Dir       string    `json:"dir"`
+	RunID       string    `json:"runId"`
+	Name        string    `json:"name"`
+	Image       string    `json:"image"`
+	IP          string    `json:"ip,omitempty"`
+	Status      Status    `json:"status"`
+	Error       string    `json:"error,omitempty"`
+	BootSeconds float64   `json:"bootSeconds,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Dir         string    `json:"dir"`
 
-	rec *recorder
+	rec   *recorder
+	ready chan struct{} // closed once Status leaves Booting
+}
+
+// Status is a machine's lifecycle state.
+type Status string
+
+const (
+	Booting Status = "booting"
+	Ready   Status = "ready"
+	Failed  Status = "failed"
+)
+
+// snapshot returns a copy safe to hand to callers and encoders.
+func (m *Manager) snapshot(mc *Machine) *Machine {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c := *mc
+	c.rec, c.ready = nil, nil
+	return &c
 }
 
 // Manager creates, drives and destroys machines. State lives under Root.
@@ -117,7 +141,13 @@ func (m *Manager) loadState() error {
 		if err != nil {
 			return err
 		}
+		mc.ready = make(chan struct{})
 		m.machines[mc.RunID] = mc
+		if mc.Status == Ready {
+			close(mc.ready)
+		} else {
+			go m.finishBoot(mc, mc.CreatedAt)
+		}
 	}
 	return m.saveStateLocked()
 }
@@ -146,7 +176,9 @@ func (m *Manager) List() []*Machine {
 	defer m.mu.Unlock()
 	out := make([]*Machine, 0, len(m.machines))
 	for _, mc := range m.machines {
-		out = append(out, mc)
+		c := *mc
+		c.rec, c.ready = nil, nil
+		out = append(out, &c)
 	}
 	return out
 }
@@ -161,10 +193,10 @@ func (m *Manager) get(runID string) (*Machine, error) {
 	return mc, nil
 }
 
-// Create clones image, boots it, waits for the guest agent, installs the
-// daemon's ssh key, and returns the machine. bootSeconds is the wall time
-// from clone to a usable shell.
-func (m *Manager) Create(ctx context.Context, image string) (mc *Machine, bootSeconds float64, err error) {
+// Create clones image and starts it, then returns at once with the machine
+// in Booting state. Readiness (guest agent up, IP known, ssh key installed)
+// is tracked in the background; use Wait to block for it.
+func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 	started := time.Now()
 	runID := newRunID()
 	name := namePrefix + runID
@@ -172,51 +204,103 @@ func (m *Manager) Create(ctx context.Context, image string) (mc *Machine, bootSe
 
 	rec, err := newRecorder(dir, Manifest{RunID: runID, Image: image, MachineName: name, CreatedAt: started.UTC()})
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	mc = &Machine{RunID: runID, Name: name, Image: image, CreatedAt: started.UTC(), Dir: dir, rec: rec}
-	defer func() {
-		rec.step("machine_create", map[string]any{"image": image}, mc, err, started)
-	}()
+	mc := &Machine{RunID: runID, Name: name, Image: image, Status: Booting, CreatedAt: started.UTC(), Dir: dir, rec: rec, ready: make(chan struct{})}
 
-	if err = m.tart.Clone(ctx, image, name); err != nil {
-		return nil, 0, err
+	if err := m.tart.Clone(ctx, image, name); err != nil {
+		rec.step("machine_create", map[string]any{"image": image}, nil, err, started)
+		return nil, err
 	}
-	cleanup := func() {
-		c, cancel := context.WithTimeout(context.Background(), stopTimeout)
-		defer cancel()
-		_ = m.tart.Stop(c, name)
-		_ = m.tart.Delete(c, name)
+	if _, err := m.tart.Start(name, filepath.Join(dir, "vm.log")); err != nil {
+		m.cleanupVM(name)
+		rec.step("machine_create", map[string]any{"image": image}, nil, err, started)
+		return nil, err
 	}
-	if _, err = m.tart.Start(name, filepath.Join(dir, "vm.log")); err != nil {
-		cleanup()
-		return nil, 0, err
-	}
-	if err = m.waitReady(ctx, name); err != nil {
-		cleanup()
-		return nil, 0, err
-	}
-	if mc.IP, err = m.tart.IP(ctx, name); err != nil {
-		cleanup()
-		return nil, 0, err
-	}
-	if err = m.installSSHKey(ctx, name); err != nil {
-		cleanup()
-		return nil, 0, err
-	}
-	_ = rec.update(func(man *Manifest) { man.IP = mc.IP })
 
 	m.mu.Lock()
 	m.machines[runID] = mc
 	err = m.saveStateLocked()
 	m.mu.Unlock()
 	if err != nil {
-		cleanup()
-		return nil, 0, err
+		m.cleanupVM(name)
+		return nil, err
 	}
-	bootSeconds = time.Since(started).Seconds()
-	m.Log.Info("machine ready", "runId", runID, "ip", mc.IP, "bootSeconds", fmt.Sprintf("%.1f", bootSeconds))
-	return mc, bootSeconds, nil
+	rec.step("machine_create", map[string]any{"image": image}, map[string]any{"runId": runID, "machineName": name, "status": Booting}, nil, started)
+	go m.finishBoot(mc, started)
+	return m.snapshot(mc), nil
+}
+
+// finishBoot waits for the guest agent, records the IP, installs the ssh key
+// and flips the machine to Ready or Failed.
+func (m *Manager) finishBoot(mc *Machine, started time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), readyTimeout)
+	defer cancel()
+	err := m.waitReady(ctx, mc.Name)
+	var ip string
+	if err == nil {
+		ip, err = m.tart.IP(ctx, mc.Name)
+	}
+	if err == nil {
+		err = m.installSSHKey(ctx, mc.Name)
+	}
+
+	m.mu.Lock()
+	if err != nil {
+		mc.Status, mc.Error = Failed, err.Error()
+	} else {
+		mc.Status, mc.IP, mc.BootSeconds = Ready, ip, math.Round(time.Since(started).Seconds()*10)/10
+	}
+	_ = m.saveStateLocked()
+	close(mc.ready)
+	m.mu.Unlock()
+
+	_ = mc.rec.update(func(man *Manifest) { man.IP = ip })
+	mc.rec.step("machine_boot", nil, map[string]any{"status": mc.Status, "ip": ip, "bootSeconds": mc.BootSeconds}, err, started)
+	if err != nil {
+		m.Log.Warn("machine failed to boot", "runId", mc.RunID, "err", err)
+		m.cleanupVM(mc.Name)
+		return
+	}
+	m.Log.Info("machine ready", "runId", mc.RunID, "ip", ip, "bootSeconds", mc.BootSeconds)
+}
+
+func (m *Manager) cleanupVM(name string) {
+	c, cancel := context.WithTimeout(context.Background(), stopTimeout)
+	defer cancel()
+	_ = m.tart.Stop(c, name)
+	_ = m.tart.Delete(c, name)
+}
+
+// Wait blocks until the machine leaves Booting or timeout passes, and
+// returns its current state either way.
+func (m *Manager) Wait(ctx context.Context, runID string, timeout time.Duration) (*Machine, error) {
+	mc, err := m.get(runID)
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case <-mc.ready:
+	case <-time.After(timeout):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return m.snapshot(mc), nil
+}
+
+// awaitReady is what every tool that touches the guest calls first.
+func (m *Manager) awaitReady(ctx context.Context, mc *Machine) error {
+	select {
+	case <-mc.ready:
+	case <-time.After(readyGrace):
+		return fmt.Errorf("machine %s is still booting; call machine_wait and try again", mc.RunID)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if st := m.snapshot(mc); st.Status != Ready {
+		return fmt.Errorf("machine %s is %s: %s", mc.RunID, st.Status, st.Error)
+	}
+	return nil
 }
 
 func (m *Manager) waitReady(ctx context.Context, name string) error {
@@ -266,6 +350,9 @@ func (m *Manager) Exec(ctx context.Context, runID, command, cwd string, timeout 
 	if err != nil {
 		return ExecResult{}, err
 	}
+	if err := m.awaitReady(ctx, mc); err != nil {
+		return ExecResult{}, err
+	}
 	started := time.Now()
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -298,6 +385,9 @@ func truncatedForLog(r ExecResult) ExecResult {
 func (m *Manager) Screenshot(ctx context.Context, runID string) (png []byte, path string, err error) {
 	mc, err := m.get(runID)
 	if err != nil {
+		return nil, "", err
+	}
+	if err := m.awaitReady(ctx, mc); err != nil {
 		return nil, "", err
 	}
 	started := time.Now()
@@ -337,6 +427,9 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 	if err != nil {
 		return SyncResult{}, err
 	}
+	if err := m.awaitReady(ctx, mc); err != nil {
+		return SyncResult{}, err
+	}
 	started := time.Now()
 	source = filepath.Clean(source)
 	if st, err := os.Stat(source); err != nil || !st.IsDir() {
@@ -350,7 +443,7 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 	for _, ex := range exclude {
 		args = append(args, "--exclude", ex)
 	}
-	args = append(args, source+"/", fmt.Sprintf("%s@%s:%s/", guestUser, mc.IP, dest))
+	args = append(args, source+"/", fmt.Sprintf("%s@%s:%s/", guestUser, m.snapshot(mc).IP, dest))
 	cmd := exec.CommandContext(ctx, "rsync", args...)
 	out, err := cmd.CombinedOutput()
 	res := SyncResult{Dest: dest, Summary: rsyncSummary(string(out)), Seconds: time.Since(started).Seconds()}
@@ -378,21 +471,19 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 		return err
 	}
 	started := time.Now()
+	m.mu.Lock()
+	delete(m.machines, runID)
+	err = m.saveStateLocked()
+	m.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	stopCtx, cancel := context.WithTimeout(ctx, stopTimeout)
 	defer cancel()
 	if err := m.tart.Stop(stopCtx, mc.Name); err != nil {
 		m.Log.Warn("stop failed, deleting anyway", "runId", runID, "err", err)
 	}
 	err = m.tart.Delete(ctx, mc.Name)
-	if err == nil {
-		m.mu.Lock()
-		delete(m.machines, runID)
-		saveErr := m.saveStateLocked()
-		m.mu.Unlock()
-		if saveErr != nil {
-			err = saveErr
-		}
-	}
 	now := time.Now().UTC()
 	_ = mc.rec.update(func(man *Manifest) { man.DestroyedAt = &now })
 	mc.rec.step("machine_destroy", nil, nil, err, started)
