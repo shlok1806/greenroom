@@ -86,10 +86,72 @@ func (c *Client) List(ctx context.Context) ([]VM, error) {
 	return vms, nil
 }
 
+// Process is a running `tart run` subprocess. A VM that cannot start makes
+// tart exit at once and print the reason to its log, so callers watch the
+// process while they wait for the guest to come up.
+type Process struct {
+	name    string
+	logPath string
+	cmd     *exec.Cmd
+	done    chan struct{}
+	waitErr error // written before done is closed
+}
+
+// Kill stops the tart process. A VM normally goes away through `tart stop`,
+// so this is for the cases where the subprocess must be ended directly.
+func (p *Process) Kill() error {
+	if p.cmd == nil || p.cmd.Process == nil {
+		return nil
+	}
+	return p.cmd.Process.Kill()
+}
+
+// Exited reports whether the tart process has stopped. A VM that is running
+// keeps its process alive, so an exit during boot means the VM is gone.
+func (p *Process) Exited() bool {
+	select {
+	case <-p.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// Err explains why the process stopped. It prefers what tart printed,
+// because that names the real cause, for example the host VM limit.
+func (p *Process) Err() error {
+	if !p.Exited() {
+		return nil
+	}
+	if msg := p.tail(); msg != "" {
+		return fmt.Errorf("tart run %s exited: %s", p.name, msg)
+	}
+	if p.waitErr != nil {
+		return fmt.Errorf("tart run %s exited: %w", p.name, p.waitErr)
+	}
+	return fmt.Errorf("tart run %s exited", p.name)
+}
+
+// tail returns the last few lines that tart wrote, which is where it puts
+// the reason a VM could not start.
+func (p *Process) tail() string {
+	data, err := os.ReadFile(p.logPath)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) > logTailLines {
+		lines = lines[len(lines)-logTailLines:]
+	}
+	return strings.TrimSpace(strings.Join(lines, "; "))
+}
+
+const logTailLines = 3
+
 // Start boots a VM headless in its own process group so it outlives the
-// daemon. Output goes to logPath. The returned process is not waited on by
-// the caller; a goroutine reaps it.
-func (c *Client) Start(name, logPath string) (*exec.Cmd, error) {
+// daemon. Output goes to logPath. The caller does not wait on the process; a
+// goroutine reaps it and records why it stopped.
+func (c *Client) Start(name, logPath string) (*Process, error) {
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
@@ -102,11 +164,13 @@ func (c *Client) Start(name, logPath string) (*exec.Cmd, error) {
 		_ = logFile.Close()
 		return nil, fmt.Errorf("tart run %s: %w", name, err)
 	}
+	p := &Process{name: name, logPath: logPath, cmd: cmd, done: make(chan struct{})}
 	go func() {
-		_ = cmd.Wait()
+		p.waitErr = cmd.Wait()
 		_ = logFile.Close()
+		close(p.done)
 	}()
-	return cmd, nil
+	return p, nil
 }
 
 // Exec runs a command inside the guest through the Tart guest agent. A

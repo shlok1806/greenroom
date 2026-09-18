@@ -42,7 +42,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: greenroom serve [-addr 127.0.0.1:7777] [-root ~/.greenroom] [-image <oci image>]")
+	fmt.Fprintln(os.Stderr, "usage: greenroom serve [-addr 127.0.0.1:7777] [-root ~/.greenroom] [-image <oci image>] [-max-machines 2]")
 	fmt.Fprintln(os.Stderr, "       greenroom version")
 }
 
@@ -51,12 +51,13 @@ func serve(args []string) error {
 	addr := fs.String("addr", "127.0.0.1:7777", "listen address")
 	root := fs.String("root", defaultRoot(), "state directory")
 	image := fs.String("image", defaultImage, "default image for machine_create")
+	maxMachines := fs.Int("max-machines", 2, "how many VMs the host may run at once; Apple allows two macOS guests, and 0 removes the check")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	mgr, err := machine.NewManager(*root, log)
+	mgr, err := machine.NewManager(*root, log, machine.WithMaxMachines(*maxMachines))
 	if err != nil {
 		return err
 	}
@@ -73,7 +74,8 @@ func serve(args []string) error {
 	defer stop()
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.ListenAndServe() }()
-	log.Info("greenroom listening", "mcp", "http://"+*addr+"/mcp", "root", *root, "image", *image, "machines", len(mgr.List()))
+	log.Info("greenroom listening", "mcp", "http://"+*addr+"/mcp", "root", *root, "image", *image,
+		"maxMachines", *maxMachines, "machines", len(mgr.List()))
 
 	select {
 	case err := <-errCh:
