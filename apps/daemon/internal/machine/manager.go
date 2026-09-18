@@ -11,9 +11,11 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +29,10 @@ const (
 	readyTimeout = 3 * time.Minute
 	readyGrace   = 20 * time.Second // how long guest tools wait for a booting machine
 	stopTimeout  = 30 * time.Second
+
+	// defaultMaxMachines is Apple's limit: a host may run at most two macOS
+	// VMs at a time. See docs/04-landscape.md for the licence terms.
+	defaultMaxMachines = 2
 )
 
 // Machine is a running VM bound to one run.
@@ -43,6 +49,7 @@ type Machine struct {
 
 	rec   *recorder
 	ready chan struct{} // closed once Status leaves Booting
+	proc  *tart.Process // the `tart run` subprocess, nil for a reattached machine
 }
 
 // Status is a machine's lifecycle state.
@@ -68,17 +75,66 @@ type Manager struct {
 	Root string
 	Log  *slog.Logger
 
-	tart     *tart.Client
-	mu       sync.Mutex
-	machines map[string]*Machine
-	sshKey   string
-	pubKey   string
+	tart         *tart.Client
+	createMu     sync.Mutex // serializes Create so the capacity check cannot be raced
+	mu           sync.Mutex
+	machines     map[string]*Machine
+	sshKey       string
+	pubKey       string
+	maxMachines  int
+	readyTimeout time.Duration
+	sshProbe     func(ctx context.Context, addr string) error
+}
+
+// Option adjusts a Manager before it touches the disk or the host.
+type Option func(*Manager)
+
+// WithTartBin makes the Manager drive a different tart binary. Tests point
+// this at a fake so that every path is reachable without a real VM.
+func WithTartBin(path string) Option {
+	return func(m *Manager) { m.tart = &tart.Client{Bin: path} }
+}
+
+// WithMaxMachines sets how many VMs the host may run at the same time. The
+// default is two, which is Apple's limit for macOS guests. Zero or less
+// removes the check.
+func WithMaxMachines(n int) Option {
+	return func(m *Manager) { m.maxMachines = n }
+}
+
+// WithReadyTimeout sets how long a machine may take to become usable.
+func WithReadyTimeout(d time.Duration) Option {
+	return func(m *Manager) { m.readyTimeout = d }
+}
+
+// WithSSHProbe replaces the check that guest ssh accepts connections. Tests
+// use it, because a fake machine has no sshd.
+func WithSSHProbe(probe func(ctx context.Context, addr string) error) Option {
+	return func(m *Manager) { m.sshProbe = probe }
+}
+
+// dialSSH reports whether anything is listening for ssh at addr. rsync is the
+// first thing a caller does after a machine is ready, and rsync needs port 22,
+// so a machine is not ready until this succeeds.
+func dialSSH(ctx context.Context, addr string) error {
+	d := net.Dialer{Timeout: 3 * time.Second}
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return err
+	}
+	return conn.Close()
 }
 
 // NewManager prepares Root (dirs, ssh key) and reloads machines that are
 // still running from a previous daemon process.
-func NewManager(root string, log *slog.Logger) (*Manager, error) {
-	m := &Manager{Root: root, Log: log, tart: tart.New(), machines: map[string]*Machine{}}
+func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error) {
+	m := &Manager{
+		Root: root, Log: log, tart: tart.New(), machines: map[string]*Machine{},
+		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout, sshProbe: dialSSH,
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
 	if err := os.MkdirAll(filepath.Join(root, "runs"), 0o755); err != nil {
 		return nil, err
 	}
@@ -164,6 +220,9 @@ func (m *Manager) saveStateLocked() error {
 	return os.WriteFile(m.statePath(), data, 0o644)
 }
 
+// round1 reports a duration in seconds with one decimal.
+func round1(d time.Duration) float64 { return math.Round(d.Seconds()*10) / 10 }
+
 func newRunID() string {
 	var b [3]byte
 	_, _ = rand.Read(b[:])
@@ -197,6 +256,16 @@ func (m *Manager) get(runID string) (*Machine, error) {
 // in Booting state. Readiness (guest agent up, IP known, ssh key installed)
 // is tracked in the background; use Wait to block for it.
 func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
+	// One create at a time. The capacity check below is a check and then an
+	// act, so two creates that overlap would both pass a limit that only has
+	// room for one. A clone of a local image takes about 0.1 s, so the cost
+	// of serializing is small next to a 45 s boot.
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
+
+	if err := m.checkHostCapacity(ctx); err != nil {
+		return nil, err
+	}
 	started := time.Now()
 	runID := newRunID()
 	name := namePrefix + runID
@@ -212,11 +281,13 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 		rec.step("machine_create", map[string]any{"image": image}, nil, err, started)
 		return nil, err
 	}
-	if _, err := m.tart.Start(name, filepath.Join(dir, "vm.log")); err != nil {
+	proc, err := m.tart.Start(name, filepath.Join(dir, "vm.log"))
+	if err != nil {
 		m.cleanupVM(name)
 		rec.step("machine_create", map[string]any{"image": image}, nil, err, started)
 		return nil, err
 	}
+	mc.proc = proc
 
 	m.mu.Lock()
 	m.machines[runID] = mc
@@ -231,18 +302,106 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 	return m.snapshot(mc), nil
 }
 
-// finishBoot waits for the guest agent, records the IP, installs the ssh key
-// and flips the machine to Ready or Failed.
-func (m *Manager) finishBoot(mc *Machine, started time.Time) {
-	ctx, cancel := context.WithTimeout(context.Background(), readyTimeout)
+// checkHostCapacity refuses a create when the host already holds as many VMs
+// as it is allowed. Apple permits two macOS guests for each host. Call it
+// with createMu held: it reads the host state and the caller then acts on it.
+//
+// A slot is held either by a VM that tart reports as running, or by one of our
+// own machines that is still booting. The second case matters because tart
+// does not report a VM as running the instant it starts, so two creates in
+// quick succession would otherwise both see a free slot.
+func (m *Manager) checkHostCapacity(ctx context.Context) error {
+	if m.maxMachines <= 0 {
+		return nil
+	}
+	c, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	err := m.waitReady(ctx, mc.Name)
+	vms, err := m.tart.List(c)
+	if err != nil {
+		return fmt.Errorf("count running machines: %w", err)
+	}
+
+	held := map[string]string{} // VM name -> what the caller can do about it
+	for _, vm := range vms {
+		// A name is always present in real tart output. The guard keeps a
+		// blank row from counting as a slot.
+		if vm.State == "running" && vm.Name != "" {
+			held[vm.Name] = vm.Name
+		}
+	}
+	m.mu.Lock()
+	for _, mc := range m.machines {
+		if mc.Status != Failed {
+			held[mc.Name] = "runId " + mc.RunID
+		}
+	}
+	m.mu.Unlock()
+
+	if len(held) < m.maxMachines {
+		return nil
+	}
+	// Name what holds each slot. Our own machines are named by runId, because
+	// that is what machine_destroy takes. A VM we did not create cannot be
+	// destroyed through greenroom at all, so say so.
+	ours, foreign := []string{}, []string{}
+	for name, how := range held {
+		if strings.HasPrefix(how, "runId ") {
+			ours = append(ours, how)
+		} else {
+			foreign = append(foreign, name)
+		}
+	}
+	sort.Strings(ours)
+	sort.Strings(foreign)
+	switch {
+	case len(ours) > 0 && len(foreign) > 0:
+		return fmt.Errorf("host is at its limit of %d machines; destroy one of %s, or stop %s outside greenroom",
+			m.maxMachines, strings.Join(ours, ", "), strings.Join(foreign, ", "))
+	case len(ours) > 0:
+		return fmt.Errorf("host is at its limit of %d machines; call machine_destroy on one of %s first",
+			m.maxMachines, strings.Join(ours, ", "))
+	default:
+		return fmt.Errorf("host is at its limit of %d machines, all started outside greenroom (%s); stop one of them first",
+			m.maxMachines, strings.Join(foreign, ", "))
+	}
+}
+
+// finishBoot takes the machine to Ready or Failed through four phases in
+// order: the guest agent answers, tart reports an IP, the ssh key goes in,
+// and guest ssh accepts a connection. The two waiting phases each get their
+// own budget of readyTimeout, because a slow guest agent must not consume the
+// time that the ssh phase needs. Every phase is timed into the run record.
+func (m *Manager) finishBoot(mc *Machine, started time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), m.readyTimeout)
+	defer cancel()
+
+	// Time each phase. Boot time varies with host load, and the recording is
+	// the only way to answer "which part was slow" after the fact.
 	var ip string
+	timings := map[string]float64{}
+	at := time.Now()
+	err := m.waitReady(ctx, mc)
+	timings["agentSeconds"] = round1(time.Since(at))
 	if err == nil {
+		at = time.Now()
 		ip, err = m.tart.IP(ctx, mc.Name)
+		timings["ipSeconds"] = round1(time.Since(at))
 	}
 	if err == nil {
+		at = time.Now()
 		err = m.installSSHKey(ctx, mc.Name)
+		timings["keySeconds"] = round1(time.Since(at))
+	}
+	if err == nil {
+		// The ssh phase gets its own budget. Measured on a loaded host, the
+		// guest agent alone took 112.6 s of a 180 s budget, so a shared clock
+		// would let a slow agent starve this phase and produce an error that
+		// blames ssh for something ssh did not do.
+		sshCtx, sshCancel := context.WithTimeout(context.Background(), m.readyTimeout)
+		at = time.Now()
+		err = m.waitSSH(sshCtx, mc, ip)
+		timings["sshSeconds"] = round1(time.Since(at))
+		sshCancel()
 	}
 
 	m.mu.Lock()
@@ -256,13 +415,18 @@ func (m *Manager) finishBoot(mc *Machine, started time.Time) {
 	m.mu.Unlock()
 
 	_ = mc.rec.update(func(man *Manifest) { man.IP = ip })
-	mc.rec.step("machine_boot", nil, map[string]any{"status": mc.Status, "ip": ip, "bootSeconds": mc.BootSeconds}, err, started)
+	out := map[string]any{"status": mc.Status, "ip": ip, "bootSeconds": mc.BootSeconds}
+	for k, v := range timings {
+		out[k] = v
+	}
+	mc.rec.step("machine_boot", nil, out, err, started)
 	if err != nil {
 		m.Log.Warn("machine failed to boot", "runId", mc.RunID, "err", err)
 		m.cleanupVM(mc.Name)
 		return
 	}
-	m.Log.Info("machine ready", "runId", mc.RunID, "ip", ip, "bootSeconds", mc.BootSeconds)
+	m.Log.Info("machine ready", "runId", mc.RunID, "ip", ip, "bootSeconds", mc.BootSeconds,
+		"agentSeconds", timings["agentSeconds"], "sshSeconds", timings["sshSeconds"])
 }
 
 func (m *Manager) cleanupVM(name string) {
@@ -303,20 +467,51 @@ func (m *Manager) awaitReady(ctx context.Context, mc *Machine) error {
 	return nil
 }
 
-func (m *Manager) waitReady(ctx context.Context, name string) error {
-	deadline := time.Now().Add(readyTimeout)
+// waitReady polls the guest agent until it answers. It also watches the tart
+// process: a VM that cannot start makes tart exit at once, and without this
+// check the machine would wait out the whole readiness timeout for a machine
+// that will never answer.
+// waitReady polls the guest agent until it answers. ctx carries this phase's
+// budget, so the loop needs no deadline of its own.
+func (m *Manager) waitReady(ctx context.Context, mc *Machine) error {
 	for {
+		if mc.proc != nil && mc.proc.Exited() {
+			return mc.proc.Err()
+		}
 		c, cancel := context.WithTimeout(ctx, 5*time.Second)
-		res, err := m.tart.Exec(c, name, "true")
+		res, err := m.tart.Exec(c, mc.Name, "true")
 		cancel()
 		if err == nil && res.ExitCode == 0 {
+			// The agent answered. Make sure the VM is still up, because a
+			// process that has already exited means the answer is stale.
+			if mc.proc != nil && mc.proc.Exited() {
+				return mc.proc.Err()
+			}
 			return nil
 		}
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return fmt.Errorf("machine %s: guest agent did not answer within %s: %w",
+				mc.Name, m.readyTimeout, ctx.Err())
 		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("machine %s did not become ready within %s", name, readyTimeout)
+		time.Sleep(time.Second)
+	}
+}
+
+// waitSSH blocks until guest ssh accepts a connection. The guest agent comes
+// up over vsock before sshd is listening, so a machine that reports ready on
+// the agent alone can still refuse the first rsync.
+func (m *Manager) waitSSH(ctx context.Context, mc *Machine, ip string) error {
+	addr := net.JoinHostPort(ip, "22")
+	for {
+		if mc.proc != nil && mc.proc.Exited() {
+			return mc.proc.Err()
+		}
+		if err := m.sshProbe(ctx, addr); err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("machine %s: ssh on %s did not answer within %s: %w",
+				mc.Name, addr, m.readyTimeout, ctx.Err())
 		}
 		time.Sleep(time.Second)
 	}
@@ -391,8 +586,11 @@ func (m *Manager) Screenshot(ctx context.Context, runID string) (png []byte, pat
 		return nil, "", err
 	}
 	started := time.Now()
+	// Claim the step number before the artifact is named, so that two
+	// screenshots at the same time cannot choose the same file.
+	seq := mc.rec.begin()
 	defer func() {
-		mc.rec.step("machine_screenshot", nil, map[string]any{"path": path, "bytes": len(png)}, err, started)
+		mc.rec.complete(seq, "machine_screenshot", nil, map[string]any{"path": path, "bytes": len(png)}, err, started)
 	}()
 	res, err := m.tart.Exec(ctx, mc.Name, "sh", "-c", "screencapture -x /tmp/greenroom-shot.png && base64 -i /tmp/greenroom-shot.png")
 	if err != nil {
@@ -405,7 +603,6 @@ func (m *Manager) Screenshot(ctx context.Context, runID string) (png []byte, pat
 	if err != nil {
 		return nil, "", fmt.Errorf("decode screenshot: %w", err)
 	}
-	seq := mc.rec.manifest.Steps + 1
 	path = mc.rec.artifactPath(seq, "screenshot", "png")
 	if err = os.WriteFile(path, png, 0o644); err != nil {
 		return nil, "", err
@@ -431,12 +628,19 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 		return SyncResult{}, err
 	}
 	started := time.Now()
+	if !filepath.IsAbs(source) {
+		return SyncResult{}, fmt.Errorf("source %q must be an absolute path on the host", source)
+	}
 	source = filepath.Clean(source)
 	if st, err := os.Stat(source); err != nil || !st.IsDir() {
 		return SyncResult{}, fmt.Errorf("source %q is not a directory", source)
 	}
 	if dest == "" {
 		dest = "work/" + filepath.Base(source)
+	}
+	dest, err = guestDest(dest)
+	if err != nil {
+		return SyncResult{}, err
 	}
 	sshCmd := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR", m.sshKey)
 	args := []string{"-az", "--stats", "-e", sshCmd, "--rsync-path", "mkdir -p " + shellQuote(dest) + " && rsync"}
@@ -452,6 +656,20 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 	}
 	mc.rec.step("machine_sync", map[string]any{"source": source, "dest": dest, "exclude": exclude}, res, err, started)
 	return res, err
+}
+
+// guestDest keeps a sync inside the guest home. machine_sync describes dest
+// as relative to that home, and a path that climbs above it would write over
+// the guest system instead.
+func guestDest(dest string) (string, error) {
+	if filepath.IsAbs(dest) {
+		return "", fmt.Errorf("dest %q must be relative to the guest home", dest)
+	}
+	clean := filepath.Clean(dest)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("dest %q must stay inside the guest home", dest)
+	}
+	return clean, nil
 }
 
 func rsyncSummary(stats string) string {

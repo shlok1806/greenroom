@@ -61,13 +61,21 @@ func (r *recorder) update(fn func(*Manifest)) error {
 	return r.writeManifest()
 }
 
-// step appends one step and returns its sequence number.
-func (r *recorder) step(tool string, input, output any, err error, started time.Time) int {
+// begin claims the next step number. A caller that must name an artifact
+// before it can record the step claims its number first, so that two callers
+// at the same time never choose the same file name.
+func (r *recorder) begin() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.manifest.Steps++
+	_ = r.writeManifest()
+	return r.manifest.Steps
+}
+
+// complete records a step under a number that begin already claimed.
+func (r *recorder) complete(seq int, tool string, input, output any, err error, started time.Time) {
 	s := Step{
-		Seq:        r.manifest.Steps,
+		Seq:        seq,
 		At:         started.UTC(),
 		Tool:       tool,
 		Input:      input,
@@ -78,13 +86,23 @@ func (r *recorder) step(tool string, input, output any, err error, started time.
 		s.Error = err.Error()
 	}
 	line, _ := json.Marshal(s)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	f, ferr := os.OpenFile(filepath.Join(r.dir, "steps.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if ferr == nil {
 		_, _ = f.Write(append(line, '\n'))
 		_ = f.Close()
 	}
 	_ = r.writeManifest()
-	return s.Seq
+}
+
+// step claims a number and records the step in one call. Use it for every
+// tool that does not name a file.
+func (r *recorder) step(tool string, input, output any, err error, started time.Time) int {
+	seq := r.begin()
+	r.complete(seq, tool, input, output, err, started)
+	return seq
 }
 
 // artifactPath names a file for step seq, e.g. 003-screenshot.png.
