@@ -97,3 +97,63 @@ final class SSEParserTests: XCTestCase {
         XCTAssertEqual(lifecycle.kind, .destroyed)
     }
 }
+
+/// The bug these cover: the stream used to be cut into lines by
+/// `URLSession.AsyncBytes.lines`, which drops empty lines. In server-sent
+/// events the empty line *is* the frame terminator, so every frame stayed
+/// open, `dispatch()` never ran, and no verifier message ever reached the
+/// store until something else refetched the transcript.
+final class SSELineSplitterTests: XCTestCase {
+    /// The blank line between two frames has to survive the split.
+    func testBlankLinesSurvive() {
+        let body = "event: message\ndata: {}\n\nevent: frame\ndata: {}\n\n"
+        XCTAssertEqual(
+            SSELineSplitter.lines(of: Array(body.utf8)),
+            ["event: message", "data: {}", "", "event: frame", "data: {}", ""]
+        )
+    }
+
+    /// Byte by byte, as the network delivers it, two whole events come out.
+    func testAByteStreamDispatchesEveryEvent() throws {
+        let body = """
+        : ping
+
+        event: message
+        data: {"runId":"run-1","message":{"seq":9,"at":"2026-09-18T10:00:00Z","from":"verifier","kind":"progress","text":"looking"}}
+
+        event: message
+        data: {"runId":"run-1","message":{"seq":10,"at":"2026-09-18T10:00:01Z","from":"verifier","kind":"reply","text":"it builds"}}
+
+
+        """
+
+        var splitter = SSELineSplitter()
+        var parser = SSEParser()
+        var events: [ServerEvent] = []
+        for byte in Array(body.utf8) {
+            guard let line = splitter.consume(byte) else { continue }
+            if let event = try parser.consume(line) { events.append(event) }
+        }
+
+        XCTAssertEqual(events.count, 2)
+        guard case .message(_, let progress) = events[0], case .message(_, let reply) = events[1] else {
+            return XCTFail("the stream did not produce two messages")
+        }
+        XCTAssertEqual(progress.kind, .progress)
+        XCTAssertEqual(reply.kind, .reply)
+        XCTAssertEqual(reply.text, "it builds")
+    }
+
+    /// A last line with no closing newline is not swallowed.
+    func testFlushReturnsATrailingPartialLine() {
+        var splitter = SSELineSplitter()
+        for byte in Array("a\nb".utf8) { _ = splitter.consume(byte) }
+        XCTAssertEqual(splitter.flush(), "b")
+        XCTAssertNil(splitter.flush())
+    }
+
+    /// CRLF framing leaves the `\r` for the parser, which strips it.
+    func testCarriageReturnsAreLeftForTheParser() {
+        XCTAssertEqual(SSELineSplitter.lines(of: Array("event: run\r\n\r\n".utf8)), ["event: run\r", "\r"])
+    }
+}

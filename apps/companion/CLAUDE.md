@@ -78,6 +78,28 @@ Views  ->  RunStore  ->  DaemonClient  ->  HTTP
   stream error the store backs off (1 s, 2 s, 4 s, capped at 10 s), re-reads the run list
   and every open run, and reconnects.
 
+## Reading the event stream
+
+Never cut the stream into lines with `URLSession.AsyncBytes.lines`. That sequence drops
+empty lines, and in server-sent events the empty line is not filler: it is the terminator
+that ends a frame. Fed through `.lines`, every `event:`/`data:` pair arrived but no frame
+ever closed, `SSEParser.dispatch()` never ran, and the app yielded exactly zero events
+while the footer still said "Live" — the transcript only moved when something else
+refetched it, which is what a human sending a message happens to do. `SSELineSplitter`
+cuts the bytes itself and keeps the blank lines; `SSELineSplitterTests` holds that line.
+
+How that was pinned down, if the stream ever goes quiet again:
+
+```sh
+curl -N http://127.0.0.1:7777/api/events      # the daemon flushes each frame at once
+swift run Companion 2>&1 | tee /tmp/companion.log   # with prints in events()/apply()
+```
+
+The daemon's side was never in doubt — `curl -N` showed the blank lines and delivered a
+posted message within the same second. The app's log showed the same lines *without the
+blank ones*, and not one call into `RunStore.apply`. Compare those two outputs first: it
+says in one step whether the stream, the parse or the merge is at fault.
+
 ## Decoding
 
 Unknown enum values decode into an `unknown(String)` case rather than throwing. The

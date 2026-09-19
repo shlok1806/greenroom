@@ -132,6 +132,39 @@ final class RunStoreTests: XCTestCase {
         ]))
     }
 
+    /// The whole path a verifier's answer takes: raw SSE bytes, split into
+    /// lines, parsed, merged. It has to land in the transcript and stop the
+    /// "verifier working" row, with nobody sending anything to trigger it.
+    func testAVerifierTurnArrivesStraightFromTheStream() throws {
+        let store = store()
+        store.messages["run-1"] = [message(1, kind: .note, from: .human)]
+        XCTAssertTrue(RunStore.awaitingVerifier(store.messages["run-1"] ?? []))
+
+        let body = """
+        : ping
+
+        event: message
+        data: {"runId":"run-1","message":{"seq":2,"at":"2026-09-18T10:00:01Z","from":"verifier","kind":"progress","text":"looking"}}
+
+        event: message
+        data: {"runId":"run-1","message":{"seq":3,"at":"2026-09-18T10:00:02Z","from":"verifier","kind":"reply","text":"it builds"}}
+
+
+        """
+
+        var splitter = SSELineSplitter()
+        var parser = SSEParser()
+        for byte in Array(body.utf8) {
+            guard let line = splitter.consume(byte) else { continue }
+            guard let event = try parser.consume(line) else { continue }
+            store.apply(event)
+        }
+
+        XCTAssertEqual(store.messages["run-1"]?.map(\.seq), [1, 2, 3])
+        XCTAssertEqual(store.messages["run-1"]?.last?.text, "it builds")
+        XCTAssertFalse(RunStore.awaitingVerifier(store.messages["run-1"] ?? []))
+    }
+
     private func frame(_ step: Int, file: String? = nil) -> Frame {
         Frame(at: Date(timeIntervalSince1970: Double(step)), file: file ?? "f\(step).jpg", step: step)
     }

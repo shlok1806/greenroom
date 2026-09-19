@@ -138,10 +138,18 @@ final class DaemonClient: Sendable {
                         throw DaemonError.status(code: http.statusCode, body: "")
                     }
                     var parser = SSEParser()
-                    for try await line in bytes.lines {
+                    var splitter = SSELineSplitter()
+                    // Deliberately not `bytes.lines`: that sequence drops the
+                    // blank line, and a blank line is exactly what ends an SSE
+                    // frame. See SSELineSplitter.
+                    for try await byte in bytes {
+                        guard let line = splitter.consume(byte) else { continue }
                         if let event = try parser.consume(line) {
                             continuation.yield(event)
                         }
+                    }
+                    if let line = splitter.flush(), let event = try parser.consume(line) {
+                        continuation.yield(event)
                     }
                     continuation.finish()
                 } catch {
@@ -226,6 +234,52 @@ final class DaemonClient: Sendable {
 }
 
 // MARK: - SSE
+
+/// Cuts a byte stream into lines, **keeping the empty ones**.
+///
+/// This exists because `URLSession.AsyncBytes.lines` does not: it skips blank
+/// lines, and in server-sent events a blank line is not filler, it is the
+/// terminator that ends a frame. Fed through `.lines`, the daemon's stream
+/// arrives as an endless run of `event:`/`data:` lines that never dispatch, so
+/// no event ever reaches the store. Splitting the bytes here is a value type
+/// with no I/O in it, so the tests can feed it a fixed transcript.
+struct SSELineSplitter {
+    private var buffer: [UInt8] = []
+
+    init() {}
+
+    /// Feeds one byte. Returns a line when the byte closed one; a trailing
+    /// `\r` is left on for `SSEParser.consume` to strip.
+    mutating func consume(_ byte: UInt8) -> String? {
+        guard byte == 0x0A else {
+            buffer.append(byte)
+            return nil
+        }
+        let line = String(decoding: buffer, as: UTF8.self)
+        buffer.removeAll(keepingCapacity: true)
+        return line
+    }
+
+    /// Whatever is left when the stream ends without a final newline.
+    mutating func flush() -> String? {
+        guard !buffer.isEmpty else { return nil }
+        let line = String(decoding: buffer, as: UTF8.self)
+        buffer.removeAll(keepingCapacity: true)
+        return line
+    }
+
+    /// Splits a whole body. Used by the tests and by anything that already
+    /// holds the bytes.
+    static func lines(of bytes: [UInt8]) -> [String] {
+        var splitter = SSELineSplitter()
+        var lines: [String] = []
+        for byte in bytes {
+            if let line = splitter.consume(byte) { lines.append(line) }
+        }
+        if let line = splitter.flush() { lines.append(line) }
+        return lines
+    }
+}
 
 /// A line-at-a-time server-sent events parser. It is a value type with no I/O
 /// in it so the tests can feed it a fixed transcript.

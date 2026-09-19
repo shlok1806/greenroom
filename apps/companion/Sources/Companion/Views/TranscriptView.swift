@@ -1,5 +1,44 @@
 import SwiftUI
 
+/// Nothing but whitespace, so nothing worth sending.
+private func isBlank(_ text: String) -> Bool {
+    text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+}
+
+/// Return sends, Shift-Return makes a newline, Cmd-Return sends too.
+///
+/// A `TextField` with `axis: .vertical` treats Return as a newline of its own,
+/// so the key has to be caught before the field's own handling. `.onKeyPress`
+/// on the field runs while it has focus and ahead of the text view, and
+/// returning `.ignored` hands Shift-Return straight back to it.
+private struct SendOnReturn: ViewModifier {
+    let enabled: Bool
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        content.onKeyPress(phases: .down) { press in
+            guard press.key == .return else { return .ignored }
+            // Shift-Return is the field's own newline. Cmd-Return sends, like
+            // the Send button's shortcut: the shortcut gets first refusal on
+            // it, and this catches it when the button is not in the responder
+            // chain to take it.
+            guard press.modifiers.isEmpty || press.modifiers == .command else { return .ignored }
+            // A blank draft sends nothing, and must not leave a stray newline
+            // behind either.
+            guard enabled else { return .handled }
+            action()
+            return .handled
+        }
+    }
+}
+
+private extension View {
+    /// Makes Return in a text field send, the way every chat composer does.
+    func sendOnReturn(enabled: Bool, _ action: @escaping () -> Void) -> some View {
+        modifier(SendOnReturn(enabled: enabled, action: action))
+    }
+}
+
 /// The run's one conversation, and the human's seat in it (ADR 0006).
 struct TranscriptView: View {
     @Bindable var store: RunStore
@@ -8,6 +47,7 @@ struct TranscriptView: View {
     @State private var draft = ""
     @State private var draftKind: MessageKind = .note
     @FocusState private var composing: Bool
+    @State private var atBottom = true
 
     private var messages: [Message] { store.messages[runId] ?? [] }
 
@@ -15,6 +55,9 @@ struct TranscriptView: View {
     private var awaitingVerifier: Bool { RunStore.awaitingVerifier(messages) }
 
     private static let thinkingRowId = -1
+
+    /// How near the end still counts as being at the end, in points.
+    private static let bottomSlack: CGFloat = 40
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,17 +75,25 @@ struct TranscriptView: View {
                     }
                     .padding(12)
                 }
+                // Follow the conversation only for someone already at the end
+                // of it. Someone who has scrolled back to read is not dragged
+                // away by a message landing.
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    geometry.contentOffset.y + geometry.containerSize.height
+                        >= geometry.contentSize.height - Self.bottomSlack
+                } action: { _, isAtBottom in
+                    atBottom = isAtBottom
+                }
                 .onChange(of: messages.count) {
-                    if let last = messages.last {
-                        withAnimation { proxy.scrollTo(last.seq, anchor: .bottom) }
-                    }
+                    guard atBottom, let last = messages.last else { return }
+                    withAnimation { proxy.scrollTo(last.seq, anchor: .bottom) }
                 }
                 .onChange(of: awaitingVerifier) {
-                    if awaitingVerifier {
-                        withAnimation { proxy.scrollTo(Self.thinkingRowId, anchor: .bottom) }
-                    }
+                    guard atBottom, awaitingVerifier else { return }
+                    withAnimation { proxy.scrollTo(Self.thinkingRowId, anchor: .bottom) }
                 }
                 .onAppear {
+                    atBottom = true
                     if let last = messages.last { proxy.scrollTo(last.seq, anchor: .bottom) }
                 }
             }
@@ -65,10 +116,11 @@ struct TranscriptView: View {
                 .lineLimit(1...5)
                 .textFieldStyle(.roundedBorder)
                 .focused($composing)
+                .sendOnReturn(enabled: !isBlank(draft), send)
 
             Button("Send") { send() }
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(isBlank(draft))
         }
         .padding(10)
     }
@@ -77,6 +129,8 @@ struct TranscriptView: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
+        // Your own message always brings you back to the end.
+        atBottom = true
         let kind = draftKind
         Task { await store.send(runId: runId, kind: kind, text: text) }
     }
@@ -265,20 +319,24 @@ private struct VerdictBody: View {
                     HStack {
                         TextField("Why the verdict is wrong, with evidence", text: $reason)
                             .textFieldStyle(.roundedBorder)
-                        Button("Send dispute") {
-                            let text = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !text.isEmpty else { return }
-                            reason = ""
-                            disputing = false
-                            Task { await store.send(runId: runId, kind: .dispute, text: text, replyTo: message.seq) }
-                        }
-                        .disabled(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .sendOnReturn(enabled: !isBlank(reason), sendDispute)
+                        Button("Send dispute") { sendDispute() }
+                            .keyboardShortcut(.return, modifiers: .command)
+                            .disabled(isBlank(reason))
                     }
                 }
             }
         }
         .padding(10)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func sendDispute() {
+        let text = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        reason = ""
+        disputing = false
+        Task { await store.send(runId: runId, kind: .dispute, text: text, replyTo: message.seq) }
     }
 }
 
@@ -306,17 +364,20 @@ private struct QuestionBody: View {
                 HStack {
                     TextField("Answer", text: $answer)
                         .textFieldStyle(.roundedBorder)
-                    Button("Reply") {
-                        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !text.isEmpty else { return }
-                        answer = ""
-                        Task { await store.send(runId: runId, kind: .answer, text: text, replyTo: message.seq) }
-                    }
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .sendOnReturn(enabled: !isBlank(answer), sendAnswer)
+                    Button("Reply") { sendAnswer() }
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .disabled(isBlank(answer))
                 }
             }
         }
+    }
+
+    private func sendAnswer() {
+        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        answer = ""
+        Task { await store.send(runId: runId, kind: .answer, text: text, replyTo: message.seq) }
     }
 }
 
