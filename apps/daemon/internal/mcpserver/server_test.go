@@ -45,7 +45,7 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	server := New(mgr, defaultImage)
+	server := New(mgr, defaultImage, nil)
 	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true},
@@ -550,5 +550,20 @@ func TestSyncKeepsTheCallerInsideTheGuestHome(t *testing.T) {
 	}
 	if strings.Contains(testsupport.Calls(t, h.control), "escaped") {
 		t.Error("a refused sync still reached the guest")
+	}
+}
+
+// The verifier is optional. Without a model the daemon must still serve every
+// machine tool, and machine_verify must not appear.
+func TestVerifyToolAppearsOnlyWithAVerifier(t *testing.T) {
+	h := newHarness(t)
+	res, err := h.session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range res.Tools {
+		if tool.Name == "machine_verify" {
+			t.Fatal("machine_verify is offered although no model is configured")
+		}
 	}
 }

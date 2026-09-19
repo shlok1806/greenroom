@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/verifier"
 )
 
 // Version is stamped into the MCP server implementation info.
@@ -27,7 +28,7 @@ const (
 
 // New builds the MCP server over mgr. defaultImage is used when a caller
 // does not name one.
-func New(mgr *machine.Manager, defaultImage string) *mcp.Server {
+func New(mgr *machine.Manager, defaultImage string, v *verifier.Verifier) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "greenroom", Version: Version}, &mcp.ServerOptions{
 		Instructions: "greenroom gives you a disposable macOS machine. Call machine_create once and keep its runId, " +
 			"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_exec to build " +
@@ -37,17 +38,19 @@ func New(mgr *machine.Manager, defaultImage string) *mcp.Server {
 
 	type createIn struct {
 		Image string `json:"image,omitempty" jsonschema:"OCI image to clone. Defaults to the daemon's configured image."`
+		Watch bool   `json:"watch,omitempty" jsonschema:"Show the machine's screen so a person can watch the run. Returns vncUrl, and the daemon opens a viewer on the host."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_create",
 		Description: "Clone and start a fresh macOS machine. Returns at once with status booting and the runId every " +
-			"other tool needs. Call machine_wait next; boot takes 30 to 90 seconds.",
+			"other tool needs. Call machine_wait next; boot takes 30 to 90 seconds. Pass watch true to show the " +
+			"screen while the machine works, which is what a person wants when they are looking on.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, *machine.Machine, error) {
 		image := in.Image
 		if image == "" {
 			image = defaultImage
 		}
-		return wrap(mgr.Create(ctx, image))
+		return wrap(mgr.Create(ctx, image, in.Watch))
 	})
 
 	type waitIn struct {
@@ -156,7 +159,33 @@ func New(mgr *machine.Manager, defaultImage string) *mcp.Server {
 		return nil, destroyOut{OK: true}, nil
 	})
 
+	if v != nil {
+		addVerifyTool(s, v)
+	}
+
 	return s
+}
+
+// addVerifyTool exposes greenroom's own agent. It is registered only when a
+// model is configured, so a daemon with no key still serves the other tools.
+func addVerifyTool(s *mcp.Server, v *verifier.Verifier) {
+	type verifyIn struct {
+		RunID string `json:"runId" jsonschema:"runId from machine_create"`
+		Task  string `json:"task" jsonschema:"What to verify, in plain words, for example: build the app, launch it, and show me the window"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "machine_verify",
+		Description: "Hand a task to greenroom's own agent, which drives the machine and returns a verdict with evidence. " +
+			"Use this instead of driving the machine yourself when you do not want the build output in your own context. " +
+			"The agent diagnoses failures; it never edits your source.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in verifyIn) (*mcp.CallToolResult, verifier.Report, error) {
+		rep, err := v.Run(ctx, in.RunID, in.Task)
+		if err != nil {
+			return nil, rep, err
+		}
+		rep.Seconds = round(rep.Seconds)
+		return nil, rep, nil
+	})
 }
 
 // wrap adapts (value, error) pairs to the handler's three return values.

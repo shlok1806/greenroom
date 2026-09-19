@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/mcpserver"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/verifier"
 )
 
 const defaultImage = "ghcr.io/cirruslabs/macos-tahoe-base:latest"
@@ -52,16 +55,48 @@ func serve(args []string) error {
 	root := fs.String("root", defaultRoot(), "state directory")
 	image := fs.String("image", defaultImage, "default image for machine_create")
 	maxMachines := fs.Int("max-machines", 2, "how many VMs the host may run at once; Apple allows two macOS guests, and 0 removes the check")
+	envFile := fs.String("env-file", ".env", "file of KEY=VALUE lines holding the model credentials")
+	openViewer := fs.Bool("open-viewer", true, "when a machine is created with watch, open its screen on this Mac")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if err := loadEnvFile(*envFile); err != nil {
+		return err
+	}
 
-	mgr, err := machine.NewManager(*root, log, machine.WithMaxMachines(*maxMachines))
+	opts := []machine.Option{machine.WithMaxMachines(*maxMachines)}
+	if *openViewer {
+		opts = append(opts, machine.WithWatchHandler(func(vncURL string) {
+			log.Info("opening the machine's screen", "url", redactVNC(vncURL))
+			if err := exec.Command("open", vncURL).Start(); err != nil {
+				log.Warn("could not open the viewer", "err", err)
+			}
+		}))
+	}
+	mgr, err := machine.NewManager(*root, log, opts...)
 	if err != nil {
 		return err
 	}
-	server := mcpserver.New(mgr, *image)
+
+	// greenroom's own agent is optional. Without a key the daemon still
+	// serves every machine tool, it just does not offer machine_verify.
+	var v *verifier.Verifier
+	if key := os.Getenv("NVIDIA_API_KEY"); key != "" {
+		v, err = verifier.New(mgr, verifier.Config{
+			BaseURL:     os.Getenv("NVIDIA_BASE_URL"),
+			APIKey:      key,
+			Model:       os.Getenv("GREENROOM_VERIFIER_MODEL"),
+			VisionModel: os.Getenv("GREENROOM_VISION_MODEL"),
+		}, log)
+		if err != nil {
+			return err
+		}
+		log.Info("verifier enabled", "model", os.Getenv("GREENROOM_VERIFIER_MODEL"), "vision", os.Getenv("GREENROOM_VISION_MODEL"))
+	} else {
+		log.Info("verifier disabled", "reason", "no NVIDIA_API_KEY in environment or "+*envFile)
+	}
+	server := mcpserver.New(mgr, *image, v)
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true}))
@@ -89,6 +124,14 @@ func serve(args []string) error {
 		}
 		return nil
 	}
+}
+
+// redactVNC keeps the one-time screen password out of the log.
+func redactVNC(url string) string {
+	if i := strings.Index(url, "@"); i >= 0 {
+		return "vnc://***" + url[i:]
+	}
+	return url
 }
 
 func defaultRoot() string {

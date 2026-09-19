@@ -44,8 +44,17 @@ case "$sub" in
     exit 0 ;;
   run)
     [ -f "$C/fail-run" ] && { echo "The number of VMs exceeds the system limit" >&2; exit 1; }
-    # A real "tart run" stays in the foreground for the life of the VM.
-    while [ ! -f "$C/stopped" ]; do sleep 0.2; done
+    # A real "tart run" stays in the foreground for the life of the VM, so
+    # this waits too. It must never outlive the test: it stops when the VM is
+    # stopped, when the control directory goes away with the test's temporary
+    # directory, and in any case after the cap below. Without those exits a
+    # test that does not destroy its machine leaks a process that spins
+    # forever, and enough of them will bring a host to its knees.
+    i=0
+    while [ ! -f "$C/stopped" ] && [ -d "$C" ] && [ "$i" -lt 600 ]; do
+      sleep 0.5
+      i=$((i + 1))
+    done
     exit 0 ;;
   ip)
     [ -f "$C/fail-ip" ] && { echo "Error: no IP" >&2; exit 1; }

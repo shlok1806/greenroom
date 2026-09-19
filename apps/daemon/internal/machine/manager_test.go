@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
@@ -43,7 +44,7 @@ func newTestManager(t *testing.T) (*Manager, string, string) {
 func readyMachine(t *testing.T, mgr *Manager) *Machine {
 	t.Helper()
 	ctx := context.Background()
-	mc, err := mgr.Create(ctx, testImage)
+	mc, err := mgr.Create(ctx, testImage, false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -147,7 +148,7 @@ func TestCreateFailsWhenCloneFails(t *testing.T) {
 	mgr, root, control := newTestManager(t)
 	testsupport.Flag(t, control, "fail-clone")
 
-	_, err := mgr.Create(context.Background(), testImage)
+	_, err := mgr.Create(context.Background(), testImage, false)
 	if err == nil {
 		t.Fatal("Create returned no error although the clone failed")
 	}
@@ -480,7 +481,7 @@ func TestFinishBootFailsWhenTheIPNeverArrives(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	testsupport.Flag(t, control, "fail-ip")
 
-	mc, err := mgr.Create(context.Background(), testImage)
+	mc, err := mgr.Create(context.Background(), testImage, false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -512,7 +513,7 @@ func TestFinishBootFailsWhenTheIPNeverArrives(t *testing.T) {
 func TestGuestToolsRefuseAFailedMachine(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	testsupport.Flag(t, control, "fail-ip")
-	mc, err := mgr.Create(context.Background(), testImage)
+	mc, err := mgr.Create(context.Background(), testImage, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +535,7 @@ func TestInstallSSHKeyFailureFailsTheBoot(t *testing.T) {
 	// The guest agent answers the readiness probe, then the key install fails.
 	testsupport.Flag(t, control, "fail-keyinstall")
 
-	mc, err := mgr.Create(context.Background(), testImage)
+	mc, err := mgr.Create(context.Background(), testImage, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,7 +623,7 @@ func TestBootFailsWhenSSHNeverAnswers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	created, err := mgr.Create(context.Background(), testImage)
+	created, err := mgr.Create(context.Background(), testImage, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -657,7 +658,7 @@ func TestConcurrentCreatesRespectTheHostLimit(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, results[i] = mgr.Create(context.Background(), testImage)
+			_, results[i] = mgr.Create(context.Background(), testImage, false)
 		}(i)
 	}
 	wg.Wait()
@@ -674,4 +675,31 @@ func TestConcurrentCreatesRespectTheHostLimit(t *testing.T) {
 	if got := len(mgr.List()); got != 1 {
 		t.Errorf("the manager holds %d machines, want 1", got)
 	}
+}
+
+// The fake tart must never outlive the test that started it. A process that
+// waits forever for a control file inside a deleted temporary directory is a
+// leak, and enough of them will overload the host.
+func TestFakeTartExitsWhenItsControlDirectoryGoesAway(t *testing.T) {
+	bin, control := testsupport.FakeTart(t)
+	logPath := filepath.Join(t.TempDir(), "vm.log")
+	cl := &tart.Client{Bin: bin}
+	proc, err := cl.Start("greenroom-leak-check", logPath, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proc.Exited() {
+		t.Fatal("the fake exited before the VM was stopped")
+	}
+	if err := os.RemoveAll(control); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 60; i++ {
+		if proc.Exited() {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	_ = proc.Kill()
+	t.Fatal("the fake tart kept running after its control directory was removed")
 }

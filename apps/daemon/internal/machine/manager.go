@@ -46,6 +46,7 @@ type Machine struct {
 	BootSeconds float64   `json:"bootSeconds,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	Dir         string    `json:"dir"`
+	VNCURL      string    `json:"vncUrl,omitempty"` // set when the machine is watched
 
 	rec   *recorder
 	ready chan struct{} // closed once Status leaves Booting
@@ -84,6 +85,7 @@ type Manager struct {
 	maxMachines  int
 	readyTimeout time.Duration
 	sshProbe     func(ctx context.Context, addr string) error
+	onWatch      func(vncURL string)
 }
 
 // Option adjusts a Manager before it touches the disk or the host.
@@ -105,6 +107,12 @@ func WithMaxMachines(n int) Option {
 // WithReadyTimeout sets how long a machine may take to become usable.
 func WithReadyTimeout(d time.Duration) Option {
 	return func(m *Manager) { m.readyTimeout = d }
+}
+
+// WithWatchHandler is called with the screen address of each watched
+// machine. The daemon uses it to open a viewer on the host.
+func WithWatchHandler(fn func(vncURL string)) Option {
+	return func(m *Manager) { m.onWatch = fn }
 }
 
 // WithSSHProbe replaces the check that guest ssh accepts connections. Tests
@@ -255,7 +263,7 @@ func (m *Manager) get(runID string) (*Machine, error) {
 // Create clones image and starts it, then returns at once with the machine
 // in Booting state. Readiness (guest agent up, IP known, ssh key installed)
 // is tracked in the background; use Wait to block for it.
-func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
+func (m *Manager) Create(ctx context.Context, image string, watch bool) (*Machine, error) {
 	// One create at a time. The capacity check below is a check and then an
 	// act, so two creates that overlap would both pass a limit that only has
 	// room for one. A clone of a local image takes about 0.1 s, so the cost
@@ -281,13 +289,24 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 		rec.step("machine_create", map[string]any{"image": image}, nil, err, started)
 		return nil, err
 	}
-	proc, err := m.tart.Start(name, filepath.Join(dir, "vm.log"))
+	proc, err := m.tart.Start(name, filepath.Join(dir, "vm.log"), watch)
 	if err != nil {
 		m.cleanupVM(name)
 		rec.step("machine_create", map[string]any{"image": image}, nil, err, started)
 		return nil, err
 	}
 	mc.proc = proc
+	if watch {
+		// tart prints the address a moment after start. Waiting here keeps
+		// the address in the create result, so the caller can open the screen
+		// straight away instead of polling for it.
+		mc.VNCURL = proc.VNCURL(10 * time.Second)
+		if mc.VNCURL == "" {
+			m.Log.Warn("watched machine has no screen address", "runId", runID)
+		} else if m.onWatch != nil {
+			m.onWatch(mc.VNCURL)
+		}
+	}
 
 	m.mu.Lock()
 	m.machines[runID] = mc
