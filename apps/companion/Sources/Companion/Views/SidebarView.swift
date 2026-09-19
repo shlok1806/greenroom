@@ -5,16 +5,22 @@ struct SidebarView: View {
     @Bindable var store: RunStore
 
     var body: some View {
-        List(store.runs, selection: Binding(
-            get: { store.selectedRunId },
-            set: { newValue in
-                store.selectedRunId = newValue
-                if let newValue {
-                    Task { await store.select(newValue) }
+        // One timer for the whole list: without it the relative times in the rows are
+        // formatted once and then sit there, so "13 s ago" is still "13 s ago" minutes
+        // later. The rows are cheap, and nothing in the store changes, so re-running
+        // this body every 30 s costs only the labels it exists to refresh.
+        TimelineView(.periodic(from: .now, by: 30)) { tick in
+            List(store.runs, selection: Binding(
+                get: { store.selectedRunId },
+                set: { newValue in
+                    store.selectedRunId = newValue
+                    if let newValue {
+                        Task { await store.select(newValue) }
+                    }
                 }
+            )) { run in
+                RunRow(run: run, now: tick.date).tag(run.runId)
             }
-        )) { run in
-            RunRow(run: run).tag(run.runId)
         }
         .listStyle(.sidebar)
         .navigationTitle("Runs")
@@ -35,6 +41,8 @@ struct SidebarView: View {
 
 private struct RunRow: View {
     let run: RunSummary
+    /// The list's shared clock, so every row reads the same "now".
+    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -42,16 +50,22 @@ private struct RunRow: View {
                 .font(.callout.monospaced())
                 .lineLimit(1)
                 .truncationMode(.middle)
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                // The badges keep their full width; the time label is what gives way
+                // when the sidebar is dragged narrow.
                 StatusBadge(status: run.status)
+                    .layoutPriority(1)
                 if let verdict = run.verdict {
-                    VerdictBadge(state: verdict)
+                    VerdictBadge(state: verdict, style: .compact)
+                        .layoutPriority(1)
                 }
                 Spacer(minLength: 4)
-                Text(Chrome.relative(run.lastActivity))
+                Text(Chrome.relative(run.lastActivity, now: now))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .layoutPriority(0)
             }
         }
         .padding(.vertical, 3)

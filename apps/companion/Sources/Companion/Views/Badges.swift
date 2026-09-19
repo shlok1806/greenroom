@@ -41,8 +41,37 @@ enum Chrome {
         }
     }
 
-    static func relative(_ date: Date) -> String {
-        date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))
+    /// A short, readable age. `now` is a parameter so the thresholds can be tested,
+    /// and so a view can hand every row the same tick of the clock.
+    static func relative(_ date: Date, now: Date = Date()) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        switch seconds {
+        case ..<10:
+            return "just now"
+        case ..<60:
+            return "\(Int(seconds)) s ago"
+        case ..<3600:
+            return "\(Int(seconds) / 60) min ago"
+        case ..<86_400:
+            return "\(Int(seconds) / 3600) hr ago"
+        case ..<604_800:
+            let days = Int(seconds) / 86_400
+            return days == 1 ? "1 day ago" : "\(days) days ago"
+        default:
+            let weeks = Int(seconds) / 604_800
+            return weeks == 1 ? "1 wk ago" : "\(weeks) wk ago"
+        }
+    }
+
+    /// The suffix a closed verdict carries in the narrow sidebar. An open
+    /// (`proposed`) verdict gets none: the word alone says everything.
+    static func glyph(for status: VerdictStatus) -> String? {
+        switch status {
+        case .accepted: return "checkmark"
+        case .contested: return "exclamationmark"
+        case .rejected: return "xmark"
+        case .proposed, .none, .unknown: return nil
+        }
     }
 
     static func duration(_ milliseconds: Int) -> String {
@@ -51,7 +80,8 @@ enum Chrome {
     }
 }
 
-/// The lifecycle of a run, as an icon and a word.
+/// The lifecycle of a run, as an icon and a word. Never truncates: the word is
+/// short enough to fit even the narrow sidebar, so it is allowed its full width.
 struct StatusBadge: View {
     let status: RunStatus
 
@@ -60,30 +90,74 @@ struct StatusBadge: View {
             .labelStyle(.titleAndIcon)
             .font(.caption)
             .foregroundStyle(Chrome.color(for: status))
+            .fixedSize()
     }
 }
 
 /// Where the verdict stands, when there is one.
+///
+/// The `.full` style spells out both words and belongs in the wide run header.
+/// The `.compact` style is for the sidebar, where "inconclusive, proposed" used to
+/// truncate to "incon... prop...": it shows a coloured dot, the verdict word, and a
+/// glyph for a closed status, with the full wording in the tooltip.
 struct VerdictBadge: View {
+    enum Style {
+        case full
+        case compact
+    }
+
     let state: VerdictState
+    var style: Style = .full
+
+    private var description: String {
+        guard let verdict = state.verdict else { return state.status.text }
+        return "\(verdict), \(state.status.text)"
+    }
 
     var body: some View {
         if case .none = state.status {
             EmptyView()
         } else {
+            content
+                .padding(.horizontal, style == .compact ? 5 : 6)
+                .padding(.vertical, 1)
+                .background(Chrome.color(for: state.status).opacity(0.12), in: Capsule())
+                .help(description)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch style {
+        case .full:
             HStack(spacing: 4) {
                 if let verdict = state.verdict {
                     Text(verdict)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Chrome.color(forVerdict: verdict))
+                        .fixedSize()
                 }
                 Text(state.status.text)
                     .font(.caption)
                     .foregroundStyle(Chrome.color(for: state.status))
+                    .fixedSize()
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
-            .background(Chrome.color(for: state.status).opacity(0.12), in: Capsule())
+        case .compact:
+            HStack(spacing: 3) {
+                Circle()
+                    .fill(Chrome.color(forVerdict: state.verdict))
+                    .frame(width: 6, height: 6)
+                Text(state.verdict ?? state.status.text)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Chrome.color(forVerdict: state.verdict))
+                    .fixedSize()
+                if let glyph = Chrome.glyph(for: state.status) {
+                    Image(systemName: glyph)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Chrome.color(for: state.status))
+                        .fixedSize()
+                }
+            }
         }
     }
 }
