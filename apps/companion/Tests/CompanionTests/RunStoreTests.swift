@@ -132,6 +132,39 @@ final class RunStoreTests: XCTestCase {
         ]))
     }
 
+    private func frame(_ step: Int, file: String? = nil) -> Frame {
+        Frame(at: Date(timeIntervalSince1970: Double(step)), file: file ?? "f\(step).jpg", step: step)
+    }
+
+    func testFrameIsAppendedAndDeduped() {
+        let store = store()
+        store.frames["run-1"] = []
+
+        XCTAssertEqual(store.apply(.frame(runId: "run-1", frame: frame(1))), .nothing)
+        XCTAssertEqual(store.apply(.frame(runId: "run-1", frame: frame(2))), .nothing)
+        XCTAssertEqual(store.frames["run-1"]?.map(\.step), [1, 2])
+        XCTAssertEqual(store.runs[0].frames, 2)
+
+        // The same file again, out of a reconnect, changes nothing.
+        XCTAssertEqual(store.apply(.frame(runId: "run-1", frame: frame(2, file: "f2.jpg"))), .nothing)
+        XCTAssertEqual(store.frames["run-1"]?.count, 2)
+        XCTAssertEqual(store.runs[0].frames, 2)
+    }
+
+    func testFramesForARunThatIsNotOpenAreIgnored() {
+        let store = store()
+        XCTAssertEqual(store.apply(.frame(runId: "other", frame: frame(1))), .nothing)
+        XCTAssertNil(store.frames["other"])
+    }
+
+    func testResyncPlanFetchesEverythingForTheSelectedRunOnly() {
+        XCTAssertEqual(RunStore.resyncPlan(selected: nil), [.runs])
+        XCTAssertEqual(
+            RunStore.resyncPlan(selected: "run-1"),
+            [.runs, .detail("run-1"), .messages("run-1"), .steps("run-1"), .frames("run-1")]
+        )
+    }
+
     func testVerdictPrefersTheDetail() {
         let store = store()
         store.runs[0].verdict = VerdictState(seq: 1, verdict: "fail", status: .proposed)

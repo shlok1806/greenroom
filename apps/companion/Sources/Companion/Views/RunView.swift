@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// One run: what it is, and the three ways of looking at it.
 struct RunView: View {
@@ -43,6 +45,13 @@ struct RunView: View {
                 }
                 .disabled(!isReady)
 
+                Button {
+                    Task { await saveRecording() }
+                } label: {
+                    Label("Save recording...", systemImage: "film")
+                }
+                .disabled((store.frames[runId] ?? []).isEmpty)
+
                 Button(role: .destructive) {
                     confirmingDestroy = true
                 } label: {
@@ -65,6 +74,27 @@ struct RunView: View {
         }
         .task(id: runId) {
             await store.select(runId)
+        }
+        .onChange(of: store.seekRequest) {
+            guard let request = store.seekRequest, request.runId == runId else { return }
+            tab = .screen
+        }
+    }
+
+    /// Fetches the run's recording and writes it wherever the person picks.
+    /// A 404 (no `ffmpeg` on the daemon host) surfaces its own text in
+    /// `lastError` rather than a generic failure.
+    @MainActor
+    private func saveRecording() async {
+        guard let data = await store.recording(runId: runId) else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(runId).mp4"
+        panel.allowedContentTypes = [.mpeg4Movie]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try data.write(to: url)
+        } catch {
+            store.lastError = error.localizedDescription
         }
     }
 

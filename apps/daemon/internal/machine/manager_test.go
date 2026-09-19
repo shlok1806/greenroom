@@ -27,12 +27,18 @@ const testImage = "ghcr.io/example/base:latest"
 // sshAnswers stands in for a guest that accepts ssh.
 func sshAnswers(context.Context, string, string) error { return nil }
 
-func newTestManager(t *testing.T) (*Manager, string, string) {
+func newTestManager(t *testing.T, extra ...Option) (*Manager, string, string) {
 	t.Helper()
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
-	mgr, err := NewManager(root, slog.New(slog.NewTextHandler(io.Discard, nil)),
-		WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers))
+	// The frame recorder is off by default here: a test that does not exercise
+	// it should not also be a test of it, racing frame capture subprocesses
+	// and frames.jsonl writes against assertions and t.TempDir cleanup that
+	// have nothing to do with recording. Tests of the recorder itself turn it
+	// back on with an extra WithFrameInterval, which (being later in this
+	// slice) wins.
+	opts := append([]Option{WithTartBin(bin), WithReadyTimeout(10 * time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0)}, extra...)
+	mgr, err := NewManager(root, slog.New(slog.NewTextHandler(io.Discard, nil)), opts...)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
@@ -452,7 +458,7 @@ func TestLoadStateReattachesARunningMachine(t *testing.T) {
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	first, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers))
+	first, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +468,7 @@ func TestLoadStateReattachesARunningMachine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers))
+	second, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0))
 	if err != nil {
 		t.Fatalf("the second manager did not start: %v", err)
 	}
@@ -479,14 +485,14 @@ func TestLoadStateDropsAMachineThatNoLongerRuns(t *testing.T) {
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	first, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers))
+	first, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0))
 	if err != nil {
 		t.Fatal(err)
 	}
 	readyMachine(t, first)
 	testsupport.Flag(t, control, "list-empty")
 
-	second, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers))
+	second, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -625,7 +631,7 @@ func TestMachineIsNotReadyUntilSSHAnswers(t *testing.T) {
 	bin, _ := testsupport.FakeTart(t)
 	var probes atomic.Int32
 	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
-		WithTartBin(bin), WithReadyTimeout(20*time.Second),
+		WithTartBin(bin), WithReadyTimeout(20*time.Second), WithFrameInterval(0),
 		WithSSHProbe(func(context.Context, string, string) error {
 			// Refuse the first two attempts, the way a guest does while
 			// sshd is still starting.
@@ -678,7 +684,7 @@ func TestBootFailsWhenSSHNeverAnswers(t *testing.T) {
 func TestDefaultSSHProbeAsksTheGuestOverVsock(t *testing.T) {
 	bin, control := testsupport.FakeTart(t)
 	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
-		WithTartBin(bin), WithReadyTimeout(20*time.Second))
+		WithTartBin(bin), WithReadyTimeout(20*time.Second), WithFrameInterval(0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -727,7 +733,7 @@ func TestSSHTimeoutNamesTheLastProbeError(t *testing.T) {
 func TestConcurrentCreatesRespectTheHostLimit(t *testing.T) {
 	bin, _ := testsupport.FakeTart(t)
 	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
-		WithTartBin(bin), WithMaxMachines(2), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers))
+		WithTartBin(bin), WithMaxMachines(2), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0))
 	if err != nil {
 		t.Fatal(err)
 	}

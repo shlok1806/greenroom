@@ -125,7 +125,7 @@ private struct MessageRow: View {
             case .question:
                 QuestionBody(store: store, runId: runId, message: message)
             case .progress:
-                ProgressBody(message: message)
+                ProgressBody(store: store, runId: runId, message: message)
             default:
                 Text(message.text)
                     .textSelection(.enabled)
@@ -321,7 +321,11 @@ private struct QuestionBody: View {
 }
 
 /// One verifier tool call. Collapsed to a line, because there are many.
+/// Clicking it also jumps the Screen tab to the frame at or after its step
+/// (ADR 0008).
 private struct ProgressBody: View {
+    @Bindable var store: RunStore
+    let runId: String
     let message: Message
 
     @State private var expanded = false
@@ -336,6 +340,9 @@ private struct ProgressBody: View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
                 expanded.toggle()
+                if let step = message.step {
+                    store.requestSeek(runId: runId, step: step)
+                }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")

@@ -47,7 +47,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: greenroom serve [-addr 127.0.0.1:7777] [-root ~/.greenroom] [-image <oci image>] [-max-machines 2] [-max-disputes 2]")
+	fmt.Fprintln(os.Stderr, "usage: greenroom serve [-addr 127.0.0.1:7777] [-root ~/.greenroom] [-image <oci image>] [-max-machines 2] [-max-disputes 2] [-frame-interval 2s] [-verifier nim|manual] [-verifier-max-steps 40] [-verifier-budget 10m]")
 	fmt.Fprintln(os.Stderr, "       greenroom version")
 }
 
@@ -60,6 +60,10 @@ func serve(args []string) error {
 	maxMachines := fs.Int("max-machines", 2, "how many VMs the host may run at once; Apple allows two macOS guests, and 0 removes the check")
 	envFile := fs.String("env-file", ".env", "file of KEY=VALUE lines holding the model credentials")
 	openViewer := fs.Bool("open-viewer", true, "when a machine is created with watch, open its screen on this Mac")
+	frameInterval := fs.Duration("frame-interval", 2*time.Second, "screen frame capture interval for the run recording; 0 disables")
+	verifierKind := fs.String("verifier", "", "verifier brain: nim (model-driven) or manual (a person types instructions in the conversation); default nim, overridden by GREENROOM_VERIFIER when this flag is not set")
+	verifierMaxSteps := fs.Int("verifier-max-steps", verifier.DefaultMaxSteps, "tool calls a verifier turn may make before it stops and asks to be continued with another message")
+	verifierBudget := fs.Duration("verifier-budget", verifier.DefaultBudget, "wall-clock budget for a single verifier turn before it stops and asks to be continued")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -68,7 +72,7 @@ func serve(args []string) error {
 		return err
 	}
 
-	opts := []machine.Option{machine.WithMaxMachines(*maxMachines)}
+	opts := []machine.Option{machine.WithMaxMachines(*maxMachines), machine.WithFrameInterval(*frameInterval)}
 	if *openViewer {
 		opts = append(opts, machine.WithWatchHandler(func(vncURL string) {
 			log.Info("opening the machine's screen", "url", redactVNC(vncURL))
@@ -87,26 +91,47 @@ func serve(args []string) error {
 	reg := session.NewRegistry(*root, *maxDisputes)
 	reg.OnVerdict = func(runID string, v session.VerdictState) { _ = mgr.RecordVerdict(runID, v) }
 
-	// greenroom's own agent is optional. Without a key the daemon still
-	// serves every machine tool; the conversation simply has nobody
-	// answering on the verifier's side.
-	var v *verifier.Verifier
-	verifierEnabled := os.Getenv("NVIDIA_API_KEY") != ""
-	bridgeLifecycle(mgr, reg, verifierEnabled)
-	if key := os.Getenv("NVIDIA_API_KEY"); key != "" {
-		v, err = verifier.New(mgr, verifier.Config{
-			BaseURL:     os.Getenv("NVIDIA_BASE_URL"),
-			APIKey:      key,
-			Model:       os.Getenv("GREENROOM_VERIFIER_MODEL"),
-			VisionModel: os.Getenv("GREENROOM_VISION_MODEL"),
-		}, log)
-		if err != nil {
-			return err
+	// greenroom's own agent is optional, and comes in two brains. "manual" is
+	// the model brain with a person for a model: it needs no key, and it
+	// answers the conversation itself, one instruction per line. "nim" is
+	// the model-driven brain and needs NVIDIA_API_KEY. Without either, the
+	// daemon still serves every machine tool; the conversation simply has
+	// nobody answering on the verifier's side.
+	verifierKindVal := strings.ToLower(strings.TrimSpace(*verifierKind))
+	if verifierKindVal == "" {
+		verifierKindVal = strings.ToLower(strings.TrimSpace(os.Getenv("GREENROOM_VERIFIER")))
+	}
+	if verifierKindVal == "" {
+		verifierKindVal = "nim"
+	}
+	switch verifierKindVal {
+	case "manual":
+		bridgeLifecycle(mgr, reg, true)
+		_ = verifier.NewActors(verifier.NewManual(mgr, log), mgr, reg, verifier.WithLogger(log))
+		log.Info("verifier enabled", "brain", "manual")
+	case "nim":
+		key := os.Getenv("NVIDIA_API_KEY")
+		verifierEnabled := key != ""
+		bridgeLifecycle(mgr, reg, verifierEnabled)
+		if verifierEnabled {
+			v, err := verifier.New(mgr, verifier.Config{
+				BaseURL:     os.Getenv("NVIDIA_BASE_URL"),
+				APIKey:      key,
+				Model:       os.Getenv("GREENROOM_VERIFIER_MODEL"),
+				VisionModel: os.Getenv("GREENROOM_VISION_MODEL"),
+				MaxSteps:    *verifierMaxSteps,
+				Budget:      *verifierBudget,
+			}, log)
+			if err != nil {
+				return err
+			}
+			_ = verifier.NewActors(v, mgr, reg, verifier.WithLogger(log))
+			log.Info("verifier enabled", "brain", "nim", "model", os.Getenv("GREENROOM_VERIFIER_MODEL"), "vision", os.Getenv("GREENROOM_VISION_MODEL"))
+		} else {
+			log.Info("verifier disabled", "reason", "no NVIDIA_API_KEY in environment or "+*envFile)
 		}
-		_ = verifier.NewActors(v, mgr, reg)
-		log.Info("verifier enabled", "model", os.Getenv("GREENROOM_VERIFIER_MODEL"), "vision", os.Getenv("GREENROOM_VISION_MODEL"))
-	} else {
-		log.Info("verifier disabled", "reason", "no NVIDIA_API_KEY in environment or "+*envFile)
+	default:
+		return fmt.Errorf("unknown -verifier %q: want nim or manual", verifierKindVal)
 	}
 	server := mcpserver.New(mgr, *image, reg)
 

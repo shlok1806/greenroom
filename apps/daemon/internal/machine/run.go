@@ -72,11 +72,15 @@ type Step struct {
 	DurationMS int64     `json:"durationMs"`
 }
 
-// recorder writes a run's manifest and step log under dir.
+// recorder writes a run's manifest, step log and frame log under dir.
 type recorder struct {
 	mu       sync.Mutex
 	dir      string
 	manifest Manifest
+
+	// frameErrLogged makes the frame recorder's capture-failure log a
+	// once-per-run event rather than a line every frameInterval.
+	frameErrLogged bool
 }
 
 func newRecorder(dir string, m Manifest) (*recorder, error) {
@@ -149,4 +153,43 @@ func (r *recorder) step(tool string, input, output any, err error, started time.
 // artifactPath names a file for step seq, e.g. 003-screenshot.png.
 func (r *recorder) artifactPath(seq int, kind, ext string) string {
 	return filepath.Join(r.dir, fmt.Sprintf("%03d-%s.%s", seq, kind, ext))
+}
+
+// currentStep reports the manifest's step count at this instant, so a frame
+// can record which step was current when it was captured. A frame never
+// claims a step number of its own; it only cites the latest one.
+func (r *recorder) currentStep() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.manifest.Steps
+}
+
+// appendFrame adds one line to frames.jsonl, guarded by the same lock that
+// guards the step log, so a frame and a step recorded at the same instant
+// never interleave their writes.
+func (r *recorder) appendFrame(fr Frame) error {
+	line, err := json.Marshal(fr)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	f, ferr := os.OpenFile(filepath.Join(r.dir, "frames.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if ferr != nil {
+		return ferr
+	}
+	defer func() { _ = f.Close() }()
+	_, err = f.Write(append(line, '\n'))
+	return err
+}
+
+// logFrameErrOnce reports whether this is the first frame-capture failure
+// this run has had, so recordFrames logs it once and then keeps retrying
+// silently: a capture error is never allowed to fail the run.
+func (r *recorder) logFrameErrOnce() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	first := !r.frameErrLogged
+	r.frameErrLogged = true
+	return first
 }

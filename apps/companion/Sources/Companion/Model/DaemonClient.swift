@@ -69,6 +69,29 @@ final class DaemonClient: Sendable {
         return data
     }
 
+    /// The run's recorded frames (ADR 0008), oldest first.
+    func frames(_ runId: String) async throws -> [Frame] {
+        try await get([Frame].self, path: "api/runs/\(escape(runId))/frames")
+    }
+
+    /// One frame's JPEG bytes.
+    func frame(runId: String, file: String) async throws -> Data {
+        let request = URLRequest(url: try url(path: "api/runs/\(escape(runId))/frames/\(escape(file))"))
+        let (data, response) = try await perform(request)
+        try check(response, data: data)
+        return data
+    }
+
+    /// The run's recording as an mp4, built from its frames. Throws with the
+    /// server's own text (`{"error": "..."}`, e.g. "ffmpeg not found") when
+    /// none exists.
+    func recording(runId: String) async throws -> Data {
+        let request = URLRequest(url: try url(path: "api/runs/\(escape(runId))/recording.mp4"))
+        let (data, response) = try await perform(request)
+        try check(response, data: data)
+        return data
+    }
+
     // MARK: - Writes
 
     @discardableResult
@@ -257,6 +280,9 @@ struct SSEParser {
             case "message":
                 let event = try decoder.decode(MessageEvent.self, from: payload)
                 return .message(runId: event.runId, message: event.message)
+            case "frame":
+                let event = try decoder.decode(FrameEvent.self, from: payload)
+                return .frame(runId: event.runId, frame: event.frame)
             default:
                 return nil // an event kind this app does not know yet
             }

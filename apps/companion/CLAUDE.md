@@ -66,9 +66,14 @@ Views  ->  RunStore  ->  DaemonClient  ->  HTTP
   the app is written into the run's transcript by the daemon, so the coding agent learns
   of it on its next `agent_wait`. The app must never gain a way to change a run that the
   transcript does not show.
-- **Screenshot polling is bounded.** Live capture is one `POST /screenshot` every two
-  seconds, and only while the Screen tab is visible, the Live toggle is on and the machine
-  is `ready`. All three conditions are enforced in `ScreenView`.
+- **The app never polls for screenshots.** The daemon captures frames on its own and
+  pushes each one down the event stream as `event: frame`; the Screen tab is a player
+  over `GET /api/runs/{id}/frames` and `.../frames/{file}`, not a timer that asks for a
+  fresh image. "Screenshot" in the toolbar is the one place the app still triggers a
+  capture itself, and it is a single request, never a loop. "Save recording..." asks the
+  daemon to assemble the run's frames into an mp4 (`GET /api/runs/{id}/recording.mp4`),
+  which needs `ffmpeg` on the daemon host; a daemon without it answers with an error the
+  app surfaces rather than a generic failure.
 - **The stream is a hint, the API is the truth.** SSE events are best effort. On any
   stream error the store backs off (1 s, 2 s, 4 s, capped at 10 s), re-reads the run list
   and every open run, and reconnects.

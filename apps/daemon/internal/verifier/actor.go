@@ -3,6 +3,7 @@ package verifier
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -25,23 +26,39 @@ var TurnRetryDelays = []time.Duration{30 * time.Second, 60 * time.Second, 120 * 
 // verifier's to say, not the actor's: a human asking "how is the boot going"
 // or "what happened" is owed an answer either way (ADR 0006).
 type Actors struct {
-	v   *Verifier
-	mgr *machine.Manager
-	reg *session.Registry
+	brain Brain
+	mgr   *machine.Manager
+	reg   *session.Registry
+	log   *slog.Logger
 
 	mu     sync.Mutex
 	cancel map[string]context.CancelFunc
 	done   map[string]chan struct{}
 }
 
-// NewActors wires the verifier to the manager's lifecycle: a created
-// machine gets an actor, a destroyed one loses it, and runs the daemon
-// reattached on start get theirs back.
+// ActorOption configures Actors beyond its required arguments.
+type ActorOption func(*Actors)
+
+// WithLogger gives Actors its own logger. Without it, Actors logs to
+// slog.Default(), which is enough for a test but not for the daemon, which
+// passes its own logger so a run's actor logs land next to everything else.
+func WithLogger(log *slog.Logger) ActorOption {
+	return func(a *Actors) { a.log = log }
+}
+
+// NewActors wires a Brain, the model-driven Verifier or the human-driven
+// Manual, to the manager's lifecycle: a created machine gets an actor, a
+// destroyed one loses it, and runs the daemon reattached on start get theirs
+// back.
 //
 // A boot failure does not end the actor. The run is still a conversation a
-// human can join to ask what happened, and only the verifier can answer.
-func NewActors(v *Verifier, mgr *machine.Manager, reg *session.Registry) *Actors {
-	a := &Actors{v: v, mgr: mgr, reg: reg, cancel: map[string]context.CancelFunc{}, done: map[string]chan struct{}{}}
+// human can join to ask what happened, and only the brain can answer.
+func NewActors(b Brain, mgr *machine.Manager, reg *session.Registry, opts ...ActorOption) *Actors {
+	a := &Actors{brain: b, mgr: mgr, reg: reg, log: slog.Default(),
+		cancel: map[string]context.CancelFunc{}, done: map[string]chan struct{}{}}
+	for _, opt := range opts {
+		opt(a)
+	}
 	mgr.Listen(func(ev machine.LifecycleEvent) {
 		switch ev.Kind {
 		case "created":
@@ -58,7 +75,7 @@ func NewActors(v *Verifier, mgr *machine.Manager, reg *session.Registry) *Actors
 	// that was never destroyed keeps one; a finished run gets none.
 	ids, err := reg.RunIDs()
 	if err != nil {
-		v.log.Error("verifier cannot list runs", "err", err)
+		a.log.Error("verifier cannot list runs", "err", err)
 		return a
 	}
 	for _, id := range ids {
@@ -80,7 +97,7 @@ func (a *Actors) Start(runID string) {
 	}
 	store, err := a.reg.Get(runID)
 	if err != nil {
-		a.v.log.Error("verifier cannot open conversation", "runId", runID, "err", err)
+		a.log.Error("verifier cannot open conversation", "runId", runID, "err", err)
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -152,7 +169,7 @@ func (a *Actors) loop(ctx context.Context, runID string, store *session.Store, d
 func (a *Actors) runTurn(ctx context.Context, runID string, store *session.Store, seen *int) {
 	attempts := len(TurnRetryDelays) + 1
 	for attempt := 1; ; attempt++ {
-		_, err := a.v.Turn(ctx, runID, store)
+		_, err := a.brain.Turn(ctx, runID, store)
 		if ctx.Err() != nil {
 			*seen = store.Len()
 			return
@@ -161,7 +178,7 @@ func (a *Actors) runTurn(ctx context.Context, runID string, store *session.Store
 			*seen = store.Len()
 			return
 		}
-		a.v.log.Warn("verifier turn failed", "runId", runID, "attempt", attempt, "err", err)
+		a.log.Warn("verifier turn failed", "runId", runID, "attempt", attempt, "err", err)
 		if newer := firstStarterAfter(store, *seen); newer > 0 {
 			// Someone has spoken since. Their message starts the turn that
 			// matters now, so leave it unseen for the loop to pick up.
@@ -169,12 +186,12 @@ func (a *Actors) runTurn(ctx context.Context, runID string, store *session.Store
 			return
 		}
 		if attempt >= attempts {
-			a.v.post(store, session.Message{From: session.System, Kind: session.Event,
+			appendMessage(a.log, store, session.Message{From: session.System, Kind: session.Event,
 				Text: fmt.Sprintf("verifier gave up on this turn after %d attempts; send another message to try again", attempts)})
 			*seen = store.Len()
 			return
 		}
-		a.v.post(store, session.Message{From: session.System, Kind: session.Event,
+		appendMessage(a.log, store, session.Message{From: session.System, Kind: session.Event,
 			Text: fmt.Sprintf("verifier retrying the turn (attempt %d of %d)", attempt+1, attempts)})
 		awaitRetry(ctx, store, *seen, TurnRetryDelays[attempt-1])
 		if ctx.Err() != nil {

@@ -22,7 +22,14 @@ golangci-lint run ./...
 go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7778/mcp  # drive a running daemon over MCP like a coder would
 go run . serve                                         # MCP on http://127.0.0.1:7777/mcp, API on http://127.0.0.1:7777/api/
 go run . serve -addr 127.0.0.1:7777 -root ~/.greenroom -image <oci image>
+go run . serve -verifier manual                        # a person answers the conversation instead of a model, no API key needed
+go run . serve -verifier-max-steps 40 -verifier-budget 10m  # tool calls and wall-clock cap for a single verifier turn
 ```
+
+`-verifier` picks the brain: `nim` (default, model-driven, needs `NVIDIA_API_KEY`) or `manual`, which reads the
+last task, note, answer or dispute in the conversation and runs it as one instruction per line: `run <shell
+command>`, `screenshot`, `verdict pass|fail|inconclusive <summary>`, `ask <question>`, or `help` for the full
+grammar. `GREENROOM_VERIFIER` sets the default when the flag is not given.
 
 The e2e test boots a real VM and costs minutes plus tens of GB of disk. It is the only test
 that exercises the whole path, so run it after changes to `machine` or `tart`.
@@ -60,7 +67,9 @@ Each layer depends only on the one below it. Keep it that way.
   `mcpserver` over the same manager and the same store: JSON routes, the SSE stream, and
   nothing stateful. Neither sibling may hold logic the other needs.
 - `internal/machine` - lifecycle and the source of truth. `Manager` guards the machine map
-  with a mutex and persists it; `recorder` owns run evidence on disk.
+  with a mutex and persists it; `recorder` owns run evidence on disk: `manifest.json`,
+  `steps.jsonl`, and, while frame capture is enabled, `frames/<unix-ms>.jpg` and `frames.jsonl`
+  (ADR 0008).
 - `internal/session` - the conversation a run owns (`conversation.jsonl`), beside `machine` and
   below `mcpserver` and the HTTP API. `Registry` hands out one append-only `Store` per run, and
   every participant, coder, human, verifier and the daemon itself, writes through it.
@@ -128,6 +137,12 @@ the actor in `internal/verifier`, which reacts to what lands in the store. There
 `agent_wait`. A verdict is a proposal, open to `accept` or `dispute`, and after `-max-disputes`
 rounds it is contested and only a human can close it.
 
+**The manual brain is the model brain with a person for a model.** `verifier.Manual` answers the same
+conversation, in the same message kinds, and drives the same machine through the same `Manager` calls as
+`verifier.Verifier`; it only replaces the model's tool calls with a person's typed instructions. Anything that
+works with `-verifier manual` works with `-verifier nim`, and a test written against one brain's `Turn` is
+proof about the shape of a turn, not about a model.
+
 **A human is always answered.** Every message a human sends starts a verifier turn, a `note`
 included, and the verifier answers it in the transcript with a `reply`, a `question` or a
 `verdict`. It can talk while the machine is booting or dead: the turn runs whatever the machine
@@ -166,6 +181,15 @@ machine_wait and try again" message rather than blocking on a booting machine.
 The run directory is the product's evidence, not a debug log: a new tool that touches a
 machine records itself the same way.
 
+**Every ready machine is recorded.** From the moment a machine becomes ready until it is
+destroyed, the daemon captures its screen every `-frame-interval` (default 2s, ADR 0008) into
+`runs/<runId>/frames/<unix-ms>.jpg`, with one line per frame appended to
+`runs/<runId>/frames.jsonl` (`at`, `file`, `step`, `bytes`). A frame is evidence alongside
+steps.jsonl, not a step itself: it never claims a number of its own, it only cites whichever
+step was current when it was taken. A capture failure is logged once for the run and then
+retried silently every interval after that; it never fails the run. `-frame-interval 0` turns
+the recorder off entirely, for a run with no frames at all.
+
 **A guest command that exits non-zero is not an error.** `tart.Exec` reports it as
 `ExitCode`; an `error` means tart itself failed (VM gone, agent unreachable, cancelled).
 Collapsing the two would make every failing build look like an infrastructure fault.
@@ -184,7 +208,9 @@ only way to reach the failure paths:
 - `WithTartBin` points the manager at `internal/testsupport`, a fake `tart` script that answers
   every subcommand, records each argument list, and turns on failures through control files
   (`fail-clone`, `fail-run`, `fail-ip`, `fail-exec`, `fail-keyinstall`, `fail-stop`,
-  `fail-delete`, `exec-exit-<n>`, `agent-down`, `ssh-down`, `list-empty`, `vmnames`).
+  `fail-delete`, `exec-exit-<n>`, `exec-codes`, `agent-down`, `ssh-down`, `list-empty`, `vmnames`).
+  `exec-codes` is a queue: one exit code per line, consumed on each `tart exec` call, for a test
+  where a single turn runs several commands and needs their exit codes to differ.
 - `WithSSHProbe` replaces the in-guest port 22 check. The fake tart answers the real probe too,
   so the default path is covered as well: `ssh-down` makes it refuse.
 - `WithReadyTimeout` shortens the three minute budget so a failure test takes seconds.

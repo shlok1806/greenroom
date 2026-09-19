@@ -63,5 +63,12 @@ struct RootView: View {
                 )
             }
         }
+        // A daemon that restarted while the window was elsewhere, or in the
+        // background, is not caught by the SSE reconnect alone: the socket
+        // can look alive after a sleep/wake. Coming to the foreground always
+        // resyncs (RunStore.resyncPlan).
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await store.resync() }
+        }
     }
 }

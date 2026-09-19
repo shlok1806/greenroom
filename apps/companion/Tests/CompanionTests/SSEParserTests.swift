@@ -72,6 +72,18 @@ final class SSEParserTests: XCTestCase {
         XCTAssertEqual(message.from, .human)
     }
 
+    /// A recorded frame (ADR 0008): the daemon flattens the frame's fields
+    /// into the event rather than nesting them under a `frame` key.
+    func testAFrameEventDecodes() throws {
+        var parser = SSEParser()
+        XCTAssertNil(try parser.consume("event: frame"))
+        XCTAssertNil(try parser.consume(#"data: {"runId":"run-1","at":"2026-09-18T10:00:02Z","file":"1758300002123.jpg","step":15}"#))
+        guard case .frame(let runId, let frame)? = try parser.consume("") else { return XCTFail("no frame event") }
+        XCTAssertEqual(runId, "run-1")
+        XCTAssertEqual(frame.file, "1758300002123.jpg")
+        XCTAssertEqual(frame.step, 15)
+    }
+
     /// A malformed frame is an error, not a crash, and the parser carries on.
     func testBadJSONThrowsAndResets() throws {
         var parser = SSEParser()

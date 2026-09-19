@@ -34,14 +34,21 @@ type harness struct {
 
 // newHarness serves the real API over HTTP with a fake tart behind it, the
 // way the daemon does. No VM is involved.
-func newHarness(t *testing.T) *harness {
+//
+// The frame recorder is off by default (extra can turn it back on): a test
+// of the routes around it should not also, incidentally, be a test of it,
+// racing frame capture subprocesses against every other test's assertions.
+func newHarness(t *testing.T, extra ...machine.Option) *harness {
 	t.Helper()
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	mgr, err := machine.NewManager(root, log,
-		machine.WithTartBin(bin), machine.WithReadyTimeout(10*time.Second),
-		machine.WithSSHProbe(func(context.Context, string, string) error { return nil }))
+	opts := append([]machine.Option{
+		machine.WithTartBin(bin), machine.WithReadyTimeout(10 * time.Second),
+		machine.WithSSHProbe(func(context.Context, string, string) error { return nil }),
+		machine.WithFrameInterval(0),
+	}, extra...)
+	mgr, err := machine.NewManager(root, log, opts...)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}

@@ -39,6 +39,7 @@ private struct StepRow: View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
                 expanded.toggle()
+                store.requestSeek(runId: runId, step: step.seq)
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")

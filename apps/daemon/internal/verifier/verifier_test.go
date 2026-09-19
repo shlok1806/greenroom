@@ -633,14 +633,51 @@ func TestTurnStopsAtTheStepLimit(t *testing.T) {
 		t.Errorf("steps = %d, want the limit of 6", res.Steps)
 	}
 	last := lastMessage(t, store)
-	if last.Kind != session.Verdict || last.Verdict != "inconclusive" {
-		t.Fatalf("last message = %+v, want an inconclusive verdict", last)
+	if last.Kind != session.Reply {
+		t.Fatalf("last message = %+v, want a reply", last)
 	}
-	if !strings.Contains(last.Text, "used all 6 steps") {
-		t.Errorf("summary = %q", last.Text)
+	if !strings.Contains(last.Text, "used all 6 tool calls") || !strings.Contains(last.Text, "continue from here") {
+		t.Errorf("reply = %q", last.Text)
 	}
 	if n := len(messagesOfKind(store, session.Progress)); n != 6 {
 		t.Errorf("%d progress messages, want 6", n)
+	}
+}
+
+// A turn that runs out of wall-clock budget mid-step must say so and end
+// gracefully, the same as one that runs out of steps: a human should not see
+// an error, and the task is still owed a next message to continue from.
+func TestTurnStopsWhenTheBudgetRunsOut(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	replies := make([]string, 8)
+	for i := range replies {
+		replies[i] = toolCall("machine_exec", map[string]any{"command": "echo again"})
+	}
+	model := &scriptedModel{replies: replies}
+	v, err := New(mgr, Config{
+		BaseURL: model.start(t), APIKey: "test-key", Model: "reasoner", VisionModel: "eyes",
+		MaxSteps: 100, Budget: 1 * time.Millisecond,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Loop forever.")
+
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if res.Ended != session.Reply {
+		t.Errorf("Ended = %q, want reply", res.Ended)
+	}
+
+	last := lastMessage(t, store)
+	if last.Kind != session.Reply {
+		t.Fatalf("last message = %+v, want a reply", last)
+	}
+	if !strings.Contains(last.Text, "ran out of time after") || !strings.Contains(last.Text, "Send another message and I will continue") {
+		t.Errorf("reply = %q", last.Text)
 	}
 }
 

@@ -47,6 +47,34 @@ final class ModelsTests: XCTestCase {
         XCTAssertNotNil(runs[1].destroyedAt)
     }
 
+    /// A daemon built before ADR 0008 leaves `frames` out entirely.
+    func testRunSummaryToleratesAMissingFramesField() throws {
+        let run = try decode(RunSummary.self, """
+        {"runId":"run-1","createdAt":"2026-09-18T10:00:00Z","image":"base","status":"ready","steps":1,"verdict":null,"lastActivity":"2026-09-18T10:00:01Z","messages":1}
+        """)
+        XCTAssertNil(run.frames)
+
+        let withFrames = try decode(RunSummary.self, """
+        {"runId":"run-1","createdAt":"2026-09-18T10:00:00Z","image":"base","status":"ready","steps":1,"verdict":null,"lastActivity":"2026-09-18T10:00:01Z","messages":1,"frames":42}
+        """)
+        XCTAssertEqual(withFrames.frames, 42)
+    }
+
+    /// One frame of a run's recording (ADR 0008).
+    func testFrameDecodes() throws {
+        let frames = try decode([Frame].self, """
+        [
+          {"at": "2026-09-18T10:00:00Z", "file": "1758300000123.jpg", "step": 14, "bytes": 102400},
+          {"at": "2026-09-18T10:00:02Z", "file": "1758300002123.jpg", "step": 15, "bytes": 98304}
+        ]
+        """)
+        XCTAssertEqual(frames.count, 2)
+        XCTAssertEqual(frames[0].file, "1758300000123.jpg")
+        XCTAssertEqual(frames[0].step, 14)
+        XCTAssertEqual(frames[0].bytes, 102400)
+        XCTAssertEqual(frames[1].step, 15)
+    }
+
     func testRunDetailDecodes() throws {
         let detail = try decode(RunDetail.self, """
         {

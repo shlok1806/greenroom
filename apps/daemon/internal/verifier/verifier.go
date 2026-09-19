@@ -35,10 +35,14 @@ import (
 )
 
 const (
-	defaultMaxSteps = 12
-	defaultBudget   = 10 * time.Minute
-	execTimeout     = 5 * time.Minute
-	maxToolOutput   = 6000 // characters of guest output fed back to the model
+	// DefaultMaxSteps is the tool-call cap a turn gets when Config.MaxSteps
+	// is left zero. main.go exposes it as -verifier-max-steps.
+	DefaultMaxSteps = 40
+	// DefaultBudget is the wall-clock budget a turn gets when Config.Budget
+	// is left zero. main.go exposes it as -verifier-budget.
+	DefaultBudget = 10 * time.Minute
+	execTimeout   = 5 * time.Minute
+	maxToolOutput = 6000 // characters of guest output fed back to the model
 )
 
 // The agent diagnoses. It does not repair the code under test. That boundary
@@ -93,10 +97,10 @@ func New(mgr *machine.Manager, cfg Config, log *slog.Logger) (*Verifier, error) 
 		return nil, fmt.Errorf("no model; set GREENROOM_VERIFIER_MODEL in .env")
 	}
 	if cfg.MaxSteps <= 0 {
-		cfg.MaxSteps = defaultMaxSteps
+		cfg.MaxSteps = DefaultMaxSteps
 	}
 	if cfg.Budget <= 0 {
-		cfg.Budget = defaultBudget
+		cfg.Budget = DefaultBudget
 	}
 	return &Verifier{mgr: mgr, llm: nim.New(cfg.BaseURL, cfg.APIKey), cfg: cfg, log: log}, nil
 }
@@ -174,6 +178,16 @@ type TurnResult struct {
 	Seconds float64
 }
 
+// Brain runs one turn of a run's conversation. *Verifier satisfies it by
+// calling a model; Manual (manual.go) satisfies it with a person typing
+// instructions instead. Actors drives whichever one a run was built with,
+// so the actor, the retry logic and the transcript rules are the same for
+// both (CLAUDE.md: the manual brain is the model brain with a person for a
+// model).
+type Brain interface {
+	Turn(ctx context.Context, runID string, store *session.Store) (TurnResult, error)
+}
+
 // Turn runs the verifier once over the conversation in store: it rebuilds
 // the model context from the transcript, tells the model what the machine is
 // doing, loops over tool calls, posts progress as it goes, and ends by
@@ -186,7 +200,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 
 	res := TurnResult{}
 	seen := store.Len()
-	status := v.machineStatus(ctx, runID)
+	status := machineStatus(ctx, v.mgr, runID)
 	msgs := withStatus(project(store.After(0)), status)
 
 	for step := 1; step <= v.cfg.MaxSteps; step++ {
@@ -199,7 +213,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 		}
 		// A boot that finished, or a machine that died, mid-turn. Only the
 		// change is worth a message; the status itself is already in context.
-		if now := v.machineStatus(ctx, runID); now != status {
+		if now := machineStatus(ctx, v.mgr, runID); now != status {
 			status = now
 			msgs = append(msgs, nim.Message{Role: "user", Content: "[machine status changed] " + now})
 		}
@@ -208,6 +222,15 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 		res.Tokens += usage.PromptTokens + usage.CompletionTokens
 		res.Seconds = since(started)
 		if err != nil {
+			// The turn's own budget ran out, not the caller giving up: this
+			// is not a failure to retry, it is the same kind of graceful stop
+			// as the step limit below, so it ends in a reply and no error.
+			if ctx.Err() == context.DeadlineExceeded {
+				res.Ended = session.Reply
+				v.post(store, session.Message{From: session.Verifier, Kind: session.Reply,
+					Text: fmt.Sprintf("This turn ran out of time after %s. Send another message and I will continue.", v.cfg.Budget)})
+				return res, nil
+			}
 			v.post(store, session.Message{From: session.System, Kind: session.Event, Text: "verifier turn failed: " + err.Error()})
 			return res, err
 		}
@@ -253,9 +276,11 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 		res.Steps = step
 	}
 
-	res.Ended = session.Verdict
-	v.post(store, session.Message{From: session.Verifier, Kind: session.Verdict, Verdict: "inconclusive",
-		Text: fmt.Sprintf("The verifier used all %d steps of this turn without reaching a verdict.", v.cfg.MaxSteps)})
+	// The step cap is not a verdict: nobody asked the verifier to give up, so
+	// it says what happened and waits, the way an "ask" would.
+	res.Ended = session.Reply
+	v.post(store, session.Message{From: session.Verifier, Kind: session.Reply,
+		Text: fmt.Sprintf("I used all %d tool calls of this turn without finishing. Send another message and I will continue from here.", v.cfg.MaxSteps)})
 	return res, nil
 }
 
@@ -265,11 +290,13 @@ const (
 	deadAdvice    = "The machine cannot be used. Answer in words and say so if asked to do anything on it."
 )
 
-// machineStatus is one line describing the run's machine. A zero timeout on
-// Wait returns the current snapshot at once, so this costs nothing to ask
-// before every model call.
-func (v *Verifier) machineStatus(ctx context.Context, runID string) string {
-	mc, err := v.mgr.Wait(ctx, runID, 0)
+// machineStatus is one line describing runID's machine on mgr. A zero
+// timeout on Wait returns the current snapshot at once, so this costs
+// nothing to ask before every model call. It is a free function, not a
+// method, so Manual (manual.go) can say the same thing about a machine that
+// the model-driven verifier would.
+func machineStatus(ctx context.Context, mgr *machine.Manager, runID string) string {
+	mc, err := mgr.Wait(ctx, runID, 0)
 	if err != nil || mc == nil {
 		return "Machine status: gone. " + deadAdvice
 	}
@@ -290,11 +317,12 @@ func (v *Verifier) machineStatus(ctx context.Context, runID string) string {
 	return line
 }
 
-// unusable says why the machine cannot be touched right now, or "". The
+// unusable says why runID's machine cannot be touched right now, or "". The
 // manager refuses the call anyway; asking first is what makes the refusal
-// readable instead of a bare error from three layers down.
-func (v *Verifier) unusable(ctx context.Context, runID string) string {
-	mc, err := v.mgr.Wait(ctx, runID, 0)
+// readable instead of a bare error from three layers down. Shared with
+// Manual for the same reason as machineStatus.
+func unusable(ctx context.Context, mgr *machine.Manager, runID string) string {
+	mc, err := mgr.Wait(ctx, runID, 0)
 	if err != nil || mc == nil {
 		return "there is no machine for this run any more"
 	}
@@ -319,8 +347,15 @@ func withStatus(msgs []nim.Message, status string) []nim.Message {
 }
 
 func (v *Verifier) post(store *session.Store, m session.Message) {
+	appendMessage(v.log, store, m)
+}
+
+// appendMessage posts m and logs if the store refuses it. Both brains and
+// the actor use it, so a message that cannot be written is always noticed
+// and never a panic.
+func appendMessage(log *slog.Logger, store *session.Store, m session.Message) {
 	if _, err := store.Append(m); err != nil {
-		v.log.Error("verifier could not post", "kind", m.Kind, "err", err)
+		log.Error("could not post to conversation", "kind", m.Kind, "err", err)
 	}
 }
 
@@ -410,7 +445,7 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 	case "machine_exec", "machine_screenshot":
 		// The model may try the machine before it is up. Say why in words it
 		// can act on; it still costs one step, so this cannot spin.
-		if why := v.unusable(ctx, runID); why != "" {
+		if why := unusable(ctx, v.mgr, runID); why != "" {
 			return "error: the machine is not usable: " + why, 0
 		}
 	}
@@ -427,8 +462,7 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 		if err != nil {
 			return "error: " + err.Error(), res.Step
 		}
-		return fmt.Sprintf("step %d\nexit code %d\nstdout:\n%s\nstderr:\n%s",
-			res.Step, res.ExitCode, clamp(res.Stdout), clamp(res.Stderr)), res.Step
+		return execResultText(res), res.Step
 
 	case "machine_screenshot":
 		png, path, seq, err := v.mgr.ScreenshotStep(ctx, runID)
@@ -488,6 +522,15 @@ func parseQuestion(args string) string {
 	}
 	_ = json.Unmarshal([]byte(args), &in)
 	return orElse(strings.TrimSpace(in.Question), "(the verifier asked an empty question)")
+}
+
+// execResultText is the result format both brains feed back after running a
+// command: the model reads it as a tool result, and Manual (manual.go) packs
+// it into the same progress text a human reading the transcript would see
+// from the model-driven verifier.
+func execResultText(res machine.ExecResult) string {
+	return fmt.Sprintf("step %d\nexit code %d\nstdout:\n%s\nstderr:\n%s",
+		res.Step, res.ExitCode, clamp(res.Stdout), clamp(res.Stderr))
 }
 
 func orElse(s, fallback string) string {

@@ -15,6 +15,11 @@ import (
 //	fail-clone, fail-run, fail-ip, fail-exec, fail-stop, fail-delete
 //	    the matching subcommand exits 1 with a message
 //	exec-exit-<n>   `tart exec` returns exit code n
+//	exec-codes      `tart exec` returns the next newline-separated code in
+//	                this file on each call, consuming it, then returns 0
+//	                once the file is empty; for a test that runs several
+//	                commands in one turn and needs their exit codes to
+//	                differ
 //	agent-down      `tart exec` fails as if the guest agent is unreachable
 //	ssh-down        the in-guest `nc -z 127.0.0.1 22` probe exits 1 with
 //	                "Connection refused", as it does while sshd is starting
@@ -82,6 +87,14 @@ case "$sub" in
       echo "fake stdout"; echo "fake stderr" >&2
       exit "$code"
     done
+    if [ -f "$C/exec-codes" ]; then
+      code=$(head -n 1 "$C/exec-codes")
+      tail -n +2 "$C/exec-codes" > "$C/exec-codes.next"
+      mv "$C/exec-codes.next" "$C/exec-codes"
+      [ -n "$code" ] || code=0
+      echo "fake stdout"; echo "fake stderr" >&2
+      exit "$code"
+    fi
     # Screenshot support: the daemon base64s a PNG out of the guest.
     case "$*" in
       *base64*) cat "$C/shot.b64" 2>/dev/null; exit 0 ;;

@@ -34,6 +34,10 @@ const (
 	// defaultMaxMachines is Apple's limit: a host may run at most two macOS
 	// VMs at a time. See docs/04-landscape.md for the licence terms.
 	defaultMaxMachines = 2
+
+	// defaultFrameInterval is how often a ready machine's screen is captured
+	// for the run's recording (docs/adr/0008-run-recording.md).
+	defaultFrameInterval = 2 * time.Second
 )
 
 // Machine is a running VM bound to one run.
@@ -52,6 +56,11 @@ type Machine struct {
 	rec   *recorder
 	ready chan struct{} // closed once Status leaves Booting
 	proc  *tart.Process // the `tart run` subprocess, nil for a reattached machine
+
+	// frameCancel stops this machine's frame recorder (frames.go). It is set
+	// once, by startFrames, and read by Destroy; both hold Manager.mu while
+	// they touch it.
+	frameCancel context.CancelFunc
 }
 
 // Status is a machine's lifecycle state.
@@ -77,16 +86,17 @@ type Manager struct {
 	Root string
 	Log  *slog.Logger
 
-	tart         *tart.Client
-	createMu     sync.Mutex // serializes Create so the capacity check cannot be raced
-	mu           sync.Mutex
-	machines     map[string]*Machine
-	sshKey       string
-	pubKey       string
-	maxMachines  int
-	readyTimeout time.Duration
-	sshProbe     func(ctx context.Context, vmName, addr string) error
-	onWatch      func(vncURL string)
+	tart          *tart.Client
+	createMu      sync.Mutex // serializes Create so the capacity check cannot be raced
+	mu            sync.Mutex
+	machines      map[string]*Machine
+	sshKey        string
+	pubKey        string
+	maxMachines   int
+	readyTimeout  time.Duration
+	frameInterval time.Duration
+	sshProbe      func(ctx context.Context, vmName, addr string) error
+	onWatch       func(vncURL string)
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)
@@ -96,10 +106,11 @@ type Manager struct {
 // LifecycleEvent is one change a listener may care about: a machine was
 // created, became ready or failed, was destroyed, or recorded a step.
 type LifecycleEvent struct {
-	Kind    string   `json:"kind"` // created, ready, failed, destroyed, step
+	Kind    string   `json:"kind"` // created, ready, failed, destroyed, step, frame
 	RunID   string   `json:"runId"`
 	Machine *Machine `json:"machine,omitempty"`
 	Step    int      `json:"step,omitempty"`
+	Frame   *Frame   `json:"frame,omitempty"`
 }
 
 // Listen calls fn for every lifecycle event. fn runs on the manager's
@@ -157,6 +168,13 @@ func WithReadyTimeout(d time.Duration) Option {
 	return func(m *Manager) { m.readyTimeout = d }
 }
 
+// WithFrameInterval sets how often a ready machine's screen is captured for
+// the run's recording (docs/adr/0008-run-recording.md). Zero disables the
+// recorder; the default is defaultFrameInterval.
+func WithFrameInterval(d time.Duration) Option {
+	return func(m *Manager) { m.frameInterval = d }
+}
+
 // WithWatchHandler is called with the screen address of each watched
 // machine. The daemon uses it to open a viewer on the host.
 func WithWatchHandler(fn func(vncURL string)) Option {
@@ -206,7 +224,7 @@ func withLastErr(msg string, last error) string {
 func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error) {
 	m := &Manager{
 		Root: root, Log: log, tart: tart.New(), machines: map[string]*Machine{},
-		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout,
+		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout, frameInterval: defaultFrameInterval,
 	}
 	m.sshProbe = m.probeSSHInGuest
 	for _, opt := range opts {
@@ -278,6 +296,9 @@ func (m *Manager) loadState() error {
 		m.machines[mc.RunID] = mc
 		if mc.Status == Ready {
 			close(mc.ready)
+			if m.frameInterval > 0 {
+				m.startFrames(mc)
+			}
 		} else {
 			go m.finishBoot(mc, mc.CreatedAt)
 		}
@@ -520,6 +541,26 @@ func (m *Manager) finishBoot(mc *Machine, started time.Time) {
 	m.Log.Info("machine ready", "runId", mc.RunID, "ip", ip, "bootSeconds", mc.BootSeconds,
 		"agentSeconds", timings["agentSeconds"], "sshSeconds", timings["sshSeconds"])
 	m.emit(LifecycleEvent{Kind: "ready", RunID: mc.RunID, Machine: m.snapshot(mc)})
+	if m.frameInterval > 0 {
+		m.startFrames(mc)
+	}
+}
+
+// startFrames begins the frame recorder for a ready machine. It holds
+// Manager.mu just long enough to record the cancel function and to check
+// that the machine was not destroyed in the window between becoming ready
+// and this call; either way the caller does not block on the recorder.
+func (m *Manager) startFrames(mc *Machine) {
+	ctx, cancel := context.WithCancel(context.Background())
+	m.mu.Lock()
+	if _, alive := m.machines[mc.RunID]; !alive {
+		m.mu.Unlock()
+		cancel()
+		return
+	}
+	mc.frameCancel = cancel
+	m.mu.Unlock()
+	go m.recordFrames(ctx, mc)
 }
 
 func (m *Manager) cleanupVM(name string) {
@@ -686,6 +727,26 @@ func truncatedForLog(r ExecResult) ExecResult {
 	return r
 }
 
+// captureScreen runs the guest screencapture-and-base64 command and returns
+// the decoded PNG bytes. Both ScreenshotStep, which stores the lossless
+// on-demand shot, and the frame recorder (frames.go), which stores a resized
+// JPEG every frameInterval, share this: it is the one place that knows how
+// to ask the guest for its screen.
+func (m *Manager) captureScreen(ctx context.Context, mc *Machine) ([]byte, error) {
+	res, err := m.tart.Exec(ctx, mc.Name, "sh", "-c", "screencapture -x /tmp/greenroom-shot.png && base64 -i /tmp/greenroom-shot.png")
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("screencapture failed: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	png, err := base64.StdEncoding.DecodeString(strings.TrimSpace(res.Stdout))
+	if err != nil {
+		return nil, fmt.Errorf("decode screenshot: %w", err)
+	}
+	return png, nil
+}
+
 // Screenshot captures the guest display as PNG, stores it in the run
 // directory, and returns the bytes and the stored path.
 func (m *Manager) Screenshot(ctx context.Context, runID string) (png []byte, path string, err error) {
@@ -711,16 +772,9 @@ func (m *Manager) ScreenshotStep(ctx context.Context, runID string) (png []byte,
 		mc.rec.complete(seq, "machine_screenshot", nil, map[string]any{"path": path, "bytes": len(png)}, err, started)
 		m.emitStep(mc.RunID, seq)
 	}()
-	res, err := m.tart.Exec(ctx, mc.Name, "sh", "-c", "screencapture -x /tmp/greenroom-shot.png && base64 -i /tmp/greenroom-shot.png")
+	png, err = m.captureScreen(ctx, mc)
 	if err != nil {
 		return nil, "", seq, err
-	}
-	if res.ExitCode != 0 {
-		return nil, "", seq, fmt.Errorf("screencapture failed: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
-	}
-	png, err = base64.StdEncoding.DecodeString(strings.TrimSpace(res.Stdout))
-	if err != nil {
-		return nil, "", seq, fmt.Errorf("decode screenshot: %w", err)
 	}
 	path = mc.rec.artifactPath(seq, "screenshot", "png")
 	if err = os.WriteFile(path, png, 0o644); err != nil {
@@ -810,6 +864,11 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 	started := time.Now()
 	m.mu.Lock()
 	delete(m.machines, runID)
+	// The frame recorder must not outlive the machine, but it also must not
+	// hold up Destroy: cancel and move on, never wait for the goroutine.
+	if mc.frameCancel != nil {
+		mc.frameCancel()
+	}
 	err = m.saveStateLocked()
 	m.mu.Unlock()
 	if err != nil {

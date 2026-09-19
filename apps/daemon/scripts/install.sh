@@ -13,6 +13,7 @@ if [ ! -f "$env_file" ]; then
   [ -n "$main" ] && [ -f "$main/.env" ] && env_file="$main/.env"
 fi
 echo "env file: $env_file"
+echo "verifier: ${GREENROOM_VERIFIER:-nim}"
 
 label="com.greenroom.daemon"
 root="$HOME/.greenroom"
@@ -44,6 +45,8 @@ cat >"$plist" <<PLIST
     <string>$root</string>
     <string>-env-file</string>
     <string>$env_file</string>
+    <string>-verifier</string>
+    <string>${GREENROOM_VERIFIER:-nim}</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -44,6 +45,7 @@ type RunSummary struct {
 	IP           string                `json:"ip,omitempty"`
 	VNCURL       string                `json:"vncUrl,omitempty"`
 	Steps        int                   `json:"steps"`
+	Frames       int                   `json:"frames"`
 	Verdict      *session.VerdictState `json:"verdict"`
 	LastActivity time.Time             `json:"lastActivity"`
 	Messages     int                   `json:"messages"`
@@ -80,6 +82,9 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Han
 	mux.HandleFunc("GET /api/runs", a.listRuns)
 	mux.HandleFunc("GET /api/runs/{id}", a.runDetail)
 	mux.HandleFunc("GET /api/runs/{id}/steps", a.runSteps)
+	mux.HandleFunc("GET /api/runs/{id}/frames", a.runFrames)
+	mux.HandleFunc("GET /api/runs/{id}/frames/{file...}", a.frameFile)
+	mux.HandleFunc("GET /api/runs/{id}/recording.mp4", a.recording)
 	mux.HandleFunc("GET /api/runs/{id}/messages", a.readMessages)
 	mux.HandleFunc("GET /api/runs/{id}/artifacts/{name...}", a.artifact)
 	mux.HandleFunc("POST /api/runs/{id}/messages", a.postMessage)
@@ -121,6 +126,9 @@ func (a *api) summary(runID string, mc *machine.Machine) RunSummary {
 	if mc != nil {
 		s.Status, s.Image, s.IP, s.VNCURL = string(mc.Status), mc.Image, mc.IP, mc.VNCURL
 		s.CreatedAt = mc.CreatedAt
+	}
+	if frames, err := machine.ReadFrames(a.mgr.RunDir(runID)); err == nil {
+		s.Frames = len(frames)
 	}
 	s.LastActivity = s.CreatedAt
 	if store, err := a.reg.Get(runID); err == nil {
@@ -171,6 +179,139 @@ func (a *api) runSteps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, steps)
+}
+
+// --- frames and the recording (ADR 0008) ---
+
+func (a *api) runFrames(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.run(w, r)
+	if !ok {
+		return
+	}
+	frames, err := machine.ReadFrames(a.mgr.RunDir(id))
+	if err != nil {
+		a.fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, frames)
+}
+
+func (a *api) frameFile(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.run(w, r)
+	if !ok {
+		return
+	}
+	name := r.PathValue("file")
+	// Only a bare file name in the run's frames directory. A separator or a
+	// dot-dot is the caller asking for someone else's file.
+	if name == "" || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+		a.fail(w, http.StatusBadRequest, fmt.Errorf("%q is not a frame in run %q", name, id))
+		return
+	}
+	path := filepath.Join(a.mgr.RunDir(id), "frames", name)
+	f, err := os.Open(path)
+	if err != nil {
+		a.fail(w, http.StatusNotFound, fmt.Errorf("no frame %q in run %q", name, id))
+		return
+	}
+	defer func() { _ = f.Close() }()
+	st, err := f.Stat()
+	if err != nil || st.IsDir() {
+		a.fail(w, http.StatusNotFound, fmt.Errorf("no frame %q in run %q", name, id))
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	http.ServeContent(w, r, name, st.ModTime(), f)
+}
+
+// recording answers the run's timelapse as an mp4: the cached file if one
+// was already built, a freshly built one when ffmpeg is on the host's PATH,
+// or a 404 that says why not (ADR 0008: "a video is an export, not the
+// record").
+func (a *api) recording(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.run(w, r)
+	if !ok {
+		return
+	}
+	dir := a.mgr.RunDir(id)
+	path := filepath.Join(dir, "recording.mp4")
+	if st, err := os.Stat(path); err == nil && !st.IsDir() {
+		a.serveFile(w, r, path, "video/mp4")
+		return
+	}
+
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, struct {
+			Error string `json:"error"`
+		}{fmt.Sprintf("ffmpeg is not installed on this host; frames are available at /api/runs/%s/frames", id)})
+		return
+	}
+	frames, err := machine.ReadFrames(dir)
+	if err != nil {
+		a.fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	if len(frames) == 0 {
+		a.fail(w, http.StatusNotFound, fmt.Errorf("run %q has no frames to build a recording from", id))
+		return
+	}
+	if err := buildRecording(ffmpeg, dir, frames, path); err != nil {
+		a.fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	a.serveFile(w, r, path, "video/mp4")
+}
+
+// buildRecording renders frames into an H.264 file with the concat demuxer,
+// giving each frame the duration it was actually shown on screen (computed
+// from consecutive frame timestamps) so playback runs in real time rather
+// than at a fixed rate.
+func buildRecording(ffmpeg, dir string, frames []machine.Frame, out string) error {
+	listPath := filepath.Join(dir, "recording-concat.txt")
+	var b strings.Builder
+	for i, fr := range frames {
+		framePath := filepath.Join(dir, "frames", fr.File)
+		dur := 2.0
+		if i < len(frames)-1 {
+			if d := frames[i+1].At.Sub(fr.At).Seconds(); d > 0 {
+				dur = d
+			}
+		}
+		fmt.Fprintf(&b, "file '%s'\nduration %.3f\n", framePath, dur)
+	}
+	// The concat demuxer ignores the duration on the last listed entry
+	// unless the same file is repeated once more without one.
+	fmt.Fprintf(&b, "file '%s'\n", filepath.Join(dir, "frames", frames[len(frames)-1].File))
+	if err := os.WriteFile(listPath, []byte(b.String()), 0o644); err != nil {
+		return fmt.Errorf("write concat list: %w", err)
+	}
+	defer func() { _ = os.Remove(listPath) }()
+
+	cmd := exec.Command(ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", listPath,
+		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", out)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ffmpeg: %w: %s", err, out)
+	}
+	return nil
+}
+
+// serveFile answers a file already known to exist on disk, the way artifact
+// and frameFile do, for handlers that name their content type themselves.
+func (a *api) serveFile(w http.ResponseWriter, r *http.Request, path, contentType string) {
+	f, err := os.Open(path)
+	if err != nil {
+		a.fail(w, http.StatusNotFound, err)
+		return
+	}
+	defer func() { _ = f.Close() }()
+	st, err := f.Stat()
+	if err != nil {
+		a.fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	http.ServeContent(w, r, filepath.Base(path), st.ModTime(), f)
 }
 
 // --- the conversation ---
@@ -401,6 +542,12 @@ func (a *api) events(w http.ResponseWriter, r *http.Request) {
 			c.send(sseEvent{name: "run", data: ev})
 		case "step":
 			c.send(sseEvent{name: "step", data: map[string]any{"runId": ev.RunID, "step": ev.Step}})
+		case "frame":
+			if ev.Frame != nil {
+				c.send(sseEvent{name: "frame", data: map[string]any{
+					"runId": ev.RunID, "at": ev.Frame.At, "file": ev.Frame.File, "step": ev.Frame.Step,
+				}})
+			}
 		}
 	})
 	defer stopMachines()

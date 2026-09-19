@@ -507,6 +507,34 @@ struct Step: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// One frame of a run's recording (ADR 0008): a screenshot the daemon takes
+/// on its own, every `-frame-interval`, from `ready` to `destroyed`. `step`
+/// is the latest step number recorded when the frame was taken, which is
+/// what makes "jump to step 14" possible.
+struct Frame: Codable, Hashable, Sendable, Identifiable {
+    var at: Date
+    var file: String
+    var step: Int
+    var bytes: Int
+
+    var id: String { file }
+
+    init(at: Date, file: String, step: Int, bytes: Int = 0) {
+        self.at = at
+        self.file = file
+        self.step = step
+        self.bytes = bytes
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        at = try c.decodeIfPresent(Date.self, forKey: .at) ?? Date(timeIntervalSince1970: 0)
+        file = try c.decodeIfPresent(String.self, forKey: .file) ?? ""
+        step = try c.decodeIfPresent(Int.self, forKey: .step) ?? 0
+        bytes = try c.decodeIfPresent(Int.self, forKey: .bytes) ?? 0
+    }
+}
+
 struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     var runId: String
     var createdAt: Date
@@ -519,6 +547,9 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     var verdict: VerdictState?
     var lastActivity: Date
     var messages: Int
+    /// How many frames the run's recording holds so far (ADR 0008). Optional
+    /// so a daemon built before recording existed still decodes.
+    var frames: Int?
 
     var id: String { runId }
 
@@ -533,7 +564,8 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         steps: Int = 0,
         verdict: VerdictState? = nil,
         lastActivity: Date? = nil,
-        messages: Int = 0
+        messages: Int = 0,
+        frames: Int? = nil
     ) {
         self.runId = runId
         self.createdAt = createdAt
@@ -546,6 +578,7 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         self.verdict = verdict
         self.lastActivity = lastActivity ?? createdAt
         self.messages = messages
+        self.frames = frames
     }
 
     init(from decoder: any Decoder) throws {
@@ -561,6 +594,7 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         verdict = try c.decodeIfPresent(VerdictState.self, forKey: .verdict)
         lastActivity = try c.decodeIfPresent(Date.self, forKey: .lastActivity) ?? createdAt
         messages = try c.decodeIfPresent(Int.self, forKey: .messages) ?? 0
+        frames = try c.decodeIfPresent(Int.self, forKey: .frames)
     }
 
     /// The first segment of the run id, which is enough to tell runs apart.
@@ -697,12 +731,15 @@ enum ServerEvent: Hashable, Sendable {
     /// stream carries the whole record.
     case step(runId: String, seq: Int, step: Step?)
     case message(runId: String, message: Message)
+    /// A new frame was captured for the run's recording (ADR 0008).
+    case frame(runId: String, frame: Frame)
 
     var runId: String {
         switch self {
         case .run(let event): return event.runId
         case .step(let runId, _, _): return runId
         case .message(let runId, _): return runId
+        case .frame(let runId, _): return runId
         }
     }
 }
@@ -751,4 +788,37 @@ struct StepEvent: Codable, Hashable, Sendable {
 struct MessageEvent: Codable, Hashable, Sendable {
     var runId: String
     var message: Message
+}
+
+/// The envelope a `frame` event arrives in on `/api/events`: `{ runId, at,
+/// file, step }`, with no `bytes` (that only comes back from `GET .../frames`).
+struct FrameEvent: Codable, Hashable, Sendable {
+    var runId: String
+    var frame: Frame
+
+    init(runId: String, frame: Frame) {
+        self.runId = runId
+        self.frame = frame
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case runId, at, file, step
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        runId = try c.decodeIfPresent(String.self, forKey: .runId) ?? ""
+        let at = try c.decodeIfPresent(Date.self, forKey: .at) ?? Date(timeIntervalSince1970: 0)
+        let file = try c.decodeIfPresent(String.self, forKey: .file) ?? ""
+        let step = try c.decodeIfPresent(Int.self, forKey: .step) ?? 0
+        frame = Frame(at: at, file: file, step: step)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(runId, forKey: .runId)
+        try c.encode(frame.at, forKey: .at)
+        try c.encode(frame.file, forKey: .file)
+        try c.encode(frame.step, forKey: .step)
+    }
 }
