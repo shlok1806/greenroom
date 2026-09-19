@@ -57,6 +57,13 @@ end-to-end test passes, a headless Claude Code session created, drove, screensho
 destroyed a machine through the tools. Remaining for M1: build and launch a real GUI app
 from a synced repo, and the greenroom base image (prompt-free, ssh key baked in).
 
+**M1.5 - the conversation and the companion.** Status 2026-09-18: ADRs 0006 and 0007
+proposed, plan in `docs/08-sessions-and-companion-plan.md`. Every run gets a durable
+conversation shared by the coding agent, greenroom's verifier and a human; verdicts
+become proposals that can be disputed and accepted; a macOS companion app watches runs
+and speaks into the conversation. Slotted before M2 because a verifier that can be
+asked and disagreed with is what makes the computer-use tools worth giving it.
+
 **M2 - computer use.** Click, type, key, scroll, accessibility tree. Then the xcode
 image and a real Mac app.
 

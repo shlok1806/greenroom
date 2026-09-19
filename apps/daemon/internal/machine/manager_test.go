@@ -18,13 +18,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
 const testImage = "ghcr.io/example/base:latest"
 
 // sshAnswers stands in for a guest that accepts ssh.
-func sshAnswers(context.Context, string) error { return nil }
+func sshAnswers(context.Context, string, string) error { return nil }
 
 func newTestManager(t *testing.T) (*Manager, string, string) {
 	t.Helper()
@@ -35,6 +36,39 @@ func newTestManager(t *testing.T) (*Manager, string, string) {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
+	// A test is over as soon as Wait returns, but the boot goroutine records
+	// the boot step after that and the fake `tart run` keeps writing vm.log
+	// into the run directory. t.TempDir's own cleanup would race them, which
+	// surfaces as "TempDir RemoveAll cleanup: directory not empty". The
+	// lifecycle event is emitted after the last of those writes, so waiting
+	// for it and then destroying the machines leaves nobody writing.
+	var mu sync.Mutex
+	booting := map[string]bool{}
+	mgr.Listen(func(ev LifecycleEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch ev.Kind {
+		case "created":
+			booting[ev.RunID] = true
+		case "ready", "failed":
+			delete(booting, ev.RunID)
+		}
+	})
+	t.Cleanup(func() {
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			mu.Lock()
+			left := len(booting)
+			mu.Unlock()
+			if left == 0 || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		for _, mc := range mgr.List() {
+			_ = mgr.Destroy(context.Background(), mc.RunID)
+		}
+	})
 	return mgr, root, control
 }
 
@@ -43,7 +77,7 @@ func newTestManager(t *testing.T) (*Manager, string, string) {
 func readyMachine(t *testing.T, mgr *Manager) *Machine {
 	t.Helper()
 	ctx := context.Background()
-	mc, err := mgr.Create(ctx, testImage)
+	mc, err := mgr.Create(ctx, testImage, false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -147,7 +181,7 @@ func TestCreateFailsWhenCloneFails(t *testing.T) {
 	mgr, root, control := newTestManager(t)
 	testsupport.Flag(t, control, "fail-clone")
 
-	_, err := mgr.Create(context.Background(), testImage)
+	_, err := mgr.Create(context.Background(), testImage, false)
 	if err == nil {
 		t.Fatal("Create returned no error although the clone failed")
 	}
@@ -480,7 +514,7 @@ func TestFinishBootFailsWhenTheIPNeverArrives(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	testsupport.Flag(t, control, "fail-ip")
 
-	mc, err := mgr.Create(context.Background(), testImage)
+	mc, err := mgr.Create(context.Background(), testImage, false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -512,7 +546,7 @@ func TestFinishBootFailsWhenTheIPNeverArrives(t *testing.T) {
 func TestGuestToolsRefuseAFailedMachine(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	testsupport.Flag(t, control, "fail-ip")
-	mc, err := mgr.Create(context.Background(), testImage)
+	mc, err := mgr.Create(context.Background(), testImage, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +568,7 @@ func TestInstallSSHKeyFailureFailsTheBoot(t *testing.T) {
 	// The guest agent answers the readiness probe, then the key install fails.
 	testsupport.Flag(t, control, "fail-keyinstall")
 
-	mc, err := mgr.Create(context.Background(), testImage)
+	mc, err := mgr.Create(context.Background(), testImage, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -592,7 +626,7 @@ func TestMachineIsNotReadyUntilSSHAnswers(t *testing.T) {
 	var probes atomic.Int32
 	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
 		WithTartBin(bin), WithReadyTimeout(20*time.Second),
-		WithSSHProbe(func(context.Context, string) error {
+		WithSSHProbe(func(context.Context, string, string) error {
 			// Refuse the first two attempts, the way a guest does while
 			// sshd is still starting.
 			if probes.Add(1) <= 2 {
@@ -617,12 +651,12 @@ func TestBootFailsWhenSSHNeverAnswers(t *testing.T) {
 	bin, _ := testsupport.FakeTart(t)
 	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
 		WithTartBin(bin), WithReadyTimeout(2*time.Second),
-		WithSSHProbe(func(context.Context, string) error { return errors.New("connection refused") }))
+		WithSSHProbe(func(context.Context, string, string) error { return errors.New("connection refused") }))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	created, err := mgr.Create(context.Background(), testImage)
+	created, err := mgr.Create(context.Background(), testImage, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -635,6 +669,54 @@ func TestBootFailsWhenSSHNeverAnswers(t *testing.T) {
 	}
 	if !strings.Contains(got.Error, "ssh") {
 		t.Errorf("error = %q, want it to name ssh", got.Error)
+	}
+}
+
+// The default probe, with no WithSSHProbe in the way. macOS gates local-network
+// access per binary identity, so the daemon must ask the guest about its own
+// sshd over vsock instead of dialing 192.168.64.x itself.
+func TestDefaultSSHProbeAsksTheGuestOverVsock(t *testing.T) {
+	bin, control := testsupport.FakeTart(t)
+	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WithTartBin(bin), WithReadyTimeout(20*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mc := readyMachine(t, mgr)
+	log := testsupport.Calls(t, control)
+	want := "exec " + mc.Name + " /usr/bin/nc -z 127.0.0.1 22"
+	if !strings.Contains(log, want) {
+		t.Errorf("the default probe never ran %q\ncalls:\n%s", want, log)
+	}
+}
+
+// A boot that times out at the ssh phase must name the cause. Before this the
+// dial error was dropped and every failure read "context deadline exceeded".
+func TestSSHTimeoutNamesTheLastProbeError(t *testing.T) {
+	bin, control := testsupport.FakeTart(t)
+	testsupport.Flag(t, control, "ssh-down")
+	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WithTartBin(bin), WithReadyTimeout(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := mgr.Create(context.Background(), testImage, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := mgr.Wait(context.Background(), created.RunID, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != Failed {
+		t.Fatalf("status = %q, want failed when the guest refuses ssh", got.Status)
+	}
+	for _, want := range []string{"did not answer", "Connection refused"} {
+		if !strings.Contains(got.Error, want) {
+			t.Errorf("error = %q, want it to contain %q", got.Error, want)
+		}
 	}
 }
 
@@ -657,7 +739,7 @@ func TestConcurrentCreatesRespectTheHostLimit(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, results[i] = mgr.Create(context.Background(), testImage)
+			_, results[i] = mgr.Create(context.Background(), testImage, false)
 		}(i)
 	}
 	wg.Wait()
@@ -674,4 +756,43 @@ func TestConcurrentCreatesRespectTheHostLimit(t *testing.T) {
 	if got := len(mgr.List()); got != 1 {
 		t.Errorf("the manager holds %d machines, want 1", got)
 	}
+
+	// The machine that won the slot is still booting, and its boot writes
+	// into the test's temporary directory. Take it down before the test ends,
+	// or those writes race the directory's removal and the cleanup fails.
+	for _, mc := range mgr.List() {
+		if _, err := mgr.Wait(context.Background(), mc.RunID, 20*time.Second); err != nil {
+			t.Fatalf("Wait: %v", err)
+		}
+		if err := mgr.Destroy(context.Background(), mc.RunID); err != nil {
+			t.Fatalf("Destroy: %v", err)
+		}
+	}
+}
+
+// The fake tart must never outlive the test that started it. A process that
+// waits forever for a control file inside a deleted temporary directory is a
+// leak, and enough of them will overload the host.
+func TestFakeTartExitsWhenItsControlDirectoryGoesAway(t *testing.T) {
+	bin, control := testsupport.FakeTart(t)
+	logPath := filepath.Join(t.TempDir(), "vm.log")
+	cl := &tart.Client{Bin: bin}
+	proc, err := cl.Start("greenroom-leak-check", logPath, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proc.Exited() {
+		t.Fatal("the fake exited before the VM was stopped")
+	}
+	if err := os.RemoveAll(control); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 60; i++ {
+		if proc.Exited() {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	_ = proc.Kill()
+	t.Fatal("the fake tart kept running after its control directory was removed")
 }

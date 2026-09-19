@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
 
@@ -46,6 +47,7 @@ type Machine struct {
 	BootSeconds float64   `json:"bootSeconds,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	Dir         string    `json:"dir"`
+	VNCURL      string    `json:"vncUrl,omitempty"` // set when the machine is watched
 
 	rec   *recorder
 	ready chan struct{} // closed once Status leaves Booting
@@ -83,7 +85,55 @@ type Manager struct {
 	pubKey       string
 	maxMachines  int
 	readyTimeout time.Duration
-	sshProbe     func(ctx context.Context, addr string) error
+	sshProbe     func(ctx context.Context, vmName, addr string) error
+	onWatch      func(vncURL string)
+
+	listenMu  sync.Mutex
+	listeners map[int]func(LifecycleEvent)
+	nextSub   int
+}
+
+// LifecycleEvent is one change a listener may care about: a machine was
+// created, became ready or failed, was destroyed, or recorded a step.
+type LifecycleEvent struct {
+	Kind    string   `json:"kind"` // created, ready, failed, destroyed, step
+	RunID   string   `json:"runId"`
+	Machine *Machine `json:"machine,omitempty"`
+	Step    int      `json:"step,omitempty"`
+}
+
+// Listen calls fn for every lifecycle event. fn runs on the manager's
+// goroutine and must return quickly. The returned function removes it.
+func (m *Manager) Listen(fn func(LifecycleEvent)) func() {
+	m.listenMu.Lock()
+	defer m.listenMu.Unlock()
+	if m.listeners == nil {
+		m.listeners = map[int]func(LifecycleEvent){}
+	}
+	id := m.nextSub
+	m.nextSub++
+	m.listeners[id] = fn
+	return func() {
+		m.listenMu.Lock()
+		defer m.listenMu.Unlock()
+		delete(m.listeners, id)
+	}
+}
+
+func (m *Manager) emit(ev LifecycleEvent) {
+	m.listenMu.Lock()
+	fns := make([]func(LifecycleEvent), 0, len(m.listeners))
+	for _, fn := range m.listeners {
+		fns = append(fns, fn)
+	}
+	m.listenMu.Unlock()
+	for _, fn := range fns {
+		fn(ev)
+	}
+}
+
+func (m *Manager) emitStep(runID string, seq int) {
+	m.emit(LifecycleEvent{Kind: "step", RunID: runID, Step: seq})
 }
 
 // Option adjusts a Manager before it touches the disk or the host.
@@ -107,22 +157,48 @@ func WithReadyTimeout(d time.Duration) Option {
 	return func(m *Manager) { m.readyTimeout = d }
 }
 
+// WithWatchHandler is called with the screen address of each watched
+// machine. The daemon uses it to open a viewer on the host.
+func WithWatchHandler(fn func(vncURL string)) Option {
+	return func(m *Manager) { m.onWatch = fn }
+}
+
 // WithSSHProbe replaces the check that guest ssh accepts connections. Tests
-// use it, because a fake machine has no sshd.
-func WithSSHProbe(probe func(ctx context.Context, addr string) error) Option {
+// use it, because a fake machine has no sshd. addr is the guest's host-side
+// ssh address, carried for the error message and for any future host-side
+// probe.
+func WithSSHProbe(probe func(ctx context.Context, vmName, addr string) error) Option {
 	return func(m *Manager) { m.sshProbe = probe }
 }
 
-// dialSSH reports whether anything is listening for ssh at addr. rsync is the
-// first thing a caller does after a machine is ready, and rsync needs port 22,
-// so a machine is not ready until this succeeds.
-func dialSSH(ctx context.Context, addr string) error {
-	d := net.Dialer{Timeout: 3 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+// probeSSHInGuest reports whether sshd is listening inside the guest. rsync is
+// the first thing a caller does after a machine is ready, and rsync needs port
+// 22, so a machine is not ready until this succeeds.
+//
+// The guest is asked about itself, over vsock, because the daemon must never
+// open a TCP connection to a guest of its own: see the local-network invariant
+// in CLAUDE.md. addr names the host-side address for the error only.
+func (m *Manager) probeSSHInGuest(ctx context.Context, vmName, addr string) error {
+	c, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	res, err := m.tart.Exec(c, vmName, "/usr/bin/nc", "-z", "127.0.0.1", "22")
 	if err != nil {
 		return err
 	}
-	return conn.Close()
+	if res.ExitCode != 0 {
+		return fmt.Errorf("nc -z 127.0.0.1 22 in guest (for %s): exit %d: %s",
+			addr, res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	return nil
+}
+
+// withLastErr appends the last probe failure to a timeout message, so a boot
+// that runs out of budget names its cause instead of discarding it.
+func withLastErr(msg string, last error) string {
+	if last == nil {
+		return msg
+	}
+	return msg + fmt.Sprintf(" (last error: %v)", last)
 }
 
 // NewManager prepares Root (dirs, ssh key) and reloads machines that are
@@ -130,8 +206,9 @@ func dialSSH(ctx context.Context, addr string) error {
 func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error) {
 	m := &Manager{
 		Root: root, Log: log, tart: tart.New(), machines: map[string]*Machine{},
-		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout, sshProbe: dialSSH,
+		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout,
 	}
+	m.sshProbe = m.probeSSHInGuest
 	for _, opt := range opts {
 		opt(m)
 	}
@@ -255,7 +332,7 @@ func (m *Manager) get(runID string) (*Machine, error) {
 // Create clones image and starts it, then returns at once with the machine
 // in Booting state. Readiness (guest agent up, IP known, ssh key installed)
 // is tracked in the background; use Wait to block for it.
-func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
+func (m *Manager) Create(ctx context.Context, image string, watch bool) (*Machine, error) {
 	// One create at a time. The capacity check below is a check and then an
 	// act, so two creates that overlap would both pass a limit that only has
 	// room for one. A clone of a local image takes about 0.1 s, so the cost
@@ -281,13 +358,24 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 		rec.step("machine_create", map[string]any{"image": image}, nil, err, started)
 		return nil, err
 	}
-	proc, err := m.tart.Start(name, filepath.Join(dir, "vm.log"))
+	proc, err := m.tart.Start(name, filepath.Join(dir, "vm.log"), watch)
 	if err != nil {
 		m.cleanupVM(name)
 		rec.step("machine_create", map[string]any{"image": image}, nil, err, started)
 		return nil, err
 	}
 	mc.proc = proc
+	if watch {
+		// tart prints the address a moment after start. Waiting here keeps
+		// the address in the create result, so the caller can open the screen
+		// straight away instead of polling for it.
+		mc.VNCURL = proc.VNCURL(10 * time.Second)
+		if mc.VNCURL == "" {
+			m.Log.Warn("watched machine has no screen address", "runId", runID)
+		} else if m.onWatch != nil {
+			m.onWatch(mc.VNCURL)
+		}
+	}
 
 	m.mu.Lock()
 	m.machines[runID] = mc
@@ -297,7 +385,9 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 		m.cleanupVM(name)
 		return nil, err
 	}
-	rec.step("machine_create", map[string]any{"image": image}, map[string]any{"runId": runID, "machineName": name, "status": Booting}, nil, started)
+	seq := rec.step("machine_create", map[string]any{"image": image}, map[string]any{"runId": runID, "machineName": name, "status": Booting}, nil, started)
+	m.emitStep(runID, seq)
+	m.emit(LifecycleEvent{Kind: "created", RunID: runID, Machine: m.snapshot(mc)})
 	go m.finishBoot(mc, started)
 	return m.snapshot(mc), nil
 }
@@ -419,14 +509,17 @@ func (m *Manager) finishBoot(mc *Machine, started time.Time) {
 	for k, v := range timings {
 		out[k] = v
 	}
-	mc.rec.step("machine_boot", nil, out, err, started)
+	seq := mc.rec.step("machine_boot", nil, out, err, started)
+	m.emitStep(mc.RunID, seq)
 	if err != nil {
 		m.Log.Warn("machine failed to boot", "runId", mc.RunID, "err", err)
 		m.cleanupVM(mc.Name)
+		m.emit(LifecycleEvent{Kind: "failed", RunID: mc.RunID, Machine: m.snapshot(mc)})
 		return
 	}
 	m.Log.Info("machine ready", "runId", mc.RunID, "ip", ip, "bootSeconds", mc.BootSeconds,
 		"agentSeconds", timings["agentSeconds"], "sshSeconds", timings["sshSeconds"])
+	m.emit(LifecycleEvent{Kind: "ready", RunID: mc.RunID, Machine: m.snapshot(mc)})
 }
 
 func (m *Manager) cleanupVM(name string) {
@@ -474,6 +567,7 @@ func (m *Manager) awaitReady(ctx context.Context, mc *Machine) error {
 // waitReady polls the guest agent until it answers. ctx carries this phase's
 // budget, so the loop needs no deadline of its own.
 func (m *Manager) waitReady(ctx context.Context, mc *Machine) error {
+	var last error
 	for {
 		if mc.proc != nil && mc.proc.Exited() {
 			return mc.proc.Err()
@@ -489,29 +583,44 @@ func (m *Manager) waitReady(ctx context.Context, mc *Machine) error {
 			}
 			return nil
 		}
+		// Keep the real failure. Once the budget runs out the loop reports a
+		// deadline, and without this the cause would be thrown away.
+		if ctx.Err() == nil {
+			if err != nil {
+				last = err
+			} else {
+				last = fmt.Errorf("exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+			}
+		}
 		if ctx.Err() != nil {
-			return fmt.Errorf("machine %s: guest agent did not answer within %s: %w",
-				mc.Name, m.readyTimeout, ctx.Err())
+			return fmt.Errorf("%s: %w", withLastErr(fmt.Sprintf(
+				"machine %s: guest agent did not answer within %s", mc.Name, m.readyTimeout), last), ctx.Err())
 		}
 		time.Sleep(time.Second)
 	}
 }
 
-// waitSSH blocks until guest ssh accepts a connection. The guest agent comes
-// up over vsock before sshd is listening, so a machine that reports ready on
-// the agent alone can still refuse the first rsync.
+// waitSSH blocks until sshd inside the guest accepts a connection. The guest
+// agent comes up over vsock before sshd is listening, so a machine that
+// reports ready on the agent alone can still refuse the first rsync.
 func (m *Manager) waitSSH(ctx context.Context, mc *Machine, ip string) error {
 	addr := net.JoinHostPort(ip, "22")
+	var last error
 	for {
 		if mc.proc != nil && mc.proc.Exited() {
 			return mc.proc.Err()
 		}
-		if err := m.sshProbe(ctx, addr); err == nil {
+		err := m.sshProbe(ctx, mc.Name, addr)
+		if err == nil {
 			return nil
 		}
+		// Keep the real failure, so the timeout below names its cause.
+		if ctx.Err() == nil {
+			last = err
+		}
 		if ctx.Err() != nil {
-			return fmt.Errorf("machine %s: ssh on %s did not answer within %s: %w",
-				mc.Name, addr, m.readyTimeout, ctx.Err())
+			return fmt.Errorf("%s: %w", withLastErr(fmt.Sprintf(
+				"machine %s: ssh on %s did not answer within %s", mc.Name, addr, m.readyTimeout), last), ctx.Err())
 		}
 		time.Sleep(time.Second)
 	}
@@ -537,6 +646,7 @@ type ExecResult struct {
 	Stderr   string  `json:"stderr"`
 	ExitCode int     `json:"exitCode"`
 	Seconds  float64 `json:"seconds"`
+	Step     int     `json:"step"` // its number in steps.jsonl, so a conversation can cite it
 }
 
 // Exec runs command in the guest's login shell, optionally in cwd.
@@ -560,7 +670,8 @@ func (m *Manager) Exec(ctx context.Context, runID, command, cwd string, timeout 
 	}
 	res, err := m.tart.Exec(ctx, mc.Name, "/bin/zsh", "-lc", script)
 	out := ExecResult{Stdout: res.Stdout, Stderr: res.Stderr, ExitCode: res.ExitCode, Seconds: time.Since(started).Seconds()}
-	mc.rec.step("machine_exec", map[string]any{"command": command, "cwd": cwd}, truncatedForLog(out), err, started)
+	out.Step = mc.rec.step("machine_exec", map[string]any{"command": command, "cwd": cwd}, truncatedForLog(out), err, started)
+	m.emitStep(mc.RunID, out.Step)
 	return out, err
 }
 
@@ -578,36 +689,44 @@ func truncatedForLog(r ExecResult) ExecResult {
 // Screenshot captures the guest display as PNG, stores it in the run
 // directory, and returns the bytes and the stored path.
 func (m *Manager) Screenshot(ctx context.Context, runID string) (png []byte, path string, err error) {
+	png, path, _, err = m.ScreenshotStep(ctx, runID)
+	return png, path, err
+}
+
+// ScreenshotStep is Screenshot that also returns the step number, so the
+// caller can cite the artifact by step.
+func (m *Manager) ScreenshotStep(ctx context.Context, runID string) (png []byte, path string, seq int, err error) {
 	mc, err := m.get(runID)
 	if err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 	if err := m.awaitReady(ctx, mc); err != nil {
-		return nil, "", err
+		return nil, "", 0, err
 	}
 	started := time.Now()
 	// Claim the step number before the artifact is named, so that two
 	// screenshots at the same time cannot choose the same file.
-	seq := mc.rec.begin()
+	seq = mc.rec.begin()
 	defer func() {
 		mc.rec.complete(seq, "machine_screenshot", nil, map[string]any{"path": path, "bytes": len(png)}, err, started)
+		m.emitStep(mc.RunID, seq)
 	}()
 	res, err := m.tart.Exec(ctx, mc.Name, "sh", "-c", "screencapture -x /tmp/greenroom-shot.png && base64 -i /tmp/greenroom-shot.png")
 	if err != nil {
-		return nil, "", err
+		return nil, "", seq, err
 	}
 	if res.ExitCode != 0 {
-		return nil, "", fmt.Errorf("screencapture failed: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return nil, "", seq, fmt.Errorf("screencapture failed: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	png, err = base64.StdEncoding.DecodeString(strings.TrimSpace(res.Stdout))
 	if err != nil {
-		return nil, "", fmt.Errorf("decode screenshot: %w", err)
+		return nil, "", seq, fmt.Errorf("decode screenshot: %w", err)
 	}
 	path = mc.rec.artifactPath(seq, "screenshot", "png")
 	if err = os.WriteFile(path, png, 0o644); err != nil {
-		return nil, "", err
+		return nil, "", seq, err
 	}
-	return png, path, nil
+	return png, path, seq, nil
 }
 
 // SyncResult reports what rsync did.
@@ -654,7 +773,7 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 	if err != nil {
 		err = fmt.Errorf("rsync: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	mc.rec.step("machine_sync", map[string]any{"source": source, "dest": dest, "exclude": exclude}, res, err, started)
+	m.emitStep(runID, mc.rec.step("machine_sync", map[string]any{"source": source, "dest": dest, "exclude": exclude}, res, err, started))
 	return res, err
 }
 
@@ -704,8 +823,41 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 	err = m.tart.Delete(ctx, mc.Name)
 	now := time.Now().UTC()
 	_ = mc.rec.update(func(man *Manifest) { man.DestroyedAt = &now })
-	mc.rec.step("machine_destroy", nil, nil, err, started)
+	seq := mc.rec.step("machine_destroy", nil, nil, err, started)
+	m.emitStep(runID, seq)
+	m.emit(LifecycleEvent{Kind: "destroyed", RunID: runID, Machine: m.snapshot(mc)})
 	return err
+}
+
+// Live reports whether runID has a machine in the map.
+func (m *Manager) Live(runID string) bool {
+	_, err := m.get(runID)
+	return err == nil
+}
+
+// RunDir is where a run's evidence lives, whether or not its machine is alive.
+func (m *Manager) RunDir(runID string) string {
+	return filepath.Join(m.Root, "runs", runID)
+}
+
+// RecordVerdict writes the conversation's verdict state into the manifest.
+// A live machine goes through its recorder, the only writer while it lives;
+// a finished run is edited on disk, where nothing else writes any more.
+func (m *Manager) RecordVerdict(runID string, v session.VerdictState) error {
+	if mc, err := m.get(runID); err == nil {
+		return mc.rec.update(func(man *Manifest) { man.Verdict = &v })
+	}
+	dir := m.RunDir(runID)
+	man, err := ReadManifest(dir)
+	if err != nil {
+		return err
+	}
+	man.Verdict = &v
+	data, err := json.MarshalIndent(man, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o644)
 }
 
 func shellQuote(s string) string {

@@ -38,7 +38,7 @@ func TestProcessReportsWhatTartPrinted(t *testing.T) {
 	c := fakeBin(t, "echo 'The number of VMs exceeds the system limit' >&2; exit 1")
 	logPath := filepath.Join(t.TempDir(), "vm.log")
 
-	p, err := c.Start("vm-1", logPath)
+	p, err := c.Start("vm-1", logPath, false)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestProcessKeepsOnlyTheLastLinesOfTheLog(t *testing.T) {
 	c := fakeBin(t, "for i in 1 2 3 4 5 6; do echo \"line $i\"; done; exit 1")
 	logPath := filepath.Join(t.TempDir(), "vm.log")
 
-	p, err := c.Start("vm-2", logPath)
+	p, err := c.Start("vm-2", logPath, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestProcessStillExplainsASilentExit(t *testing.T) {
 	c := fakeBin(t, "exit 3")
 	logPath := filepath.Join(t.TempDir(), "vm.log")
 
-	p, err := c.Start("vm-3", logPath)
+	p, err := c.Start("vm-3", logPath, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestProcessThatKeepsRunningHasNoError(t *testing.T) {
 	c := fakeBin(t, "sleep 30")
 	logPath := filepath.Join(t.TempDir(), "vm.log")
 
-	p, err := c.Start("vm-4", logPath)
+	p, err := c.Start("vm-4", logPath, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestProcessIsSafeToPollFromManyGoroutines(t *testing.T) {
 	c := fakeBin(t, "echo bye >&2; exit 1")
 	logPath := filepath.Join(t.TempDir(), "vm.log")
 
-	p, err := c.Start("vm-5", logPath)
+	p, err := c.Start("vm-5", logPath, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,65 @@ func TestProcessIsSafeToPollFromManyGoroutines(t *testing.T) {
 func TestStartRejectsAnUnwritableLogPath(t *testing.T) {
 	c := fakeBin(t, "exit 0")
 	dir := t.TempDir()
-	if _, err := c.Start("vm-6", filepath.Join(dir, "missing", "vm.log")); err == nil {
+	if _, err := c.Start("vm-6", filepath.Join(dir, "missing", "vm.log"), false); err == nil {
 		t.Fatal("Start accepted a log path it cannot create")
+	}
+}
+
+// A watched machine runs its screen over VNC and tart prints the address.
+// The address is what lets a person look at the work as it happens.
+func TestWatchedProcessReportsItsScreenAddress(t *testing.T) {
+	c := fakeBin(t, "echo 'Opening vnc://:word-word@127.0.0.1:60592...'; sleep 5")
+	logPath := filepath.Join(t.TempDir(), "vm.log")
+
+	p, err := c.Start("vm-watch", logPath, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Kill() })
+
+	url := p.VNCURL(5 * time.Second)
+	if url != "vnc://:word-word@127.0.0.1:60592" {
+		t.Errorf("VNCURL = %q, want the address tart printed without its trailing dots", url)
+	}
+}
+
+func TestWatchedAndHeadlessUseDifferentTartFlags(t *testing.T) {
+	for _, tc := range []struct {
+		watch bool
+		want  string
+	}{{true, "--vnc-experimental"}, {false, "--no-graphics"}} {
+		dir := t.TempDir()
+		args := filepath.Join(dir, "args")
+		bin := filepath.Join(dir, "tart")
+		script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > " + args + "\nexit 0\n"
+		if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		c := &Client{Bin: bin}
+		p, err := c.Start("vm", filepath.Join(dir, "vm.log"), tc.watch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitExit(t, p)
+		got, err := os.ReadFile(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(got), tc.want) {
+			t.Errorf("watch=%v ran tart with %q, want %q", tc.watch, strings.TrimSpace(string(got)), tc.want)
+		}
+	}
+}
+
+func TestHeadlessProcessHasNoScreenAddress(t *testing.T) {
+	c := fakeBin(t, "sleep 5")
+	p, err := c.Start("vm-headless", filepath.Join(t.TempDir(), "vm.log"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Kill() })
+	if url := p.VNCURL(time.Second); url != "" {
+		t.Errorf("VNCURL = %q, want empty for a headless machine", url)
 	}
 }

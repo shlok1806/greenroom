@@ -15,20 +15,22 @@ This is a multi-context repo. Contexts are workspace packages under `apps/` and 
 
 ```
 /
-├── CONTEXT-MAP.md                     ← lists every context and where its CONTEXT.md lives
-├── docs/adr/                          ← system-wide decisions
-├── apps/
-│   └── daemon/
-│       ├── CONTEXT.md
-│       └── docs/adr/                  ← context-specific decisions
-└── packages/
-    ├── protocol/
-    │   ├── CONTEXT.md
-    │   └── docs/adr/
-    └── mcp/
+├── CONTEXT-MAP.md            ← lists every context and where its CONTEXT.md lives
+├── docs/adr/                 ← system-wide decisions
+└── apps/
+    ├── daemon/               ← the greenroom binary; one Go module, several contexts inside it
+    │   ├── docs/adr/         ← decisions scoped to the daemon
+    │   └── internal/
+    │       ├── machine/CONTEXT.md
+    │       ├── mcpserver/CONTEXT.md
+    │       └── tart/CONTEXT.md
+    └── companion/            ← macOS companion app (planned, ADR 0007)
         ├── CONTEXT.md
         └── docs/adr/
 ```
+
+`packages/` is empty. The `protocol` and `mcp` packages named in `docs/01-plan.md` were
+folded into the daemon, so there is no context there until a real package lands.
 
 When a new workspace package is added, add a row to `CONTEXT-MAP.md` for it.
 

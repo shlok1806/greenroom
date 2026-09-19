@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Client runs tart commands.
@@ -86,6 +87,27 @@ func (c *Client) List(ctx context.Context) ([]VM, error) {
 	return vms, nil
 }
 
+// VNCURL returns the address of the VM's screen, once tart has printed it.
+// It is empty for a machine started without graphics. tart writes the line
+// "Opening vnc://..." to its log a moment after start, so this waits.
+func (p *Process) VNCURL(timeout time.Duration) string {
+	deadline := time.Now().Add(timeout)
+	for {
+		data, err := os.ReadFile(p.logPath)
+		if err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				if i := strings.Index(line, "vnc://"); i >= 0 {
+					return strings.TrimRight(strings.TrimSpace(line[i:]), ".")
+				}
+			}
+		}
+		if p.Exited() || time.Now().After(deadline) {
+			return ""
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 // Process is a running `tart run` subprocess. A VM that cannot start makes
 // tart exit at once and print the reason to its log, so callers watch the
 // process while they wait for the guest to come up.
@@ -148,15 +170,24 @@ func (p *Process) tail() string {
 
 const logTailLines = 3
 
-// Start boots a VM headless in its own process group so it outlives the
-// daemon. Output goes to logPath. The caller does not wait on the process; a
+// Start boots a VM in its own process group so it outlives the daemon.
+// Output goes to logPath. The caller does not wait on the process; a
 // goroutine reaps it and records why it stopped.
-func (c *Client) Start(name, logPath string) (*Process, error) {
+//
+// A watched machine runs its screen over VNC so a person can see the work as
+// it happens. An unwatched machine runs headless, which is the default,
+// because a screen costs the host work that a machine nobody looks at does
+// not need.
+func (c *Client) Start(name, logPath string, watch bool) (*Process, error) {
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(c.Bin, "run", name, "--no-graphics")
+	mode := "--no-graphics"
+	if watch {
+		mode = "--vnc-experimental"
+	}
+	cmd := exec.Command(c.Bin, "run", name, mode)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

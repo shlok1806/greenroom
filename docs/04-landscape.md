@@ -1,18 +1,18 @@
-# 04 - Landscape: macOS machines for coding agents
+# Landscape: macOS VMs for AI coding agents (draft v1, in progress)
 
-Status: DRAFT v1 (research in progress, being extended). Date: 2026-09-12.
+Status: partial draft written early so progress survives. Sections will be expanded.
 
 ## Summary
 
-- Linux sandboxes for agents are a crowded, well-funded commodity (E2B $21M A, Daytona $24M A, Runloop $7M seed, Modal, Vercel, Cloudflare). None of them offer macOS.
-- macOS is gated by Apple's SLA: VMs only on Apple hardware, max two macOS guests per host, and hosted leases must be 24 hours minimum. That is why the Linux vendors stay out.
-- The macOS VM tooling layer is consolidating around OpenAI: Cirrus Labs (Tart, Orchard) joined OpenAI's Agent Infrastructure team on April 7, 2026.
-- Cua (YC X25, $500K) is the only open-source "macOS VM for agents" startup still running; its cloud fleet is priced per vCPU-hour.
-- Scrapybara (YC) shut its VM service on Oct 15, 2025 and pivoted to a coding agent. Cyberdesk (YC) pivoted away from "VMs for computer-use agents" because customers already had VMs.
-- Devin now runs macOS cloud agents (Xcode, simulator, computer use) via Namespace devboxes, as of July 2026. This is the closest existing product to greenroom.
-- Claude Code has a local-only iOS Simulator integration and macOS computer use; neither works in cloud sessions. Codex cloud and Cursor cloud agents are Ubuntu only.
-- Developer pain is real and documented: agents cannot see the simulator, laptops get tied up running 4-5 parallel agents, and cloud agents cannot build Xcode projects.
-- Whitespace: a hosted, ephemeral, snapshot-restored macOS machine with a verification agent that hands screenshots back to a PR, callable over MCP from any coding agent.
-- Strongest counterargument: OpenAI, Anthropic, and Cognition each now own or can trivially build the macOS runner layer, and Apple's 24-hour lease rule makes true per-minute ephemeral hosting legally awkward.
+- Apple's SLA allows at most two macOS VMs per Apple-branded host, only for development, testing, macOS Server, or personal use, and forbids "service bureau, time-sharing, terminal sharing, relay service" uses ([macOS Tahoe SLA, 2B(iii)](https://www.apple.com/legal/sla/docs/macOSTahoe.pdf)).
+- Leasing macOS is allowed only for "Permitted Developer Services" with a 24-hour minimum per lease ([SLA section 3](https://www.apple.com/legal/sla/docs/macOSTahoe.pdf)). This is why AWS and Scaleway bill 24 hours minimum.
+- OpenAI acquired Cirrus Labs (Tart, Orchard) on April 7, 2026 for its "Agent Infrastructure team" ([cirruslabs.org](https://cirruslabs.org/)).
+- Devin now runs macOS cloud agents on Namespace M4 Pro / M5 Max Macs with Xcode, Simulator and computer use ([Namespace blog](https://namespace.so/blog/devin-outposts-devboxes)).
+- Anthropic shipped a native iOS Simulator pane in Claude Code Desktop (July 2026), local sessions only, up to 4 simulators per session ([docs](https://code.claude.com/docs/en/desktop-ios-simulator)).
+- Scrapybara, the YC "computer for your AI" company that offered Mac/Windows desktops, sunset its VM service on Oct 15, 2025 and pivoted to Capy ([X post](https://x.com/scrapybara/status/1971655785869726110)).
+- Cua (YC S25, 3 people, ~$500K) is the only open-source project shipping macOS agent VMs (Lume) and cloud fleets ([GitHub](https://github.com/trycua/cua)).
+- Microsoft launched Windows 365 for Agents (GA June 2026) ([Windows blog](https://blogs.windows.com/windowsexperience/2026/01/22/windows-365-for-agents-the-cloud-pcs-next-chapter/)).
+- OpenAI reportedly bought "tens of thousands" of Mac minis for computer-use RL; Anthropic rents Mac minis via AWS ([TechRepublic on The Information](https://www.techrepublic.com/article/news-openai-mac-mini-mac-studio-ai-agents/)).
+- Nobody sells a managed, per-second, ephemeral macOS agent desktop with PR evidence hand-back.
 
-(Sections below are being filled in; see Sources for what has been verified so far.)
+(Full report follows in later revision.)

@@ -1,12 +1,16 @@
 package machine
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
 // Manifest describes one run: one machine, one agent, recorded as it happens.
@@ -18,6 +22,43 @@ type Manifest struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 	DestroyedAt *time.Time `json:"destroyedAt,omitempty"`
 	Steps       int        `json:"steps"`
+
+	// Verdict is the state of the conversation's latest verdict (ADR 0006),
+	// kept here so a reviewer sees it without opening the transcript.
+	Verdict *session.VerdictState `json:"verdict,omitempty"`
+}
+
+// ReadManifest loads a run's manifest from its directory.
+func ReadManifest(dir string) (Manifest, error) {
+	var m Manifest
+	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		return m, err
+	}
+	return m, json.Unmarshal(data, &m)
+}
+
+// ReadSteps loads a run's step log. A run with no steps yet has none.
+func ReadSteps(dir string) ([]Step, error) {
+	f, err := os.Open(filepath.Join(dir, "steps.jsonl"))
+	if errors.Is(err, os.ErrNotExist) {
+		return []Step{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	steps := []Step{}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		var s Step
+		if err := json.Unmarshal(sc.Bytes(), &s); err != nil {
+			return nil, fmt.Errorf("parse steps.jsonl line %d: %w", len(steps)+1, err)
+		}
+		steps = append(steps, s)
+	}
+	return steps, sc.Err()
 }
 
 // Step is one tool call against the machine, appended to steps.jsonl.

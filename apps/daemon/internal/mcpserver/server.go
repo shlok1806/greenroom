@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
 // Version is stamped into the MCP server implementation info.
@@ -26,28 +27,35 @@ const (
 )
 
 // New builds the MCP server over mgr. defaultImage is used when a caller
-// does not name one.
-func New(mgr *machine.Manager, defaultImage string) *mcp.Server {
+// does not name one, and reg is the conversation store every agent_* tool
+// speaks into. The verifier is not passed in: it is an actor that reacts to
+// the conversation, so this layer only needs the registry (ADR 0006).
+func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "greenroom", Version: Version}, &mcp.ServerOptions{
 		Instructions: "greenroom gives you a disposable macOS machine. Call machine_create once and keep its runId, " +
 			"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_exec to build " +
 			"and run, machine_screenshot to look at the screen, and machine_destroy when done. " +
+			"Every run also owns one conversation: agent_send posts into it, agent_wait blocks for what comes " +
+			"back, and agent_transcript reads it. That is how you reach greenroom's verifier and how a watching " +
+			"human reaches you. " +
 			"Every run is recorded under ~/.greenroom/runs/<runId>.",
 	})
 
 	type createIn struct {
 		Image string `json:"image,omitempty" jsonschema:"OCI image to clone. Defaults to the daemon's configured image."`
+		Watch bool   `json:"watch,omitempty" jsonschema:"Show the machine's screen so a person can watch the run. Returns vncUrl, and the daemon opens a viewer on the host."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_create",
 		Description: "Clone and start a fresh macOS machine. Returns at once with status booting and the runId every " +
-			"other tool needs. Call machine_wait next; boot takes 30 to 90 seconds.",
+			"other tool needs. Call machine_wait next; boot takes 30 to 90 seconds. Pass watch true to show the " +
+			"screen while the machine works, which is what a person wants when they are looking on.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, *machine.Machine, error) {
 		image := in.Image
 		if image == "" {
 			image = defaultImage
 		}
-		return wrap(mgr.Create(ctx, image))
+		return wrap(mgr.Create(ctx, image, in.Watch))
 	})
 
 	type waitIn struct {
@@ -150,11 +158,17 @@ func New(mgr *machine.Manager, defaultImage string) *mcp.Server {
 		Name:        "machine_destroy",
 		Description: "Stop and delete the machine. The run's recording stays on disk.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in destroyIn) (*mcp.CallToolResult, destroyOut, error) {
+		// A human watching the run learns of this from the conversation, but
+		// nothing is posted here: the daemon's lifecycle bridge announces a
+		// destroy from the manager's own event, after the machine has really
+		// gone away.
 		if err := mgr.Destroy(ctx, in.RunID); err != nil {
 			return nil, destroyOut{}, err
 		}
 		return nil, destroyOut{OK: true}, nil
 	})
+
+	addAgentTools(s, reg)
 
 	return s
 }
