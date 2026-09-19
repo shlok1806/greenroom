@@ -3,6 +3,7 @@ dist/
 build/
 .turbo/
 coverage/
+.claude/
 *.log
 .env
 .env.*
