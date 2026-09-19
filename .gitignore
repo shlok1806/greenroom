@@ -3,9 +3,11 @@ dist/
 build/
 .turbo/
 coverage/
+.claude/
 *.log
 .env
 .env.*
 !.env.example
 .DS_Store
 *.tsbuildinfo
+.claude/worktrees/
