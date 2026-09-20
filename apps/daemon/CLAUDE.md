@@ -69,7 +69,8 @@ Each layer depends only on the one below it. Keep it that way.
 - `internal/machine` - lifecycle and the source of truth. `Manager` guards the machine map
   with a mutex and persists it; `recorder` owns run evidence on disk: `manifest.json`,
   `steps.jsonl`, and, while frame capture is enabled, `frames/<unix-ms>.jpg` and `frames.jsonl`
-  (ADR 0008).
+  (ADR 0008). `input.go` owns computer use (ADR 0009): the control lease and the guest-side
+  helper, whose Swift source is embedded from `internal/machine/guest/input.swift`.
 - `internal/session` - the conversation a run owns (`conversation.jsonl`), beside `machine` and
   below `mcpserver` and the HTTP API. `Registry` hands out one append-only `Store` per run, and
   every participant, coder, human, verifier and the daemon itself, writes through it.
@@ -157,6 +158,29 @@ when it changes, and a tool call on a machine that is not ready comes back as a 
 A coder `note` is context, not a turn, because the coder's own reply channel is its next
 `agent_wait`.
 
+**Only one hand on the mouse, and the conversation is told whose.** A machine has at most
+one control lease (`Manager.TakeControl`, ADR 0009) and `Manager.Input` refuses a batch
+that is not backed by it, so the verifier and a person can never post events at the same
+time. The lease expires after `ControlTTL` of silence and every batch renews it: a
+companion that crashes holding the screen must not lock it for good. Taking it and giving
+it back each write one message into the conversation, and each batch is one
+`machine_input` step, whatever its length, so a drag reads as one thing a person did.
+
+**Input coordinates are fractions of the screen, and the manager is the only place that
+knows otherwise.** The caller sends 0 to 1 because it is looking at a scaled frame; the
+manager reads the guest's real resolution once per machine (`ScreenOf`) and multiplies.
+A coordinate outside the picture is clamped, not refused: a drag off the edge is a hand,
+not a bad request. Never move this arithmetic up into `api` or `mcpserver`: both would
+then need a resolution neither of them owns.
+
+**The guest input helper is compiled in the guest, once, and never on the host.** Posting
+a real event needs `CGEvent` from a process in the guest's own login session, so
+`installInputHelper` writes `guest/input.swift` into the machine as base64 and builds it
+with `swiftc -swift-version 5` at `~/.greenroom/bin/greenroom-input-<version>`. Change the
+Swift and bump `inputHelperVersion`, or a machine that is already running keeps calling
+the old binary. Nothing a person types is ever read by a shell: both the source and every
+batch travel as one base64 argument.
+
 **Every human or coder action that changes a machine lands in the conversation.** A destroy is
 announced by the lifecycle bridge in `main.go`, which subscribes to `Manager.Listen` and posts
 "machine is ready", "machine failed to boot" and "machine destroyed" from the one place that
@@ -214,7 +238,8 @@ only way to reach the failure paths:
 - `WithTartBin` points the manager at `internal/testsupport`, a fake `tart` script that answers
   every subcommand, records each argument list, and turns on failures through control files
   (`fail-clone`, `fail-run`, `fail-ip`, `fail-exec`, `fail-keyinstall`, `fail-stop`,
-  `fail-delete`, `exec-exit-<n>`, `exec-codes`, `agent-down`, `ssh-down`, `list-empty`, `vmnames`).
+  `fail-delete`, `exec-exit-<n>`, `exec-codes`, `agent-down`, `ssh-down`, `list-empty`, `vmnames`,
+  and for computer use `fail-input-install`, `input-down` and `screen`).
   `exec-codes` is a queue: one exit code per line, consumed on each `tart exec` call, for a test
   where a single turn runs several commands and needs their exit codes to differ.
 - `WithSSHProbe` replaces the in-guest port 22 check. The fake tart answers the real probe too,

@@ -70,5 +70,11 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.resync() }
         }
+        // Quitting gives back any screen this app was driving (ADR 0009).
+        // The daemon expires a lease on its own, so this only shortens the
+        // minute a machine would otherwise wait.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            Task { await store.releaseAllControl() }
+        }
     }
 }

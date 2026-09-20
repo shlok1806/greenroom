@@ -1,8 +1,9 @@
 # companion
 
 The macOS app that watches runs: see the machines, read the conversation, look at the
-screen, and take the human seat in the transcript. ADR 0007 at the repo root decides what
-it is; ADR 0006 decides what a message is.
+screen, take the human seat in the transcript, and take the machine's mouse and keyboard
+when watching is not enough. ADR 0007 at the repo root decides what it is; ADR 0006
+decides what a message is; ADR 0009 decides what driving a screen means.
 
 Swift is the one exception to "Go for deployables" in the root CLAUDE.md, and it exists
 for one reason: a native app is the only kind that can later embed a VNC view and feel
@@ -52,16 +53,21 @@ Views  ->  RunStore  ->  DaemonClient  ->  HTTP
 - `Model/DaemonClient.swift` is the only file in the app that knows HTTP exists. One
   method per route in ADR 0007.
 - `Model/Models.swift` holds the wire types. They mirror the daemon's Go structs.
+- `Model/ScreenControl.swift` and `Model/ControlPilot.swift` are the Screen tab's control
+  half (ADR 0009). The first is pure: where a click on a letterboxed picture lands, what a
+  key press means, how a queue of actions is trimmed. The second holds the lease and the
+  send queue. `Views/InputSurface.swift` is the only AppKit event code in the app.
 
-## Rules from ADR 0007
+## Rules from ADR 0007 and ADR 0009
 
 - **The app only calls the API.** It never shells out to `tart`, never opens an SSH
   connection, and never reads or writes a run directory on disk. If something is not a
   route, the app cannot do it, and the answer is a route on the daemon, not a shortcut
   here.
-- **The app does not drive.** No creating machines, no syncing code, no running commands.
-  The coding agent is the operator. The companion watches, speaks and, at most,
-  intervenes.
+- **The app does not drive the run, but it may drive the screen.** No creating machines,
+  no syncing code, no running commands: the coding agent is the operator. ADR 0009 adds
+  one exception, the mouse and keyboard, and it is an exception because it is louder in
+  the transcript than anything else the app does, not quieter (see below).
 - **Every control lands in the conversation.** A screenshot, a destroy or a message from
   the app is written into the run's transcript by the daemon, so the coding agent learns
   of it on its next `agent_wait`. The app must never gain a way to change a run that the
@@ -74,6 +80,25 @@ Views  ->  RunStore  ->  DaemonClient  ->  HTTP
   daemon to assemble the run's frames into an mp4 (`GET /api/runs/{id}/recording.mp4`),
   which needs `ffmpeg` on the daemon host; a daemon without it answers with an error the
   app surfaces rather than a generic failure.
+- **Taking the screen is a lease, and the lease is given back.** "Take control"
+  (ADR 0009) asks the daemon for the machine's mouse and keyboard, which it grants to one
+  holder at a time and expires after a minute of silence. The app gives it back when the
+  switch goes off, when the Screen tab or the run changes, when the machine stops being
+  ready, and when the app quits. Never add a path that takes the lease without one that
+  gives it back: a machine that believes a person is at its keyboard captures frames four
+  times as often and refuses everyone else.
+- **The app sends fractions, never pixels.** A click is `0.25, 0.5` of the guest's screen.
+  The app is looking at a resized JPEG scaled to fit a window it does not control, so it
+  cannot know the resolution and must not try; the daemon multiplies. `ScreenGeometry` is
+  the one place that turns a point in a view into a fraction, and it is pure so the
+  arithmetic is tested rather than trusted: a wrong fraction is a click in the wrong place
+  on someone else's machine.
+- **A shortcut is a key, ordinary typing is text.** `KeyTranslator` sends anything with
+  command or control held, and anything with no character to type (return, tab, the
+  arrows, the function keys), as a named `key` with modifiers; everything else goes as
+  `type` with the characters the keyboard produced. That is what makes accented and
+  non-Latin input work without the app knowing any keyboard layout, and command-A arrive
+  as Select All rather than as a control character.
 - **The stream is a hint, the API is the truth.** SSE events are best effort. On any
   stream error the store backs off (1 s, 2 s, 4 s, capped at 10 s), re-reads the run list
   and every open run, and reconnects.

@@ -89,6 +89,7 @@ final class RunStore {
     private var streamTask: Task<Void, Never>?
     private var started = false
     private var seekNonce = 0
+    private var pilots: [String: ControlPilot] = [:]
 
     init(client: DaemonClient = DaemonClient()) {
         self.client = client
@@ -346,6 +347,38 @@ final class RunStore {
         }
     }
 
+    // MARK: - Driving the screen (ADR 0009)
+
+    /// The one holder of a run's control lease. There is one per run and not
+    /// one per view, because the lease is the run's, not the window's: a tab
+    /// that is redrawn must not lose the screen, and two views of one run
+    /// must not each ask for it.
+    func pilot(for runId: String) -> ControlPilot {
+        if let held = pilots[runId] { return held }
+        let pilot = ControlPilot(runId: runId, store: self)
+        pilots[runId] = pilot
+        return pilot
+    }
+
+    /// Gives back every screen this app is holding. Called when the window
+    /// goes away, so a machine is never left believing a person is at its
+    /// keyboard.
+    func releaseAllControl() async {
+        for pilot in pilots.values {
+            await pilot.release()
+        }
+    }
+
+    /// Reloads one run's conversation. The control routes write into it on
+    /// the daemon side, so the transcript has to be re-read after each one.
+    func reloadTranscript(_ runId: String) async {
+        await reloadMessages(runId)
+    }
+
+    func clearError() {
+        if lastError != nil { lastError = nil }
+    }
+
     /// A step or a `progress` row was clicked: jump the Screen tab to the
     /// first frame at or after that step (ADR 0008).
     func requestSeek(runId: String, step: Int) {
@@ -416,7 +449,11 @@ final class RunStore {
     /// `async let` that already failed), so it is not news for the window: left
     /// in, it painted "The daemon is not answering: cancelled" under a footer
     /// that said "Live", every time the Screen tab followed a new frame.
-    private func report(_ error: Error) {
+    ///
+    /// Not `private`: `ControlPilot` reports the same way when a lease or an
+    /// input batch is refused, so driving the screen never grows a second way
+    /// to surface an error.
+    func report(_ error: Error) {
         guard !RunStore.isCancellation(error) else { return }
         lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }

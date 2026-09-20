@@ -1,6 +1,6 @@
 # Context: companion
 
-The macOS app for watching a run and speaking into it. Shared terms (Machine, Snapshot,
+The macOS app for watching a run, speaking into it, and taking its screen. Shared terms (Machine, Snapshot,
 Run, Evidence) are defined in the root `CONTEXT-MAP.md` and mean the same thing here.
 
 ## Glossary
@@ -32,14 +32,27 @@ Run, Evidence) are defined in the root `CONTEXT-MAP.md` and mean the same thing 
   answers with an error the app shows rather than a generic failure.
 - **Artifact**: a file in the run directory, reached only by name through
   `GET /api/runs/{id}/artifacts/{name}`. A screenshot step's `output.path` gives the name.
+- **Control lease**: the right to move one machine's mouse and press its keys, held by one
+  seat at a time and expiring after a minute of silence (ADR 0009). The app takes it with
+  the Screen tab's "Take control" switch, renews it while it is driving, and gives it back
+  when it stops. A lease held by anyone else is not the app's to use or to end.
+- **Driving**: the state the Screen tab is in while the app holds the lease. The picture is
+  pinned to the newest frame, the scrubber and its keys are off, a red badge says so, and
+  every mouse and key event in the picture goes to the machine.
+- **Action**: one thing done to a screen: `move`, `click`, `down`, `up`, `scroll`, `type`,
+  `key`, `sleep`. Coordinates in one are fractions of the guest's display, 0 to 1, never
+  pixels.
+- **Batch**: the actions sent in one request, and one step in the run's evidence. The app
+  queues while a request is in flight and trims the queue before sending it
+  (`InputBatch.coalesced`), so a slow daemon means bigger batches rather than a backlog.
 
 ## Invariants
 
 1. **Every read and every write is an HTTP call to the daemon.** No tart, no ssh, no run
    directory, no second source of truth.
 2. **The app proposes, it does not operate.** It cannot create a machine, sync code or run
-   a command. It can take a screenshot and destroy a machine, and both are recorded in the
-   conversation.
+   a command. It can take a screenshot, destroy a machine, and take the screen and use it
+   (ADR 0009); every one of those is recorded in the conversation.
 3. **Nothing the app does is hidden from the coding agent.** Every control writes into the
    transcript on the daemon side.
 4. **Sequence numbers come from the daemon.** The app appends a message to its local
@@ -56,6 +69,10 @@ Run, Evidence) are defined in the root `CONTEXT-MAP.md` and mean the same thing 
    drop, and every time the app comes to the foreground, it re-reads the run list and the
    selected run's detail, transcript, steps and frames from the API
    (`RunStore.resyncPlan`).
-8. **The app never polls for screenshots.** It shows the frames the daemon already
+8. **The screen is only ever driven under a lease, and never by two things at once.** The
+   app posts no input it has not been granted the lease for, and it gives the lease back on
+   every way out of the Screen tab, including quitting. While it drives, the player is
+   live: nobody can click on the past.
+9. **The app never polls for screenshots.** It shows the frames the daemon already
    captured and pushed down the event stream; the only capture it triggers itself is an
    explicit "Screenshot" from the toolbar, and that too is a single request, not a loop.

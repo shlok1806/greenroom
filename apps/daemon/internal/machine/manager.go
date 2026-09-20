@@ -53,9 +53,15 @@ type Machine struct {
 	Dir         string    `json:"dir"`
 	VNCURL      string    `json:"vncUrl,omitempty"` // set when the machine is watched
 
+	// Control is the screen-control lease (ADR 0009), nil while nobody is
+	// driving. It is replaced, never edited in place, so a snapshot can
+	// carry it without sharing state with the machine it came from.
+	Control *Control `json:"control,omitempty"`
+
 	rec   *recorder
 	ready chan struct{} // closed once Status leaves Booting
 	proc  *tart.Process // the `tart run` subprocess, nil for a reattached machine
+	input *inputState   // the guest-side input helper, installed on first use (input.go)
 
 	// frameCancel stops this machine's frame recorder (frames.go). It is set
 	// once, by startFrames, and read by Destroy; both hold Manager.mu while
@@ -77,7 +83,7 @@ func (m *Manager) snapshot(mc *Machine) *Machine {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	c := *mc
-	c.rec, c.ready = nil, nil
+	c.rec, c.ready, c.input = nil, nil, nil
 	return &c
 }
 
@@ -307,6 +313,10 @@ func (m *Manager) loadState() error {
 			return err
 		}
 		mc.ready = make(chan struct{})
+		mc.input = &inputState{}
+		// A lease that survived the daemon belongs to an app that did not:
+		// whoever was driving has to take control again (ADR 0009).
+		mc.Control = nil
 		m.machines[mc.RunID] = mc
 		if mc.Status == Ready {
 			close(mc.ready)
@@ -348,7 +358,7 @@ func (m *Manager) List() []*Machine {
 	out := make([]*Machine, 0, len(m.machines))
 	for _, mc := range m.machines {
 		c := *mc
-		c.rec, c.ready = nil, nil
+		c.rec, c.ready, c.input = nil, nil, nil
 		out = append(out, &c)
 	}
 	return out
@@ -387,7 +397,8 @@ func (m *Manager) Create(ctx context.Context, image string, watch bool) (*Machin
 	if err != nil {
 		return nil, err
 	}
-	mc := &Machine{RunID: runID, Name: name, Image: image, Status: Booting, CreatedAt: started.UTC(), Dir: dir, rec: rec, ready: make(chan struct{})}
+	mc := &Machine{RunID: runID, Name: name, Image: image, Status: Booting, CreatedAt: started.UTC(), Dir: dir,
+		rec: rec, ready: make(chan struct{}), input: &inputState{}}
 
 	if err := m.tart.Clone(ctx, image, name); err != nil {
 		rec.step("machine_create", map[string]any{"image": image}, nil, err, started)
