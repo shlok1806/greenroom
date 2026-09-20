@@ -169,6 +169,16 @@ func type(text: String) {
     // One event per character, with the character set as the event's unicode
     // string. This types what the person typed without caring which keyboard
     // layout the guest has.
+    //
+    // A one-millisecond gap follows both the key-down and the key-up: posted
+    // back to back with no gap at all, a whole string arrives at the window
+    // server faster than a freshly-focused app's run loop can drain its event
+    // queue, and it silently drops everything after the first character or
+    // two -- confirmed end to end (e2e_input_test.go) by typing into Terminal
+    // right after opening it: only the first couple of characters landed and
+    // the rest, including the trailing return, never did. The delay costs
+    // nothing a person would notice and it is what makes every character
+    // actually arrive.
     for character in text {
         let units = Array(String(character).utf16)
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
@@ -180,7 +190,9 @@ func type(text: String) {
             up.keyboardSetUnicodeString(stringLength: units.count, unicodeString: base)
         }
         post(down)
+        usleep(1_000)
         post(up)
+        usleep(1_000)
     }
 }
 

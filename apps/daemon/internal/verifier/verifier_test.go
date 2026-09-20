@@ -302,6 +302,145 @@ func TestTurnRunsACommandThenPostsAVerdict(t *testing.T) {
 	}
 }
 
+func TestTurnClicksAtAFractionAndRecordsOneStep(t *testing.T) {
+	mgr, runID, control := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_click", map[string]any{"x": 0.25, "y": 0.5}),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Clicked the button."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Click the button at a quarter across, halfway down.")
+
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if res.Ended != session.Verdict {
+		t.Errorf("Ended = %q, want verdict", res.Ended)
+	}
+
+	prog := messagesOfKind(store, session.Progress)
+	if len(prog) != 1 {
+		t.Fatalf("%d progress messages, want 1", len(prog))
+	}
+	if !strings.HasPrefix(prog[0].Text, "machine_click") || prog[0].Step <= 0 {
+		t.Errorf("progress = %+v, want a machine_click step", prog[0])
+	}
+	if !strings.Contains(testsupport.Calls(t, control), "greenroom-input") {
+		t.Error("the click never reached the guest")
+	}
+
+	// The lease is per call, not per turn: a human must be able to take the
+	// screen back the moment the tool call, and the turn, are done.
+	if _, held := mgr.ControlState(runID); held {
+		t.Error("the lease is still held after the turn; a human could not take the screen")
+	}
+}
+
+func TestTurnTypesAndScrolls(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_type", map[string]any{"text": "hello"}),
+		toolCall("machine_key", map[string]any{"key": "a", "mods": []string{"cmd"}}),
+		toolCall("machine_scroll", map[string]any{"deltaY": -120.0}),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Typed, pressed and scrolled."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Type, press command-A, then scroll up.")
+
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+
+	prog := messagesOfKind(store, session.Progress)
+	if len(prog) != 3 {
+		t.Fatalf("%d progress messages, want 3", len(prog))
+	}
+	wantPrefixes := []string{"machine_type", "machine_key", "machine_scroll"}
+	for i, want := range wantPrefixes {
+		if !strings.HasPrefix(prog[i].Text, want) || prog[i].Step <= 0 {
+			t.Errorf("progress[%d] = %+v, want a %s step", i, prog[i], want)
+		}
+	}
+	if !strings.Contains(prog[1].Text, "cmd+a") {
+		t.Errorf("key progress %q does not name the modifier", prog[1].Text)
+	}
+}
+
+func TestTurnComposesADragWithMachineInput(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_input", map[string]any{"actions": []map[string]any{
+			{"type": "down", "x": 0.1, "y": 0.1},
+			{"type": "move", "x": 0.5, "y": 0.5},
+			{"type": "up", "x": 0.5, "y": 0.5},
+		}}),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Dragged it."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Drag the item across the screen.")
+
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+
+	prog := messagesOfKind(store, session.Progress)
+	if len(prog) != 1 {
+		t.Fatalf("a 3-action drag posted %d steps, want 1", len(prog))
+	}
+	if !strings.HasPrefix(prog[0].Text, "machine_input") {
+		t.Errorf("progress = %+v, want a machine_input step", prog[0])
+	}
+
+	// One machine_input step no matter how many actions the batch held: a
+	// drag reads as one thing a person did, not three.
+	steps, err := machine.ReadSteps(mgr.RunDir(runID))
+	if err != nil {
+		t.Fatalf("ReadSteps: %v", err)
+	}
+	var found int
+	for _, s := range steps {
+		if s.Tool == "machine_input" {
+			found++
+		}
+	}
+	if found != 1 {
+		t.Fatalf("machine_input steps = %d, want 1", found)
+	}
+}
+
+func TestTurnComputerUseIsRefusedWhileAHumanHoldsTheScreen(t *testing.T) {
+	mgr, runID, control := ready(t)
+	if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
+		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "Could not click; a human has the screen."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Click the button.")
+
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+
+	prog := messagesOfKind(store, session.Progress)
+	if len(prog) != 1 || !strings.Contains(prog[0].Text, "human") {
+		t.Fatalf("progress = %+v, want an error naming the human", prog)
+	}
+	if strings.Contains(testsupport.Calls(t, control), "greenroom-input") {
+		t.Error("a batch reached the guest while a human held the screen")
+	}
+	if c, held := mgr.ControlState(runID); !held || c.Holder != "human" {
+		t.Errorf("control = %+v, want the human to still hold it", c)
+	}
+}
+
 func TestTurnDescribesAScreenshotForABlindModel(t *testing.T) {
 	mgr, runID, control := ready(t)
 	writeShot(t, control)

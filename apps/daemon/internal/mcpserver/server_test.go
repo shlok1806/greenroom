@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -146,6 +147,8 @@ func TestServerExposesExactlyItsTools(t *testing.T) {
 		"machine_sync": false, "machine_exec": false, "machine_screenshot": false,
 		"machine_destroy": false,
 		"agent_send":      false, "agent_wait": false, "agent_transcript": false,
+		"machine_click": false, "machine_type": false, "machine_key": false,
+		"machine_scroll": false, "machine_input": false,
 	}
 	for _, tool := range res.Tools {
 		if _, ok := want[tool.Name]; !ok {
@@ -188,13 +191,24 @@ func TestRequiredArgumentsAreEnforced(t *testing.T) {
 
 func TestUnknownRunIdIsAReadableToolError(t *testing.T) {
 	h := newHarness(t)
-	for _, name := range []string{"machine_wait", "machine_exec", "machine_screenshot", "machine_destroy", "machine_sync"} {
+	for _, name := range []string{
+		"machine_wait", "machine_exec", "machine_screenshot", "machine_destroy", "machine_sync",
+		"machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input",
+	} {
 		args := map[string]any{"runId": "no-such-run"}
-		if name == "machine_exec" {
+		switch name {
+		case "machine_exec":
 			args["command"] = "echo hi"
-		}
-		if name == "machine_sync" {
+		case "machine_sync":
 			args["source"] = t.TempDir()
+		case "machine_click":
+			args["x"], args["y"] = 0.5, 0.5
+		case "machine_type":
+			args["text"] = "hi"
+		case "machine_key":
+			args["key"] = "a"
+		case "machine_input":
+			args["actions"] = []map[string]any{{"type": "key", "key": "a"}}
 		}
 		res := h.raw(name, args)
 		if !res.IsError {
@@ -204,6 +218,48 @@ func TestUnknownRunIdIsAReadableToolError(t *testing.T) {
 		if !strings.Contains(text(res), "no machine for run") {
 			t.Errorf("%s error is not readable: %q", name, text(res))
 		}
+	}
+}
+
+// TestComputerUseOnAFailedMachineIsAReadableError matches the pattern every
+// other guest-touching tool follows: a machine that never came up answers
+// with a readable error naming its status, not a transport failure, and
+// leaves nothing posted to the guest.
+func TestComputerUseOnAFailedMachineIsAReadableError(t *testing.T) {
+	h := newHarness(t)
+	testsupport.Flag(t, h.control, "fail-run")
+	var mc machine.Machine
+	h.call("machine_create", nil, &mc)
+	for i := 0; i < 40 && mc.Status == machine.Booting; i++ {
+		h.call("machine_wait", map[string]any{"runId": mc.RunID, "timeoutSeconds": 5}, &mc)
+	}
+	if mc.Status != machine.Failed {
+		t.Fatalf("machine is %s, want failed (error %q)", mc.Status, mc.Error)
+	}
+
+	for _, name := range []string{"machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input"} {
+		args := map[string]any{"runId": mc.RunID}
+		switch name {
+		case "machine_click":
+			args["x"], args["y"] = 0.5, 0.5
+		case "machine_type":
+			args["text"] = "hi"
+		case "machine_key":
+			args["key"] = "a"
+		case "machine_input":
+			args["actions"] = []map[string]any{{"type": "key", "key": "a"}}
+		}
+		res := h.raw(name, args)
+		if !res.IsError {
+			t.Errorf("%s accepted a call on a failed machine", name)
+			continue
+		}
+		if !strings.Contains(text(res), "is failed") {
+			t.Errorf("%s error is not readable: %q", name, text(res))
+		}
+	}
+	if strings.Contains(testsupport.Calls(t, h.control), "greenroom-input") {
+		t.Error("a batch reached the guest of a machine that never came up")
 	}
 }
 
@@ -572,5 +628,217 @@ func TestVerifyToolIsGone(t *testing.T) {
 		if tool.Name == "machine_verify" {
 			t.Fatal("machine_verify is still offered")
 		}
+	}
+}
+
+// --- computer use (ADR 0009, issue #11): machine_click, machine_type,
+// machine_key, machine_scroll and machine_input, the verifier's mouse and
+// keyboard. ---
+
+// postedActions decodes what the daemon actually sent the guest helper, the
+// same way internal/machine/input_test.go does: the fake tart logs the whole
+// command, and the payload rides in it as base64. It returns the last
+// non-empty batch, so a test that posts several calls sees the most recent.
+func postedActions(t *testing.T, control string) []map[string]any {
+	t.Helper()
+	calls := testsupport.Calls(t, control)
+	re := regexp.MustCompile(`--json-base64 ([A-Za-z0-9+/=]+)`)
+	var last []map[string]any
+	for _, match := range re.FindAllStringSubmatch(calls, -1) {
+		raw, err := base64.StdEncoding.DecodeString(match[1])
+		if err != nil {
+			t.Fatalf("payload is not base64: %v", err)
+		}
+		var payload struct {
+			Actions []map[string]any `json:"actions"`
+		}
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			t.Fatalf("payload is not JSON: %v: %s", err, raw)
+		}
+		if len(payload.Actions) > 0 {
+			last = payload.Actions
+		}
+	}
+	return last
+}
+
+func TestClickPostsOneActionAndRecordsOneStep(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	h.call("machine_click", map[string]any{"runId": runID, "x": 0.25, "y": 0.5}, nil)
+
+	posted := postedActions(t, h.control)
+	if len(posted) != 1 {
+		t.Fatalf("the guest was sent %d actions, want 1: %+v", len(posted), posted)
+	}
+	if posted[0]["type"] != "click" {
+		t.Errorf("action type = %v, want click", posted[0]["type"])
+	}
+	// Default screen is 1024x768 (fake tart): 0.25,0.5 scales to 256,384.
+	if posted[0]["x"] != 256.0 || posted[0]["y"] != 384.0 {
+		t.Errorf("x,y = %v,%v, want 256,384", posted[0]["x"], posted[0]["y"])
+	}
+
+	steps, err := machine.ReadSteps(h.mgr.RunDir(runID))
+	if err != nil {
+		t.Fatalf("ReadSteps: %v", err)
+	}
+	var found int
+	for _, s := range steps {
+		if s.Tool == "machine_input" {
+			found++
+		}
+	}
+	if found != 1 {
+		t.Fatalf("machine_input steps = %d, want 1", found)
+	}
+}
+
+func TestKeyPressesWithModifiers(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	h.call("machine_key", map[string]any{"runId": runID, "key": "a", "mods": []string{"cmd", "shift"}}, nil)
+
+	posted := postedActions(t, h.control)
+	if len(posted) != 1 {
+		t.Fatalf("the guest was sent %d actions, want 1: %+v", len(posted), posted)
+	}
+	if posted[0]["type"] != "key" || posted[0]["key"] != "a" {
+		t.Errorf("action = %+v, want a key press of \"a\"", posted[0])
+	}
+	mods, _ := posted[0]["mods"].([]any)
+	if len(mods) != 2 || mods[0] != "cmd" || mods[1] != "shift" {
+		t.Errorf("mods = %v, want [cmd shift]", posted[0]["mods"])
+	}
+}
+
+func TestScrollPostsADelta(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	h.call("machine_scroll", map[string]any{"runId": runID, "deltaX": 0, "deltaY": -120}, nil)
+
+	posted := postedActions(t, h.control)
+	if len(posted) != 1 {
+		t.Fatalf("the guest was sent %d actions, want 1: %+v", len(posted), posted)
+	}
+	if posted[0]["type"] != "scroll" || posted[0]["deltaY"] != -120.0 {
+		t.Errorf("action = %+v, want a scroll of deltaY -120", posted[0])
+	}
+}
+
+// A drag has no tool of its own: it is a batch through machine_input, the
+// same way the companion composes one out of down, move and up.
+func TestInputBatchComposesADragInOneStep(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	h.call("machine_input", map[string]any{"runId": runID, "actions": []map[string]any{
+		{"type": "down", "x": 0.1, "y": 0.1},
+		{"type": "move", "x": 0.9, "y": 0.1},
+		{"type": "up", "x": 0.9, "y": 0.1},
+	}}, nil)
+
+	posted := postedActions(t, h.control)
+	if len(posted) != 3 {
+		t.Fatalf("the guest was sent %d actions, want 3: %+v", len(posted), posted)
+	}
+	if posted[0]["type"] != "down" || posted[1]["type"] != "move" || posted[2]["type"] != "up" {
+		t.Errorf("actions = %+v, want down, move, up in order", posted)
+	}
+
+	steps, err := machine.ReadSteps(h.mgr.RunDir(runID))
+	if err != nil {
+		t.Fatalf("ReadSteps: %v", err)
+	}
+	var found int
+	for _, s := range steps {
+		if s.Tool == "machine_input" {
+			found++
+		}
+	}
+	if found != 1 {
+		t.Fatalf("machine_input steps = %d, want 1: a batch is one step, not one per action", found)
+	}
+}
+
+// A human at the companion always wins. The verifier's call comes back as a
+// readable tool error naming them, not a transport failure, and the machine
+// is unharmed: no action reaches the guest.
+func TestClickIsRefusedWhileAHumanHoldsTheScreen(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	if _, _, err := h.mgr.TakeControl(runID, "human", 0); err != nil {
+		t.Fatalf("TakeControl(human): %v", err)
+	}
+
+	res := h.raw("machine_click", map[string]any{"runId": runID, "x": 0.5, "y": 0.5})
+	if !res.IsError {
+		t.Fatal("machine_click succeeded although a human holds the screen")
+	}
+	msg := text(res)
+	if !strings.Contains(msg, "human") {
+		t.Errorf("the error does not name the human holder: %q", msg)
+	}
+
+	if strings.Contains(testsupport.Calls(t, h.control), "greenroom-input") {
+		t.Error("a refused click still reached the guest input helper")
+	}
+
+	// The human is still holding the screen: the refused call did not
+	// consume or disturb their lease.
+	c, held := h.mgr.ControlState(runID)
+	if !held || c.Holder != "human" {
+		t.Errorf("control state = %+v held=%v, want the human still holding it", c, held)
+	}
+}
+
+// The verifier holds the lease per call, not for the whole turn: once a
+// machine_click has returned, a human can take the screen back immediately,
+// proving the verifier gave it up rather than holding it across calls.
+func TestAHumanCanTakeTheScreenBackBetweenVerifierCalls(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	h.call("machine_click", map[string]any{"runId": runID, "x": 0.5, "y": 0.5}, nil)
+
+	if _, _, err := h.mgr.TakeControl(runID, "human", 0); err != nil {
+		t.Fatalf("a human could not take control right after a verifier call: %v", err)
+	}
+	c, held := h.mgr.ControlState(runID)
+	if !held || c.Holder != "human" {
+		t.Errorf("control state = %+v held=%v, want the human holding it", c, held)
+	}
+}
+
+func TestTypeSendsOneBatchOneStep(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	h.call("machine_type", map[string]any{"runId": runID, "text": "hello"}, nil)
+
+	posted := postedActions(t, h.control)
+	if len(posted) != 1 {
+		t.Fatalf("the guest was sent %d actions, want 1: %+v", len(posted), posted)
+	}
+	if posted[0]["type"] != "type" || posted[0]["text"] != "hello" {
+		t.Errorf("action = %+v, want a type of \"hello\"", posted[0])
+	}
+
+	steps, err := machine.ReadSteps(h.mgr.RunDir(runID))
+	if err != nil {
+		t.Fatalf("ReadSteps: %v", err)
+	}
+	var found int
+	for _, s := range steps {
+		if s.Tool == "machine_input" {
+			found++
+		}
+	}
+	if found != 1 {
+		t.Fatalf("machine_input steps = %d, want 1", found)
 	}
 }

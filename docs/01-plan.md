@@ -64,11 +64,16 @@ become proposals that can be disputed and accepted; a macOS companion app watche
 and speaks into the conversation. Slotted before M2 because a verifier that can be
 asked and disagreed with is what makes the computer-use tools worth giving it.
 
-**M2 - computer use.** Status 2026-09-20: the machine layer and the companion have it.
-`internal/machine/input.go` posts click, type, key and scroll into a guest through a Swift
-helper it compiles there, under a one-holder lease the conversation records (ADR 0009),
-and the companion's Screen tab is a screen you can use. Remaining for M2: the same calls
-as `machine_*` MCP tools so the verifier has a mouse too, the accessibility tree, and
-then the xcode image and a real Mac app.
+**M2 - computer use.** Status 2026-09-20: the machine layer, the companion and the verifier
+all have it. `internal/machine/input.go` posts click, type, key and scroll into a guest
+through a Swift helper it compiles there, under a one-holder lease the conversation records
+(ADR 0009), and the companion's Screen tab is a screen you can use. The verifier has a mouse
+too now (issue #11): `machine_click`, `machine_type`, `machine_key`, `machine_scroll` and a
+general `machine_input` batch (for a drag, compose down, move and up) are MCP tools in
+`internal/mcpserver`, and the model and manual brains in `internal/verifier` carry the same
+five natively, each call taking the screen lease, posting, and releasing it before it
+returns, so a person watching can take the screen back between calls rather than only
+between turns. Remaining for M2: the accessibility tree, and then the xcode image and a
+real Mac app.
 
 Beyond M2 is not planned. See the deferred list in ADR 0003.

@@ -129,6 +129,99 @@ func (v *Verifier) tools() []nim.Tool {
 			Schema:      map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 		{
+			Name: "machine_click",
+			Description: "Click the machine's screen at a position. x and y are fractions of the screen (0 to 1), not " +
+				"pixels: call machine_screenshot first and reason in that picture. A human may be driving the " +
+				"machine; if so this comes back as an error naming them, and the machine is unharmed.",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"x":      map[string]any{"type": "number", "description": "Horizontal position as a fraction of the screen, 0 (left) to 1 (right)."},
+					"y":      map[string]any{"type": "number", "description": "Vertical position as a fraction of the screen, 0 (top) to 1 (bottom)."},
+					"button": str("left (default), right, or middle."),
+					"clicks": map[string]any{"type": "integer", "description": "2 for a double click. Default 1."},
+				},
+				"required": []string{"x", "y"},
+			},
+		},
+		{
+			Name: "machine_type",
+			Description: "Type text into the machine, into whatever currently has keyboard focus. Click into a " +
+				"field first if nothing does. A human may be driving the machine; if so this comes back as an " +
+				"error naming them, and the machine is unharmed.",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"text": str("The text to type, one character event at a time.")},
+				"required":   []string{"text"},
+			},
+		},
+		{
+			Name: "machine_key",
+			Description: "Press one key, optionally with modifiers held down, for example key f with mods [cmd] " +
+				"for command-F. A human may be driving the machine; if so this comes back as an error naming " +
+				"them, and the machine is unharmed.",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"key": str("A key name: a letter, digit or punctuation character, or one of return, enter, tab, space, " +
+						"delete, forwarddelete, escape, left, right, up, down, home, end, pageup, pagedown, capslock, " +
+						"help, f1-f12."),
+					"mods": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Modifiers held with the key: cmd, shift, alt, ctrl, fn."},
+				},
+				"required": []string{"key"},
+			},
+		},
+		{
+			Name: "machine_scroll",
+			Description: "Scroll the machine's screen under the pointer's current position, or under x,y if given. " +
+				"A human may be driving the machine; if so this comes back as an error naming them, and the " +
+				"machine is unharmed.",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"x":      map[string]any{"type": "number", "description": "Optional fraction of the screen to move the pointer to first."},
+					"y":      map[string]any{"type": "number", "description": "Optional fraction of the screen to move the pointer to first, paired with x."},
+					"deltaX": map[string]any{"type": "number", "description": "Horizontal scroll amount, in points. Positive scrolls right."},
+					"deltaY": map[string]any{"type": "number", "description": "Vertical scroll amount, in points. Positive scrolls down, negative scrolls up."},
+				},
+			},
+		},
+		{
+			Name: "machine_input",
+			Description: "Post an ordered batch of actions (move, click, down, up, scroll, type, key, sleep) in " +
+				"one round trip: compose a drag out of down, move and up. machine_click, machine_type, " +
+				"machine_key and machine_scroll are conveniences over this for the common single-action case. " +
+				"Coordinates are fractions of the screen (0 to 1). A human may be driving the machine; if so " +
+				"this comes back as an error naming them, and the machine is unharmed.",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"actions": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"type":   str("One of: move, click, down, up, scroll, type, key, sleep."),
+								"x":      map[string]any{"type": "number", "description": "Fraction of the screen, 0 to 1. For move, click, down and up."},
+								"y":      map[string]any{"type": "number", "description": "Fraction of the screen, 0 to 1. For move, click, down and up."},
+								"button": str("left (default), right, or middle. For click, down and up."),
+								"clicks": map[string]any{"type": "integer", "description": "2 for a double click. For click, down and up."},
+								"deltaX": map[string]any{"type": "number", "description": "For scroll."},
+								"deltaY": map[string]any{"type": "number", "description": "For scroll."},
+								"text":   str("For type."),
+								"key":    str("For key."),
+								"mods":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Modifiers held with key: cmd, shift, alt, ctrl, fn."},
+								"ms":     map[string]any{"type": "integer", "description": "Milliseconds to wait. For sleep, capped at 5000."},
+							},
+							"required": []string{"type"},
+						},
+						"description": "Ordered actions to post in one batch, for example down, move, up to drag. The whole batch records as one step.",
+					},
+				},
+				"required": []string{"actions"},
+			},
+		},
+		{
 			Name:        "reply",
 			Description: "Answer whoever spoke when no verdict is called for: a status update, an explanation, or a plain answer to a question. Ends your turn.",
 			Schema: map[string]any{
@@ -442,7 +535,8 @@ func splitProgress(text string) (name, args, result string) {
 // step it recorded.
 func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall) (result string, step int) {
 	switch call.Name {
-	case "machine_exec", "machine_screenshot":
+	case "machine_exec", "machine_screenshot",
+		"machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input":
 		// The model may try the machine before it is up. Say why in words it
 		// can act on; it still costs one step, so this cannot spin.
 		if why := unusable(ctx, v.mgr, runID); why != "" {
@@ -475,6 +569,105 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 			return fmt.Sprintf("step %d\nThe screenshot was saved to %s but it could not be described: %v", seq, path, err), seq
 		}
 		return fmt.Sprintf("step %d\nThe screen shows:\n%s\n\nThe image is saved at %s", seq, desc, path), seq
+
+	case "machine_click":
+		var in struct {
+			X      float64 `json:"x"`
+			Y      float64 `json:"y"`
+			Button string  `json:"button"`
+			Clicks int     `json:"clicks"`
+		}
+		if err := json.Unmarshal([]byte(call.Arguments), &in); err != nil {
+			return "error: machine_click needs x and y", 0
+		}
+		res, err := v.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{
+			{Type: "click", X: &in.X, Y: &in.Y, Button: in.Button, Clicks: in.Clicks},
+		})
+		if err != nil {
+			return "error: " + err.Error(), res.Step
+		}
+		return fmt.Sprintf("step %d\nclicked (%.2f, %.2f)", res.Step, in.X, in.Y), res.Step
+
+	case "machine_type":
+		var in struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal([]byte(call.Arguments), &in); err != nil || in.Text == "" {
+			return "error: machine_type needs text", 0
+		}
+		res, err := v.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{{Type: "type", Text: in.Text}})
+		if err != nil {
+			return "error: " + err.Error(), res.Step
+		}
+		return fmt.Sprintf("step %d\ntyped %q", res.Step, in.Text), res.Step
+
+	case "machine_key":
+		var in struct {
+			Key  string   `json:"key"`
+			Mods []string `json:"mods"`
+		}
+		if err := json.Unmarshal([]byte(call.Arguments), &in); err != nil || in.Key == "" {
+			return "error: machine_key needs a key", 0
+		}
+		res, err := v.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{{Type: "key", Key: in.Key, Mods: in.Mods}})
+		if err != nil {
+			return "error: " + err.Error(), res.Step
+		}
+		label := in.Key
+		if len(in.Mods) > 0 {
+			label = strings.Join(in.Mods, "+") + "+" + in.Key
+		}
+		return fmt.Sprintf("step %d\npressed %s", res.Step, label), res.Step
+
+	case "machine_scroll":
+		var in struct {
+			X      *float64 `json:"x"`
+			Y      *float64 `json:"y"`
+			DeltaX float64  `json:"deltaX"`
+			DeltaY float64  `json:"deltaY"`
+		}
+		if err := json.Unmarshal([]byte(call.Arguments), &in); err != nil {
+			return "error: machine_scroll needs deltaX or deltaY", 0
+		}
+		res, err := v.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{
+			{Type: "scroll", X: in.X, Y: in.Y, DeltaX: in.DeltaX, DeltaY: in.DeltaY},
+		})
+		if err != nil {
+			return "error: " + err.Error(), res.Step
+		}
+		return fmt.Sprintf("step %d\nscrolled (deltaX %.0f, deltaY %.0f)", res.Step, in.DeltaX, in.DeltaY), res.Step
+
+	case "machine_input":
+		var in struct {
+			Actions []struct {
+				Type   string   `json:"type"`
+				X      *float64 `json:"x"`
+				Y      *float64 `json:"y"`
+				Button string   `json:"button"`
+				Clicks int      `json:"clicks"`
+				DeltaX float64  `json:"deltaX"`
+				DeltaY float64  `json:"deltaY"`
+				Text   string   `json:"text"`
+				Key    string   `json:"key"`
+				Mods   []string `json:"mods"`
+				MS     int      `json:"ms"`
+			} `json:"actions"`
+		}
+		if err := json.Unmarshal([]byte(call.Arguments), &in); err != nil || len(in.Actions) == 0 {
+			return "error: machine_input needs a non-empty actions array", 0
+		}
+		actions := make([]machine.InputAction, len(in.Actions))
+		for i, a := range in.Actions {
+			actions[i] = machine.InputAction{
+				Type: a.Type, X: a.X, Y: a.Y, Button: a.Button, Clicks: a.Clicks,
+				DeltaX: a.DeltaX, DeltaY: a.DeltaY, Text: a.Text, Key: a.Key, Mods: a.Mods, MS: a.MS,
+			}
+		}
+		res, err := v.mgr.InputAs(ctx, runID, verifierHolder, actions)
+		if err != nil {
+			return "error: " + err.Error(), res.Step
+		}
+		return fmt.Sprintf("step %d\nposted %d actions", res.Step, res.Actions), res.Step
 
 	default:
 		return "error: no tool named " + call.Name, 0

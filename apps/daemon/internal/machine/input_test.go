@@ -309,6 +309,70 @@ func TestInputRefusesAnEmptyBatch(t *testing.T) {
 	}
 }
 
+// TestInputAsTakesPostsAndReleases covers the take-post-release sequence
+// mcpserver's machine_click family and the verifier's own tool loop both
+// used to duplicate (issue #12): InputAs must take the lease for holder,
+// post the batch, and free the screen again before it returns, so a second
+// caller is never left locked out by a call that already finished.
+func TestInputAsTakesPostsAndReleases(t *testing.T) {
+	mgr, _, _ := newTestManager(t)
+	mc := readyMachine(t, mgr)
+
+	if _, held := mgr.ControlState(mc.RunID); held {
+		t.Fatal("a fresh machine already has a control holder")
+	}
+
+	res, err := mgr.InputAs(context.Background(), mc.RunID, "verifier", []InputAction{
+		{Type: "click", X: frac(0.5), Y: frac(0.5)},
+	})
+	if err != nil {
+		t.Fatalf("InputAs: %v", err)
+	}
+	if res.Actions != 1 {
+		t.Errorf("InputAs reported %d actions, want 1", res.Actions)
+	}
+	// The lease must be free again the instant the call returns, not held
+	// until the caller's turn ends.
+	if _, held := mgr.ControlState(mc.RunID); held {
+		t.Fatal("InputAs left the lease held after it returned")
+	}
+
+	// A second InputAs call, from a different holder, must succeed too: a
+	// released lease is free for anyone.
+	if _, err := mgr.InputAs(context.Background(), mc.RunID, "human", []InputAction{
+		{Type: "click", X: frac(0.5), Y: frac(0.5)},
+	}); err != nil {
+		t.Fatalf("InputAs from a second holder after release: %v", err)
+	}
+}
+
+// TestInputAsRefusesWhileSomeoneElseHoldsTheScreen pins the readable error
+// both mcpserver and the verifier depend on: a human already driving the
+// machine must be named, not reported as the sentinel ErrControlHeld, so a
+// coder or a model can read it and simply try again.
+func TestInputAsRefusesWhileSomeoneElseHoldsTheScreen(t *testing.T) {
+	mgr, _, _ := newTestManager(t)
+	mc := readyMachine(t, mgr)
+
+	if _, _, err := mgr.TakeControl(mc.RunID, "human", 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+
+	_, err := mgr.InputAs(context.Background(), mc.RunID, "verifier", []InputAction{
+		{Type: "click", X: frac(0.5), Y: frac(0.5)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "human") {
+		t.Fatalf("InputAs while a human holds the screen gave %v, want an error naming human", err)
+	}
+	if errors.Is(err, ErrControlHeld) {
+		t.Fatal("InputAs surfaced the sentinel ErrControlHeld instead of a readable message naming the holder")
+	}
+	// The human's own lease must survive a refused InputAs call untouched.
+	if c, held := mgr.ControlState(mc.RunID); !held || c.Holder != "human" {
+		t.Fatalf("the human's lease is %+v held=%v after a refused InputAs call", c, held)
+	}
+}
+
 func TestControlOnAMachineThatIsGone(t *testing.T) {
 	mgr, _, _ := newTestManager(t)
 	mc := readyMachine(t, mgr)

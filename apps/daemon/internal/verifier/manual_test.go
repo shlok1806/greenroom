@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
 func testLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -107,6 +108,100 @@ func TestManualVerdictCitesTheStepsItRan(t *testing.T) {
 	}
 	if len(last.Evidence) == 0 {
 		t.Errorf("verdict %+v has no evidence although a step ran", last)
+	}
+}
+
+func TestManualClicksAndRecordsOneStep(t *testing.T) {
+	mgr, runID, control := ready(t)
+	store := openStore(t, mgr, runID)
+	post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "click 0.25 0.5\nverdict pass clicked it"})
+
+	m := NewManual(mgr, testLog())
+	res, err := m.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if res.Ended != session.Verdict {
+		t.Errorf("Ended = %q, want verdict", res.Ended)
+	}
+
+	progress := messagesOfKind(store, session.Progress)
+	if len(progress) != 1 {
+		t.Fatalf("got %d progress messages, want 1: %+v", len(progress), progress)
+	}
+	if !strings.HasPrefix(progress[0].Text, "machine_click") || progress[0].Step <= 0 {
+		t.Errorf("progress = %+v, want a machine_click step", progress[0])
+	}
+	if !strings.Contains(testsupport.Calls(t, control), "greenroom-input") {
+		t.Error("the click never reached the guest")
+	}
+
+	if _, held := mgr.ControlState(runID); held {
+		t.Error("the lease is still held after the turn; a human could not take the screen")
+	}
+}
+
+func TestManualTypeKeyAndScroll(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	store := openStore(t, mgr, runID)
+	post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: strings.Join([]string{
+		"type hello world",
+		"key a cmd shift",
+		"scroll 0 -120",
+		"verdict pass typed, pressed and scrolled",
+	}, "\n")})
+
+	m := NewManual(mgr, testLog())
+	res, err := m.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if res.Ended != session.Verdict {
+		t.Errorf("Ended = %q, want verdict", res.Ended)
+	}
+
+	progress := messagesOfKind(store, session.Progress)
+	if len(progress) != 3 {
+		t.Fatalf("got %d progress messages, want 3: %+v", len(progress), progress)
+	}
+	wantPrefixes := []string{"machine_type", "machine_key", "machine_scroll"}
+	for i, want := range wantPrefixes {
+		if !strings.HasPrefix(progress[i].Text, want) || progress[i].Step <= 0 {
+			t.Errorf("progress[%d] = %+v, want a %s step", i, progress[i], want)
+		}
+	}
+	if !strings.Contains(progress[1].Text, "cmd+shift+a") {
+		t.Errorf("key progress %q does not name the modifiers", progress[1].Text)
+	}
+
+	last := lastMessage(t, store)
+	if last.Kind != session.Verdict || len(last.Evidence) != 3 {
+		t.Fatalf("verdict = %+v, want evidence for all three steps", last)
+	}
+}
+
+func TestManualComputerUseIsRefusedWhileAHumanHoldsTheScreen(t *testing.T) {
+	mgr, runID, control := ready(t)
+	if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	store := openStore(t, mgr, runID)
+	post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "click 0.5 0.5\nverdict fail could not click"})
+
+	m := NewManual(mgr, testLog())
+	if _, err := m.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+
+	progress := messagesOfKind(store, session.Progress)
+	if len(progress) != 1 || !strings.Contains(progress[0].Text, "human") {
+		t.Fatalf("progress = %+v, want an error naming the human", progress)
+	}
+	if strings.Contains(testsupport.Calls(t, control), "greenroom-input") {
+		t.Error("a batch reached the guest while a human held the screen")
+	}
+	if c, held := mgr.ControlState(runID); !held || c.Holder != "human" {
+		t.Errorf("control = %+v, want the human to still hold it", c)
 	}
 }
 

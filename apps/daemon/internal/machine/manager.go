@@ -249,19 +249,37 @@ func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error)
 }
 
 func (m *Manager) ensureSSHKey() error {
-	m.sshKey = filepath.Join(m.Root, "id_ed25519")
-	if _, err := os.Stat(m.sshKey); errors.Is(err, os.ErrNotExist) {
-		cmd := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "greenroom", "-f", m.sshKey)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("ssh-keygen: %w: %s", err, out)
-		}
-	}
-	pub, err := os.ReadFile(m.sshKey + ".pub")
+	sshKey, pubKey, err := EnsureSSHKey(m.Root)
 	if err != nil {
 		return err
 	}
-	m.pubKey = strings.TrimSpace(string(pub))
+	m.sshKey, m.pubKey = sshKey, pubKey
 	return nil
+}
+
+// EnsureSSHKey loads the daemon's ssh key from root, creating it if this is
+// the first run, and returns the private key's path and the trimmed public
+// key. It is exported so a caller that has no *Manager, such as the
+// prepare-image CLI (main.go, issue #12), can load or create the exact same
+// key NewManager would without duplicating ssh-keygen invocation or key
+// parsing: a base image and the daemon that later boots a run from it must
+// agree on one key, not two.
+func EnsureSSHKey(root string) (sshKey, pubKey string, err error) {
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", "", err
+	}
+	sshKey = filepath.Join(root, "id_ed25519")
+	if _, err := os.Stat(sshKey); errors.Is(err, os.ErrNotExist) {
+		cmd := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "greenroom", "-f", sshKey)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return "", "", fmt.Errorf("ssh-keygen: %w: %s", err, out)
+		}
+	}
+	pub, err := os.ReadFile(sshKey + ".pub")
+	if err != nil {
+		return "", "", err
+	}
+	return sshKey, strings.TrimSpace(string(pub)), nil
 }
 
 func (m *Manager) statePath() string { return filepath.Join(m.Root, "state.json") }

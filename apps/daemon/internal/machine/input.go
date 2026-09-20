@@ -24,7 +24,7 @@ var inputHelper string
 // inputHelperVersion names the compiled helper, so a daemon that ships a new
 // helper recompiles rather than calling the old binary a running machine
 // already has. Bump it whenever guest/input.swift changes.
-const inputHelperVersion = 1
+const inputHelperVersion = 2
 
 // ControlTTL is how long a screen-control lease lives without being used.
 // The holder is an app that can crash or lose its network, and a lease that
@@ -270,6 +270,28 @@ func (m *Manager) Input(ctx context.Context, runID, holder string, actions []Inp
 	return out, nil
 }
 
+// InputAs takes the screen lease for holder, posts actions, and releases the
+// lease again whether or not the batch succeeded. It is the one place the
+// take-post-release sequence lives: internal/mcpserver's machine_click
+// family and internal/verifier's own tool loop both call this rather than
+// each keeping its own copy, because internal/verifier cannot import
+// internal/mcpserver and the two used to duplicate the same three lines
+// (issue #12). A human already holding the lease comes back as a readable
+// error naming them, not the sentinel ErrControlHeld, so either caller can
+// read it and simply try again in a moment instead of treating it as a
+// broken run.
+func (m *Manager) InputAs(ctx context.Context, runID, holder string, actions []InputAction) (InputResult, error) {
+	current, _, err := m.TakeControl(runID, holder, 0)
+	if err != nil {
+		if errors.Is(err, ErrControlHeld) {
+			return InputResult{}, fmt.Errorf("a %s is driving this machine; try again in a moment", current.Holder)
+		}
+		return InputResult{}, err
+	}
+	defer func() { _, _, _ = m.ReleaseControl(runID, holder) }()
+	return m.Input(ctx, runID, holder, actions)
+}
+
 // pixels turns one action's fractional coordinates into guest pixels. A
 // fraction outside 0..1 is clamped rather than refused: a drag that leaves
 // the picture is a person's hand sliding off the edge, not a bad request.
@@ -351,19 +373,26 @@ func (m *Manager) ensureInput(ctx context.Context, mc *Machine) (Screen, error) 
 	return screen, nil
 }
 
-// installInputHelper writes the Swift source into the guest and compiles it
-// there. The source travels as base64 in one argument, so no part of it is
-// read by a shell, and the compile is skipped when the machine already has
-// this version of the binary.
+// installHelperScript is the /bin/sh -c script that writes the embedded
+// Swift source into the guest and compiles it, at the exact path and
+// version `helperName` and `inputHelperVersion` name. It is the one place
+// that combination is spelled out, so `installInputHelper` (a machine's own
+// first control request, issue #9) and `PrepareGuest` (baking the helper
+// into the greenroom base image ahead of time, issue #12) can never drift
+// apart on where the binary lives or what version it claims to be.
 //
-// It is main.swift and it is built at language version 5 on purpose: a single
-// file of top-level code is only a program under those two conditions, and
-// the guest's toolchain is whichever one the image happens to carry.
-func (m *Manager) installInputHelper(ctx context.Context, mc *Machine) error {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-	defer cancel()
-
-	script := fmt.Sprintf(`set -e
+// The source travels as base64 in one argument, so no part of it is read by
+// a shell, and the compile is skipped when the machine already has this
+// version of the binary: `if [ -x "$bin" ] && "$bin" --version` is the whole
+// contract between this script and the image build that wants to make it a
+// no-op.
+//
+// It is main.swift and it is built at language version 5 on purpose: a
+// single file of top-level code is only a program under those two
+// conditions, and the guest's toolchain is whichever one the image happens
+// to carry.
+func installHelperScript() string {
+	return fmt.Sprintf(`set -e
 bin="$HOME/%s"
 src="$HOME/%s"
 if [ -x "$bin" ] && "$bin" --version >/dev/null 2>&1; then exit 0; fi
@@ -374,8 +403,15 @@ rm -f "$src/main.swift.b64"
 command -v swiftc >/dev/null 2>&1 || { echo "swiftc is not installed in this machine" >&2; exit 127; }
 swiftc -O -swift-version 5 "$src/main.swift" -o "$bin"
 `, helperName(), helperSourceDir(), base64.StdEncoding.EncodeToString([]byte(inputHelper)))
+}
 
-	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", script)
+// installInputHelper runs installHelperScript against a machine this
+// Manager owns.
+func (m *Manager) installInputHelper(ctx context.Context, mc *Machine) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+
+	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", installHelperScript())
 	if err != nil {
 		return fmt.Errorf("install the input helper: %w", err)
 	}

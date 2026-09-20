@@ -38,6 +38,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "greenroom:", err)
 			os.Exit(1)
 		}
+	case "prepare-image":
+		if err := prepareImage(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "greenroom:", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Println("greenroom", mcpserver.Version)
 	default:
@@ -48,6 +53,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: greenroom serve [-addr 127.0.0.1:7777] [-root ~/.greenroom] [-image <oci image>] [-max-machines 2] [-max-disputes 2] [-frame-interval 2s] [-verifier nim|manual] [-verifier-max-steps 40] [-verifier-budget 10m]")
+	fmt.Fprintln(os.Stderr, "       greenroom prepare-image -vm <name> [-root ~/.greenroom]")
 	fmt.Fprintln(os.Stderr, "       greenroom version")
 }
 
