@@ -87,6 +87,13 @@ case "$sub" in
       echo "fake stdout"; echo "fake stderr" >&2
       exit "$code"
     done
+    # Screenshot support: the daemon base64s a PNG out of the guest. This
+    # comes before exec-codes because the frame recorder screenshots on a
+    # timer, and a capture must not eat an exit code queued for a command.
+    case "$*" in
+      *base64*) cat "$C/shot.b64" 2>/dev/null; exit 0 ;;
+      *screencapture*) exit 0 ;;
+    esac
     if [ -f "$C/exec-codes" ]; then
       code=$(head -n 1 "$C/exec-codes")
       tail -n +2 "$C/exec-codes" > "$C/exec-codes.next"
@@ -95,11 +102,6 @@ case "$sub" in
       echo "fake stdout"; echo "fake stderr" >&2
       exit "$code"
     fi
-    # Screenshot support: the daemon base64s a PNG out of the guest.
-    case "$*" in
-      *base64*) cat "$C/shot.b64" 2>/dev/null; exit 0 ;;
-      *screencapture*) exit 0 ;;
-    esac
     echo "fake stdout"
     exit 0 ;;
   list)
