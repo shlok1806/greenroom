@@ -355,6 +355,8 @@ struct Machine: Codable, Hashable, Sendable {
     var createdAt: Date
     var dir: String
     var vncUrl: String?
+    /// Who holds the machine's mouse and keyboard, if anyone (ADR 0009).
+    var control: ControlLease?
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -368,7 +370,106 @@ struct Machine: Codable, Hashable, Sendable {
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSince1970: 0)
         dir = try c.decodeIfPresent(String.self, forKey: .dir) ?? ""
         vncUrl = try c.decodeIfPresent(String.self, forKey: .vncUrl)
+        control = try c.decodeIfPresent(ControlLease.self, forKey: .control)
     }
+}
+
+/// A screen-control lease (ADR 0009): who may drive this machine, until when,
+/// and how much they have done with it. The daemon expires it on its own, so
+/// a window that goes away does not lock the screen for good.
+struct ControlLease: Codable, Hashable, Sendable {
+    var holder: String
+    var since: Date
+    var expires: Date
+    var actions: Int
+
+    init(holder: String = "human", since: Date = Date(), expires: Date = Date(), actions: Int = 0) {
+        self.holder = holder
+        self.since = since
+        self.expires = expires
+        self.actions = actions
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        holder = try c.decodeIfPresent(String.self, forKey: .holder) ?? ""
+        since = try c.decodeIfPresent(Date.self, forKey: .since) ?? Date(timeIntervalSince1970: 0)
+        expires = try c.decodeIfPresent(Date.self, forKey: .expires) ?? Date(timeIntervalSince1970: 0)
+        actions = try c.decodeIfPresent(Int.self, forKey: .actions) ?? 0
+    }
+
+    /// The seat the companion sits in. A lease held by anyone else is not
+    /// this app's to use or to give back.
+    var isHuman: Bool { holder == "human" }
+}
+
+/// A guest display's size in points. The app needs it only to show the person
+/// what they are driving: every coordinate it sends is a fraction (ADR 0009).
+struct GuestScreen: Codable, Hashable, Sendable {
+    var width: Int
+    var height: Int
+
+    var label: String { "\(width)x\(height)" }
+}
+
+/// One thing to do to the machine's screen. `x` and `y` are **fractions of
+/// the display**, 0 to 1, because the app is looking at a frame scaled to its
+/// window and never learns the guest's resolution. The daemon multiplies them
+/// out.
+struct InputAction: Codable, Hashable, Sendable {
+    /// The kinds the daemon's guest helper knows.
+    enum Kind: String, Codable, Sendable {
+        case move, click, down, up, scroll, type, key, sleep
+    }
+
+    var type: Kind
+    var x: Double?
+    var y: Double?
+    var button: String?
+    var clicks: Int?
+    var deltaX: Double?
+    var deltaY: Double?
+    var text: String?
+    var key: String?
+    var mods: [String]?
+
+    init(
+        type: Kind,
+        x: Double? = nil,
+        y: Double? = nil,
+        button: String? = nil,
+        clicks: Int? = nil,
+        deltaX: Double? = nil,
+        deltaY: Double? = nil,
+        text: String? = nil,
+        key: String? = nil,
+        mods: [String]? = nil
+    ) {
+        self.type = type
+        self.x = x
+        self.y = y
+        self.button = button
+        self.clicks = clicks
+        self.deltaX = deltaX
+        self.deltaY = deltaY
+        self.text = text
+        self.key = key
+        self.mods = mods
+    }
+}
+
+/// The body `POST /api/runs/{id}/control` returns.
+struct ControlResponse: Codable, Hashable, Sendable {
+    var control: ControlLease?
+    var screen: GuestScreen?
+}
+
+/// The body `POST /api/runs/{id}/input` returns.
+struct InputResult: Codable, Hashable, Sendable {
+    var actions: Int
+    var screen: GuestScreen
+    var seconds: Double?
+    var step: Int?
 }
 
 struct VerdictState: Codable, Hashable, Sendable {

@@ -113,6 +113,42 @@ final class DaemonClient: Sendable {
         try await post(ScreenshotResult.self, path: "api/runs/\(escape(runId))/screenshot", body: Empty())
     }
 
+    // MARK: - Driving the screen (ADR 0009)
+
+    /// Takes the machine's mouse and keyboard, or renews a lease this app
+    /// already holds. The daemon answers with the lease and the size of the
+    /// screen the coordinates are fractions of, and it announces the
+    /// handover in the run's conversation.
+    @discardableResult
+    func takeControl(runId: String, ttlSeconds: Int? = nil) async throws -> ControlResponse {
+        struct Body: Encodable { var ttlSeconds: Int? }
+        return try await post(
+            ControlResponse.self,
+            path: "api/runs/\(escape(runId))/control",
+            body: Body(ttlSeconds: ttlSeconds)
+        )
+    }
+
+    /// Gives the screen back. The daemon records what was done with it.
+    func releaseControl(runId: String) async throws {
+        var request = URLRequest(url: try url(path: "api/runs/\(escape(runId))/control"))
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await perform(request)
+        try check(response, data: data)
+    }
+
+    /// Posts one batch of mouse and keyboard actions into the machine.
+    @discardableResult
+    func input(runId: String, actions: [InputAction]) async throws -> InputResult {
+        struct Body: Encodable { var actions: [InputAction] }
+        return try await post(
+            InputResult.self,
+            path: "api/runs/\(escape(runId))/input",
+            body: Body(actions: actions)
+        )
+    }
+
     func destroy(runId: String) async throws {
         struct OK: Decodable { var ok: Bool? }
         _ = try await post(OK.self, path: "api/runs/\(escape(runId))/destroy", body: Empty())

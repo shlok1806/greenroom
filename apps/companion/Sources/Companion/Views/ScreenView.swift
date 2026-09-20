@@ -5,6 +5,9 @@ import SwiftUI
 /// The machine's recording (ADR 0008): a scrubber over the frames the daemon
 /// captured, live or finished. The app never polls for a screenshot; it only
 /// ever shows the frames the daemon already took.
+///
+/// With "Take control" on it is also the machine's screen (ADR 0009): the
+/// same picture, with the mouse and the keyboard going the other way.
 struct ScreenView: View {
     @Bindable var store: RunStore
     let runId: String
@@ -12,7 +15,11 @@ struct ScreenView: View {
     @State private var player = PlayerModel()
     @State private var image: NSImage?
     @State private var busy = false
+    @State private var pilot: ControlPilot?
     @FocusState private var focused: Bool
+
+    /// True while this app is driving the machine.
+    private var driving: Bool { pilot?.active == true }
 
     private let tick = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
@@ -27,25 +34,46 @@ struct ScreenView: View {
             Divider()
             controls
         }
-        .focusable()
+        .focusable(!driving)
         .focused($focused)
+        // While the machine has the keyboard, the scrubber does not: an
+        // arrow key is for the guest, not for the timeline.
         .onKeyPress(.leftArrow) {
+            guard !driving else { return .ignored }
             player.live = false
             player.index = max(0, player.index - 1)
             return .handled
         }
         .onKeyPress(.rightArrow) {
+            guard !driving else { return .ignored }
             player.live = false
             player.index = min(max(player.frames.count - 1, 0), player.index + 1)
             return .handled
         }
         .onKeyPress(.space) {
+            guard !driving else { return .ignored }
             player.playing.toggle()
             return .handled
         }
         .onAppear {
             focused = true
+            pilot = store.pilot(for: runId)
             syncFrames()
+        }
+        // Leaving the tab, or the run, gives the screen back. A machine must
+        // never be left believing somebody is at its keyboard.
+        .onDisappear {
+            let leaving = pilot
+            Task { await leaving?.release() }
+        }
+        .onChange(of: runId) { old, new in
+            let leaving = store.pilot(for: old)
+            Task { await leaving.release() }
+            pilot = store.pilot(for: new)
+        }
+        .onChange(of: machineIsReady) { _, ready in
+            guard !ready, let pilot else { return }
+            Task { await pilot.release() }
         }
         .onChange(of: store.frames[runId]?.count ?? 0) {
             syncFrames()
@@ -73,9 +101,19 @@ struct ScreenView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The events go through a layer over the picture, which is
+                // inert until the daemon has granted the lease.
+                InputSurface(imageSize: image.size, active: driving) { actions in
+                    pilot?.send(actions)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The labels sit above the surface and must not swallow a
+                // click meant for the machine underneath them.
                 overlayLabel
+                    .allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .topTrailing) { drivingBadge.allowsHitTesting(false) }
         } else {
             ContentUnavailableView(
                 "No frames yet",
@@ -100,6 +138,28 @@ struct ScreenView: View {
         .padding(.vertical, 4)
         .background(.black.opacity(0.55), in: Capsule())
         .padding(10)
+    }
+
+    /// Says, unmissably, that clicks are going into the machine.
+    @ViewBuilder
+    private var drivingBadge: some View {
+        if driving {
+            HStack(spacing: 6) {
+                Image(systemName: "cursorarrow.click.2")
+                Text("You have control")
+                if let screen = pilot?.screen {
+                    Text(screen.label)
+                        .font(.caption2.monospaced())
+                        .opacity(0.8)
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.red.opacity(0.85), in: Capsule())
+            .padding(10)
+        }
     }
 
     private func elapsed(_ frame: Frame) -> String {
@@ -131,7 +191,13 @@ struct ScreenView: View {
 
                 Toggle("Live", isOn: liveBinding)
                     .toggleStyle(.switch)
-                    .disabled(!machineIsReady)
+                    .disabled(!machineIsReady || driving)
+
+                Toggle("Take control", isOn: controlBinding)
+                    .toggleStyle(.switch)
+                    .disabled(!machineIsReady || pilot?.busy == true)
+                    .help("Send this window's mouse and keyboard to the machine. "
+                        + "The run's conversation records that you took it.")
 
                 Spacer()
 
@@ -164,6 +230,27 @@ struct ScreenView: View {
             in: 0...Double(max(player.frames.count - 1, 0))
         )
         .disabled(player.frames.count < 2)
+    }
+
+    /// Taking control also pins the player to the newest frame: nobody can
+    /// click on the past, so the picture has to be the present.
+    private var controlBinding: Binding<Bool> {
+        Binding(
+            get: { driving },
+            set: { wanted in
+                guard let pilot else { return }
+                Task {
+                    if wanted {
+                        player.live = true
+                        player.playing = false
+                        if !player.frames.isEmpty { player.index = player.frames.count - 1 }
+                        await pilot.take()
+                    } else {
+                        await pilot.release()
+                    }
+                }
+            }
+        )
     }
 
     private var liveBinding: Binding<Bool> {

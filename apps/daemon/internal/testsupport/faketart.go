@@ -23,6 +23,11 @@ import (
 //	agent-down      `tart exec` fails as if the guest agent is unreachable
 //	ssh-down        the in-guest `nc -z 127.0.0.1 22` probe exits 1 with
 //	                "Connection refused", as it does while sshd is starting
+//	fail-input-install  compiling the guest input helper fails, as it does on
+//	                a machine with no Swift toolchain
+//	input-down      the input helper refuses every event
+//	screen          "<width>x<height>" the input helper reports as the guest
+//	                display size; without it, 1024x768
 //	list-empty      `tart list` returns an empty JSON array
 //	vmnames         one VM name per line; `tart list` reports each as running
 //	vmname          one VM name; `tart list` reports it as the only running VM
@@ -79,6 +84,22 @@ case "$sub" in
     case "$*" in
       *"nc -z 127.0.0.1 22"*)
         [ -f "$C/ssh-down" ] && { echo "Connection refused" >&2; exit 1; }
+        exit 0 ;;
+    esac
+    # Computer use (ADR 0009). The helper is compiled in the guest once, then
+    # called with a base64 payload; both arrive here as a /bin/sh script, so
+    # the compile is matched before the call.
+    case "$*" in
+      *swiftc*)
+        [ -f "$C/fail-input-install" ] && { echo "swiftc: command not found" >&2; exit 1; }
+        exit 0 ;;
+      *greenroom-input*)
+        [ -f "$C/input-down" ] && { echo '{"error":"this machine refused the event"}' >&2; exit 1; }
+        w=1024; h=768
+        if [ -f "$C/screen" ]; then
+          w=$(cut -d x -f1 "$C/screen"); h=$(cut -d x -f2 "$C/screen")
+        fi
+        printf '{"ok":true,"screen":{"width":%s,"height":%s}}\n' "$w" "$h"
         exit 0 ;;
     esac
     for f in "$C"/exec-exit-*; do

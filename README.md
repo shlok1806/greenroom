@@ -88,6 +88,14 @@ shows it, and you drive the verifier by typing to it.
    recording, or destroys the machine. Everything you do is written into the conversation
    so a coding agent joining later sees it.
 
+6. Take the machine. Turn on **Take control** in the Screen tab and the picture becomes a
+   screen: click it, drag in it, scroll it, type into it, use its shortcuts. greenroom
+   lends you the mouse and keyboard one holder at a time, writes "human took control of
+   the screen" into the run's conversation so the coding agent knows, records each burst
+   of clicks and keys as a step in the evidence, and speeds the screen up to two frames a
+   second while your hand is on it. Turn the switch off, leave the tab or quit and it is
+   given back. See `docs/adr/0009-human-control-of-the-screen.md`.
+
 ## Run it with a coding agent
 
 Add the daemon to Claude Code as an MCP server:
