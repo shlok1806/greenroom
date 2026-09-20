@@ -48,6 +48,10 @@ struct TranscriptView: View {
     @State private var draftKind: MessageKind = .note
     @FocusState private var composing: Bool
     @State private var atBottom = true
+    /// Whether this view has ever managed to put the newest message on screen.
+    /// `onAppear` runs before `select` has answered, so there is nothing to
+    /// scroll to yet; the first batch of messages is what anchors the view.
+    @State private var anchored = false
 
     private var messages: [Message] { store.messages[runId] ?? [] }
 
@@ -85,7 +89,15 @@ struct TranscriptView: View {
                     atBottom = isAtBottom
                 }
                 .onChange(of: messages.count) {
-                    guard atBottom, let last = messages.last else { return }
+                    guard let last = messages.last else { return }
+                    // The first messages to arrive always win: until they do,
+                    // the empty list has left the view at the top, and the
+                    // geometry observer has already decided that is "not at
+                    // the bottom" — so waiting for `atBottom` here left a run
+                    // opening on its oldest message and never following again.
+                    guard atBottom || !anchored else { return }
+                    anchored = true
+                    atBottom = true
                     withAnimation { proxy.scrollTo(last.seq, anchor: .bottom) }
                 }
                 .onChange(of: awaitingVerifier) {
@@ -94,7 +106,10 @@ struct TranscriptView: View {
                 }
                 .onAppear {
                     atBottom = true
-                    if let last = messages.last { proxy.scrollTo(last.seq, anchor: .bottom) }
+                    if let last = messages.last {
+                        anchored = true
+                        proxy.scrollTo(last.seq, anchor: .bottom)
+                    }
                 }
             }
             Divider()
