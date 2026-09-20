@@ -20,6 +20,7 @@ import (
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/mcpserver"
+	greenroomsession "github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
 func TestEndToEnd(t *testing.T) {
@@ -28,7 +29,7 @@ func TestEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := mcpserver.New(mgr, defaultImage)
+	server := mcpserver.New(mgr, defaultImage, greenroomsession.NewRegistry(root, greenroomsession.DefaultMaxDisputes))
 	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true}))
 	defer ts.Close()
 

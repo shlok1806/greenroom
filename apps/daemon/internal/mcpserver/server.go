@@ -14,7 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
-	"github.com/shlok1806/greenroom/apps/daemon/internal/verifier"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
 // Version is stamped into the MCP server implementation info.
@@ -27,12 +27,17 @@ const (
 )
 
 // New builds the MCP server over mgr. defaultImage is used when a caller
-// does not name one.
-func New(mgr *machine.Manager, defaultImage string, v *verifier.Verifier) *mcp.Server {
+// does not name one, and reg is the conversation store every agent_* tool
+// speaks into. The verifier is not passed in: it is an actor that reacts to
+// the conversation, so this layer only needs the registry (ADR 0006).
+func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "greenroom", Version: Version}, &mcp.ServerOptions{
 		Instructions: "greenroom gives you a disposable macOS machine. Call machine_create once and keep its runId, " +
 			"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_exec to build " +
 			"and run, machine_screenshot to look at the screen, and machine_destroy when done. " +
+			"Every run also owns one conversation: agent_send posts into it, agent_wait blocks for what comes " +
+			"back, and agent_transcript reads it. That is how you reach greenroom's verifier and how a watching " +
+			"human reaches you. " +
 			"Every run is recorded under ~/.greenroom/runs/<runId>.",
 	})
 
@@ -153,39 +158,19 @@ func New(mgr *machine.Manager, defaultImage string, v *verifier.Verifier) *mcp.S
 		Name:        "machine_destroy",
 		Description: "Stop and delete the machine. The run's recording stays on disk.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in destroyIn) (*mcp.CallToolResult, destroyOut, error) {
+		// A human watching the run learns of this from the conversation, but
+		// nothing is posted here: the daemon's lifecycle bridge announces a
+		// destroy from the manager's own event, after the machine has really
+		// gone away.
 		if err := mgr.Destroy(ctx, in.RunID); err != nil {
 			return nil, destroyOut{}, err
 		}
 		return nil, destroyOut{OK: true}, nil
 	})
 
-	if v != nil {
-		addVerifyTool(s, v)
-	}
+	addAgentTools(s, reg)
 
 	return s
-}
-
-// addVerifyTool exposes greenroom's own agent. It is registered only when a
-// model is configured, so a daemon with no key still serves the other tools.
-func addVerifyTool(s *mcp.Server, v *verifier.Verifier) {
-	type verifyIn struct {
-		RunID string `json:"runId" jsonschema:"runId from machine_create"`
-		Task  string `json:"task" jsonschema:"What to verify, in plain words, for example: build the app, launch it, and show me the window"`
-	}
-	mcp.AddTool(s, &mcp.Tool{
-		Name: "machine_verify",
-		Description: "Hand a task to greenroom's own agent, which drives the machine and returns a verdict with evidence. " +
-			"Use this instead of driving the machine yourself when you do not want the build output in your own context. " +
-			"The agent diagnoses failures; it never edits your source.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in verifyIn) (*mcp.CallToolResult, verifier.Report, error) {
-		rep, err := v.Run(ctx, in.RunID, in.Task)
-		if err != nil {
-			return nil, rep, err
-		}
-		rep.Seconds = round(rep.Seconds)
-		return nil, rep, nil
-	})
 }
 
 // wrap adapts (value, error) pairs to the handler's three return values.

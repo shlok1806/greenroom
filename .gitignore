@@ -10,5 +10,4 @@ coverage/
 !.env.example
 .DS_Store
 *.tsbuildinfo
-.claude/worktrees/companion-and-sessions
-.claude/worktrees/companion-and-sessions
+.claude/worktrees/

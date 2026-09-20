@@ -18,6 +18,10 @@ importers:
         specifier: ^5.9.0
         version: 5.9.3
 
+  apps/companion: {}
+
+  apps/daemon: {}
+
 packages:
 
   '@biomejs/biome@2.5.13':

@@ -15,7 +15,14 @@ import (
 //	fail-clone, fail-run, fail-ip, fail-exec, fail-stop, fail-delete
 //	    the matching subcommand exits 1 with a message
 //	exec-exit-<n>   `tart exec` returns exit code n
+//	exec-codes      `tart exec` returns the next newline-separated code in
+//	                this file on each call, consuming it, then returns 0
+//	                once the file is empty; for a test that runs several
+//	                commands in one turn and needs their exit codes to
+//	                differ
 //	agent-down      `tart exec` fails as if the guest agent is unreachable
+//	ssh-down        the in-guest `nc -z 127.0.0.1 22` probe exits 1 with
+//	                "Connection refused", as it does while sshd is starting
 //	list-empty      `tart list` returns an empty JSON array
 //	vmnames         one VM name per line; `tart list` reports each as running
 //	vmname          one VM name; `tart list` reports it as the only running VM
@@ -66,12 +73,28 @@ case "$sub" in
     case "$*" in
       *authorized_keys*) [ -f "$C/fail-keyinstall" ] && { echo "Error: cannot write" >&2; exit 1; } ;;
     esac
+    # The ssh readiness probe runs inside the guest over vsock, so it arrives
+    # here rather than as a host-side dial. Answer it before the generic
+    # exec-exit-<n> hook, which speaks for machine_exec and not for boot.
+    case "$*" in
+      *"nc -z 127.0.0.1 22"*)
+        [ -f "$C/ssh-down" ] && { echo "Connection refused" >&2; exit 1; }
+        exit 0 ;;
+    esac
     for f in "$C"/exec-exit-*; do
       [ -e "$f" ] || continue
       code=$(basename "$f" | sed 's/exec-exit-//')
       echo "fake stdout"; echo "fake stderr" >&2
       exit "$code"
     done
+    if [ -f "$C/exec-codes" ]; then
+      code=$(head -n 1 "$C/exec-codes")
+      tail -n +2 "$C/exec-codes" > "$C/exec-codes.next"
+      mv "$C/exec-codes.next" "$C/exec-codes"
+      [ -n "$code" ] || code=0
+      echo "fake stdout"; echo "fake stderr" >&2
+      exit "$code"
+    fi
     # Screenshot support: the daemon base64s a PNG out of the guest.
     case "$*" in
       *base64*) cat "$C/shot.b64" 2>/dev/null; exit 0 ;;

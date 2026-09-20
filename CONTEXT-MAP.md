@@ -4,17 +4,24 @@ greenroom is a multi-context repo. Each workspace package is one bounded context
 owns its own `CONTEXT.md` (glossary and invariants) and `docs/adr/` (decisions scoped to
 it). System-wide decisions live in `docs/adr/` at the root.
 
-Contexts follow the component plan in `docs/01-plan.md`. A row is "planned" until the
-package exists; create its `CONTEXT.md` when the first real term or invariant is settled,
-not before.
+Contexts follow the component plan in `docs/01-plan.md`. Status means:
 
-| Context    | Path                 | Owns                                                   | Status  |
-| ---------- | -------------------- | ------------------------------------------------------ | ------- |
-| machine    | `apps/daemon/internal/machine/` | Machine lifecycle, run recording (manifest, steps, artifacts) | exists  |
-| daemon     | `apps/daemon/`       | The `greenroom` binary: HTTP server, CLI, wiring       | exists  |
-| mcp        | `apps/daemon/internal/mcpserver/` | MCP tool surface over the machine manager   | exists  |
-| tart       | `apps/daemon/internal/tart/` | Subprocess wrapper around the Tart CLI            | exists  |
-| guest      | `packages/guest/`    | What runs inside the VM: helper for screenshot, input, accessibility tree | planned |
+- **planned**: no code yet.
+- **code**: the package exists; its `CONTEXT.md` is not written. Create it when the first
+  real term or invariant is settled, not before.
+- **documented**: `CONTEXT.md` exists.
+
+| Context    | Path                                | Owns                                                                    | Status  |
+| ---------- | ----------------------------------- | ----------------------------------------------------------------------- | ------- |
+| daemon     | `apps/daemon/`                      | The `greenroom` binary: HTTP server, CLI, wiring                        | code    |
+| machine    | `apps/daemon/internal/machine/`     | Machine lifecycle, run recording (manifest, steps, artifacts)           | code    |
+| mcp        | `apps/daemon/internal/mcpserver/`   | MCP tool surface over the machine manager and the session               | code    |
+| tart       | `apps/daemon/internal/tart/`        | Subprocess wrapper around the Tart CLI                                  | code    |
+| verifier   | `apps/daemon/internal/verifier/`    | greenroom's own agent: the turn loop over NIM (ADR 0005)                | code    |
+| session    | `apps/daemon/internal/session/`     | The conversation per run: messages, participants, agreement (ADR 0006)  | code    |
+| api        | `apps/daemon/internal/api/`         | Read and control HTTP API for the companion (ADR 0007)                  | code    |
+| companion  | `apps/companion/`                   | macOS app: watch runs, see the screen, talk to the agents (ADR 0007)    | documented |
+| guest      | `packages/guest/`                   | What runs inside the VM: helper for screenshot, input, accessibility tree | planned |
 
 ## Shared vocabulary (cross-context)
 

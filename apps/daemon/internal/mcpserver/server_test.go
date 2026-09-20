@@ -21,6 +21,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
@@ -31,6 +32,8 @@ type harness struct {
 	session *mcp.ClientSession
 	control string
 	root    string
+	reg     *session.Registry
+	mgr     *machine.Manager
 }
 
 // newHarness starts the real MCP server over HTTP with a fake tart behind it,
@@ -41,11 +44,14 @@ func newHarness(t *testing.T) *harness {
 	root := t.TempDir()
 	mgr, err := machine.NewManager(root, slog.New(slog.NewTextHandler(io.Discard, nil)),
 		machine.WithTartBin(bin), machine.WithReadyTimeout(10*time.Second),
-		machine.WithSSHProbe(func(context.Context, string) error { return nil }))
+		machine.WithSSHProbe(func(context.Context, string, string) error { return nil }))
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	server := New(mgr, defaultImage, nil)
+	// No live verifier is needed: the agent_* tools only reach the store, so
+	// a test can play the verifier by appending to it directly.
+	reg := session.NewRegistry(mgr.Root, 2)
+	server := New(mgr, defaultImage, reg)
 	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true},
@@ -58,7 +64,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(func() { _ = session.Close() })
-	return &harness{t: t, session: session, control: control, root: root}
+	return &harness{t: t, session: session, control: control, root: root, reg: reg, mgr: mgr}
 }
 
 // call runs a tool and requires that it succeeds.
@@ -129,7 +135,7 @@ func (h *harness) putShot() {
 
 // --- the tool surface itself ---
 
-func TestServerExposesExactlySevenTools(t *testing.T) {
+func TestServerExposesExactlyItsTools(t *testing.T) {
 	h := newHarness(t)
 	res, err := h.session.ListTools(context.Background(), nil)
 	if err != nil {
@@ -139,6 +145,7 @@ func TestServerExposesExactlySevenTools(t *testing.T) {
 		"machine_create": false, "machine_wait": false, "machine_list": false,
 		"machine_sync": false, "machine_exec": false, "machine_screenshot": false,
 		"machine_destroy": false,
+		"agent_send":      false, "agent_wait": false, "agent_transcript": false,
 	}
 	for _, tool := range res.Tools {
 		if _, ok := want[tool.Name]; !ok {
@@ -553,9 +560,9 @@ func TestSyncKeepsTheCallerInsideTheGuestHome(t *testing.T) {
 	}
 }
 
-// The verifier is optional. Without a model the daemon must still serve every
-// machine tool, and machine_verify must not appear.
-func TestVerifyToolAppearsOnlyWithAVerifier(t *testing.T) {
+// machine_verify is retired (ADR 0006): the verifier is reached through the
+// conversation, never through a tool of its own.
+func TestVerifyToolIsGone(t *testing.T) {
 	h := newHarness(t)
 	res, err := h.session.ListTools(context.Background(), nil)
 	if err != nil {
@@ -563,7 +570,7 @@ func TestVerifyToolAppearsOnlyWithAVerifier(t *testing.T) {
 	}
 	for _, tool := range res.Tools {
 		if tool.Name == "machine_verify" {
-			t.Fatal("machine_verify is offered although no model is configured")
+			t.Fatal("machine_verify is still offered")
 		}
 	}
 }

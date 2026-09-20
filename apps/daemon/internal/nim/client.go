@@ -7,9 +7,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -159,14 +162,53 @@ func (c *Client) Describe(ctx context.Context, model string, jpeg []byte, prompt
 	return strings.TrimSpace(textOf(out.Choices[0].Message.Content)), nil
 }
 
+// RetryBackoff is the wait before each retry of a request the endpoint could
+// not serve. Its length is the number of retries, so the client makes
+// len(RetryBackoff)+1 attempts. A hosted model returns the odd 500 and a
+// minute later serves the same request, so one bad response must not end a
+// verifier turn. Tests zero it.
+var RetryBackoff = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}
+
 func (c *Client) post(ctx context.Context, body map[string]any, out *wireResponse) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
+	attempts := len(RetryBackoff) + 1
+	for attempt := 1; ; attempt++ {
+		raw, status, retryAfter, err := c.attempt(ctx, data)
+		switch {
+		case err != nil:
+			if attempt >= attempts || !retryableTransport(ctx, err) {
+				return fmt.Errorf("call %s failed after %s: %w", c.BaseURL, plural(attempt), err)
+			}
+		case status == http.StatusOK:
+			if err := json.Unmarshal(raw, out); err != nil {
+				return fmt.Errorf("decode response: %w: %s", err, truncate(string(raw), 200))
+			}
+			return nil
+		default:
+			if attempt >= attempts || !retryableStatus(status) {
+				return fmt.Errorf("%s returned %d after %s: %s", c.BaseURL, status, plural(attempt), strings.TrimSpace(truncate(string(raw), 300)))
+			}
+		}
+		wait := RetryBackoff[attempt-1]
+		if retryAfter >= 0 {
+			wait = retryAfter
+		}
+		if err := sleep(ctx, wait); err != nil {
+			return err
+		}
+	}
+}
+
+// attempt makes one request. A non-nil error is a transport failure; status
+// and body are the endpoint's answer. retryAfter is the Retry-After header in
+// seconds, or -1 when the endpoint did not send a usable one.
+func (c *Client) attempt(ctx context.Context, data []byte) ([]byte, int, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(data))
 	if err != nil {
-		return err
+		return nil, 0, -1, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -175,20 +217,84 @@ func (c *Client) post(ctx context.Context, body map[string]any, out *wireRespons
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("call %s: %w", c.BaseURL, err)
+		return nil, 0, -1, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return err
+		return nil, 0, -1, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s returned %d: %s", c.BaseURL, resp.StatusCode, strings.TrimSpace(truncate(string(raw), 300)))
+	return raw, resp.StatusCode, retryAfterOf(resp), nil
+}
+
+// retryableStatus is true for the statuses that mean "not now" rather than
+// "not ever". Every other 4xx is the request's own fault and repeating it
+// would only waste the budget.
+func retryableStatus(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("decode response: %w: %s", err, truncate(string(raw), 200))
+	return false
+}
+
+// retryableTransport is true for a connection that failed on the way, as
+// long as the caller still wants the answer. A cancelled or expired context
+// is the caller's decision and is never retried.
+func retryableTransport(ctx context.Context, err error) bool {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
 	}
-	return nil
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne)
+}
+
+// retryAfterOf reads Retry-After in seconds, which 429 and 503 may carry.
+// The date form is not read: the endpoints greenroom talks to send seconds.
+func retryAfterOf(resp *http.Response) time.Duration {
+	switch resp.StatusCode {
+	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+	default:
+		return -1
+	}
+	v := strings.TrimSpace(resp.Header.Get("Retry-After"))
+	if v == "" {
+		return -1
+	}
+	secs, err := strconv.Atoi(v)
+	if err != nil || secs < 0 {
+		return -1
+	}
+	return time.Duration(secs) * time.Second
+}
+
+// sleep waits d, or returns as soon as the caller gives up.
+func sleep(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+func plural(attempts int) string {
+	if attempts == 1 {
+		return "1 attempt"
+	}
+	return fmt.Sprintf("%d attempts", attempts)
 }
 
 func encodeTools(tools []Tool) []wireTool {

@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
@@ -31,6 +33,17 @@ type scriptedModel struct {
 	requests []map[string]any
 	vision   string
 	visions  int
+
+	// failures is how many requests the endpoint answers with a 500 before
+	// it serves anything, the way a hosted model has a bad minute. A failed
+	// request consumes no scripted reply.
+	failures int
+	failed   int
+
+	// onReasoning runs just before the nth (1-based) reasoning reply is
+	// served. It is the only moment a test can be sure the verifier is
+	// mid-step, which is what a "while you were working" test needs.
+	onReasoning func(n int)
 }
 
 func (s *scriptedModel) start(t *testing.T) string {
@@ -42,6 +55,12 @@ func (s *scriptedModel) start(t *testing.T) string {
 
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		if s.failed < s.failures {
+			s.failed++
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"error":{"message":"Internal server error"}}`)
+			return
+		}
 		s.requests = append(s.requests, body)
 
 		// An image request is the vision model.
@@ -53,15 +72,38 @@ func (s *scriptedModel) start(t *testing.T) string {
 		}
 		n := len(s.requests) - s.visions - 1
 		if n >= len(s.replies) {
-			w.WriteHeader(http.StatusInternalServerError)
+			// Not a 500: running out of replies is the test's own fault and
+			// must not be retried by the client under test.
+			w.WriteHeader(http.StatusBadRequest)
 			_, _ = io.WriteString(w, `{"error":{"message":"the test ran out of scripted replies"}}`)
 			return
+		}
+		if s.onReasoning != nil {
+			s.onReasoning(n + 1)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, s.replies[n])
 	}))
 	t.Cleanup(ts.Close)
 	return ts.URL
+}
+
+// request returns the nth (1-based) request as JSON text.
+func (s *scriptedModel) request(t *testing.T, n int) string {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n < 1 || n > len(s.requests) {
+		t.Fatalf("the model was called %d times, want at least %d", len(s.requests), n)
+	}
+	b, _ := json.Marshal(s.requests[n-1])
+	return string(b)
+}
+
+func (s *scriptedModel) calls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.requests)
 }
 
 func isVisionRequest(body map[string]any) bool {
@@ -103,7 +145,7 @@ func ready(t *testing.T) (*machine.Manager, string, string) {
 	bin, control := testsupport.FakeTart(t)
 	mgr, err := machine.NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
 		machine.WithTartBin(bin), machine.WithReadyTimeout(10*time.Second),
-		machine.WithSSHProbe(func(context.Context, string) error { return nil }))
+		machine.WithSSHProbe(func(context.Context, string, string) error { return nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +160,29 @@ func ready(t *testing.T) (*machine.Manager, string, string) {
 	return mgr, mc.RunID, control
 }
 
+// failed brings up a machine whose boot fails the way a real one does: the
+// tart run process exits before the guest is up.
+func failed(t *testing.T) (*machine.Manager, string) {
+	t.Helper()
+	bin, control := testsupport.FakeTart(t)
+	testsupport.Flag(t, control, "fail-run")
+	mgr, err := machine.NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
+		machine.WithTartBin(bin), machine.WithReadyTimeout(2*time.Second),
+		machine.WithSSHProbe(func(context.Context, string, string) error { return nil }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mc, err := mgr.Create(context.Background(), "img", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := mgr.Wait(context.Background(), mc.RunID, 20*time.Second)
+	if err != nil || got.Status != machine.Failed {
+		t.Fatalf("machine did not fail: %+v %v", got, err)
+	}
+	return mgr, mc.RunID
+}
+
 func newVerifier(t *testing.T, mgr *machine.Manager, url string) *Verifier {
 	t.Helper()
 	v, err := New(mgr, Config{
@@ -130,6 +195,49 @@ func newVerifier(t *testing.T, mgr *machine.Manager, url string) *Verifier {
 	return v
 }
 
+// openStore opens a run's conversation the way the daemon does.
+func openStore(t *testing.T, mgr *machine.Manager, runID string) *session.Store {
+	t.Helper()
+	store, err := session.Open(mgr.RunDir(runID), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func postTask(t *testing.T, store *session.Store, text string) session.Message {
+	t.Helper()
+	return post(t, store, session.Message{From: session.Coder, Kind: session.Task, Text: text})
+}
+
+func post(t *testing.T, store *session.Store, m session.Message) session.Message {
+	t.Helper()
+	got, err := store.Append(m)
+	if err != nil {
+		t.Fatalf("append %s: %v", m.Kind, err)
+	}
+	return got
+}
+
+func messagesOfKind(store *session.Store, k session.Kind) []session.Message {
+	var out []session.Message
+	for _, m := range store.After(0) {
+		if m.Kind == k {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func lastMessage(t *testing.T, store *session.Store) session.Message {
+	t.Helper()
+	all := store.After(0)
+	if len(all) == 0 {
+		t.Fatal("the conversation is empty")
+	}
+	return all[len(all)-1]
+}
+
 func TestNewRequiresAKeyAndAModel(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	if _, err := New(nil, Config{Model: "m"}, log); err == nil {
@@ -140,129 +248,373 @@ func TestNewRequiresAKeyAndAModel(t *testing.T) {
 	}
 }
 
-func TestVerifierRunsCommandsThenReportsAVerdict(t *testing.T) {
+func TestTurnRunsACommandThenPostsAVerdict(t *testing.T) {
 	mgr, runID, control := ready(t)
 	model := &scriptedModel{replies: []string{
 		toolCall("machine_exec", map[string]any{"command": "swift build"}),
 		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "The build succeeded and the app launched."}),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Build the app and say whether it works.")
 
-	rep, err := v.Run(context.Background(), runID, "Build the app and say whether it works.")
+	res, err := v.Turn(context.Background(), runID, store)
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("Turn: %v", err)
 	}
-	if rep.Verdict != "pass" {
-		t.Errorf("verdict = %q, want pass", rep.Verdict)
+	if res.Ended != session.Verdict {
+		t.Errorf("ended = %q, want %q", res.Ended, session.Verdict)
 	}
-	if !strings.Contains(rep.Summary, "build succeeded") {
-		t.Errorf("summary = %q", rep.Summary)
+	if res.Tokens == 0 {
+		t.Error("the turn counts no tokens")
 	}
-	if rep.Steps != 2 {
-		t.Errorf("steps = %d, want 2", rep.Steps)
+
+	last := lastMessage(t, store)
+	if last.Kind != session.Verdict || last.From != session.Verifier {
+		t.Fatalf("the transcript ends with a %s from %s, want a verdict from the verifier", last.Kind, last.From)
 	}
-	if rep.Tokens == 0 {
-		t.Error("the report counts no tokens")
+	if last.Verdict != "pass" {
+		t.Errorf("verdict = %q, want pass", last.Verdict)
 	}
-	if rep.Seconds < 0 {
-		t.Errorf("seconds = %v", rep.Seconds)
+	if !strings.Contains(last.Text, "build succeeded") {
+		t.Errorf("summary = %q", last.Text)
 	}
-	// The command must have reached the guest.
+	if got := store.Verdict(); got.Verdict != "pass" || got.Status != session.Proposed {
+		t.Errorf("verdict state = %+v, want a proposed pass", got)
+	}
+
+	prog := messagesOfKind(store, session.Progress)
+	if len(prog) != 1 {
+		t.Fatalf("%d progress messages, want 1", len(prog))
+	}
+	if prog[0].Step <= 0 {
+		t.Errorf("progress step = %d, want the step it recorded", prog[0].Step)
+	}
+	if !strings.HasPrefix(prog[0].Text, "machine_exec") {
+		t.Errorf("progress text = %q, want it to name the tool", truncateFor(prog[0].Text))
+	}
+
 	if !strings.Contains(testsupport.Calls(t, control), "swift build") {
 		t.Error("the command never reached the machine")
 	}
-	// The second request must carry the tool result.
-	if len(model.requests) < 2 {
-		t.Fatalf("the model was called %d times, want 2", len(model.requests))
-	}
-	second, _ := json.Marshal(model.requests[1])
-	if !strings.Contains(string(second), "exit code") {
-		t.Errorf("the tool result never reached the model: %s", truncateFor(string(second)))
+	if second := model.request(t, 2); !strings.Contains(second, "exit code") {
+		t.Errorf("the tool result never reached the model: %s", truncateFor(second))
 	}
 }
 
-func TestVerifierDescribesAScreenshotForABlindModel(t *testing.T) {
+func TestTurnDescribesAScreenshotForABlindModel(t *testing.T) {
 	mgr, runID, control := ready(t)
 	writeShot(t, control)
 	model := &scriptedModel{
 		vision: "Safari is frontmost showing github.com. A dialog covers the page: Your computer was restarted.",
 		replies: []string{
 			toolCall("machine_screenshot", map[string]any{}),
-			toolCall("report_verdict", map[string]any{"verdict": "fail", "summary": "A system dialog covered the app."}),
+			toolCall("report_verdict", map[string]any{
+				"verdict": "fail", "summary": "A system dialog covered the app.",
+				"evidence": []string{"step 1", "screenshots/1.png"},
+			}),
 		},
 	}
 	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Look at the screen.")
 
-	rep, err := v.Run(context.Background(), runID, "Look at the screen.")
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
 	}
 	if model.visions != 1 {
 		t.Errorf("the vision model was called %d times, want 1", model.visions)
 	}
-	if len(rep.Evidence) != 1 || !strings.HasSuffix(rep.Evidence[0], ".png") {
-		t.Errorf("evidence = %v, want one png path", rep.Evidence)
+	prog := messagesOfKind(store, session.Progress)
+	if len(prog) != 1 || prog[0].Step <= 0 {
+		t.Fatalf("progress = %+v, want one message with a step", prog)
 	}
-	if _, err := os.Stat(rep.Evidence[0]); err != nil {
-		t.Errorf("the evidence file does not exist: %v", err)
+	got := store.Verdict()
+	if got.Verdict != "fail" {
+		t.Errorf("verdict = %q, want fail", got.Verdict)
 	}
+	if len(got.Evidence) != 2 || got.Evidence[0] != "step 1" {
+		t.Errorf("evidence = %v, want what the model cited", got.Evidence)
+	}
+
 	// The description, not the image, must reach the reasoning model.
-	second, _ := json.Marshal(model.requests[len(model.requests)-1])
-	if !strings.Contains(string(second), "Safari is frontmost") {
+	last := model.request(t, model.calls())
+	if !strings.Contains(last, "Safari is frontmost") {
 		t.Error("the screen description never reached the reasoning model")
 	}
-	if strings.Contains(string(second), "image_url") {
+	if strings.Contains(last, "image_url") {
 		t.Error("an image was sent to the reasoning model, which cannot accept one")
 	}
 }
 
-func TestVerifierKeepsGoingWhenTheEyesFail(t *testing.T) {
+func TestTurnKeepsGoingWhenTheEyesFail(t *testing.T) {
 	mgr, runID, control := ready(t)
 	writeShot(t, control)
 	// No vision model configured, so describing must fail.
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_screenshot", map[string]any{}),
+		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "Could not see the screen."}),
+	}}
 	v, err := New(mgr, Config{
-		BaseURL: (&scriptedModel{replies: []string{
-			toolCall("machine_screenshot", map[string]any{}),
-			toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "Could not see the screen."}),
-		}}).start(t), APIKey: "k", Model: "reasoner", MaxSteps: 4, Budget: 30 * time.Second,
+		BaseURL: model.start(t), APIKey: "k", Model: "reasoner",
+		MaxSteps: 4, Budget: 30 * time.Second,
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	rep, err := v.Run(context.Background(), runID, "Look at the screen.")
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Look at the screen.")
+
+	res, err := v.Turn(context.Background(), runID, store)
 	if err != nil {
 		t.Fatalf("a blind verifier must still finish: %v", err)
 	}
-	if rep.Verdict != "inconclusive" {
-		t.Errorf("verdict = %q, want inconclusive", rep.Verdict)
+	if res.Ended != session.Verdict {
+		t.Errorf("ended = %q, want a verdict", res.Ended)
 	}
-	if len(rep.Evidence) != 1 {
-		t.Errorf("the screenshot must still be kept as evidence, got %v", rep.Evidence)
+	if got := store.Verdict(); got.Verdict != "inconclusive" {
+		t.Errorf("verdict = %q, want inconclusive", got.Verdict)
+	}
+	if second := model.request(t, 2); !strings.Contains(second, "could not be described") {
+		t.Error("the model was not told that the screenshot could not be described")
 	}
 }
 
-func TestVerifierAsksForAVerdictWhenTheModelAnswersInProse(t *testing.T) {
+func TestTurnEndsWhenTheVerifierAsksAQuestion(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
-		prose("It looks fine to me."),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Fine."}),
+		toolCall("ask", map[string]any{"question": "Which scheme?"}),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Debug built cleanly."}),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Build the app.")
 
-	rep, err := v.Run(context.Background(), runID, "Check it.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if res.Ended != session.Question {
+		t.Errorf("ended = %q, want %q", res.Ended, session.Question)
+	}
+	q := lastMessage(t, store)
+	if q.Kind != session.Question || q.From != session.Verifier || q.Text != "Which scheme?" {
+		t.Fatalf("last message = %+v, want the verifier's question", q)
+	}
+	if got := store.Verdict(); got.Status != session.None {
+		t.Errorf("verdict state = %+v, want none yet", got)
+	}
+
+	// Answering starts a second turn whose context is rebuilt from the file.
+	post(t, store, session.Message{From: session.Coder, Kind: session.Answer, ReplyTo: q.Seq, Text: "Use the Debug scheme."})
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("second Turn: %v", err)
+	}
+	req := model.request(t, 2)
+	for _, want := range []string{"Build the app.", "[I asked] Which scheme?", "answers your question: Use the Debug scheme."} {
+		if !strings.Contains(req, want) {
+			t.Errorf("the rebuilt context is missing %q", want)
+		}
+	}
+	if got := store.Verdict(); got.Verdict != "pass" {
+		t.Errorf("verdict = %q, want pass", got.Verdict)
+	}
+}
+
+func TestDisputeReopensTheConversation(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("report_verdict", map[string]any{"verdict": "fail", "summary": "The build failed."}),
+		toolCall("machine_exec", map[string]any{"command": "swift build -c release"}),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Release builds cleanly; I was wrong."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Build the app.")
+
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("first Turn: %v", err)
+	}
+	first := store.Verdict()
+	if first.Verdict != "fail" {
+		t.Fatalf("first verdict = %q, want fail", first.Verdict)
+	}
+	post(t, store, session.Message{From: session.Coder, Kind: session.Dispute, ReplyTo: first.Seq, Text: "you used Debug"})
+
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("second Turn: %v", err)
+	}
+	if req := model.request(t, 2); !strings.Contains(req, "disputes your verdict: you used Debug") {
+		t.Errorf("the dispute never reached the model: %s", truncateFor(req))
+	}
+	got := store.Verdict()
+	if got.Verdict != "pass" {
+		t.Errorf("verdict = %q, want pass", got.Verdict)
+	}
+	if got.Status != session.Proposed {
+		t.Errorf("status = %q, want proposed", got.Status)
+	}
+	if got.Disputes != 1 {
+		t.Errorf("disputes = %d, want 1", got.Disputes)
+	}
+}
+
+// The file is the memory: a daemon that restarts between turns rebuilds the
+// same context from the transcript alone.
+func TestContextIsRebuiltAfterARestart(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("ask", map[string]any{"question": "Which scheme?"}),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Debug built cleanly."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Build the app.")
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("first Turn: %v", err)
+	}
+	q := lastMessage(t, store)
+
+	reopened := openStore(t, mgr, runID)
+	if reopened.Len() != store.Len() {
+		t.Fatalf("the reopened conversation has %d messages, want %d", reopened.Len(), store.Len())
+	}
+	post(t, reopened, session.Message{From: session.Coder, Kind: session.Answer, ReplyTo: q.Seq, Text: "Use the Debug scheme."})
+	if _, err := v.Turn(context.Background(), runID, reopened); err != nil {
+		t.Fatalf("second Turn: %v", err)
+	}
+	req := model.request(t, 2)
+	for _, want := range []string{"Build the app.", "[I asked] Which scheme?", "answers your question: Use the Debug scheme."} {
+		if !strings.Contains(req, want) {
+			t.Errorf("the rebuilt context is missing %q", want)
+		}
+	}
+}
+
+func TestANoteSentMidTurnReachesTheModel(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_exec", map[string]any{"command": "open -a Xcode"}),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "It launched."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Launch the app.")
+
+	// The note lands while the verifier is waiting on its first model call,
+	// which is the "while you were working" case the loop exists for.
+	var once sync.Once
+	model.onReasoning = func(n int) {
+		if n != 1 {
+			return
+		}
+		once.Do(func() {
+			post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "ignore the GPU dialog"})
+		})
+	}
+
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if req := model.request(t, 2); !strings.Contains(req, "[while you were working] human says: ignore the GPU dialog") {
+		t.Errorf("the note never reached the model: %s", truncateFor(req))
+	}
+}
+
+// Prose is an answer, so it is posted as one. Inventing a verdict out of it
+// would put a judgement in the record that nobody reasoned towards.
+func TestProseWithoutAToolCallBecomesAReply(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{prose("It looks fine to me.")}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check it.")
+
+	res, err := v.Turn(context.Background(), runID, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Verdict != "pass" {
-		t.Errorf("verdict = %q, want pass after the nudge", rep.Verdict)
+	if res.Ended != session.Reply {
+		t.Errorf("ended = %q, want %q", res.Ended, session.Reply)
 	}
-	last, _ := json.Marshal(model.requests[1])
-	if !strings.Contains(string(last), "report_verdict now") {
-		t.Error("the loop never asked the model for a verdict")
+	last := lastMessage(t, store)
+	if last.Kind != session.Reply || last.From != session.Verifier || last.Text != "It looks fine to me." {
+		t.Fatalf("last message = %+v, want the prose as a reply from the verifier", last)
+	}
+	if got := store.Verdict(); got.Status != session.None {
+		t.Errorf("verdict state = %+v, want no verdict from prose", got)
+	}
+	if model.calls() != 1 {
+		t.Errorf("the model was called %d times, want 1: the loop must not nudge", model.calls())
 	}
 }
 
-func TestVerifierStopsAtTheStepLimit(t *testing.T) {
+// A human note is answered, and the turn knows what the machine is doing.
+func TestAHumanNoteIsAnsweredWithAReply(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("reply", map[string]any{"text": "Still booting, 40 seconds in."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	note := post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "how is it going?"})
+	if !note.StartsTurn() {
+		t.Fatal("a human note must start a turn")
+	}
+
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if res.Ended != session.Reply {
+		t.Errorf("ended = %q, want %q", res.Ended, session.Reply)
+	}
+	last := lastMessage(t, store)
+	if last.Kind != session.Reply || last.From != session.Verifier || last.Text != "Still booting, 40 seconds in." {
+		t.Fatalf("last message = %+v, want the verifier's reply", last)
+	}
+	req := model.request(t, 1)
+	for _, want := range []string{"human says: how is it going?", "Machine status: ready"} {
+		if !strings.Contains(req, want) {
+			t.Errorf("the first request is missing %q: %s", want, truncateFor(req))
+		}
+	}
+}
+
+// A run whose machine never booted still has a voice: the actor stays, the
+// turn runs, and the model is told plainly that the machine is dead.
+func TestAFailedMachineStillAnswersAHuman(t *testing.T) {
+	mgr, runID := failed(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("reply", map[string]any{"text": "The machine never booted, so I could not start."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	reg := session.NewRegistry(mgr.Root, 2)
+	actors := NewActors(v, mgr, reg)
+	if !actors.Running(runID) {
+		t.Fatal("a failed machine's run lost its actor; nobody can ask what happened")
+	}
+	t.Cleanup(func() { actors.Stop(runID) })
+
+	store, err := reg.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "what happened?"})
+
+	reply := waitForKind(t, store, session.Reply, 5*time.Second)
+	if reply.From != session.Verifier || !strings.Contains(reply.Text, "never booted") {
+		t.Errorf("reply = %+v, want the verifier's answer", reply)
+	}
+	if req := model.request(t, 1); !strings.Contains(req, "Machine status: failed") {
+		t.Errorf("the model was not told the machine failed: %s", truncateFor(req))
+	}
+	if !actors.Running(runID) {
+		t.Error("the actor stopped after the failure; the run can no longer be talked to")
+	}
+}
+
+func TestTurnStopsAtTheStepLimit(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	replies := make([]string, 8)
 	for i := range replies {
@@ -270,23 +622,66 @@ func TestVerifierStopsAtTheStepLimit(t *testing.T) {
 	}
 	model := &scriptedModel{replies: replies}
 	v := newVerifier(t, mgr, model.start(t)) // MaxSteps 6
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Loop forever.")
 
-	rep, err := v.Run(context.Background(), runID, "Loop forever.")
+	res, err := v.Turn(context.Background(), runID, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Steps != 6 {
-		t.Errorf("steps = %d, want the limit of 6", rep.Steps)
+	if res.Steps != 6 {
+		t.Errorf("steps = %d, want the limit of 6", res.Steps)
 	}
-	if rep.Verdict != "inconclusive" {
-		t.Errorf("verdict = %q, want inconclusive", rep.Verdict)
+	last := lastMessage(t, store)
+	if last.Kind != session.Reply {
+		t.Fatalf("last message = %+v, want a reply", last)
 	}
-	if !strings.Contains(rep.Summary, "without reporting a verdict") {
-		t.Errorf("summary = %q", rep.Summary)
+	if !strings.Contains(last.Text, "used all 6 tool calls") || !strings.Contains(last.Text, "continue from here") {
+		t.Errorf("reply = %q", last.Text)
+	}
+	if n := len(messagesOfKind(store, session.Progress)); n != 6 {
+		t.Errorf("%d progress messages, want 6", n)
 	}
 }
 
-func TestVerifierReportsAnEndpointFailure(t *testing.T) {
+// A turn that runs out of wall-clock budget mid-step must say so and end
+// gracefully, the same as one that runs out of steps: a human should not see
+// an error, and the task is still owed a next message to continue from.
+func TestTurnStopsWhenTheBudgetRunsOut(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	replies := make([]string, 8)
+	for i := range replies {
+		replies[i] = toolCall("machine_exec", map[string]any{"command": "echo again"})
+	}
+	model := &scriptedModel{replies: replies}
+	v, err := New(mgr, Config{
+		BaseURL: model.start(t), APIKey: "test-key", Model: "reasoner", VisionModel: "eyes",
+		MaxSteps: 100, Budget: 1 * time.Millisecond,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Loop forever.")
+
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if res.Ended != session.Reply {
+		t.Errorf("Ended = %q, want reply", res.Ended)
+	}
+
+	last := lastMessage(t, store)
+	if last.Kind != session.Reply {
+		t.Fatalf("last message = %+v, want a reply", last)
+	}
+	if !strings.Contains(last.Text, "ran out of time after") || !strings.Contains(last.Text, "Send another message and I will continue") {
+		t.Errorf("reply = %q", last.Text)
+	}
+}
+
+func TestTurnReportsAnEndpointFailure(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -294,13 +689,25 @@ func TestVerifierReportsAnEndpointFailure(t *testing.T) {
 	}))
 	defer ts.Close()
 	v := newVerifier(t, mgr, ts.URL)
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Anything.")
 
-	_, err := v.Run(context.Background(), runID, "Anything.")
+	_, err := v.Turn(context.Background(), runID, store)
 	if err == nil {
-		t.Fatal("Run returned no error although the endpoint rejected the key")
+		t.Fatal("Turn returned no error although the endpoint rejected the key")
 	}
 	if !strings.Contains(err.Error(), "401") {
 		t.Errorf("error = %v, want it to carry the status", err)
+	}
+	// A failure nobody can see is a failure nobody can act on.
+	found := false
+	for _, m := range messagesOfKind(store, session.Event) {
+		if m.From == session.System && strings.Contains(m.Text, "verifier turn failed") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the failure was never posted to the conversation")
 	}
 }
 
@@ -311,28 +718,65 @@ func TestUnknownToolIsReportedToTheModel(t *testing.T) {
 		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "No such tool."}),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
-	if _, err := v.Run(context.Background(), runID, "Try a tool that does not exist."); err != nil {
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Try a tool that does not exist.")
+
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
 		t.Fatal(err)
 	}
-	second, _ := json.Marshal(model.requests[1])
-	if !strings.Contains(string(second), "no tool named delete_everything") {
+	if req := model.request(t, 2); !strings.Contains(req, "no tool named delete_everything") {
 		t.Error("the loop did not tell the model that the tool does not exist")
 	}
 }
 
 func TestParseVerdictFallsBackToInconclusive(t *testing.T) {
 	for _, args := range []string{`{"verdict":"maybe","summary":"x"}`, `{}`, `not json`, `{"verdict":"PASS","summary":"y"}`} {
-		v, _ := parseVerdict(args)
-		switch args {
-		case `{"verdict":"PASS","summary":"y"}`:
-			if v != "pass" {
-				t.Errorf("parseVerdict(%s) = %q, want pass", args, v)
-			}
-		default:
-			if v != "inconclusive" {
-				t.Errorf("parseVerdict(%s) = %q, want inconclusive", args, v)
-			}
+		got, summary, _ := parseVerdict(args)
+		if summary == "" {
+			t.Errorf("parseVerdict(%s) returned an empty summary", args)
 		}
+		want := "inconclusive"
+		if args == `{"verdict":"PASS","summary":"y"}` {
+			want = "pass"
+		}
+		if got != want {
+			t.Errorf("parseVerdict(%s) = %q, want %q", args, got, want)
+		}
+	}
+	got, summary, evidence := parseVerdict(`{"verdict":"fail","summary":"broken","evidence":["step 3","/tmp/a.png"]}`)
+	if got != "fail" || summary != "broken" {
+		t.Errorf("parseVerdict = %q, %q", got, summary)
+	}
+	if len(evidence) != 2 || evidence[1] != "/tmp/a.png" {
+		t.Errorf("evidence = %v", evidence)
+	}
+}
+
+func TestParseQuestion(t *testing.T) {
+	if got := parseQuestion(`{"question":"  Which scheme? "}`); got != "Which scheme?" {
+		t.Errorf("parseQuestion = %q", got)
+	}
+	if got := parseQuestion(`not json`); got == "" {
+		t.Error("parseQuestion returned nothing for a broken argument")
+	}
+}
+
+func TestProgressTextRoundTrips(t *testing.T) {
+	args := `{"command": "swift build -c release", "cwd": "my app"}`
+	result := "step 3\nexit code 0\nstdout:\nall good\nstderr:\n"
+	name, gotArgs, gotResult := splitProgress(progressText(nim.ToolCall{Name: "machine_exec", Arguments: args}, result))
+	if name != "machine_exec" {
+		t.Errorf("name = %q", name)
+	}
+	if gotArgs != args {
+		t.Errorf("arguments = %q, want %q", gotArgs, args)
+	}
+	if gotResult != result {
+		t.Errorf("result = %q, want %q", gotResult, result)
+	}
+	// A tool with no arguments must still project as valid JSON.
+	if _, empty, _ := splitProgress(progressText(nim.ToolCall{Name: "machine_screenshot"}, "step 1")); empty != "{}" {
+		t.Errorf("empty arguments = %q, want {}", empty)
 	}
 }
 

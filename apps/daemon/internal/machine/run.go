@@ -1,12 +1,16 @@
 package machine
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
 // Manifest describes one run: one machine, one agent, recorded as it happens.
@@ -18,6 +22,43 @@ type Manifest struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 	DestroyedAt *time.Time `json:"destroyedAt,omitempty"`
 	Steps       int        `json:"steps"`
+
+	// Verdict is the state of the conversation's latest verdict (ADR 0006),
+	// kept here so a reviewer sees it without opening the transcript.
+	Verdict *session.VerdictState `json:"verdict,omitempty"`
+}
+
+// ReadManifest loads a run's manifest from its directory.
+func ReadManifest(dir string) (Manifest, error) {
+	var m Manifest
+	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		return m, err
+	}
+	return m, json.Unmarshal(data, &m)
+}
+
+// ReadSteps loads a run's step log. A run with no steps yet has none.
+func ReadSteps(dir string) ([]Step, error) {
+	f, err := os.Open(filepath.Join(dir, "steps.jsonl"))
+	if errors.Is(err, os.ErrNotExist) {
+		return []Step{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	steps := []Step{}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		var s Step
+		if err := json.Unmarshal(sc.Bytes(), &s); err != nil {
+			return nil, fmt.Errorf("parse steps.jsonl line %d: %w", len(steps)+1, err)
+		}
+		steps = append(steps, s)
+	}
+	return steps, sc.Err()
 }
 
 // Step is one tool call against the machine, appended to steps.jsonl.
@@ -31,11 +72,15 @@ type Step struct {
 	DurationMS int64     `json:"durationMs"`
 }
 
-// recorder writes a run's manifest and step log under dir.
+// recorder writes a run's manifest, step log and frame log under dir.
 type recorder struct {
 	mu       sync.Mutex
 	dir      string
 	manifest Manifest
+
+	// frameErrLogged makes the frame recorder's capture-failure log a
+	// once-per-run event rather than a line every frameInterval.
+	frameErrLogged bool
 }
 
 func newRecorder(dir string, m Manifest) (*recorder, error) {
@@ -108,4 +153,43 @@ func (r *recorder) step(tool string, input, output any, err error, started time.
 // artifactPath names a file for step seq, e.g. 003-screenshot.png.
 func (r *recorder) artifactPath(seq int, kind, ext string) string {
 	return filepath.Join(r.dir, fmt.Sprintf("%03d-%s.%s", seq, kind, ext))
+}
+
+// currentStep reports the manifest's step count at this instant, so a frame
+// can record which step was current when it was captured. A frame never
+// claims a step number of its own; it only cites the latest one.
+func (r *recorder) currentStep() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.manifest.Steps
+}
+
+// appendFrame adds one line to frames.jsonl, guarded by the same lock that
+// guards the step log, so a frame and a step recorded at the same instant
+// never interleave their writes.
+func (r *recorder) appendFrame(fr Frame) error {
+	line, err := json.Marshal(fr)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	f, ferr := os.OpenFile(filepath.Join(r.dir, "frames.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if ferr != nil {
+		return ferr
+	}
+	defer func() { _ = f.Close() }()
+	_, err = f.Write(append(line, '\n'))
+	return err
+}
+
+// logFrameErrOnce reports whether this is the first frame-capture failure
+// this run has had, so recordFrames logs it once and then keeps retrying
+// silently: a capture error is never allowed to fail the run.
+func (r *recorder) logFrameErrOnce() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	first := !r.frameErrLogged
+	r.frameErrLogged = true
+	return first
 }

@@ -1,0 +1,11 @@
+{
+  "name": "@greenroom/companion",
+  "private": true,
+  "scripts": {
+    "build": "swift build",
+    "test": "swift test",
+    "lint": "swift build -Xswiftc -warnings-as-errors",
+    "bundle": "scripts/bundle.sh",
+    "install:app": "scripts/install.sh"
+  }
+}
