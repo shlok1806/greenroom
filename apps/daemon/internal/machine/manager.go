@@ -536,15 +536,19 @@ func (m *Manager) finishBoot(mc *Machine, started time.Time) {
 		mc.Status, mc.IP, mc.BootSeconds = Ready, ip, math.Round(time.Since(started).Seconds()*10)/10
 	}
 	_ = m.saveStateLocked()
-	close(mc.ready)
 	m.mu.Unlock()
 
+	// The boot step goes on disk before anyone is told the machine is
+	// ready: a caller that returns from Wait may read the run record at
+	// once, and the record must already say what Wait said. The slow part
+	// of a failed boot, stopping the VM, still happens after the signal.
 	_ = mc.rec.update(func(man *Manifest) { man.IP = ip })
 	out := map[string]any{"status": mc.Status, "ip": ip, "bootSeconds": mc.BootSeconds}
 	for k, v := range timings {
 		out[k] = v
 	}
 	seq := mc.rec.step("machine_boot", nil, out, err, started)
+	close(mc.ready)
 	m.emitStep(mc.RunID, seq)
 	if err != nil {
 		m.Log.Warn("machine failed to boot", "runId", mc.RunID, "err", err)
@@ -926,11 +930,8 @@ func (m *Manager) RecordVerdict(runID string, v session.VerdictState) error {
 		return err
 	}
 	man.Verdict = &v
-	data, err := json.MarshalIndent(man, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o644)
+	// A finished run has no recorder, so borrow one for the atomic write.
+	return (&recorder{dir: dir, manifest: man}).writeManifest()
 }
 
 func shellQuote(s string) string {

@@ -91,12 +91,33 @@ func newRecorder(dir string, m Manifest) (*recorder, error) {
 	return r, r.writeManifest()
 }
 
+// writeManifest replaces manifest.json atomically. The API and the tests read
+// the file while the recorder writes it, and a truncate-then-write would let
+// a reader see an empty or half-written manifest.
 func (r *recorder) writeManifest() error {
 	data, err := json.MarshalIndent(r.manifest, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(r.dir, "manifest.json"), data, 0o644)
+	final := filepath.Join(r.dir, "manifest.json")
+	tmp, err := os.CreateTemp(r.dir, ".manifest-*.json")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return os.Rename(tmp.Name(), final)
 }
 
 func (r *recorder) update(fn func(*Manifest)) error {

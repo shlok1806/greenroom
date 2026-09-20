@@ -112,6 +112,12 @@ of a 180 s budget while the ssh phase took 0.0 s.
 `keySeconds` and `sshSeconds`. Boot time varies a lot with host load, from 32 s to 121 s on the
 same Mac, so "which phase was slow" is a question only the recording can answer.
 
+**The record is on disk before Wait returns.** `finishBoot` writes the `machine_boot` step and
+only then closes `ready`, so a caller that reads the run directory the moment `machine_wait`
+answers sees what `machine_wait` said. `manifest.json` is replaced atomically (temp file and
+rename) for the same reason: the API and the companion read it while the recorder writes it.
+The slow part of a failed boot, stopping the VM, still happens after the signal.
+
 **A machine whose `tart run` process exits has failed.** tart stays in the foreground for the
 life of a VM, so an exit during boot means the VM is gone. `waitReady` watches
 `tart.Process.Exited` and returns `Err`, which prefers the tail of `vm.log` because that is where
