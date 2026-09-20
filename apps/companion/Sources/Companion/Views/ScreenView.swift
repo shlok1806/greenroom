@@ -12,6 +12,9 @@ struct ScreenView: View {
     @State private var player = PlayerModel()
     @State private var image: NSImage?
     @State private var busy = false
+    /// The nonce of the last seek this view acted on, so a request is honoured
+    /// once and not again every time the tab comes back.
+    @State private var appliedSeekNonce = 0
     @FocusState private var focused: Bool
 
     private let tick = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
@@ -46,13 +49,17 @@ struct ScreenView: View {
         .onAppear {
             focused = true
             syncFrames()
+            // A click in the Steps tab asks for the seek and *then* brings this
+            // view into being, so the request is already waiting by the time
+            // `onChange` could have seen it. Without this the jump silently
+            // became "show the newest frame, live".
+            applyPendingSeek()
         }
         .onChange(of: store.frames[runId]?.count ?? 0) {
             syncFrames()
         }
         .onChange(of: store.seekRequest) {
-            guard let request = store.seekRequest, request.runId == runId else { return }
-            player.seek(toStep: request.step)
+            applyPendingSeek()
         }
         .onReceive(tick) { _ in
             player.advance(by: 0.1)
@@ -200,6 +207,18 @@ struct ScreenView: View {
         } else {
             player.index = min(player.index, max(0, latest.count - 1))
         }
+    }
+
+    /// Acts on the store's standing seek request, at most once per request.
+    /// The nonce is what makes it once: coming back to this tab must not
+    /// re-run a jump the person has since scrubbed away from.
+    private func applyPendingSeek() {
+        guard let request = store.seekRequest,
+              request.runId == runId,
+              request.nonce != appliedSeekNonce
+        else { return }
+        appliedSeekNonce = request.nonce
+        player.seek(toStep: request.step)
     }
 
     private func loadCurrentImage() async {
