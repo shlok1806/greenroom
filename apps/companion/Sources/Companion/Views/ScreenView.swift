@@ -15,6 +15,9 @@ struct ScreenView: View {
     /// The nonce of the last seek this view acted on, so a request is honoured
     /// once and not again every time the tab comes back.
     @State private var appliedSeekNonce = 0
+    /// When the last playback tick ran, so `advance` is told how much time
+    /// really passed rather than how much the timer was asked for.
+    @State private var lastTick: Date?
     @FocusState private var focused: Bool
 
     private let tick = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
@@ -54,6 +57,10 @@ struct ScreenView: View {
             // `onChange` could have seen it. Without this the jump silently
             // became "show the newest frame, live".
             applyPendingSeek()
+            lastTick = nil
+        }
+        .onDisappear {
+            lastTick = nil
         }
         .onChange(of: store.frames[runId]?.count ?? 0) {
             syncFrames()
@@ -61,8 +68,13 @@ struct ScreenView: View {
         .onChange(of: store.seekRequest) {
             applyPendingSeek()
         }
-        .onReceive(tick) { _ in
-            player.advance(by: 0.1)
+        .onReceive(tick) { now in
+            // Not a flat 0.1: a timer fires late under load, and crediting it
+            // the interval it asked for instead of the time that passed makes
+            // playback drift slow, most visibly at 4x.
+            let elapsed = lastTick.map { now.timeIntervalSince($0) } ?? 0
+            lastTick = now
+            player.advance(by: min(elapsed, 1))
         }
         .task(id: player.current?.file) {
             await loadCurrentImage()
