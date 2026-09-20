@@ -411,7 +411,21 @@ final class RunStore {
         }
     }
 
+    /// Shows what went wrong, unless nothing did. A cancelled request is the
+    /// app changing its mind (a `.task(id:)` whose id moved on, a sibling of an
+    /// `async let` that already failed), so it is not news for the window: left
+    /// in, it painted "The daemon is not answering: cancelled" under a footer
+    /// that said "Live", every time the Screen tab followed a new frame.
     private func report(_ error: Error) {
+        guard !RunStore.isCancellation(error) else { return }
         lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    /// True for every shape a cancelled request reaches us in.
+    nonisolated static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if case DaemonError.cancelled = error { return true }
+        if let url = error as? URLError, url.code == .cancelled { return true }
+        return false
     }
 }

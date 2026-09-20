@@ -10,7 +10,10 @@ struct StepsView: View {
 
     var body: some View {
         List {
-            ForEach(steps) { step in
+            // Keyed by the whole record, not by `seq`: a daemon that was
+            // restarted mid-run used to hand out a number twice, and two rows
+            // with one id make SwiftUI draw the first one's content for both.
+            ForEach(steps, id: \.self) { step in
                 StepRow(store: store, runId: runId, step: step)
             }
         }
@@ -37,26 +40,43 @@ private struct StepRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Button {
-                expanded.toggle()
-                store.requestSeek(runId: runId, step: step.seq)
-            } label: {
-                HStack(spacing: 8) {
+            // Two targets, because one click cannot do both: opening the JSON
+            // and jumping to the Screen tab used to fire together, so the rows
+            // expanded on a tab the person was already being carried away from
+            // and the JSON was unreadable. The chevron opens the step; the
+            // rest of the row goes and looks at it.
+            HStack(spacing: 8) {
+                Button {
+                    expanded.toggle()
+                } label: {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                    Text(String(format: "%03d", step.seq))
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                    Text(step.tool)
-                        .font(.body.monospaced())
-                    Spacer()
-                    Text(Chrome.duration(step.durationMs))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .frame(width: 14, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help(expanded ? "Hide this step's input and output" : "Show this step's input and output")
+
+                Button {
+                    store.requestSeek(runId: runId, step: step.seq)
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(String(format: "%03d", step.seq))
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                        Text(step.tool)
+                            .font(.body.monospaced())
+                        Spacer()
+                        Text(Chrome.duration(step.durationMs))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Show the screen at this step")
             }
-            .buttonStyle(.plain)
 
             if let error = step.error, !error.isEmpty {
                 Text(error)

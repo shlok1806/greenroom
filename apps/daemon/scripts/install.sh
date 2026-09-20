@@ -66,8 +66,25 @@ cat >"$plist" <<PLIST
 PLIST
 echo "wrote $plist"
 
+# launchd still owns the old job for a moment after we ask it to go away, and it
+# answers a bootstrap in that window with "Bootstrap failed: 5: Input/output error".
+# Unload first and wait for the label to actually disappear.
+if launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
+  echo "unloading the $label job that is already running"
+  launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+  for _ in $(seq 1 100); do
+    launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || break
+    sleep 0.1
+  done
+  if launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
+    echo "$label is still loaded after 10 s; bootout it yourself and run this again." >&2
+    exit 1
+  fi
+fi
+
 # Port 7777 must be ours before launchd claims it. Our own daemon is replaced;
 # anything else is the user's and is left alone.
+killed=""
 while read -r pid; do
   [ -n "$pid" ] || continue
   cmd="$(ps -o command= -p "$pid" 2>/dev/null || true)"
@@ -78,6 +95,7 @@ while read -r pid; do
     *greenroom*" serve "*)
       echo "stopping the greenroom daemon already on 7777"
       kill "$pid" 2>/dev/null || true
+      killed="yes"
       ;;
     *)
       echo "aborting: something that is not greenroom is listening on 7777." >&2
@@ -87,8 +105,32 @@ while read -r pid; do
   esac
 done < <(lsof -nP -iTCP:7777 -sTCP:LISTEN -t 2>/dev/null || true)
 
-launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$plist"
+# A killed process keeps the listening socket for a moment; the new daemon would
+# then fail to bind and launchd would flap it.
+if [ -n "$killed" ]; then
+  for _ in $(seq 1 100); do
+    [ -z "$(lsof -nP -iTCP:7777 -sTCP:LISTEN -t 2>/dev/null || true)" ] && break
+    sleep 0.1
+  done
+  if [ -n "$(lsof -nP -iTCP:7777 -sTCP:LISTEN -t 2>/dev/null || true)" ]; then
+    echo "7777 is still held 10 s after stopping the old daemon; try again." >&2
+    exit 1
+  fi
+fi
+
+# bootstrap races launchd's own bookkeeping, so give it a few tries.
+for attempt in $(seq 1 5); do
+  if launchctl bootstrap "gui/$(id -u)" "$plist" 2>/tmp/greenroom-bootstrap.err; then
+    break
+  fi
+  if [ "$attempt" = 5 ]; then
+    echo "launchctl bootstrap failed 5 times:" >&2
+    cat /tmp/greenroom-bootstrap.err >&2
+    exit 1
+  fi
+  echo "bootstrap attempt $attempt failed ($(tr -d '\n' </tmp/greenroom-bootstrap.err)); retrying"
+  sleep 1
+done
 launchctl kickstart -k "gui/$(id -u)/$label"
 
 health=""

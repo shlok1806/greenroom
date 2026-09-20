@@ -144,7 +144,7 @@ func ready(t *testing.T) (*machine.Manager, string, string) {
 	t.Helper()
 	bin, control := testsupport.FakeTart(t)
 	mgr, err := machine.NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
-		machine.WithTartBin(bin), machine.WithReadyTimeout(10*time.Second),
+		machine.WithTartBin(bin), machine.WithReadyTimeout(10*time.Second), machine.WithFrameInterval(0),
 		machine.WithSSHProbe(func(context.Context, string, string) error { return nil }))
 	if err != nil {
 		t.Fatal(err)
