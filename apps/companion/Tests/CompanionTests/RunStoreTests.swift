@@ -209,4 +209,40 @@ final class RunStoreTests: XCTestCase {
         )
         XCTAssertEqual(store.verdict("run-1")?.status, .accepted)
     }
+
+    /// A cancelled request is the app changing its mind, not the daemon
+    /// failing, and it must never reach the footer. The Screen tab cancels the
+    /// previous frame's download on every new frame, which used to paint
+    /// "The daemon is not answering: cancelled" under a live connection.
+    func testCancellationIsNotAFailure() {
+        XCTAssertTrue(RunStore.isCancellation(CancellationError()))
+        XCTAssertTrue(RunStore.isCancellation(DaemonError.cancelled))
+        XCTAssertTrue(RunStore.isCancellation(URLError(.cancelled)))
+
+        XCTAssertFalse(RunStore.isCancellation(URLError(.cannotConnectToHost)))
+        XCTAssertFalse(RunStore.isCancellation(DaemonError.notReachable("connection refused")))
+        XCTAssertFalse(RunStore.isCancellation(DaemonError.status(code: 404, body: "no ffmpeg")))
+    }
+
+    /// The Steps tab asks for the jump before the Screen tab exists, so the
+    /// request has to survive until that view appears — and then be spent, so
+    /// coming back to the tab does not re-run it.
+    func testASeekRequestIsRaisedOnceAndKeepsItsPlace() {
+        let store = store()
+        XCTAssertNil(store.seekRequest)
+
+        store.requestSeek(runId: "run-1", step: 4)
+        let first = try? XCTUnwrap(store.seekRequest)
+        XCTAssertEqual(first?.runId, "run-1")
+        XCTAssertEqual(first?.step, 4)
+
+        // It stays put: a view that has not been created yet still finds it.
+        XCTAssertEqual(store.seekRequest, first)
+
+        // A second click is a different request, so a view that already spent
+        // the first one acts on this one too.
+        store.requestSeek(runId: "run-1", step: 9)
+        XCTAssertEqual(store.seekRequest?.step, 9)
+        XCTAssertNotEqual(store.seekRequest?.nonce, first?.nonce)
+    }
 }

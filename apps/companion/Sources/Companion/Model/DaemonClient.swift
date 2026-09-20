@@ -5,9 +5,16 @@ enum DaemonError: Error, LocalizedError, Equatable {
     case notReachable(String)
     case status(code: Int, body: String)
     case badResponse(String)
+    /// The request was cancelled by the app itself, not refused by the daemon.
+    /// SwiftUI cancels a `.task(id:)` every time its id changes, so the Screen
+    /// tab cancels the previous frame's download on every new frame. That is
+    /// ordinary, and it must never reach the window as a failure.
+    case cancelled
 
     var errorDescription: String? {
         switch self {
+        case .cancelled:
+            return nil
         case .notReachable(let detail):
             return "The daemon is not answering: \(detail)"
         case .status(let code, let body):
@@ -183,6 +190,7 @@ final class DaemonClient: Sendable {
         do {
             return try await session.data(for: request)
         } catch let error as URLError {
+            if error.code == .cancelled { throw DaemonError.cancelled }
             throw DaemonError.notReachable(error.localizedDescription)
         }
     }
