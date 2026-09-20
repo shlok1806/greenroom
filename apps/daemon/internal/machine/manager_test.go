@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/color"
@@ -18,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
@@ -498,6 +500,54 @@ func TestLoadStateDropsAMachineThatNoLongerRuns(t *testing.T) {
 	}
 	if got := second.List(); len(got) != 0 {
 		t.Errorf("the second manager kept %d machines that tart no longer lists", len(got))
+	}
+}
+
+// Reattaching must not rewrite the run's manifest from scratch. It used to,
+// which put Steps back to 0 and dropped the verdict: the next tool call then
+// reused a step number the run had already spent, steps.jsonl held the same
+// seq twice, and the companion drew one row's contents for two rows.
+func TestLoadStateKeepsTheStepCountAndVerdict(t *testing.T) {
+	bin, control := testsupport.FakeTart(t)
+	root := t.TempDir()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	first, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mc := readyMachine(t, first)
+	if err := os.WriteFile(filepath.Join(control, "vmname"), []byte(mc.Name), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := filepath.Join(root, "runs", mc.RunID)
+	before := readManifest(t, dir)
+	if before.Steps == 0 {
+		t.Fatal("the run recorded no steps, so this test cannot see the regression")
+	}
+	// A verdict the run had reached before the daemon went away.
+	before.Verdict = &session.VerdictState{Seq: 7, Verdict: "pass", Status: session.Accepted}
+	data, err := json.MarshalIndent(before, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0)); err != nil {
+		t.Fatalf("the second manager did not start: %v", err)
+	}
+
+	after := readManifest(t, dir)
+	if after.Steps != before.Steps {
+		t.Errorf("step count is %d after reattaching, want %d", after.Steps, before.Steps)
+	}
+	if after.Verdict == nil || after.Verdict.Verdict != "pass" {
+		t.Errorf("the verdict did not survive reattaching: %+v", after.Verdict)
+	}
+	if !after.CreatedAt.Equal(before.CreatedAt) {
+		t.Errorf("createdAt moved from %v to %v", before.CreatedAt, after.CreatedAt)
 	}
 }
 

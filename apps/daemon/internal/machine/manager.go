@@ -287,8 +287,22 @@ func (m *Manager) loadState() error {
 			m.Log.Warn("dropping machine that is no longer running", "runId", mc.RunID, "name", mc.Name)
 			continue
 		}
+		// Carry the run's own manifest forward. Building a fresh one here
+		// wrote Steps back to 0 and dropped the verdict, so after a daemon
+		// restart the next tool call reused step 1, steps.jsonl held the same
+		// number twice, and every frame after the restart cited step 0.
+		man := Manifest{RunID: mc.RunID, Image: mc.Image, MachineName: mc.Name, IP: mc.IP, CreatedAt: mc.CreatedAt}
+		if saved, err := ReadManifest(mc.Dir); err == nil {
+			man.Steps = saved.Steps
+			man.Verdict = saved.Verdict
+			if !saved.CreatedAt.IsZero() {
+				man.CreatedAt = saved.CreatedAt
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			m.Log.Warn("cannot read the run's manifest; its step count restarts", "runId", mc.RunID, "err", err)
+		}
 		var err error
-		mc.rec, err = newRecorder(mc.Dir, Manifest{RunID: mc.RunID, Image: mc.Image, MachineName: mc.Name, IP: mc.IP, CreatedAt: mc.CreatedAt})
+		mc.rec, err = newRecorder(mc.Dir, man)
 		if err != nil {
 			return err
 		}
