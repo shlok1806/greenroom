@@ -1,0 +1,205 @@
+# Runs on the maintainer's self-hosted Apple-silicon Mac. This is the only place
+# `-tags tart` can run: GitHub-hosted runners are themselves VMs without nested
+# virtualisation, so they cannot boot the real macOS guests Tart needs. `fast`
+# covers the same gates as ci.yml's hosted run, using the toolchain already
+# installed on this Mac. `vm` adds the real end-to-end suite, gated to paths that
+# actually touch machine lifecycle, Tart, or the e2e/testsupport seams, because
+# Apple allows only two macOS guests on one host at a time and this Mac may also
+# be running the maintainer's own machines.
+name: Full suite (self-hosted Mac)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  fast:
+    name: Fast checks
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify toolchain is on PATH
+        run: |
+          set -uo pipefail
+          missing=0
+          for tool in go swift pnpm golangci-lint; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "::error::'$tool' is not on PATH on this self-hosted runner. This job assumes Go, Swift, pnpm and golangci-lint are already installed on the Mac; install '$tool' (or fix PATH) before re-running."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          echo "go:            $(go version)"
+          echo "swift:         $(swift --version | head -1)"
+          echo "pnpm:          $(pnpm --version)"
+          echo "golangci-lint: $(golangci-lint --version)"
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check gofmt
+        working-directory: apps/daemon
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would reformat:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        working-directory: apps/daemon
+        run: go vet ./...
+
+      - name: go vet (tart build tag)
+        working-directory: apps/daemon
+        run: go vet -tags tart ./...
+
+      - name: go build
+        working-directory: apps/daemon
+        run: go build ./...
+
+      - name: go test -race
+        working-directory: apps/daemon
+        run: go test -race -count=2 ./...
+
+      - name: golangci-lint
+        working-directory: apps/daemon
+        run: golangci-lint run ./...
+
+      - name: swift build (warnings as errors)
+        working-directory: apps/companion
+        run: swift build -Xswiftc -warnings-as-errors
+
+      - name: swift test
+        working-directory: apps/companion
+        run: swift test
+
+      - name: pnpm lint
+        run: pnpm lint
+
+  changes:
+    name: Detect VM-critical changes
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: [self-hosted, macOS, ARM64]
+    outputs:
+      vm: ${{ steps.filter.outputs.vm }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Filter
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            vm:
+              - 'apps/daemon/internal/machine/**'
+              - 'apps/daemon/internal/tart/**'
+              - 'apps/daemon/e2e*_test.go'
+              - 'apps/daemon/internal/testsupport/**'
+
+  vm:
+    name: VM suite (tart)
+    needs: [fast, changes]
+    if: |
+      always() &&
+      needs.fast.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' || needs.changes.outputs.vm == 'true')
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 40
+    concurrency:
+      group: vm-suite
+      cancel-in-progress: false
+    env:
+      TART_STATE_DIR: /tmp/greenroom-vm-suite-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Preflight - check Tart capacity and record existing VMs
+        run: |
+          set -euo pipefail
+          if ! command -v tart >/dev/null 2>&1; then
+            echo "::error::tart is not on PATH on this self-hosted runner."
+            exit 1
+          fi
+          mkdir -p "$TART_STATE_DIR"
+          tart list --format json > "$TART_STATE_DIR/before.json"
+          python3 -c '
+          import json, os, sys
+          path = os.environ["TART_STATE_DIR"]
+          with open(os.path.join(path, "before.json")) as f:
+              vms = json.load(f)
+          names = [v.get("Name", "") for v in vms]
+          running = [v.get("Name", "") for v in vms if str(v.get("State", "")).lower() == "running"]
+          with open(os.path.join(path, "names-before.txt"), "w") as f:
+              f.write("\n".join(names))
+          if len(running) >= 2:
+              print("::error::Two macOS guests are already running under Tart (Apple allows only two on one host at a time): " + ", ".join(running) + ". Free a slot before re-running this workflow.")
+              sys.exit(1)
+          print("Tart capacity OK. Running guest(s) before this job: " + (", ".join(running) if running else "(none)"))
+          '
+
+      - name: Verify greenroom-base image is prepared
+        working-directory: apps/daemon
+        run: |
+          set -euo pipefail
+          version="$(grep -oE 'inputHelperVersion[[:space:]]*=[[:space:]]*[0-9]+' internal/machine/input.go | grep -oE '[0-9]+$')"
+          if [ -z "$version" ]; then
+            echo "::error::Could not parse inputHelperVersion out of internal/machine/input.go."
+            exit 1
+          fi
+          echo "Daemon expects input helper version: $version"
+          if ! tart list | grep -q 'greenroom-base'; then
+            echo "::error::greenroom-base VM not found. Run apps/daemon/scripts/build-image.sh to bake the prepared image (and the version $version input helper) before the VM suite can run."
+            exit 1
+          fi
+          echo "greenroom-base exists. This only proves the image is present, not that its baked-in helper is version $version:"
+          echo "checking the actual baked version needs the VM booted, which the suite below does anyway. If runs in this suite show a ~28s compile on every machine, the image is stale; rebuild with apps/daemon/scripts/build-image.sh."
+
+      - name: go test -tags tart (full suite)
+        working-directory: apps/daemon
+        run: go test -tags tart -timeout 20m ./...
+
+      - name: Cleanup - delete VMs this job created
+        if: always()
+        run: |
+          set -uo pipefail
+          if ! command -v tart >/dev/null 2>&1; then
+            echo "tart is not on PATH; nothing to clean up."
+            exit 0
+          fi
+          before_file="$TART_STATE_DIR/before.json"
+          if [ ! -f "$before_file" ]; then
+            echo "No 'before' VM snapshot found (preflight did not get that far); skipping cleanup rather than risk deleting a VM this job did not create."
+            exit 0
+          fi
+          tart list --format json > "$TART_STATE_DIR/after.json"
+          python3 -c '
+          import json, os, subprocess
+          path = os.environ["TART_STATE_DIR"]
+          with open(os.path.join(path, "before.json")) as f:
+              before_names = {v.get("Name", "") for v in json.load(f)}
+          with open(os.path.join(path, "after.json")) as f:
+              after_names = [v.get("Name", "") for v in json.load(f)]
+          created = [n for n in after_names if n and n not in before_names]
+          to_delete = [n for n in created if n.startswith("greenroom-") and n != "greenroom-base"]
+          if not to_delete:
+              print("No VMs created by this job need cleanup.")
+          for name in to_delete:
+              print("Deleting VM created by this job: " + name)
+              result = subprocess.run(["tart", "delete", name], capture_output=True, text=True)
+              if result.returncode != 0:
+                  print("::warning::Failed to delete " + name + ": " + result.stderr.strip())
+          '
+          rm -rf "$TART_STATE_DIR"
