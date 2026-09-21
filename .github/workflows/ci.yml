@@ -1,0 +1,104 @@
+# Manual on purpose: this repo is private, so GitHub bills macOS runner minutes at
+# 10x the Linux rate. Day-to-day verification happens on the self-hosted Mac
+# (vm.yml), which is free and can also run the `-tags tart` VM suite. This
+# workflow exists as a deliberate, paid, clean-room check: it assumes nothing is
+# pre-installed and proves the project builds and tests from a bare macOS runner,
+# the way a brand-new contributor's machine would. Click it by hand when you want
+# that assurance (for example before a release), not on every push.
+name: CI (hosted)
+
+on:
+  workflow_dispatch:
+    inputs:
+      soak:
+        description: "Also run the machine package's race soak (go test -race -count=10 ./internal/machine/)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clean-room:
+    name: Clean-room build and test
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: apps/daemon/go.mod
+          cache: true
+          cache-dependency-path: apps/daemon/go.sum
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check gofmt
+        working-directory: apps/daemon
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would reformat:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        working-directory: apps/daemon
+        run: go vet ./...
+
+      - name: go vet (tart build tag)
+        working-directory: apps/daemon
+        run: go vet -tags tart ./...
+
+      - name: go build
+        working-directory: apps/daemon
+        run: go build ./...
+
+      - name: go test -race
+        working-directory: apps/daemon
+        run: go test -race -count=2 ./...
+
+      - name: go test -race soak (internal/machine)
+        if: ${{ inputs.soak }}
+        working-directory: apps/daemon
+        run: go test -race -count=10 ./internal/machine/
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          working-directory: apps/daemon
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v6
+        with:
+          path: |
+            apps/companion/.build
+            ~/.cache/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('apps/companion/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: swift build (warnings as errors)
+        working-directory: apps/companion
+        run: swift build -Xswiftc -warnings-as-errors
+
+      - name: swift test
+        working-directory: apps/companion
+        run: swift test
+
+      - name: pnpm lint
+        run: pnpm lint

@@ -126,3 +126,27 @@ invariants, and a `CONTEXT.md` with its vocabulary.
 Run a run's whole lifecycle against a fake VM with no Tart at all:
 `cd apps/daemon && go test ./...`. The one test that boots a real VM is build-tagged:
 `go test -tags tart -run TestEndToEnd -v -timeout 10m .`
+
+### CI
+
+Two workflows, both macOS only:
+
+- **`Full suite (self-hosted Mac)`** (`.github/workflows/vm.yml`) is the day to day
+  workflow: it runs on every pull request and on push to `main`. Its `fast` job runs the
+  same gates as `pnpm lint`/`pnpm build`/`pnpm test` plus `go vet -tags tart` on a
+  self-hosted Apple-silicon Mac. Its `vm` job additionally runs the real
+  `go test -tags tart ./...` suite against Tart, but only when the change touches a
+  VM-critical path (`internal/machine`, `internal/tart`, the e2e tests or
+  `internal/testsupport`) or when triggered manually. This self-hosted runner, on the
+  maintainer's own Mac, is the only place the `-tags tart` suite can run at all:
+  GitHub-hosted runners are themselves virtual machines without nested virtualisation, so
+  they cannot boot the real macOS guests Tart needs.
+- **`CI (hosted)`** (`.github/workflows/ci.yml`) is a manual, clean-room run on a
+  GitHub-hosted `macos-15` runner, triggered by hand with `gh workflow run "CI (hosted)"`.
+  It assumes nothing is pre-installed and proves the whole build from scratch, the way a
+  new contributor's machine would. It is manual rather than automatic because this repo
+  is private and GitHub bills macOS runner minutes at 10x the Linux rate; run it before a
+  release or whenever you want that extra assurance, not on every push. Pass
+  `-f soak=true` to also run the `internal/machine` race soak
+  (`go test -race -count=10 ./internal/machine/`):
+  `gh workflow run "CI (hosted)" -f soak=true`.

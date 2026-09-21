@@ -1,0 +1,86 @@
+# Runs on the maintainer's self-hosted Apple-silicon Mac. This is the only place
+# `-tags tart` can run: GitHub-hosted runners are themselves VMs without nested
+# virtualisation, so they cannot boot the real macOS guests Tart needs. `fast`
+# covers the same gates as ci.yml's hosted run, using the toolchain already
+# installed on this Mac. `vm` adds the real end-to-end suite, gated to paths that
+# actually touch machine lifecycle, Tart, or the e2e/testsupport seams, because
+# Apple allows only two macOS guests on one host at a time and this Mac may also
+# be running the maintainer's own machines.
+name: Checks (self-hosted Mac)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  fast:
+    name: Fast checks
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify toolchain is on PATH
+        run: |
+          set -uo pipefail
+          missing=0
+          for tool in go swift pnpm golangci-lint; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "::error::'$tool' is not on PATH on this self-hosted runner. This job assumes Go, Swift, pnpm and golangci-lint are already installed on the Mac; install '$tool' (or fix PATH) before re-running."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          echo "go:            $(go version)"
+          echo "swift:         $(swift --version | head -1)"
+          echo "pnpm:          $(pnpm --version)"
+          echo "golangci-lint: $(golangci-lint --version)"
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check gofmt
+        working-directory: apps/daemon
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would reformat:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        working-directory: apps/daemon
+        run: go vet ./...
+
+      - name: go vet (tart build tag)
+        working-directory: apps/daemon
+        run: go vet -tags tart ./...
+
+      - name: go build
+        working-directory: apps/daemon
+        run: go build ./...
+
+      - name: go test -race
+        working-directory: apps/daemon
+        run: go test -race -count=2 ./...
+
+      - name: golangci-lint
+        working-directory: apps/daemon
+        run: golangci-lint run ./...
+
+      - name: swift build (warnings as errors)
+        working-directory: apps/companion
+        run: swift build -Xswiftc -warnings-as-errors
+
+      - name: swift test
+        working-directory: apps/companion
+        run: swift test
+
+      - name: pnpm lint
+        run: pnpm lint

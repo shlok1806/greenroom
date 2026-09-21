@@ -168,10 +168,25 @@ func failed(t *testing.T) (*machine.Manager, string) {
 	testsupport.Flag(t, control, "fail-run")
 	mgr, err := machine.NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
 		machine.WithTartBin(bin), machine.WithReadyTimeout(2*time.Second),
+		machine.WithFrameInterval(0),
 		machine.WithSSHProbe(func(context.Context, string, string) error { return nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A failed boot signals ready and only then stops and deletes the VM, so
+	// the tart subprocesses that tidy up are still writing into the fake
+	// tart's control directory when Wait returns. The manager emits "failed"
+	// after that cleanup, so waiting for it is what keeps those writes from
+	// racing t.TempDir's removal.
+	done := make(chan struct{})
+	var once sync.Once
+	stop := mgr.Listen(func(ev machine.LifecycleEvent) {
+		if ev.Kind == "failed" {
+			once.Do(func() { close(done) })
+		}
+	})
+	t.Cleanup(stop)
+
 	mc, err := mgr.Create(context.Background(), "img", false)
 	if err != nil {
 		t.Fatal(err)
@@ -179,6 +194,11 @@ func failed(t *testing.T) (*machine.Manager, string) {
 	got, err := mgr.Wait(context.Background(), mc.RunID, 20*time.Second)
 	if err != nil || got.Status != machine.Failed {
 		t.Fatalf("machine did not fail: %+v %v", got, err)
+	}
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the manager never finished cleaning up the failed machine")
 	}
 	return mgr, mc.RunID
 }

@@ -1,0 +1,109 @@
+# The only place the -tags tart suite can run. Apple's Virtualization.framework
+# offers nested virtualization on M3 and M4 alone, and only for Linux guests,
+# so a hosted runner can never boot the macOS guests greenroom is made of.
+#
+# GitHub's own paths filter decides when this runs. A third-party filter action
+# would need API permissions this workflow has no other reason to hold.
+name: VM suite (self-hosted Mac)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/daemon/internal/machine/**"
+      - "apps/daemon/internal/tart/**"
+      - "apps/daemon/internal/testsupport/**"
+      - "apps/daemon/e2e*_test.go"
+      - ".github/workflows/vm-suite.yml"
+
+jobs:
+  vm:
+    name: VM suite (tart)
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 40
+    concurrency:
+      group: vm-suite
+      cancel-in-progress: false
+    env:
+      TART_STATE_DIR: /tmp/greenroom-vm-suite-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Preflight - check Tart capacity and record existing VMs
+        run: |
+          set -euo pipefail
+          if ! command -v tart >/dev/null 2>&1; then
+            echo "::error::tart is not on PATH on this self-hosted runner."
+            exit 1
+          fi
+          mkdir -p "$TART_STATE_DIR"
+          tart list --format json > "$TART_STATE_DIR/before.json"
+          python3 -c '
+          import json, os, sys
+          path = os.environ["TART_STATE_DIR"]
+          with open(os.path.join(path, "before.json")) as f:
+              vms = json.load(f)
+          names = [v.get("Name", "") for v in vms]
+          running = [v.get("Name", "") for v in vms if str(v.get("State", "")).lower() == "running"]
+          with open(os.path.join(path, "names-before.txt"), "w") as f:
+              f.write("\n".join(names))
+          if len(running) >= 2:
+              print("::error::Two macOS guests are already running under Tart (Apple allows only two on one host at a time): " + ", ".join(running) + ". Free a slot before re-running this workflow.")
+              sys.exit(1)
+          print("Tart capacity OK. Running guest(s) before this job: " + (", ".join(running) if running else "(none)"))
+          '
+
+      - name: Verify greenroom-base image is prepared
+        working-directory: apps/daemon
+        run: |
+          set -euo pipefail
+          version="$(grep -oE 'inputHelperVersion[[:space:]]*=[[:space:]]*[0-9]+' internal/machine/input.go | grep -oE '[0-9]+$')"
+          if [ -z "$version" ]; then
+            echo "::error::Could not parse inputHelperVersion out of internal/machine/input.go."
+            exit 1
+          fi
+          echo "Daemon expects input helper version: $version"
+          if ! tart list | grep -q 'greenroom-base'; then
+            echo "::error::greenroom-base VM not found. Run apps/daemon/scripts/build-image.sh to bake the prepared image (and the version $version input helper) before the VM suite can run."
+            exit 1
+          fi
+          echo "greenroom-base exists. This only proves the image is present, not that its baked-in helper is version $version:"
+          echo "checking the actual baked version needs the VM booted, which the suite below does anyway. If runs in this suite show a ~28s compile on every machine, the image is stale; rebuild with apps/daemon/scripts/build-image.sh."
+
+      - name: go test -tags tart (full suite)
+        working-directory: apps/daemon
+        run: go test -tags tart -timeout 20m ./...
+
+      - name: Cleanup - delete VMs this job created
+        if: always()
+        run: |
+          set -uo pipefail
+          if ! command -v tart >/dev/null 2>&1; then
+            echo "tart is not on PATH; nothing to clean up."
+            exit 0
+          fi
+          before_file="$TART_STATE_DIR/before.json"
+          if [ ! -f "$before_file" ]; then
+            echo "No 'before' VM snapshot found (preflight did not get that far); skipping cleanup rather than risk deleting a VM this job did not create."
+            exit 0
+          fi
+          tart list --format json > "$TART_STATE_DIR/after.json"
+          python3 -c '
+          import json, os, subprocess
+          path = os.environ["TART_STATE_DIR"]
+          with open(os.path.join(path, "before.json")) as f:
+              before_names = {v.get("Name", "") for v in json.load(f)}
+          with open(os.path.join(path, "after.json")) as f:
+              after_names = [v.get("Name", "") for v in json.load(f)]
+          created = [n for n in after_names if n and n not in before_names]
+          to_delete = [n for n in created if n.startswith("greenroom-") and n != "greenroom-base"]
+          if not to_delete:
+              print("No VMs created by this job need cleanup.")
+          for name in to_delete:
+              print("Deleting VM created by this job: " + name)
+              result = subprocess.run(["tart", "delete", name], capture_output=True, text=True)
+              if result.returncode != 0:
+                  print("::warning::Failed to delete " + name + ": " + result.stderr.strip())
+          '
+          rm -rf "$TART_STATE_DIR"
