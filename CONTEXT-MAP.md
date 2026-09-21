@@ -21,7 +21,7 @@ Contexts follow the component plan in `docs/01-plan.md`. Status means:
 | session    | `apps/daemon/internal/session/`     | The conversation per run: messages, participants, agreement (ADR 0006)  | code    |
 | api        | `apps/daemon/internal/api/`         | Read and control HTTP API for the companion (ADR 0007)                  | code    |
 | companion  | `apps/companion/`                   | macOS app: watch runs, see the screen, talk to the agents (ADR 0007)    | documented |
-| guest      | `packages/guest/`                   | What runs inside the VM: helper for screenshot, input, accessibility tree | planned |
+| guest      | `apps/daemon/internal/machine/guest/` | What runs inside the VM: the input helper the daemon compiles there (ADR 0009) | code    |
 
 ## Shared vocabulary (cross-context)
 
@@ -32,3 +32,5 @@ once only that context cares about it.
 - **Snapshot**: an immutable VM image layer (base, greenroom base, project snapshot).
 - **Run**: one verification session by an agent against one machine, recorded as it happens.
 - **Evidence**: the artifacts a run produces (manifest, tool calls, screenshots, recording).
+- **Control lease**: the right to drive one machine's screen, held by one seat (human,
+  verifier) at a time and recorded in the run's conversation (ADR 0009).

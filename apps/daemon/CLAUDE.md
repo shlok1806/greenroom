@@ -69,7 +69,8 @@ Each layer depends only on the one below it. Keep it that way.
 - `internal/machine` - lifecycle and the source of truth. `Manager` guards the machine map
   with a mutex and persists it; `recorder` owns run evidence on disk: `manifest.json`,
   `steps.jsonl`, and, while frame capture is enabled, `frames/<unix-ms>.jpg` and `frames.jsonl`
-  (ADR 0008).
+  (ADR 0008). `input.go` owns computer use (ADR 0009): the control lease and the guest-side
+  helper, whose Swift source is embedded from `internal/machine/guest/input.swift`.
 - `internal/session` - the conversation a run owns (`conversation.jsonl`), beside `machine` and
   below `mcpserver` and the HTTP API. `Registry` hands out one append-only `Store` per run, and
   every participant, coder, human, verifier and the daemon itself, writes through it.
@@ -157,6 +158,44 @@ when it changes, and a tool call on a machine that is not ready comes back as a 
 A coder `note` is context, not a turn, because the coder's own reply channel is its next
 `agent_wait`.
 
+**Only one hand on the mouse, and the conversation is told whose.** A machine has at most
+one control lease (`Manager.TakeControl`, ADR 0009) and `Manager.Input` refuses a batch
+that is not backed by it, so the verifier and a person can never post events at the same
+time. The lease expires after `ControlTTL` of silence and every batch renews it: a
+companion that crashes holding the screen must not lock it for good. Taking it and giving
+it back each write one message into the conversation, and each batch is one
+`machine_input` step, whatever its length, so a drag reads as one thing a person did.
+
+**The verifier holds the screen lease per call, not per turn.** `machine_click`,
+`machine_type`, `machine_key`, `machine_scroll` and `machine_input`, in `internal/mcpserver`
+for a coder and natively in `internal/verifier` for the model and manual brains, all take
+the lease as holder `verifier`, post one batch, and release it before the call returns. The
+take-post-release sequence lives once, in `machine.Manager.InputAs` (issue #12): both
+packages call it rather than each keeping its own copy, because `internal/verifier` cannot
+import `internal/mcpserver` and the two used to duplicate the same three lines. A lease held
+for a whole turn would let one long turn lock a watching human out of a machine they are
+meant to be able to take back at any moment; a lease held only for the one batch a call
+posts means a human can take the screen the instant a call returns, which issue #11
+requires and `TestAHumanCanTakeTheScreenBackBetweenVerifierCalls` and
+`TestTurnClicksAtAFractionAndRecordsOneStep` both check for. A human already holding the
+lease is not a transport failure: `InputAs` turns it into a readable error naming them, the
+machine untouched, so the caller can simply try again in a moment.
+
+**Input coordinates are fractions of the screen, and the manager is the only place that
+knows otherwise.** The caller sends 0 to 1 because it is looking at a scaled frame; the
+manager reads the guest's real resolution once per machine (`ScreenOf`) and multiplies.
+A coordinate outside the picture is clamped, not refused: a drag off the edge is a hand,
+not a bad request. Never move this arithmetic up into `api` or `mcpserver`: both would
+then need a resolution neither of them owns.
+
+**The guest input helper is compiled in the guest, once, and never on the host.** Posting
+a real event needs `CGEvent` from a process in the guest's own login session, so
+`installInputHelper` writes `guest/input.swift` into the machine as base64 and builds it
+with `swiftc -swift-version 5` at `~/.greenroom/bin/greenroom-input-<version>`. Change the
+Swift and bump `inputHelperVersion`, or a machine that is already running keeps calling
+the old binary. Nothing a person types is ever read by a shell: both the source and every
+batch travel as one base64 argument.
+
 **Every human or coder action that changes a machine lands in the conversation.** A destroy is
 announced by the lifecycle bridge in `main.go`, which subscribes to `Manager.Listen` and posts
 "machine is ready", "machine failed to boot" and "machine destroyed" from the one place that
@@ -214,7 +253,8 @@ only way to reach the failure paths:
 - `WithTartBin` points the manager at `internal/testsupport`, a fake `tart` script that answers
   every subcommand, records each argument list, and turns on failures through control files
   (`fail-clone`, `fail-run`, `fail-ip`, `fail-exec`, `fail-keyinstall`, `fail-stop`,
-  `fail-delete`, `exec-exit-<n>`, `exec-codes`, `agent-down`, `ssh-down`, `list-empty`, `vmnames`).
+  `fail-delete`, `exec-exit-<n>`, `exec-codes`, `agent-down`, `ssh-down`, `list-empty`, `vmnames`,
+  and for computer use `fail-input-install`, `input-down` and `screen`).
   `exec-codes` is a queue: one exit code per line, consumed on each `tart exec` call, for a test
   where a single turn runs several commands and needs their exit codes to differ.
 - `WithSSHProbe` replaces the in-guest port 22 check. The fake tart answers the real probe too,
@@ -225,8 +265,10 @@ only way to reach the failure paths:
 
 Test at the highest seam that can observe the behavior. The MCP seam in
 `internal/mcpserver/server_test.go` runs a real MCP client against a real HTTP server, and it
-covers every tool: the seven `machine_*` tools there, and the three `agent_*` tools in
-`agenttools_test.go`, which play the verifier by appending to the store directly. The companion
+covers every tool: the twelve `machine_*` tools there (create, wait, list, sync, exec,
+screenshot, destroy, and the five computer-use tools click, type, key, scroll and input), and
+the three `agent_*` tools in `agenttools_test.go`, which play the verifier by appending to the
+store directly. The companion
 seam is the same idea one package over: `internal/api/api_test.go` drives the real routes over
 `httptest`, including the SSE stream, which it cancels to prove the handler lets go.
 
@@ -236,6 +278,47 @@ Commands run as `admin` through `zsh -lc`. Sync is rsync over ssh with an ed2551
 generated into the state root and installed during boot. A machine is not reported ready until
 that ssh path works. Screenshots are `screencapture`
 inside the guest, base64 back over `tart exec`.
+
+## Image
+
+A fresh clone of the daemon's default OCI image pays two one-time costs on its first control
+request: `swiftc` compiles the guest input helper (issue #9), and the ssh key gets installed.
+Both are idempotent scripts, so paying them once per machine is correct but slow: the compile
+alone measures in the tens of seconds. `scripts/build-image.sh` bakes both into a `greenroom-base`
+VM ahead of time, so every later clone of it skips both:
+
+```sh
+scripts/build-image.sh                                    # clones defaultImage, prepares, stops
+scripts/build-image.sh -base <oci image> -name my-base     # a different source or name
+scripts/build-image.sh -force                              # replace an existing stopped VM of that name
+```
+
+It clones the base image, boots it with `--no-graphics`, waits for the guest agent, runs
+`go run . prepare-image -vm <name>` (`prepare.go`, `machine.PrepareGuest`), then stops the VM.
+`prepare-image` can also be run by hand against any already-running VM:
+
+```sh
+greenroom prepare-image -vm <name> [-root ~/.greenroom]
+```
+
+`inputHelperVersion` (`internal/machine/input.go`) is the contract between a prepared image and
+the daemon: the helper is baked in at the exact path that version names
+(`.greenroom/bin/greenroom-input-<version>`), and `installHelperScript`'s own short-circuit is
+what makes a clone's first control request a no-op instead of a second compile. Bump the version
+when `guest/input.swift` changes, and a `greenroom-base` built before the bump goes back to
+paying the compile on every machine, silently, until it is rebuilt: nothing checks a running
+image's baked-in version against the daemon's own. Run the daemon against the prepared image with
+`greenroom serve -image greenroom-base`.
+
+**`PrepareGuest` ends with `sync` in the guest, and that is load-bearing.** A real run against a
+real VM found that `tart stop` right after preparing does not by itself flush the guest's dirty
+filesystem pages: the compiled helper answered `--version` while the VM was still running
+(`verifyHelper` proved it), the script then stopped the VM, and the very next boot of that image
+had an empty `.greenroom/bin/` -- the whole image was rebuilt for nothing, silently, and only a
+stop/reboot cycle by hand caught it because the automated proof test's own first `ScreenOf` was
+still fast enough (a partial recompile) to slip under the no-compile ceiling once by accident.
+`sync` is the fix and `TestPrepareGuestSyncsBeforeReturning` pins that PrepareGuest still runs it.
+Do not remove it to save a round trip.
 
 ## Known divergence from ADR
 

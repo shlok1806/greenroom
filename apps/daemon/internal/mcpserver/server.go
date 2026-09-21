@@ -169,6 +169,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	})
 
 	addAgentTools(s, reg)
+	addInputTools(s, mgr)
 
 	return s
 }

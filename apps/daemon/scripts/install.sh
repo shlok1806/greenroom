@@ -15,6 +15,19 @@ fi
 echo "env file: $env_file"
 echo "verifier: ${GREENROOM_VERIFIER:-nim}"
 
+# Prefer the prepared image when it exists: a clone of it answers the first
+# control request in milliseconds instead of compiling the input helper for
+# half a minute (issue #12). GREENROOM_IMAGE overrides.
+image="${GREENROOM_IMAGE:-}"
+if [ -z "$image" ]; then
+  if tart list --source local 2>/dev/null | grep -q '^local[[:space:]]\{1,\}greenroom-base[[:space:]]'; then
+    image="greenroom-base"
+  else
+    image="ghcr.io/cirruslabs/macos-tahoe-base:latest"
+  fi
+fi
+echo "image: $image"
+
 label="com.greenroom.daemon"
 root="$HOME/.greenroom"
 bin="$root/bin/greenroom"
@@ -47,6 +60,8 @@ cat >"$plist" <<PLIST
     <string>$env_file</string>
     <string>-verifier</string>
     <string>${GREENROOM_VERIFIER:-nim}</string>
+    <string>-image</string>
+    <string>$image</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

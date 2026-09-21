@@ -26,6 +26,13 @@ import (
 const (
 	frameWidthCap = 1280
 	frameQuality  = 75
+
+	// controlFrameInterval is how often the screen is captured while a person
+	// is driving it (ADR 0009). A recording made for a reviewer can afford to
+	// be two seconds behind; a hand on a mouse cannot, because the picture is
+	// the only feedback there is. It applies only while a lease is live, so
+	// the cost is paid exactly while someone is watching for it.
+	controlFrameInterval = 500 * time.Millisecond
 )
 
 // Frame is one line of frames.jsonl: a screen capture taken while a machine
@@ -111,9 +118,19 @@ func (m *Manager) recordFrames(ctx context.Context, mc *Machine) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(m.frameInterval):
+		case <-time.After(m.captureInterval(mc)):
 		}
 	}
+}
+
+// captureInterval is how long to wait before the next capture: the run's
+// configured interval normally, and controlFrameInterval while somebody holds
+// the screen, which needs the picture to keep up with their hand.
+func (m *Manager) captureInterval(mc *Machine) time.Duration {
+	if _, held := m.ControlState(mc.RunID); held && m.frameInterval > controlFrameInterval {
+		return controlFrameInterval
+	}
+	return m.frameInterval
 }
 
 // captureFrame takes and records one frame. Every error path logs at most

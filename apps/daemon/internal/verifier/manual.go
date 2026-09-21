@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,9 +19,24 @@ import (
 const manualHelp = `Instructions, one per line, case-insensitive first word:
   run <shell command>                       run a command on the machine
   screenshot                                capture the screen
+  click <x> <y>                             click at a fraction of the screen, 0 to 1
+  type <text>                               type text into whatever has focus
+  key <key> [mods]                          press a key, e.g. key a cmd shift
+  scroll <dx> <dy>                          scroll by a delta, in points
   verdict pass|fail|inconclusive <summary>  report a verdict
   ask <question>                            ask a question
   help                                      show this text`
+
+// verifierHolder is the screen-lease seat every computer-use call takes,
+// whether it reaches the machine through this package's own tool loop or
+// through the MCP machine_click family (internal/mcpserver/inputtools.go
+// hardcodes the same string, so a human sees the same name whichever path
+// posted the batch). The lease is held per call, not for the whole turn
+// (apps/daemon/CLAUDE.md, ADR 0009, issue #11): take it, post the batch,
+// release it, so a person watching the run can take the screen back between
+// calls rather than only between turns. The take-post-release sequence
+// itself lives once, in machine.Manager.InputAs (issue #12).
+const verifierHolder = "verifier"
 
 // Manual is a Brain with no model behind it: a person types instructions
 // into the same conversation a model-driven verifier would answer, and
@@ -110,6 +126,108 @@ linesLoop:
 			}
 			m.postProgress(store, text, seq)
 
+		case "click":
+			if why := unusable(ctx, m.mgr, runID); why != "" {
+				m.postReply(store, machineStatus(ctx, m.mgr, runID))
+				res.Ended = session.Reply
+				break linesLoop
+			}
+			x, y, perr := parseTwoFloats(arg)
+			args, _ := json.Marshal(map[string]float64{"x": x, "y": y})
+			var text string
+			var step int
+			if perr != nil {
+				text = "machine_click " + string(args) + "\nerror: click needs two numbers, x and y, 0 to 1"
+			} else {
+				result, err := m.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{{Type: "click", X: &x, Y: &y}})
+				step = result.Step
+				if err != nil {
+					text = "machine_click " + string(args) + "\nerror: " + err.Error()
+				} else {
+					text = fmt.Sprintf("machine_click %s\nstep %d\nclicked (%.2f, %.2f)", args, step, x, y)
+				}
+			}
+			if step > 0 {
+				steps = append(steps, step)
+			}
+			m.postProgress(store, text, step)
+
+		case "type":
+			if why := unusable(ctx, m.mgr, runID); why != "" {
+				m.postReply(store, machineStatus(ctx, m.mgr, runID))
+				res.Ended = session.Reply
+				break linesLoop
+			}
+			args, _ := json.Marshal(map[string]string{"text": arg})
+			result, err := m.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{{Type: "type", Text: arg}})
+			var text string
+			if err != nil {
+				text = "machine_type " + string(args) + "\nerror: " + err.Error()
+			} else {
+				text = fmt.Sprintf("machine_type %s\nstep %d\ntyped %q", args, result.Step, arg)
+			}
+			if result.Step > 0 {
+				steps = append(steps, result.Step)
+			}
+			m.postProgress(store, text, result.Step)
+
+		case "key":
+			if why := unusable(ctx, m.mgr, runID); why != "" {
+				m.postReply(store, machineStatus(ctx, m.mgr, runID))
+				res.Ended = session.Reply
+				break linesLoop
+			}
+			fields := strings.Fields(arg)
+			var text string
+			var step int
+			if len(fields) == 0 {
+				text = "machine_key {}\nerror: key needs a key name, e.g. key a cmd shift"
+			} else {
+				key, mods := fields[0], fields[1:]
+				args, _ := json.Marshal(map[string]any{"key": key, "mods": mods})
+				result, err := m.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{{Type: "key", Key: key, Mods: mods}})
+				step = result.Step
+				if err != nil {
+					text = "machine_key " + string(args) + "\nerror: " + err.Error()
+				} else {
+					label := key
+					if len(mods) > 0 {
+						label = strings.Join(mods, "+") + "+" + key
+					}
+					text = fmt.Sprintf("machine_key %s\nstep %d\npressed %s", args, step, label)
+				}
+			}
+			if step > 0 {
+				steps = append(steps, step)
+			}
+			m.postProgress(store, text, step)
+
+		case "scroll":
+			if why := unusable(ctx, m.mgr, runID); why != "" {
+				m.postReply(store, machineStatus(ctx, m.mgr, runID))
+				res.Ended = session.Reply
+				break linesLoop
+			}
+			dx, dy, perr := parseTwoFloats(arg)
+			args, _ := json.Marshal(map[string]float64{"deltaX": dx, "deltaY": dy})
+			var text string
+			var step int
+			if perr != nil {
+				text = "machine_scroll " + string(args) + "\nerror: scroll needs two numbers, dx and dy"
+			} else {
+				result, err := m.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{{Type: "scroll", DeltaX: dx, DeltaY: dy}})
+				step = result.Step
+				if err != nil {
+					text = "machine_scroll " + string(args) + "\nerror: " + err.Error()
+				} else {
+					text = fmt.Sprintf("machine_scroll %s\nstep %d\nscrolled (deltaX %.0f, deltaY %.0f)", args, step, dx, dy)
+				}
+			}
+			if step > 0 {
+				steps = append(steps, step)
+			}
+			m.postProgress(store, text, step)
+
 		case "verdict":
 			word, summary := splitInstruction(arg)
 			verdict := strings.ToLower(strings.TrimSpace(word))
@@ -189,6 +307,22 @@ func splitInstruction(line string) (verb, rest string) {
 		return line, ""
 	}
 	return line[:i], strings.TrimSpace(line[i+1:])
+}
+
+// parseTwoFloats reads exactly two whitespace-separated numbers out of arg,
+// the shape click, scroll and any future two-number instruction share.
+func parseTwoFloats(arg string) (a, b float64, err error) {
+	fields := strings.Fields(arg)
+	if len(fields) != 2 {
+		return 0, 0, fmt.Errorf("want two numbers, got %q", arg)
+	}
+	if a, err = strconv.ParseFloat(fields[0], 64); err != nil {
+		return 0, 0, err
+	}
+	if b, err = strconv.ParseFloat(fields[1], 64); err != nil {
+		return 0, 0, err
+	}
+	return a, b, nil
 }
 
 // evidenceOf turns the steps a turn produced into the "step N" strings a

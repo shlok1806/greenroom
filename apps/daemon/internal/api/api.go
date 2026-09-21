@@ -89,6 +89,9 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Han
 	mux.HandleFunc("GET /api/runs/{id}/artifacts/{name...}", a.artifact)
 	mux.HandleFunc("POST /api/runs/{id}/messages", a.postMessage)
 	mux.HandleFunc("POST /api/runs/{id}/screenshot", a.screenshot)
+	mux.HandleFunc("POST /api/runs/{id}/control", a.takeControl)
+	mux.HandleFunc("DELETE /api/runs/{id}/control", a.releaseControl)
+	mux.HandleFunc("POST /api/runs/{id}/input", a.input)
 	mux.HandleFunc("POST /api/runs/{id}/destroy", a.destroy)
 	mux.HandleFunc("GET /api/events", a.events)
 	return mux
@@ -417,6 +420,113 @@ func (a *api) screenshot(w http.ResponseWriter, r *http.Request) {
 	}{seq, path, len(png)})
 }
 
+// --- driving the screen (ADR 0009) ---
+
+// humanSeat is who the companion is in the conversation, and therefore who
+// holds a control lease taken through this API. The daemon has one seat per
+// kind of participant, not one per window, so a second companion asking for
+// the same run's screen is the same hand, not a rival.
+const humanSeat = "human"
+
+// controlOut is what every control route answers with: the lease as it now
+// stands, plus the size of the screen the coordinates are fractions of.
+type controlOut struct {
+	Control *machine.Control `json:"control"`
+	Screen  *machine.Screen  `json:"screen,omitempty"`
+}
+
+func (a *api) takeControl(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.run(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		TTLSeconds int `json:"ttlSeconds"`
+	}
+	// An empty body is the ordinary case: take it for the default lease.
+	_ = json.NewDecoder(r.Body).Decode(&in)
+
+	c, fresh, err := a.mgr.TakeControl(id, humanSeat, time.Duration(in.TTLSeconds)*time.Second)
+	if err != nil {
+		a.failControl(w, id, err)
+		return
+	}
+	// The helper is compiled in the guest on first use, which takes seconds.
+	// Doing it here rather than on the first click means the pointer works
+	// from the moment the app says it has control.
+	screen, err := a.mgr.ScreenOf(r.Context(), id)
+	if err != nil {
+		_, _, _ = a.mgr.ReleaseControl(id, humanSeat)
+		a.fail(w, http.StatusConflict, err)
+		return
+	}
+	if fresh {
+		// The coder learns on its next agent_wait that someone else is
+		// driving its machine (ADR 0006).
+		a.event(id, "human took control of the screen")
+	}
+	writeJSON(w, http.StatusOK, controlOut{Control: &c, Screen: &screen})
+}
+
+func (a *api) releaseControl(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.run(w, r)
+	if !ok {
+		return
+	}
+	c, held, err := a.mgr.ReleaseControl(id, humanSeat)
+	if err != nil {
+		a.failControl(w, id, err)
+		return
+	}
+	if held {
+		a.event(id, fmt.Sprintf("human gave the screen back after %d actions", c.Actions))
+	}
+	writeJSON(w, http.StatusOK, controlOut{})
+}
+
+// input posts one batch of mouse and keyboard actions. Coordinates are
+// fractions of the screen (ADR 0009), because the app is looking at a frame
+// scaled to its window and cannot know the guest's resolution.
+func (a *api) input(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.run(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Actions []machine.InputAction `json:"actions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		a.fail(w, http.StatusBadRequest, err)
+		return
+	}
+	if len(in.Actions) == 0 {
+		a.fail(w, http.StatusBadRequest, errors.New("actions is empty"))
+		return
+	}
+	res, err := a.mgr.Input(r.Context(), id, humanSeat, in.Actions)
+	if err != nil {
+		a.failControl(w, id, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// failControl gives the lease errors their own status codes, so the app can
+// tell "take control first" (409) and "someone else is driving" (423) from a
+// daemon fault, and a run whose machine is gone from either.
+func (a *api) failControl(w http.ResponseWriter, runID string, err error) {
+	switch {
+	case errors.Is(err, machine.ErrControlHeld):
+		a.fail(w, http.StatusLocked, err)
+	case errors.Is(err, machine.ErrNoControl):
+		a.fail(w, http.StatusConflict, err)
+	case !a.mgr.Live(runID):
+		a.fail(w, http.StatusConflict, err)
+	default:
+		a.fail(w, http.StatusInternalServerError, err)
+	}
+}
+
 func (a *api) destroy(w http.ResponseWriter, r *http.Request) {
 	id, ok := a.run(w, r)
 	if !ok {
@@ -538,7 +648,7 @@ func (a *api) events(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch ev.Kind {
-		case "created", "ready", "failed", "destroyed":
+		case "created", "ready", "failed", "destroyed", "control":
 			c.send(sseEvent{name: "run", data: ev})
 		case "step":
 			c.send(sseEvent{name: "step", data: map[string]any{"runId": ev.RunID, "step": ev.Step}})
