@@ -18,12 +18,6 @@ on:
 
 jobs:
   vm:
-              - 'apps/daemon/internal/machine/**'
-              - 'apps/daemon/internal/tart/**'
-              - 'apps/daemon/e2e*_test.go'
-              - 'apps/daemon/internal/testsupport/**'
-
-  vm:
     name: VM suite (tart)
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 40
