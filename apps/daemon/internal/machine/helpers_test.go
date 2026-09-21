@@ -110,9 +110,10 @@ func TestTruncatedForLog(t *testing.T) {
 
 func TestNewRunID(t *testing.T) {
 	id := newRunID()
-	// 20060102-150405 plus a dash plus six hex characters.
-	if len(id) != len("20060102-150405")+1+6 {
-		t.Fatalf("runId %q has length %d, want %d", id, len(id), len("20060102-150405")+7)
+	// 20060102-150405 plus a dash plus sixteen hex characters.
+	const suffix = 16
+	if len(id) != len("20060102-150405")+1+suffix {
+		t.Fatalf("runId %q has length %d, want %d", id, len(id), len("20060102-150405")+1+suffix)
 	}
 	parts := strings.Split(id, "-")
 	if len(parts) != 3 {
@@ -123,11 +124,14 @@ func TestNewRunID(t *testing.T) {
 			t.Fatalf("runId %q has a non-hex suffix", id)
 		}
 	}
+	// The random half exists so two runs made in the same second are still
+	// different, so ask for far more than one second's worth. At three bytes
+	// this failed about once in 135 attempts; at eight it will not.
 	seen := map[string]bool{}
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 20000; i++ {
 		got := newRunID()
 		if seen[got] {
-			t.Fatalf("newRunID returned %q twice in 500 calls", got)
+			t.Fatalf("newRunID returned %q twice in %d calls", got, i+1)
 		}
 		seen[got] = true
 	}

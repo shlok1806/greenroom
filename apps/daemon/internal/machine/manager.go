@@ -363,9 +363,22 @@ func (m *Manager) saveStateLocked() error {
 // round1 reports a duration in seconds with one decimal.
 func round1(d time.Duration) float64 { return math.Round(d.Seconds()*10) / 10 }
 
+// newRunID names a run. The timestamp is for a person reading a directory
+// listing; the random half is what actually keeps two runs apart.
+//
+// Eight bytes, not three: a runId is the machine map key, the VM name and the
+// run directory, so a collision means two runs share one directory and
+// overwrite each other's evidence. Three bytes is 24 bits, which two runs
+// created in the same second collide in about once in 135 batches of 500, and
+// a clean-room CI run found exactly that. Eight bytes makes it unreachable.
+//
+// A failure to read randomness is fatal rather than ignored: falling through
+// with a zero buffer would hand every run of this daemon the same name.
 func newRunID() string {
-	var b [3]byte
-	_, _ = rand.Read(b[:])
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("greenroom: the system has no randomness to name a run with: " + err.Error())
+	}
 	return time.Now().UTC().Format("20060102-150405") + "-" + hex.EncodeToString(b[:])
 }
 
