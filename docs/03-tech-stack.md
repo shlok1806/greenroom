@@ -22,7 +22,7 @@ every other step in the loop is hundreds to thousands of times slower.
 | Screenshot: capture, encode, transfer     | 100 ms to 1 s                 | resolution, format, channel|
 | rsync of the working tree                 | 100 ms to seconds             | delta size                 |
 | Build inside the VM                       | seconds to minutes            | the project                |
-| Machine create: clone plus boot           | seconds (cold), less if resumed from suspend | Tart, snapshot strategy |
+| Machine create: clone plus boot           | clone 0.07 s, cold boot 15 s, resume 14 s | Tart, snapshot strategy |
 | The model thinking about the screenshot   | seconds                       | the LLM                    |
 
 Numbers for the first row come from a cross-language MCP benchmark over Streamable HTTP
@@ -32,7 +32,11 @@ estimates to be replaced by spike measurements.
 What makes greenroom fast is therefore none of the language choice and all of:
 
 - **Warm machines.** `tart suspend` a booted, logged-in machine and resume it, instead
-  of cold booting per run. Keep one warm clone ready.
+  of cold booting per run. Keep one warm clone ready. No measurement supports this yet.
+  On the base image, resume takes 14 s against a 15 s cold boot, costs a 3.3 GB state
+  file per VM, and cloning a suspended VM keeps its MAC address, which limits you to one
+  running descendant per snapshot. Measure again on an Xcode image with a logged-in GUI
+  session before depending on it. See `docs/09-image-strategy.md`.
 - **Cheap screenshots.** Capture at reduced scale, JPEG not PNG when the agent is just
   looking, stream back over the exec channel rather than a second ssh session.
 - **Persistent channels.** One connection to the guest per machine, not one per call.
@@ -99,9 +103,17 @@ does not hurt.
 
 ## A competitive signal found on the way
 
-OpenAI maintains a fork of `tart-guest-agent`. Someone there is running macOS VMs on
-Tart, most plausibly for Codex. That confirms the wedge is real and that the platform
-risk in the idea doc is not hypothetical. Worth watching.
+OpenAI owns Tart. Checked 2026-09-21: `cirruslabs/tart`, `cirruslabs/orchard` and
+`cirruslabs/tart-guest-agent` all redirect to the `openai` org, and `openai/tart` is
+FSL-1.1, `Copyright 2022-2026 OpenAI`, with a Competing Use clause that now measures
+against OpenAI's products. Orchard schedules macOS VMs across hosts, which is roughly
+greenroom's fleet layer. The guest agent went from v0.12.0 to v0.14.2 in three weeks,
+adding exec-as-user, signal delivery and public gRPC bindings.
+
+That is a competitive signal and a supply risk at once, since v0's VM engine belongs to
+a likely competitor. [ADR 0010](adr/0010-tart-license-and-openai-ownership.md) keeps v0
+on Tart, puts it behind a driver interface, and gates a hosted fleet on a legal opinion.
+`cirruslabs/macos-image-templates` stayed in `cirruslabs` under MIT.
 
 ## Decisions needed
 
