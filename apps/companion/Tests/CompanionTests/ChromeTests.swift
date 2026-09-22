@@ -110,4 +110,18 @@ final class ChromeTests: XCTestCase {
         XCTAssertEqual(Chrome.day(now.addingTimeInterval(-86_400), now: now), "Yesterday")
         XCTAssertNotEqual(Chrome.day(now.addingTimeInterval(-5 * 86_400), now: now), "Yesterday")
     }
+
+    // MARK: - Shape
+
+    func testShapesDropWholeTermsLeastUsefulFirst() {
+        XCTAssertEqual(
+            Chrome.shapes(steps: 181, frames: 5, messages: 12),
+            ["181 steps · 5 frames · 12 msgs", "181 steps · 5 frames", "181 steps"]
+        )
+    }
+
+    func testShapesSkipAbsentTermsAndSingularise() {
+        XCTAssertEqual(Chrome.shapes(steps: 1, frames: nil, messages: 1), ["1 step · 1 msg", "1 step"])
+        XCTAssertEqual(Chrome.shapes(steps: 0, frames: 0, messages: 0), ["empty"])
+    }
 }

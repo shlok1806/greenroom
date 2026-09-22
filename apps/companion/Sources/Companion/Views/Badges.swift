@@ -138,6 +138,23 @@ enum Chrome {
         }
     }
 
+    /// What there is to look at in a run, in the order a person cares: what
+    /// it did, what it recorded, what was said. Returned longest first, each
+    /// candidate dropping the least useful term of the one before, so a row
+    /// short of width loses whole terms instead of being cut mid-word.
+    static func shapes(steps: Int, frames: Int?, messages: Int) -> [String] {
+        var parts: [String] = []
+        if steps > 0 { parts.append(countAndNoun(steps, "step")) }
+        if let frames, frames > 0 { parts.append(countAndNoun(frames, "frame")) }
+        if messages > 0 { parts.append(countAndNoun(messages, "msg")) }
+        guard !parts.isEmpty else { return ["empty"] }
+        return (1...parts.count).reversed().map { parts.prefix($0).joined(separator: " · ") }
+    }
+
+    private static func countAndNoun(_ value: Int, _ noun: String) -> String {
+        "\(count(value)) \(noun)\(value == 1 ? "" : "s")"
+    }
+
     /// The part of a run id that only tells runs apart.
     ///
     /// Every id is `yyyymmdd-hhmmss-<hash>`, so twenty of them stacked up are

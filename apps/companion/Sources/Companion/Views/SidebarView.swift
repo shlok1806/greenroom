@@ -134,30 +134,24 @@ private struct RunRow: View {
                 if let verdict = run.verdict {
                     VerdictBadge(state: verdict, style: .compact)
                 }
-                Text(shape)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
+                // Beside a badge there is less room, so the shape drops its
+                // least useful term rather than cutting one off mid-word.
+                ViewThatFits(in: .horizontal) {
+                    ForEach(shapes, id: \.self) { shape in
+                        Text(shape).lineLimit(1)
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.vertical, 2)
         .help(run.runId)
     }
 
-    /// What there is to look at in this run, in the order a person cares:
-    /// what it did, what it recorded, what was said.
-    private var shape: String {
-        var parts: [String] = []
-        if run.steps > 0 { parts.append(Self.countAndNoun(run.steps, "step")) }
-        if let frames = run.frames, frames > 0 { parts.append(Self.countAndNoun(frames, "frame")) }
-        if run.messages > 0 { parts.append(Self.countAndNoun(run.messages, "msg")) }
-        return parts.isEmpty ? "empty" : parts.joined(separator: " · ")
-    }
-
-    private static func countAndNoun(_ value: Int, _ noun: String) -> String {
-        "\(Chrome.count(value)) \(noun)\(value == 1 ? "" : "s")"
+    private var shapes: [String] {
+        Chrome.shapes(steps: run.steps, frames: run.frames, messages: run.messages)
     }
 }
 
