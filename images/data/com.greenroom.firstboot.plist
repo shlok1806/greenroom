@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Label has to match the filename or launchd ignores the job. The plist has to
+       be root:wheel 644 and the program root:wheel 755. launchd refuses anything else
+       and only reports "Bootstrap failed: 5: Input/output error". That is why this is
+       installed with root inside the guest at image-build time.
+       See docs/09-image-strategy.md. -->
+  <key>Label</key>
+  <string>com.greenroom.firstboot</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/greenroom/firstboot.sh</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- One shot. The script also guards on /var/db/.greenroom-personalized. -->
+  <key>KeepAlive</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/var/log/greenroom-firstboot.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/greenroom-firstboot.log</string>
+</dict>
+</plist>
