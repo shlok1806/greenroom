@@ -1,7 +1,7 @@
 # 0006. A run has one conversation, and every participant speaks into it
 
 Date: 2026-09-18
-Status: proposed
+Status: accepted (implemented)
 
 ## Context
 

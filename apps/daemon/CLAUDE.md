@@ -148,6 +148,20 @@ Interactive sessions (`machine_session_*`)
   no `tart exec` child outlives the machine.
 - A pty echoes. Tests must not be satisfiable by the echoed command line.
 
+## Environment
+
+Read from the process environment, or from `.env` at the repo root (`-env-file`).
+Values already set in the environment win.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `GREENROOM_VERIFIER` | `nim` | `nim` (model), or `manual` (you type the instructions). `-verifier` overrides. |
+| `NVIDIA_API_KEY` | none | Without it the `nim` verifier is off; machine tools still work. |
+| `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint. |
+| `GREENROOM_VERIFIER_MODEL` | none, required with a key | Model for verifier turns. |
+| `GREENROOM_VISION_MODEL` | none | Model that describes screenshots. Unset: the verifier works without seeing the screen. |
+| `GREENROOM_TART` | none | tart binary, see below. `-tart` overrides. |
+
 ## Tart
 
 The daemon resolves tart in this order: `-tart`, `GREENROOM_TART`, the pinned install at
@@ -195,4 +209,4 @@ Clones of `greenroom-base` skip the ~28 s first-control compile.
 
 ## Known divergence from ADRs
 
-- ADR 0004 specifies a SQLite store; the code uses `state.json`.
+- None known. ADR 0004 is amended for `state.json`.

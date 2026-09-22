@@ -31,7 +31,7 @@ pnpm typecheck
   viewer appears (ADR 0004 over ADR 0001). A new package needs `build`/`test`/`lint`
   scripts so root commands cover it.
 - Record a decision before implementing it: system-wide in `docs/adr/`, package-scoped in
-  `<package>/docs/adr/`. If code and an ADR disagree, say so in that package's CLAUDE.md.
+  `<package>/docs/adr/` (create it with the first one). If code and an ADR disagree, say so in that package's CLAUDE.md.
 - ADRs are history. Do not rewrite them; supersede them with a new one.
 - `CONTEXT.md` is the glossary and invariants (see `CONTEXT-MAP.md`). `CLAUDE.md` is
   working instructions. Do not copy one into the other.

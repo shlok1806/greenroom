@@ -78,3 +78,10 @@ competitor who sets the terms for future versions.
 - This says something about where greenroom competes. The machine and toolchain-image
   layers are becoming commodities under the engine's new owner. The evidence layer,
   meaning the verifier and the run manifest and the PR hand-back, is not.
+
+## Implementation notes
+
+- Decision 2: the boundary is the `internal/tart` package. It is the only code that runs
+  `tart` or parses its output. A Go interface is extracted when a second engine exists;
+  until then it would have one implementation and no caller that needs it.
+- Decision 4: pinned to Tart 2.37.0 (`tart.PinnedVersion`), released 2026-09-09.

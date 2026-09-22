@@ -1,7 +1,7 @@
 # 0007. A macOS companion app that watches runs and speaks, but does not drive
 
 Date: 2026-09-18
-Status: proposed. The "what it may not do" rule is narrowed by ADR 0009, which lets a
+Status: accepted (implemented). The "what it may not do" rule is narrowed by ADR 0009, which lets a
 person take the machine's mouse and keyboard under a recorded lease. Everything else
 here stands.
 
