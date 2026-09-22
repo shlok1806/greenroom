@@ -70,7 +70,10 @@ func addSessionTools(s *mcp.Server, mgr *machine.Manager) {
 		Name: "machine_session_read",
 		Description: "Read a session's output since your last read. Output is never returned twice: each call " +
 			"continues where the last one stopped, and pending says how many bytes are still waiting, so keep " +
-			"calling while it is above zero. running says whether the command is still going. Terminal colour " +
+			"calling while it is above zero. While a command is running, pending can stay at a few bytes with no " +
+			"new output: a trailing carriage return or an unfinished terminal code is held back until the byte " +
+			"after it arrives, so an empty read with a small pending means nothing more is ready yet, not that " +
+			"you should read again at once. running says whether the command is still going. Terminal colour " +
 			"and cursor codes are stripped, and the run record cites the byte range of every read. The daemon keeps " +
 			"only the last 1 MiB of output on the host and the guest stores none: if you fall behind, the oldest " +
 			"bytes are gone for good and dropped says how many. error says why tart ended a session that is no " +

@@ -3,6 +3,7 @@ package tart
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -108,5 +109,33 @@ func TestAFinishedSessionExplainsATartFailureOnly(t *testing.T) {
 	defer func() { _ = exited.Close() }()
 	if err := exited.Err(); err != nil {
 		t.Errorf("a command that exited non-zero was reported as an error: %v", err)
+	}
+}
+
+// tart crashing is a tart failure whatever it prints. The Swift trap below is
+// the one `tart exec -t` hits when its stdin is not a terminal; its text
+// matches none of tart's usual error messages, and a trap is a signal.
+func TestASessionWhoseTartCrashesExplainsWhy(t *testing.T) {
+	for _, c := range []struct{ name, body, want string }{
+		{"swift trap",
+			`echo "Fatal error: 'try!' expression unexpectedly raised an error: failed to get terminal size" >&2; kill -TRAP $$`,
+			"failed to get terminal size"},
+		{"killed with nothing printed", `kill -KILL $$`, "killed"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, err := sessionBin(t, c.body).StartSession("vm", "true")
+			if err != nil {
+				t.Fatalf("StartSession: %v", err)
+			}
+			waitSessionEnd(t, s)
+			defer func() { _ = s.Close() }()
+			err = s.Err()
+			if err == nil {
+				t.Fatal("a session whose tart crashed reported no error")
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("error %q does not say %q", err, c.want)
+			}
+		})
 	}
 }

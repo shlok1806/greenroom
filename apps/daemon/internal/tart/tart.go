@@ -369,9 +369,16 @@ func (s *Session) Running() bool {
 	}
 }
 
-// Err explains why a finished session stopped, preferring what tart printed.
-// A command that exited non-zero is not an error here for the same reason it
+// Err explains why a finished session stopped, if tart itself failed.
+//
+// tart passes the guest command's exit status on as its own exit code, so a
+// non-zero exit is the command's result, not an error, for the same reason it
 // is not in Exec: a failing build is a result, not an infrastructure fault.
+// tart being ended by a signal is never the guest's doing, so that is the
+// test, and it covers a crash of any kind: a Swift trap such as the one
+// `tart exec -t` hits without a terminal dies of a signal whatever it
+// prints. tart's own error messages, which exit normally, are recognised as
+// well. Either way what tart printed is the explanation.
 func (s *Session) Err() error {
 	if s.Running() {
 		return nil
@@ -379,6 +386,14 @@ func (s *Session) Err() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	msg := strings.TrimSpace(s.stderr.String())
+	if st := s.cmd.ProcessState; st != nil {
+		if ws, ok := st.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			if msg == "" {
+				return fmt.Errorf("tart exec was killed by %s", ws.Signal())
+			}
+			return fmt.Errorf("tart exec was killed by %s: %s", ws.Signal(), msg)
+		}
+	}
 	if msg != "" && isTartFailure(msg) {
 		return fmt.Errorf("tart exec: %s", msg)
 	}
