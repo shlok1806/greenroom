@@ -11,11 +11,6 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
 )
 
-// verifierHolder is the screen-lease holder for every verifier input call.
-// internal/mcpserver/inputtools.go hardcodes the same string. The lease is
-// taken per call, never per turn (ADR 0009, issue #11).
-const verifierHolder = "verifier"
-
 const maxToolOutput = 6000 // characters of guest output fed back to the model
 
 const humanDriving = "A human may be driving the machine; if so this comes back as an error naming them, and the machine is unharmed."
@@ -258,7 +253,8 @@ func (v *Verifier) describe(ctx context.Context, png []byte) (string, error) {
 // postInput posts one batch as the verifier and returns the tool result text,
 // "step N\n<done>" on success, and the step it recorded.
 func postInput(ctx context.Context, mgr *machine.Manager, runID, done string, actions ...machine.InputAction) (string, int) {
-	res, err := mgr.InputAs(ctx, runID, verifierHolder, actions)
+	// Per call, never per turn (ADR 0009, issue #11).
+	res, err := mgr.InputAs(ctx, runID, machine.HolderVerifier, actions)
 	if err != nil {
 		return "error: " + err.Error(), res.Step
 	}

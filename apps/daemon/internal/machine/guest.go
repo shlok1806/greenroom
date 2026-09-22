@@ -3,7 +3,9 @@ package machine
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	imagepng "image/png"
 	"os"
@@ -110,7 +112,14 @@ func (m *Manager) Screenshot(ctx context.Context, runID string) (data []byte, sh
 // captureScreen returns the guest screen as PNG bytes. Screenshot and the
 // frame recorder both use it.
 func (m *Manager) captureScreen(ctx context.Context, mc *Machine) ([]byte, error) {
-	res, err := m.tart.Exec(ctx, mc.Name, "sh", "-c", "screencapture -x /tmp/greenroom-shot.png && base64 -i /tmp/greenroom-shot.png")
+	// A path per call: Screenshot and the frame recorder capture concurrently.
+	var tag [8]byte
+	if _, err := rand.Read(tag[:]); err != nil {
+		return nil, err
+	}
+	f := shellQuote("/tmp/greenroom-shot-" + hex.EncodeToString(tag[:]) + ".png")
+	res, err := m.tart.Exec(ctx, mc.Name, "sh", "-c",
+		"screencapture -x "+f+" && base64 -i "+f+"; s=$?; rm -f "+f+"; exit $s")
 	if err != nil {
 		return nil, err
 	}
@@ -142,13 +151,11 @@ func (m *Manager) geometryOf(mc *Machine, data []byte) (width, height int, scale
 // read it. It never installs the helper: that is a Swift compile a
 // screenshot must not pay for.
 func cachedScreen(mc *Machine) (Screen, bool) {
-	st := mc.input
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	if !st.installed || st.screen.Width <= 0 {
+	s := mc.input.screen.Load()
+	if s == nil || s.Width <= 0 {
 		return Screen{}, false
 	}
-	return st.screen, true
+	return *s, true
 }
 
 // SyncResult reports what rsync did.
@@ -182,15 +189,23 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 	if dest, err = guestDest(dest); err != nil {
 		return SyncResult{}, err
 	}
-	sshCmd := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR", m.sshKey)
+	// Not via --rsync-path: openrsync re-splits it on spaces, so no quoting survives there.
+	if _, err := execChecked(ctx, m.tart, mc.Name, "/bin/sh", "-c", "cd && mkdir -p "+shellQuote(dest)); err != nil {
+		return SyncResult{}, fmt.Errorf("create %s in the guest: %w", dest, err)
+	}
+	sshCmd := "ssh -i " + shellQuote(m.sshKey) + " -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 	// No -z: compression costs 4x on a local VM (docs/10-build-transport.md).
 	// Revisit only if sync ever crosses a real network.
-	args := []string{"-a", "--stats", "-e", sshCmd, "--rsync-path", "mkdir -p " + shellQuote(dest) + " && rsync"}
+	args := []string{"-a", "--stats", "-e", sshCmd}
 	for _, ex := range exclude {
 		args = append(args, "--exclude", ex)
 	}
-	args = append(args, source+"/", fmt.Sprintf("%s@%s:%s/", guestUser, m.snapshot(mc).IP, dest))
-	out, err := exec.CommandContext(ctx, "rsync", args...).CombinedOutput()
+	// Apple's rsync (openrsync, 2.6.9) has no --protect-args, so the remote
+	// shell sees the path: quote it. RSYNC_OLD_ARGS makes rsync 3.2.4+ agree.
+	args = append(args, source+"/", fmt.Sprintf("%s@%s:%s/", guestUser, m.snapshot(mc).IP, shellQuote(dest)))
+	cmd := exec.CommandContext(ctx, "rsync", args...)
+	cmd.Env = append(os.Environ(), "RSYNC_OLD_ARGS=1")
+	out, err := cmd.CombinedOutput()
 	res := SyncResult{Dest: dest, Summary: rsyncSummary(string(out)), Seconds: time.Since(started).Seconds()}
 	if err != nil {
 		err = fmt.Errorf("rsync: %w: %s", err, strings.TrimSpace(string(out)))

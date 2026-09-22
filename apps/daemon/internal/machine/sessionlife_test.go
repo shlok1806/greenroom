@@ -106,3 +106,68 @@ func TestASessionStartedAsItsMachineGoesIsEnded(t *testing.T) {
 		t.Error("a session attached to a machine that was destroyed while it started")
 	}
 }
+
+// An agent must be able to answer a prompt while its own long read waits, and
+// the read must return the answer's output when it arrives.
+func TestASendCompletesWhileAReadWaits(t *testing.T) {
+	mgr, _, _ := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	start, err := mgr.SessionStart(context.Background(), mc.RunID, "cat")
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+
+	type result struct {
+		out SessionReadResult
+		err error
+	}
+	read := make(chan result, 1)
+	go func() {
+		out, err := mgr.SessionRead(context.Background(), mc.RunID, start.SessionID, 30*time.Second)
+		read <- result{out, err}
+	}()
+	time.Sleep(300 * time.Millisecond) // let the read start waiting
+
+	sendCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sent := time.Now()
+	if _, err := mgr.SessionSend(sendCtx, mc.RunID, start.SessionID, "yes\n"); err != nil {
+		t.Fatalf("SessionSend while a read waits: %v", err)
+	}
+	if took := time.Since(sent); took > 2*time.Second {
+		t.Errorf("SessionSend took %s while a read waited", took)
+	}
+	select {
+	case r := <-read:
+		if r.err != nil || !strings.Contains(r.out.Output, "yes") {
+			t.Errorf("the waiting read returned %+v, %v; want the answer", r.out, r.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the waiting read did not wake on output")
+	}
+}
+
+// A session whose command has ended does not hold one of the machine's slots.
+func TestEndedSessionsDoNotCountTowardTheCap(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	testsupport.Flag(t, control, "session-exits")
+
+	for i := range maxSessionsPerMachine + 2 {
+		start, err := mgr.SessionStart(context.Background(), mc.RunID, "true")
+		if err != nil {
+			t.Fatalf("SessionStart %d with every earlier command ended: %v", i+1, err)
+		}
+		waitNotRunning(t, liveSession(t, mgr, mc.RunID, start.SessionID), "a command that exits kept running")
+	}
+	live, err := mgr.get(mc.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.mu.Lock()
+	n := len(live.sessions)
+	mgr.mu.Unlock()
+	if n > maxSessionsPerMachine {
+		t.Errorf("the machine keeps %d sessions, more than the cap of %d", n, maxSessionsPerMachine)
+	}
+}

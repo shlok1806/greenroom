@@ -9,8 +9,11 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
@@ -97,5 +100,74 @@ func TestAScreenshotDoesNotInstallTheInputHelperToLearnItsScale(t *testing.T) {
 	}
 	if strings.Contains(testsupport.Calls(t, control), "swiftc") {
 		t.Error("taking a screenshot compiled the guest input helper")
+	}
+}
+
+// Screenshot and the frame recorder run at once, so each capture must use its
+// own guest file and remove it, or one could read the other's picture.
+func TestConcurrentScreenshotsAndFramesUseTheirOwnGuestFile(t *testing.T) {
+	mgr, _, control := newTestManager(t, WithFrameInterval(10*time.Millisecond))
+	if err := os.WriteFile(filepath.Join(control, "shot.b64"), []byte(pngBase64(t)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mc := readyMachine(t, mgr)
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, _, err := mgr.Screenshot(context.Background(), mc.RunID); err != nil {
+				t.Errorf("Screenshot: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	waitFor(t, 5*time.Second, func() bool {
+		frames, _ := ReadFrames(mgr.RunDir(mc.RunID))
+		return len(frames) >= 2
+	})
+
+	re := regexp.MustCompile(`/tmp/greenroom-shot-[0-9a-f]+\.png`)
+	seen := map[string]bool{}
+	captures := 0
+	for _, line := range strings.Split(testsupport.Calls(t, control), "\n") {
+		if !strings.Contains(line, "screencapture") {
+			continue
+		}
+		captures++
+		path := re.FindString(line)
+		if path == "" || !strings.Contains(line, "rm -f '"+path+"'") {
+			t.Fatalf("a capture does not use and remove a private file: %s", line)
+		}
+		if seen[path] {
+			t.Fatalf("two captures shared the guest file %s", path)
+		}
+		seen[path] = true
+	}
+	if captures < 10 {
+		t.Errorf("saw %d captures, want the 8 screenshots and at least 2 frames", captures)
+	}
+}
+
+// A screenshot must not wait behind an input helper install, which holds the
+// install lock for up to a Swift compile.
+func TestAScreenshotDoesNotWaitForTheInputHelperInstall(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	if err := os.WriteFile(filepath.Join(control, "shot.b64"), []byte(pngBase64(t)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ready := readyMachine(t, mgr)
+	mc, err := mgr.get(ready.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mc.input.mu.Lock() // an install in progress
+	defer mc.input.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, _, err := mgr.Screenshot(ctx, ready.RunID); err != nil {
+		t.Fatalf("Screenshot during an install: %v", err)
 	}
 }

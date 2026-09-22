@@ -42,7 +42,7 @@ type PTYSession struct {
 	proc *tart.Session
 	out  *stream
 
-	mu     sync.Mutex // serializes sends and reads so neither interleaves
+	mu     sync.Mutex // serializes writes, and each read with its offset update; never held while waiting
 	offset int64      // how far reads have consumed; guarded by mu
 }
 
@@ -150,22 +150,40 @@ func (m *Manager) SessionStart(ctx context.Context, runID, command string) (Sess
 }
 
 // reserveSession holds a slot for s, refusing a machine that already left the
-// map so a start racing Destroy cannot leave an unreachable process.
+// map so a start racing Destroy cannot leave an unreachable process. Only
+// running sessions count toward the cap; ended ones stay readable until a
+// full machine needs their slots.
 func (m *Manager) reserveSession(mc *Machine, s *PTYSession) error {
+	ended, err := m.reserveSessionLocked(mc, s)
+	for _, p := range ended {
+		_ = p.Close() // already exited; this only releases the pty
+	}
+	return err
+}
+
+func (m *Manager) reserveSessionLocked(mc *Machine, s *PTYSession) (ended []*tart.Session, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.machines[mc.RunID] != mc {
-		return fmt.Errorf("no machine for run %q", mc.RunID)
+		return nil, fmt.Errorf("no machine for run %q", mc.RunID)
 	}
 	if mc.sessions == nil {
 		mc.sessions = map[string]*PTYSession{}
 	}
 	if len(mc.sessions) >= maxSessionsPerMachine {
-		return fmt.Errorf("run %s already holds %d sessions; close one first",
+		for id, old := range mc.sessions {
+			if old.proc != nil && !old.proc.Running() {
+				ended = append(ended, old.proc)
+				delete(mc.sessions, id)
+			}
+		}
+	}
+	if len(mc.sessions) >= maxSessionsPerMachine {
+		return ended, fmt.Errorf("run %s already runs %d sessions; close one first",
 			mc.RunID, maxSessionsPerMachine)
 	}
 	mc.sessions[s.ID] = s
-	return nil
+	return ended, nil
 }
 
 // attachSession gives a reserved session its process, or reports false if
@@ -223,7 +241,7 @@ func (m *Manager) SessionSend(ctx context.Context, runID, sessionID, data string
 	return out, nil
 }
 
-// SessionRead returns output the caller has not seen. With wait > 0 it polls
+// SessionRead returns output the caller has not seen. With wait > 0 it waits
 // until something arrives or the wait ends; the whole wait is one step.
 func (m *Manager) SessionRead(ctx context.Context, runID, sessionID string, wait time.Duration) (SessionReadResult, error) {
 	mc, s, err := m.session(runID, sessionID)
@@ -236,16 +254,9 @@ func (m *Manager) SessionRead(ctx context.Context, runID, sessionID string, wait
 	wait = min(wait, maxSessionWait)
 	started := time.Now()
 
-	s.mu.Lock()
-	from := s.offset
 	out, err := s.readUntil(ctx, wait)
-	if err == nil {
-		s.offset = out.NextByte
-	}
-	s.mu.Unlock()
-
 	out.Step = mc.rec.step("machine_session_read",
-		map[string]any{"sessionId": sessionID, "fromByte": from}, truncatedRead(out), err, started)
+		map[string]any{"sessionId": sessionID, "fromByte": out.FromByte}, truncatedRead(out), err, started)
 	m.emitStep(runID, out.Step)
 	if err != nil {
 		return SessionReadResult{}, err
@@ -260,18 +271,29 @@ func truncatedRead(r SessionReadResult) SessionReadResult {
 	return r
 }
 
-// readUntil reads until there is output, the command has ended, or wait passes.
+// readUntil reads until there is output, the command has ended, or wait
+// passes, consuming what it returns. It holds s.mu only per attempt, so a
+// send can answer a prompt while a read waits.
 func (s *PTYSession) readUntil(ctx context.Context, wait time.Duration) (SessionReadResult, error) {
 	deadline := time.Now().Add(wait)
 	for {
+		changed := s.out.changed() // before reading, so a write in between still wakes us
+		s.mu.Lock()
 		out := s.readOnce()
-		if out.Output != "" || !out.Running || time.Now().After(deadline) {
+		done := out.Output != "" || !out.Running || !time.Now().Before(deadline)
+		if done {
+			s.offset = out.NextByte
+		}
+		s.mu.Unlock()
+		if done {
 			return out, nil
 		}
+		// The poll catches the command ending, which writes nothing.
 		select {
 		case <-ctx.Done():
-			return SessionReadResult{}, ctx.Err()
-		case <-time.After(sessionPollInterval):
+			return SessionReadResult{SessionID: s.ID, FromByte: out.FromByte}, ctx.Err()
+		case <-changed:
+		case <-time.After(min(sessionPollInterval, time.Until(deadline))):
 		}
 	}
 }
@@ -325,9 +347,10 @@ type stream struct {
 	start   int64 // absolute position of buf[0]
 	written int64 // absolute bytes ever written
 	limit   int
+	wake    chan struct{} // closed and replaced on every write
 }
 
-func newStream(limit int) *stream { return &stream{limit: limit} }
+func newStream(limit int) *stream { return &stream{limit: limit, wake: make(chan struct{})} }
 
 func (s *stream) Write(p []byte) (int, error) {
 	s.mu.Lock()
@@ -338,7 +361,16 @@ func (s *stream) Write(p []byte) (int, error) {
 		s.buf = s.buf[over:]
 		s.start += int64(over)
 	}
+	close(s.wake)
+	s.wake = make(chan struct{})
 	return len(p), nil
+}
+
+// changed is closed by the next write.
+func (s *stream) changed() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.wake
 }
 
 // pump copies output into the window until the stream ends; Running reports the end.

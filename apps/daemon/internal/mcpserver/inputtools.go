@@ -8,17 +8,14 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 )
 
-// verifierHolder is the lease seat for every input tool. Manager.InputAs takes, posts and releases per call,
-// so a human can take the screen back between calls (apps/daemon/CLAUDE.md, issue #11).
-const verifierHolder = "verifier"
-
 const humanDriving = " If a human is driving the machine, this returns an error naming them and the machine is untouched."
 
 // addInputTools exposes mouse and keyboard (ADR 0009). machine_click, _type, _key and _scroll are single-action
 // conveniences over machine_input. Coordinates are screen fractions, 0 to 1 (see machine.InputAction).
 func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	post := func(ctx context.Context, runID string, actions ...machine.InputAction) (*mcp.CallToolResult, machine.InputResult, error) {
-		res, err := mgr.InputAs(ctx, runID, verifierHolder, actions)
+		// Per call, so a human can take the screen back between calls (issue #11).
+		res, err := mgr.InputAs(ctx, runID, machine.HolderCoder, actions)
 		return nil, res, err
 	}
 

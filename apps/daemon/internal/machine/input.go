@@ -10,6 +10,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
@@ -26,9 +27,17 @@ var inputHelper string
 // the old binary.
 const inputHelperVersion = 2
 
-// ControlTTL is how long an unused screen-control lease lives. Every input
-// renews it, so a crashed holder cannot lock the screen forever.
+// ControlTTL is how long an unused screen-control lease lives unless the taker
+// asks otherwise. Every input renews it by its own ttl, so a crashed holder
+// cannot lock the screen forever.
 const ControlTTL = 60 * time.Second
+
+// Lease seats for the two agents; the API's seat is "human". They are
+// separate so the record says which agent drove.
+const (
+	HolderCoder    = "coder"    // the coding agent's MCP input tools
+	HolderVerifier = "verifier" // greenroom's own verifier
+)
 
 // Control lease errors. The API maps each to its own status code.
 var (
@@ -43,6 +52,8 @@ type Control struct {
 	Since   time.Time `json:"since"`
 	Expires time.Time `json:"expires"`
 	Actions int       `json:"actions"` // events posted under this lease
+
+	ttl time.Duration // what each renewal extends the lease by
 }
 
 // Screen is a guest display's size in points, the space input is posted in.
@@ -78,9 +89,9 @@ type InputResult struct {
 // inputState is a machine's installed helper. It has its own lock because the
 // install is a Swift compile that must not hold Manager.mu.
 type inputState struct {
-	mu        sync.Mutex
-	installed bool
-	screen    Screen
+	mu     sync.Mutex             // held across the install
+	screen atomic.Pointer[Screen] // set once installed; screenshots read it without mu
+	asMu   sync.Mutex             // serializes InputAs so one call's release cannot end another's lease
 }
 
 // helperName is the compiled helper's path relative to the guest home.
@@ -94,11 +105,9 @@ func helperSourceDir() string {
 
 // TakeControl gives holder the machine's mouse and keyboard, or renews its
 // lease. A second holder is refused, not queued. fresh is false for a
-// renewal, so the caller announces a handover only once.
+// renewal, so the caller announces a handover only once. A renewal with no
+// ttl keeps the lease's own.
 func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Control, fresh bool, err error) {
-	if ttl <= 0 {
-		ttl = ControlTTL
-	}
 	mc, err := m.get(runID)
 	if err != nil {
 		return Control{}, false, err
@@ -113,8 +122,14 @@ func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Co
 		return *current, false, fmt.Errorf("%w: %s has it until %s",
 			ErrControlHeld, current.Holder, current.Expires.Format(time.RFC3339))
 	}
-	lease = Control{Holder: holder, Since: now, Expires: now.Add(ttl)}
 	fresh = !live
+	if ttl <= 0 {
+		ttl = ControlTTL
+		if live && current.ttl > 0 {
+			ttl = current.ttl
+		}
+	}
+	lease = Control{Holder: holder, Since: now, Expires: now.Add(ttl), ttl: ttl}
 	if live {
 		lease.Since, lease.Actions = current.Since, current.Actions
 	}
@@ -180,7 +195,10 @@ func (m *Manager) claimActions(mc *Machine, holder string, n int) error {
 	}
 	next := *current
 	next.Actions += n
-	next.Expires = now.Add(ControlTTL)
+	if next.ttl <= 0 {
+		next.ttl = ControlTTL
+	}
+	next.Expires = now.Add(next.ttl)
 	mc.Control = &next
 	return nil
 }
@@ -230,17 +248,25 @@ func (m *Manager) Input(ctx context.Context, runID, holder string, actions []Inp
 }
 
 // InputAs takes the lease for holder, posts actions, and releases the lease
-// whatever the outcome. mcpserver and verifier both use it (issue #12). A lease
+// if this call took it. mcpserver and verifier both use it (issue #12). A lease
 // held by someone else becomes a readable error naming them, not ErrControlHeld.
 func (m *Manager) InputAs(ctx context.Context, runID, holder string, actions []InputAction) (InputResult, error) {
-	current, _, err := m.TakeControl(runID, holder, 0)
+	mc, err := m.get(runID)
+	if err != nil {
+		return InputResult{}, err
+	}
+	mc.input.asMu.Lock()
+	defer mc.input.asMu.Unlock()
+	current, fresh, err := m.TakeControl(runID, holder, 0)
 	if errors.Is(err, ErrControlHeld) {
 		return InputResult{}, fmt.Errorf("a %s is driving this machine; try again in a moment", current.Holder)
 	}
 	if err != nil {
 		return InputResult{}, err
 	}
-	defer func() { _, _, _ = m.ReleaseControl(runID, holder) }()
+	if fresh {
+		defer func() { _, _, _ = m.ReleaseControl(runID, holder) }()
+	}
 	return m.Input(ctx, runID, holder, actions)
 }
 
@@ -313,8 +339,8 @@ func (m *Manager) ensureInput(ctx context.Context, mc *Machine) (Screen, error) 
 	st := mc.input
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	if st.installed {
-		return st.screen, nil
+	if s := st.screen.Load(); s != nil {
+		return *s, nil
 	}
 	installCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	_, err := execChecked(installCtx, m.tart, mc.Name, "/bin/sh", "-c", installHelperScript())
@@ -326,7 +352,7 @@ func (m *Manager) ensureInput(ctx context.Context, mc *Machine) (Screen, error) 
 	if err != nil {
 		return Screen{}, err
 	}
-	st.installed, st.screen = true, screen
+	st.screen.Store(&screen)
 	return screen, nil
 }
 
