@@ -49,7 +49,7 @@ func newHarness(t *testing.T, extra ...machine.Option) *harness {
 		t.Fatalf("NewManager: %v", err)
 	}
 	reg := session.NewRegistry(mgr.Root, 2)
-	ts := httptest.NewServer(New(mgr, reg, log))
+	ts := httptest.NewServer(LocalOnly(New(mgr, reg, log)))
 	t.Cleanup(ts.Close)
 	return &harness{t: t, url: ts.URL, mgr: mgr, reg: reg, control: control}
 }
@@ -113,6 +113,9 @@ func (h *harness) do(method, path string, in any) (*http.Response, []byte) {
 	req, err := http.NewRequest(method, h.url+path, body)
 	if err != nil {
 		h.t.Fatal(err)
+	}
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -29,7 +29,7 @@ func loadEnvFile(path string) error {
 			continue
 		}
 		key = strings.TrimSpace(strings.TrimPrefix(key, "export "))
-		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		value = envValue(value)
 		if key == "" {
 			continue
 		}
@@ -41,4 +41,21 @@ func loadEnvFile(path string) error {
 		}
 	}
 	return sc.Err()
+}
+
+// envValue unquotes a matching quote pair; an unquoted value ends at a # that follows whitespace.
+func envValue(raw string) string {
+	v := strings.TrimSpace(raw)
+	if v != "" && (v[0] == '"' || v[0] == '\'') {
+		if end := strings.IndexByte(v[1:], v[0]); end >= 0 {
+			return v[1 : end+1]
+		}
+		return v
+	}
+	for i := 1; i < len(raw); i++ {
+		if raw[i] == '#' && (raw[i-1] == ' ' || raw[i-1] == '\t') {
+			return strings.TrimSpace(raw[:i])
+		}
+	}
+	return v
 }

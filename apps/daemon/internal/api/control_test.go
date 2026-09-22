@@ -131,6 +131,33 @@ func TestControlOfAMachineThatIsGone(t *testing.T) {
 	}
 }
 
+func TestAFailedWarmUpKeepsALeaseTheHumanAlreadyHeld(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	if _, _, err := h.mgr.TakeControl(runID, humanSeat, 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	testsupport.Flag(t, h.control, "fail-input-install")
+	if code, body := h.status(http.MethodPost, "/api/runs/"+runID+"/control", nil); code != http.StatusConflict {
+		t.Fatalf("a failed warm-up answered %d: %s", code, body)
+	}
+	if c, held := h.mgr.ControlState(runID); !held || c.Holder != humanSeat {
+		t.Errorf("the human lost a lease they already held: %+v held=%v", c, held)
+	}
+}
+
+func TestAFailedWarmUpReleasesAFreshLease(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	testsupport.Flag(t, h.control, "fail-input-install")
+	if code, body := h.status(http.MethodPost, "/api/runs/"+runID+"/control", nil); code != http.StatusConflict {
+		t.Fatalf("a failed warm-up answered %d: %s", code, body)
+	}
+	if c, held := h.mgr.ControlState(runID); held {
+		t.Errorf("a lease taken by the failed request is still held: %+v", c)
+	}
+}
+
 func TestControlOfAnUnknownRun(t *testing.T) {
 	h := newHarness(t)
 	if code, _ := h.status(http.MethodPost, "/api/runs/nope/control", nil); code != http.StatusNotFound {

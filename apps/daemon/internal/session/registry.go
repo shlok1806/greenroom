@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -29,6 +30,10 @@ func NewRegistry(root string, maxDisputes int) *Registry {
 // Get opens or returns the store for runID. The run directory must already
 // exist (the manager creates it), so a typo cannot manufacture a run.
 func (r *Registry) Get(runID string) (*Store, error) {
+	// runID comes from MCP callers; anything but one plain path element could escape runs/.
+	if runID == "" || runID == "." || strings.HasPrefix(runID, "..") || strings.ContainsAny(runID, `/\`) {
+		return nil, fmt.Errorf("no run %q", runID)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if s, ok := r.stores[runID]; ok {

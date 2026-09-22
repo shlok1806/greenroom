@@ -26,6 +26,8 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/verifier"
 )
 
+const tartUsage = "path to the tart binary; defaults to " + tart.EnvVar + ", then the pinned tart " + tart.PinnedVersion + " install, then tart on PATH"
+
 const defaultImage = "ghcr.io/cirruslabs/macos-tahoe-base:latest" // scripts/build-image.sh and install.sh repeat this
 
 func main() {
@@ -43,47 +45,72 @@ func main() {
 	default:
 		usage()
 	}
+	if errors.Is(err, flag.ErrHelp) {
+		os.Exit(0)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "greenroom:", err)
 		os.Exit(1)
 	}
 }
 
+// usage prints every subcommand's flags from the flag sets themselves, so it cannot drift from them.
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: greenroom serve [-addr 127.0.0.1:7777] [-root ~/.greenroom] [-image <oci image>] [-max-machines 2] [-max-disputes 2] [-frame-interval 2s] [-verifier nim|manual] [-verifier-max-steps 40] [-verifier-budget 10m]")
-	fmt.Fprintln(os.Stderr, "       greenroom prepare-image -vm <name> [-root ~/.greenroom]")
-	fmt.Fprintln(os.Stderr, "       greenroom version")
+	fmt.Fprintln(os.Stderr, "usage: greenroom serve [flags]")
+	serve, _ := serveFlags()
+	serve.PrintDefaults()
+	fmt.Fprintln(os.Stderr, "\n       greenroom prepare-image -vm <name> [flags]")
+	prepare, _ := prepareFlags()
+	prepare.PrintDefaults()
+	fmt.Fprintln(os.Stderr, "\n       greenroom version")
 	os.Exit(2)
 }
 
-func serve(args []string) error {
+type serveOpts struct {
+	addr, root, image, envFile, tartBin, verifierKind string
+	maxDisputes, maxMachines, verifierMaxSteps        int
+	openViewer                                        bool
+	frameInterval, verifierBudget                     time.Duration
+}
+
+func serveFlags() (*flag.FlagSet, *serveOpts) {
+	o := &serveOpts{}
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	addr := fs.String("addr", "127.0.0.1:7777", "listen address")
-	root := fs.String("root", defaultRoot(), "state directory")
-	image := fs.String("image", defaultImage, "default image for machine_create")
-	maxDisputes := fs.Int("max-disputes", session.DefaultMaxDisputes, "how many times the coding agent may dispute a verdict before it is contested and only a human can close it")
-	maxMachines := fs.Int("max-machines", 2, "how many VMs the host may run at once; Apple allows two macOS guests, and 0 removes the check")
-	envFile := fs.String("env-file", ".env", "file of KEY=VALUE lines holding the model credentials")
-	tartBin := fs.String("tart", "", "path to the tart binary; defaults to "+tart.EnvVar+", then the pinned tart "+tart.PinnedVersion+" install, then tart on PATH")
-	openViewer := fs.Bool("open-viewer", true, "when a machine is created with watch, open its screen on this Mac")
-	frameInterval := fs.Duration("frame-interval", 2*time.Second, "screen frame capture interval for the run recording; 0 disables")
-	verifierKind := fs.String("verifier", "", "verifier brain: nim (model-driven) or manual (a person types instructions in the conversation); default nim, overridden by GREENROOM_VERIFIER when this flag is not set")
-	verifierMaxSteps := fs.Int("verifier-max-steps", verifier.DefaultMaxSteps, "tool calls a verifier turn may make before it stops and asks to be continued with another message")
-	verifierBudget := fs.Duration("verifier-budget", verifier.DefaultBudget, "wall-clock budget for a single verifier turn before it stops and asks to be continued")
+	fs.StringVar(&o.addr, "addr", "127.0.0.1:7777", "listen address")
+	fs.StringVar(&o.root, "root", defaultRoot(), "state directory")
+	fs.StringVar(&o.image, "image", defaultImage, "default image for machine_create")
+	fs.IntVar(&o.maxDisputes, "max-disputes", session.DefaultMaxDisputes, "how many times the coding agent may dispute a verdict before it is contested and only a human can close it")
+	fs.IntVar(&o.maxMachines, "max-machines", 2, "how many VMs the host may run at once; Apple allows two macOS guests, and 0 removes the check")
+	fs.StringVar(&o.envFile, "env-file", ".env", "file of KEY=VALUE lines holding the model credentials")
+	fs.StringVar(&o.tartBin, "tart", "", tartUsage)
+	fs.BoolVar(&o.openViewer, "open-viewer", true, "when a machine is created with watch, open its screen on this Mac")
+	fs.DurationVar(&o.frameInterval, "frame-interval", 2*time.Second, "screen frame capture interval for the run recording; 0 disables")
+	fs.StringVar(&o.verifierKind, "verifier", "", "verifier brain: nim (model-driven) or manual (a person types instructions in the conversation); default nim, overridden by GREENROOM_VERIFIER when this flag is not set")
+	fs.IntVar(&o.verifierMaxSteps, "verifier-max-steps", verifier.DefaultMaxSteps, "tool calls a verifier turn may make before it stops and asks to be continued with another message")
+	fs.DurationVar(&o.verifierBudget, "verifier-budget", verifier.DefaultBudget, "wall-clock budget for a single verifier turn before it stops and asks to be continued")
+	return fs, o
+}
+
+func serve(args []string) error {
+	fs, o := serveFlags()
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if err := loadEnvFile(*envFile); err != nil {
+	if !api.LoopbackAddr(o.addr) {
+		// The Host check stops browsers, not other machines: a remote client can send any Host it likes.
+		log.Warn("-addr is not loopback and the daemon has no authentication: anything that can reach it can drive every machine", "addr", o.addr)
+	}
+	if err := loadEnvFile(o.envFile); err != nil {
 		return err
 	}
 
 	opts := []machine.Option{
-		machine.WithMaxMachines(*maxMachines),
-		machine.WithFrameInterval(*frameInterval),
-		machine.WithTartBin(*tartBin), // empty keeps internal/tart's own resolution
+		machine.WithMaxMachines(o.maxMachines),
+		machine.WithFrameInterval(o.frameInterval),
+		machine.WithTartBin(o.tartBin), // empty keeps internal/tart's own resolution
 	}
-	if *openViewer {
+	if o.openViewer {
 		opts = append(opts, machine.WithWatchHandler(func(vncURL string) {
 			log.Info("opening the machine's screen", "url", redactVNC(vncURL))
 			if err := exec.Command("open", vncURL).Start(); err != nil {
@@ -91,16 +118,16 @@ func serve(args []string) error {
 			}
 		}))
 	}
-	mgr, err := machine.NewManager(*root, log, opts...)
+	mgr, err := machine.NewManager(o.root, log, opts...)
 	if err != nil {
 		return err
 	}
 	mgr.CheckTart(context.Background()) // logs a version mismatch, never fatal
 
-	reg := session.NewRegistry(*root, *maxDisputes)
+	reg := session.NewRegistry(o.root, o.maxDisputes)
 	reg.OnVerdict = func(runID string, v session.VerdictState) { _ = mgr.RecordVerdict(runID, v) }
 
-	kind := strings.ToLower(strings.TrimSpace(*verifierKind))
+	kind := strings.ToLower(strings.TrimSpace(o.verifierKind))
 	if kind == "" {
 		kind = strings.ToLower(strings.TrimSpace(os.Getenv("GREENROOM_VERIFIER")))
 	}
@@ -114,7 +141,7 @@ func serve(args []string) error {
 		key := os.Getenv("NVIDIA_API_KEY")
 		bridgeLifecycle(mgr, reg, key != "")
 		if key == "" {
-			log.Info("verifier disabled", "reason", "no NVIDIA_API_KEY in environment or "+*envFile)
+			log.Info("verifier disabled", "reason", "no NVIDIA_API_KEY in environment or "+o.envFile)
 			break
 		}
 		model, vision := os.Getenv("GREENROOM_VERIFIER_MODEL"), os.Getenv("GREENROOM_VISION_MODEL")
@@ -123,8 +150,8 @@ func serve(args []string) error {
 			APIKey:      key,
 			Model:       model,
 			VisionModel: vision,
-			MaxSteps:    *verifierMaxSteps,
-			Budget:      *verifierBudget,
+			MaxSteps:    o.verifierMaxSteps,
+			Budget:      o.verifierBudget,
 		}, log)
 		if err != nil {
 			return err
@@ -135,21 +162,14 @@ func serve(args []string) error {
 		return fmt.Errorf("unknown -verifier %q: want nim or manual", kind)
 	}
 
-	server := mcpserver.New(mgr, *image, reg)
-	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true}))
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = fmt.Fprintf(w, "ok %d machines\n", len(mgr.List()))
-	})
-	mux.Handle("/api/", api.New(mgr, reg, log))
-	httpServer := &http.Server{Addr: *addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	httpServer := &http.Server{Addr: o.addr, Handler: routes(mgr, reg, o.image, log), ReadHeaderTimeout: 10 * time.Second}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.ListenAndServe() }()
-	log.Info("greenroom listening", "mcp", "http://"+*addr+"/mcp", "api", "http://"+*addr+"/api/", "root", *root, "image", *image,
-		"maxMachines", *maxMachines, "machines", len(mgr.List()))
+	log.Info("greenroom listening", "mcp", "http://"+o.addr+"/mcp", "api", "http://"+o.addr+"/api/", "root", o.root, "image", o.image,
+		"maxMachines", o.maxMachines, "machines", len(mgr.List()))
 
 	select {
 	case err := <-errCh:
@@ -163,6 +183,18 @@ func serve(args []string) error {
 		}
 		return nil
 	}
+}
+
+// routes is the daemon's whole HTTP surface. It is unauthenticated, so nothing a web page can reach gets through.
+func routes(mgr *machine.Manager, reg *session.Registry, image string, log *slog.Logger) http.Handler {
+	server := mcpserver.New(mgr, image, reg)
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true}))
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, "ok %d machines\n", len(mgr.List()))
+	})
+	mux.Handle("/api/", api.New(mgr, reg, log))
+	return api.LocalOnly(mux)
 }
 
 // bridgeLifecycle posts the manager's lifecycle into each run's conversation. It is the only poster of

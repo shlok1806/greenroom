@@ -2,7 +2,7 @@
 // coding agent would, and prints each tool result. It exists for manual
 // end-to-end checks of the daemon's wiring and is not part of the build.
 //
-//	go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7778/mcp
+//	go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp
 package main
 
 import (
@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	url := flag.String("url", "http://127.0.0.1:7778/mcp", "MCP endpoint")
+	url := flag.String("url", "http://127.0.0.1:7777/mcp", "MCP endpoint")
 	live := flag.String("live", "", "create a machine, sync this host directory into it, hand the verifier a task, and leave everything running for a person to join")
 	watch := flag.Bool("watch", false, "with -live: show the machine screen on this Mac")
 	flag.Parse()

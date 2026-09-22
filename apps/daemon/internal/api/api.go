@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
@@ -17,6 +18,9 @@ type api struct {
 	mgr *machine.Manager
 	reg *session.Registry
 	log *slog.Logger
+
+	recMu    sync.Mutex
+	recLocks map[string]*sync.Mutex // per run, held while its recording is checked or built
 }
 
 // runHandler is a route under /api/runs/{id} whose run is known to exist.
@@ -24,7 +28,7 @@ type runHandler func(w http.ResponseWriter, r *http.Request, runID string)
 
 // New returns the handler for /api/. Patterns keep the /api prefix because the daemon mounts it without stripping.
 func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Handler {
-	a := &api{mgr: mgr, reg: reg, log: log}
+	a := &api{mgr: mgr, reg: reg, log: log, recLocks: map[string]*sync.Mutex{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/runs", a.listRuns)
 	mux.HandleFunc("GET /api/events", a.events)
@@ -45,7 +49,7 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Han
 	} {
 		mux.HandleFunc(pattern, a.withRun(h))
 	}
-	return mux
+	return a.jsonBodies(mux)
 }
 
 // withRun answers 404 for a run that was never recorded, so every route says the same thing about it.
@@ -62,7 +66,7 @@ func (a *api) withRun(h runHandler) http.HandlerFunc {
 
 // bareName reports whether name is a single path element that cannot leave its directory.
 func bareName(name string) bool {
-	return name != "" && !strings.ContainsAny(name, `/\`) && !strings.Contains(name, "..")
+	return name != "" && name != "." && !strings.ContainsAny(name, `/\`) && !strings.Contains(name, "..")
 }
 
 func isDir(path string) bool {

@@ -19,8 +19,16 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Resolve tart the way the daemon does (internal/tart/version.go): GREENROOM_TART, the pinned install, then PATH.
+pinned="$(sed -n 's/^const PinnedVersion = "\(.*\)"$/\1/p' internal/tart/version.go)"
+tart="${GREENROOM_TART:-$HOME/.local/tart-$pinned/tart.app/Contents/MacOS/tart}"
+if [ -z "${GREENROOM_TART:-}" ] && [ ! -x "$tart" ]; then
+  tart="tart"
+fi
+
 echo "base image:  $base"
 echo "vm name:     $name"
+echo "tart:        $tart"
 
 # tart images live under ~/.tart on /; refuse early rather than fail mid-clone.
 free_kb="$(df -k / | awk 'NR==2 {print $4}')"
@@ -34,11 +42,11 @@ echo "free disk:   ${free_gb} GB"
 
 command -v jq >/dev/null 2>&1 || { echo "jq is required (brew install jq) to read tart's VM list." >&2; exit 1; }
 
-state="$(tart list --source local --format json 2>/dev/null |
+state="$("$tart" list --source local --format json 2>/dev/null |
   jq -r --arg n "$name" '.[] | select(.Name == $n) | .State' | head -n1)"
 
 if [ "$state" = "running" ]; then
-  echo "a VM named $name is already running. Stop it yourself (tart stop $name) and try again." >&2
+  echo "a VM named $name is already running. Stop it yourself ($tart stop $name) and try again." >&2
   exit 1
 fi
 if [ -n "$state" ]; then
@@ -47,20 +55,20 @@ if [ -n "$state" ]; then
     exit 1
   fi
   echo "deleting the existing $name ($force via -force)"
-  tart delete "$name"
+  "$tart" delete "$name"
 fi
 
 echo "cloning $base -> $name"
-tart clone "$base" "$name"
+"$tart" clone "$base" "$name"
 
-log="$(mktemp -t greenroom-build-image).log"
+log="$(mktemp -t greenroom-build-image)"
 echo "booting $name (log: $log)"
-tart run "$name" --no-graphics >"$log" 2>&1 &
+"$tart" run "$name" --no-graphics >"$log" 2>&1 &
 run_pid=$!
 cleanup() {
   if kill -0 "$run_pid" 2>/dev/null; then
     echo "stopping $name"
-    tart stop "$name" 2>/dev/null || true
+    "$tart" stop "$name" 2>/dev/null || true
     wait "$run_pid" 2>/dev/null || true
   fi
 }
@@ -73,7 +81,7 @@ for _ in $(seq 1 180); do
     echo "tart run exited before the guest agent came up; see $log" >&2
     exit 1
   fi
-  if tart exec "$name" true >/dev/null 2>&1; then
+  if "$tart" exec "$name" true >/dev/null 2>&1; then
     ready="yes"
     break
   fi
@@ -86,11 +94,11 @@ fi
 echo "guest agent is up"
 
 echo "preparing the guest (compiling the input helper, installing the ssh key)"
-go run . prepare-image -vm "$name"
+go run . prepare-image -tart "$tart" -vm "$name"
 
 trap - EXIT
 echo "stopping $name"
-tart stop "$name"
+"$tart" stop "$name"
 for _ in $(seq 1 60); do
   kill -0 "$run_pid" 2>/dev/null || break
   sleep 0.5
@@ -100,6 +108,7 @@ if kill -0 "$run_pid" 2>/dev/null; then
   exit 1
 fi
 wait "$run_pid" 2>/dev/null || true
+rm -f "$log" # kept only when something failed, since the messages above point at it
 echo "$name is stopped"
 
 echo
