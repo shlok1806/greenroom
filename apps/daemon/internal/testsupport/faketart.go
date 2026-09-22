@@ -4,6 +4,7 @@ package testsupport
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
@@ -23,14 +24,20 @@ import (
 //	screen              "<width>x<height>" the input helper reports (default 1024x768)
 //	shot.b64            base64 PNG a screenshot returns
 //	fail-session        an interactive session (`exec -i -t`) refuses to start
+//	fail-serve          the live screen helper (`exec -i ... --serve`) fails to start
 //	session-exits       a session prints session-output, if present, and exits at once
 //	tart-version        what `tart --version` prints (default tart.PinnedVersion)
 //	list-empty          `tart list` returns []
 //	vmnames, vmname     `tart list` reports these VMs running (default: one unrelated VM)
 //
 // The script writes session-stdin ("tty <rows> <cols>" or "pipe") and stopped (after stop or delete).
+// `--serve` runs the fake live screen helper; its own control files are listed in fakescreen.go.
 func FakeTart(t *testing.T) (bin string, control string) {
 	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
 	dir := t.TempDir()
 	control = filepath.Join(dir, "control")
 	if err := os.MkdirAll(control, 0o755); err != nil {
@@ -64,6 +71,11 @@ case "$sub" in
     echo "192.168.64.9"
     exit 0 ;;
   exec)
+    case "$*" in
+      *"-i "*"--serve"*)
+        [ -f "$C/fail-serve" ] && { echo "Error: VM is not running" >&2; exit 1; }
+        exec env ` + fakeScreenEnv + `="$C" "` + self + `" ;;
+    esac
     # A session is "exec -i -t <name> <command>", modelled by cat. Real "tart exec -t" dies when its
     # stdin is not a terminal, so record what the daemon handed us.
     if [ "$1" = "-i" ] || [ "$1" = "-t" ]; then
@@ -153,6 +165,18 @@ esac
 		t.Fatal(err)
 	}
 	return bin, control
+}
+
+// ServeStarts counts how many times the live screen helper was started.
+func ServeStarts(t *testing.T, control string) int {
+	t.Helper()
+	n := 0
+	for _, line := range strings.Split(Calls(t, control), "\n") {
+		if strings.HasPrefix(line, "exec -i ") && strings.HasSuffix(line, " --serve") {
+			n++
+		}
+	}
+	return n
 }
 
 // Flag turns on one fake-tart behavior by creating its control file.

@@ -31,3 +31,5 @@ first real term settles). **documented** means `CONTEXT.md` exists.
 - **Conversation**: the run's shared transcript between coder, verifier, human and system.
 - **Control lease**: the right to drive one machine's screen, held by one seat at a time
   (ADR 0009).
+- **Live screen**: a machine's screen as H.264, streamed from the guest while someone
+  watches (ADR 0011). Not the recording: frames stay the run's evidence.

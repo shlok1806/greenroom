@@ -52,7 +52,8 @@ Each layer depends only on the ones below. Keep it that way.
   `machine.PTYSession`; never name that type `Session`.
 - `internal/machine` - lifecycle and source of truth. `Manager`, the recorder
   (`manifest.json`, `steps.jsonl`, `frames/`, `frames.jsonl`), computer use (`input.go`,
-  guest helper in `guest/input.swift`), pty sessions (`ptysession.go`).
+  guest helper in `guest/input.swift`), the live screen (`screen.go`), pty sessions
+  (`ptysession.go`).
 - `internal/nim` - OpenAI-compatible client for NVIDIA NIM.
 - `internal/tart` - the only package that knows tart's arguments and output.
 
@@ -135,6 +136,22 @@ Computer use (ADR 0009)
   image except a slow first control request. Source and input travel base64, never
   through a shell.
 
+Live screen (ADR 0011)
+
+- One `greenroom-input --serve` per machine, on plain pipes (`tart.StartPipe`, never a
+  pty). The first `WatchScreen` starts it; it stops `WithScreenIdle` (30 s) after the last
+  viewer leaves, and at once in `detachLocked`. The start command first pkills an orphan
+  `--serve`: the guest agent does not close a helper's stdin when its host exec dies.
+- Fan-out never blocks the reader or another viewer. A full viewer loses its backlog, gets
+  the cached FORMAT, and resumes at the next keyframe. Every new viewer and every drop sends
+  KEYFRAME: a still screen sends nothing on its own.
+- LOG goes to the daemon log, never to viewers.
+- `Manager.Input` uses the stream (INPUT, then its ACK within 10 s) while it runs, else the
+  one-shot exec. It falls back only if nothing was sent, so a batch is never posted twice.
+  Lease, step and scaling are the same on both paths.
+- `/screen/live` answers 409 at once for a machine that is not ready; it never waits in
+  `awaitReady`.
+
 Sync
 
 - `source` must be absolute; `dest` must stay inside the guest home.
@@ -210,7 +227,11 @@ Clones of `greenroom-base` skip the ~28 s first-control compile.
   every call; control files turn on failures. The list is in that file's header comment, plus
   `fail-keyinstall` and `tart-version` (fake a version mismatch). It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session got a pty.
-- `WithSSHProbe`, `WithReadyTimeout` shorten or replace boot waits.
+- The fake tart runs `exec -i ... --serve` as the fake live screen helper by re-executing
+  the test binary (`testsupport/fakescreen.go`, gated by an env var in its `init`). Its control
+  files are listed there; `testsupport.ServeStarts` counts starts.
+- `WithSSHProbe`, `WithReadyTimeout` shorten or replace boot waits; `WithScreenIdle` the
+  live screen's idle stop.
 - A fake `rsync` earlier on `PATH` covers `Sync`.
 - Test at the highest seam that sees the behaviour: `internal/mcpserver/*_test.go` runs a
   real MCP client over HTTP against every tool; `internal/api/api_test.go` drives the real

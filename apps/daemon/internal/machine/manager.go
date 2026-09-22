@@ -69,6 +69,7 @@ type Machine struct {
 	sessions map[string]*PTYSession
 
 	frameCancel context.CancelFunc // guarded by Manager.mu
+	screen      *screenStream      // guarded by Manager.mu; the live screen, if one has started
 
 	// bootCancel stops finishBoot and bootDone closes when it returns. Both are
 	// set before the machine is shared, and are nil when no boot runs.
@@ -105,6 +106,8 @@ type Manager struct {
 	vmPoll        time.Duration
 	sshProbe      func(ctx context.Context, vmName, addr string) error
 	onWatch       func(vncURL string)
+	screenIdle    time.Duration
+	screenBuffer  int
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)
@@ -152,6 +155,11 @@ func WithVMPollInterval(d time.Duration) Option {
 	return func(m *Manager) { m.vmPoll = d }
 }
 
+// WithScreenIdle sets how long a live screen runs with nobody watching.
+func WithScreenIdle(d time.Duration) Option {
+	return func(m *Manager) { m.screenIdle = d }
+}
+
 // WithWatchHandler is called with the screen address of each watched machine.
 func WithWatchHandler(fn func(vncURL string)) Option {
 	return func(m *Manager) { m.onWatch = fn }
@@ -168,7 +176,7 @@ func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error)
 	m := &Manager{
 		Root: root, Log: log, tart: tart.New(), machines: map[string]*Machine{},
 		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout, frameInterval: defaultFrameInterval,
-		vmPoll: defaultVMPollInterval,
+		vmPoll: defaultVMPollInterval, screenIdle: defaultScreenIdle, screenBuffer: defaultScreenBuffer,
 	}
 	m.sshProbe = m.probeSSHInGuest
 	for _, opt := range opts {
@@ -260,7 +268,7 @@ func (m *Manager) emitStep(runID string, seq int) {
 // publicLocked copies mc without its internal handles. The caller holds m.mu.
 func (mc *Machine) publicLocked() *Machine {
 	c := *mc
-	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel = nil, nil, nil, nil, nil, nil
+	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel, c.screen = nil, nil, nil, nil, nil, nil, nil
 	c.bootCancel, c.bootDone = nil, nil
 	return &c
 }
@@ -499,10 +507,15 @@ func (m *Manager) forgetLocked(mc *Machine) []*tart.Session {
 	return m.detachLocked(mc)
 }
 
-// detachLocked stops the frame recorder and detaches the sessions. It is safe to repeat.
+// detachLocked stops the frame recorder and the live screen, and detaches the
+// sessions. It is safe to repeat.
 func (m *Manager) detachLocked(mc *Machine) []*tart.Session {
 	if mc.frameCancel != nil {
 		mc.frameCancel()
+	}
+	if mc.screen != nil {
+		mc.screen.end(errors.New("the live screen ended: the machine is gone"))
+		mc.screen = nil
 	}
 	live := make([]*tart.Session, 0, len(mc.sessions))
 	for _, s := range mc.sessions {
