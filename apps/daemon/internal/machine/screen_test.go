@@ -329,13 +329,16 @@ func TestInputGoesThroughTheRunningScreen(t *testing.T) {
 }
 
 func TestSlowInputBatchesGetTimeForTheirActions(t *testing.T) {
-	mgr, _, control := newTestManager(t, WithScreenInputSlack(200*time.Millisecond))
+	// Each batch takes 1 s to post and the slack is 0.7 s: the second batch
+	// needs 2 s, which only the backlog covers, and the 0.7 s margin absorbs
+	// a loaded -race runner.
+	mgr, _, control := newTestManager(t, WithScreenInputSlack(700*time.Millisecond))
 	mc := readyMachine(t, mgr)
 	watchScreen(t, mgr, mc.RunID)
 	if _, _, err := mgr.TakeControl(mc.RunID, "human", 0); err != nil {
 		t.Fatalf("TakeControl: %v", err)
 	}
-	batch := []InputAction{{Type: "sleep", MS: 300}, {Type: "sleep", MS: 300}, {Type: "key", Key: "a"}}
+	batch := []InputAction{{Type: "sleep", MS: 500}, {Type: "sleep", MS: 500}, {Type: "key", Key: "a"}}
 	errs := make(chan error, 2)
 	for range 2 {
 		go func() {
