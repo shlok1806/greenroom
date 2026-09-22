@@ -53,9 +53,12 @@ func newHarness(t *testing.T) *harness {
 	// A machine left running keeps the fake tart writing into the control
 	// directory, which races t.TempDir's cleanup and fails an unrelated test
 	// with "directory not empty". The frame recorder is off for the same
-	// reason: its captures are tart calls too.
+	// reason: its captures are tart calls too. Boot is let to settle first:
+	// Destroy does not stop the boot goroutine, which would otherwise write
+	// its machine_boot step into the run directory during the cleanup.
 	t.Cleanup(func() {
 		for _, mc := range mgr.List() {
+			_, _ = mgr.Wait(context.Background(), mc.RunID, 15*time.Second)
 			_ = mgr.Destroy(context.Background(), mc.RunID)
 		}
 	})

@@ -112,20 +112,22 @@ func TestEndToEndSession(t *testing.T) {
 	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "cd /tmp && export GREENROOM_MARK=kept\n"); err != nil {
 		t.Fatalf("SessionSend: %v", err)
 	}
-	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "echo \"MARK=$GREENROOM_MARK PWD=$PWD\"\n"); err != nil {
+	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "echo \"MARK=$GREENROOM_MARK PWD=$PWD \"\"END\"\n"); err != nil {
 		t.Fatalf("SessionSend: %v", err)
 	}
-	out = collect(ctx, t, mgr, runID, start.SessionID, "MARK=", 60*time.Second)
+	// Wait for the split marker, not for "MARK=": the echoed export line
+	// above already contains that, so waiting on it returns too early.
+	out = collect(ctx, t, mgr, runID, start.SessionID, " END", 60*time.Second)
 	t.Logf("state output:\n%s", out)
-	if !strings.Contains(out, "MARK=kept") {
+	if !strings.Contains(out, "MARK=kept PWD=") {
 		t.Error("an exported variable did not survive to the next call")
 	}
-	if !strings.Contains(out, "PWD=/tmp") {
+	if !strings.Contains(out, "PWD=/tmp END") {
 		t.Error("the working directory did not survive to the next call")
 	}
 
 	// 3. A command that fails inside the session is a result, not an error.
-	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "false; echo \"EXIT=$?\"\n"); err != nil {
+	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "false; echo \"EX\"\"IT=$?\"\n"); err != nil {
 		t.Fatalf("SessionSend: %v", err)
 	}
 	out = collect(ctx, t, mgr, runID, start.SessionID, "EXIT=", 60*time.Second)
