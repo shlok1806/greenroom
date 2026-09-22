@@ -235,6 +235,10 @@ func TestAFinishedSessionStopsReportingItselfRunning(t *testing.T) {
 	if !strings.Contains(got.Output, "build succeeded") {
 		t.Errorf("the output of a finished command was lost: %q", got.Output)
 	}
+	// A read wakes on output, which can land just before the command exits.
+	for i := 0; i < 20 && got.Running; i++ {
+		h.call("machine_session_read", map[string]any{"runId": runID, "sessionId": id, "waitSeconds": 1}, &got)
+	}
 	if got.Running {
 		t.Error("a command that has exited is still reported as running")
 	}

@@ -307,7 +307,7 @@ func TestSyncBuildsTheRsyncCommand(t *testing.T) {
 	args := string(got)
 	for _, want := range []string{
 		"-a --stats", "--exclude node_modules", "--exclude .git",
-		"StrictHostKeyChecking=no", "mkdir -p 'work/", "admin@192.168.64.9:work/",
+		"StrictHostKeyChecking=no", "admin@192.168.64.9:'work/",
 	} {
 		if !strings.Contains(args, want) {
 			t.Errorf("rsync arguments have no %q\nargs: %s", want, args)
@@ -349,7 +349,7 @@ func TestSyncPutsAProjectAtThePinnedGuestPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the fake rsync never ran: %v", err)
 	}
-	if !strings.Contains(string(args), "admin@192.168.64.9:"+want+"/") {
+	if !strings.Contains(string(args), "admin@192.168.64.9:'"+want+"'/") {
 		t.Errorf("rsync target is not the pinned guest path\nargs: %s", args)
 	}
 }
