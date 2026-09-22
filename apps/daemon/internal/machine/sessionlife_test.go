@@ -147,6 +147,27 @@ func TestASendCompletesWhileAReadWaits(t *testing.T) {
 	}
 }
 
+// Output that arrives in quick pieces, like a command's echo and then its
+// answer, comes back as one read.
+func TestAReadReturnsABurstTogether(t *testing.T) {
+	mgr, _, _ := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	start, err := mgr.SessionStart(context.Background(), mc.RunID, "cat")
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	go func() {
+		ctx := context.Background()
+		_, _ = mgr.SessionSend(ctx, mc.RunID, start.SessionID, "first\n")
+		time.Sleep(sessionSettle / 3)
+		_, _ = mgr.SessionSend(ctx, mc.RunID, start.SessionID, "second\n")
+	}()
+	out, err := mgr.SessionRead(context.Background(), mc.RunID, start.SessionID, 10*time.Second)
+	if err != nil || !strings.Contains(out.Output, "first") || !strings.Contains(out.Output, "second") {
+		t.Fatalf("read returned %q, %v; want both pieces", out.Output, err)
+	}
+}
+
 // A session whose command has ended does not hold one of the machine's slots.
 func TestEndedSessionsDoNotCountTowardTheCap(t *testing.T) {
 	mgr, _, control := newTestManager(t)

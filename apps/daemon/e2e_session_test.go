@@ -67,7 +67,8 @@ func TestEndToEndSession(t *testing.T) {
 		t.Fatalf("SessionSend: %v", err)
 	}
 
-	out := collect(ctx, t, mgr, runID, start.SessionID, "STDOUT_IS_A_TTY", 60*time.Second)
+	// tty's answer is the last thing written, so wait for it rather than an earlier marker.
+	out := collect(ctx, t, mgr, runID, start.SessionID, "/dev/ttys", 60*time.Second)
 	t.Logf("session output:\n%s", out)
 
 	if strings.Contains(out, "STDIN_IS_A_PIPE") || !strings.Contains(out, "STDIN_IS_A_TTY") {

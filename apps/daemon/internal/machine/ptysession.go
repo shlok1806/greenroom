@@ -28,6 +28,8 @@ const (
 	// defaultSessionCommand execs so the wrapper shell does not linger.
 	defaultSessionCommand = "exec /bin/zsh -li"
 	sessionPollInterval   = 250 * time.Millisecond
+	sessionSettle         = 150 * time.Millisecond // quiet time that ends a burst of output
+	sessionSettleMax      = time.Second            // a steady stream still returns this often
 
 	// maxSessionWait stays under the MCP client's 60 s first-byte timeout.
 	maxSessionWait = 50 * time.Second
@@ -271,16 +273,24 @@ func truncatedRead(r SessionReadResult) SessionReadResult {
 	return r
 }
 
-// readUntil reads until there is output, the command has ended, or wait
+// readUntil reads until output has settled, the command has ended, or wait
 // passes, consuming what it returns. It holds s.mu only per attempt, so a
 // send can answer a prompt while a read waits.
 func (s *PTYSession) readUntil(ctx context.Context, wait time.Duration) (SessionReadResult, error) {
 	deadline := time.Now().Add(wait)
+	var first time.Time // when output was first seen
+	quiet := false
 	for {
 		changed := s.out.changed() // before reading, so a write in between still wakes us
 		s.mu.Lock()
 		out := s.readOnce()
-		done := out.Output != "" || !out.Running || !time.Now().Before(deadline)
+		now := time.Now()
+		if out.Output != "" && first.IsZero() {
+			first = now
+		}
+		// A burst (a command's echo, then its output) comes back as one read.
+		done := quiet || !out.Running || out.Pending > 0 || !now.Before(deadline) ||
+			(!first.IsZero() && now.Sub(first) >= sessionSettleMax)
 		if done {
 			s.offset = out.NextByte
 		}
@@ -289,11 +299,16 @@ func (s *PTYSession) readUntil(ctx context.Context, wait time.Duration) (Session
 			return out, nil
 		}
 		// The poll catches the command ending, which writes nothing.
+		pause := sessionPollInterval
+		if !first.IsZero() {
+			pause = sessionSettle
+		}
 		select {
 		case <-ctx.Done():
 			return SessionReadResult{SessionID: s.ID, FromByte: out.FromByte}, ctx.Err()
 		case <-changed:
-		case <-time.After(min(sessionPollInterval, time.Until(deadline))):
+		case <-time.After(min(pause, time.Until(deadline))):
+			quiet = !first.IsZero()
 		}
 	}
 }
