@@ -57,6 +57,38 @@ Views  ->  RunStore  ->  DaemonClient  ->  HTTP
   half (ADR 0009). The first is pure: where a click on a letterboxed picture lands, what a
   key press means, how a queue of actions is trimmed. The second holds the lease and the
   send queue. `Views/InputSurface.swift` is the only AppKit event code in the app.
+- `Model/FrameTimeline.swift`, `Model/StepSummary.swift` and `Model/RichText.swift` are the
+  rest of the pure layer, and they follow `ScreenControl`'s rule: a value type, no I/O, and a
+  test for every rule rather than an eyeball over a screenshot. They exist because each
+  answers a question a view kept answering badly on its own - where a frame sits on a track
+  of a given width and where the steps fall along it, what a step actually did in one line,
+  and how much of an agent's Markdown a transcript honours.
+
+## What the interface is trying to be
+
+The window is a session inspector, not a debugger's dump. Three rules carry most of it, and
+a change that breaks one of them is a regression even when it compiles.
+
+- **Density with restraint.** The run list is read far more often than it changes: one dense
+  row per run, grouped by day, status as a dot rather than the word "finished" twenty times
+  down a column. Status and verdict are the only things allowed a strong colour. A role, a
+  count and a state are told apart by weight and position first.
+- **One focal area.** On the Screen tab the picture gets the room and nothing is drawn on top
+  of it: a label over the guest's own menu bar hides the thing the person came to see. Where
+  in the recording you are belongs under the track, in time, frames and steps.
+- **Evidence is read, not expanded.** A row that says only `machine_input` is a log. Every
+  list row carries a summary a person can read without opening it (`StepSummary`), and the
+  transcript's progress rows use the step's own record when the app holds it, rather than the
+  raw JSON the message text carries.
+
+Two formatting rules that are easy to get wrong:
+
+- **A run's clock time comes from `createdAt`, never from its id.** The daemon names a run in
+  UTC, so parsing `20260921-050808` for a label put the list hours away from every other time
+  in the window. `Chrome.runHash` takes the identifying tail from the id; the time is
+  formatted from the date.
+- **Spans go through `Chrome.clock`.** Minutes and seconds alone turn an eight-hour run into
+  "476:12".
 
 ## Rules from ADR 0007 and ADR 0009
 
@@ -72,6 +104,10 @@ Views  ->  RunStore  ->  DaemonClient  ->  HTTP
   the app is written into the run's transcript by the daemon, so the coding agent learns
   of it on its next `agent_wait`. The app must never gain a way to change a run that the
   transcript does not show.
+- **A frame is decoded off the main actor.** `RunStore.frameImage` turns the JPEG into pixels
+  in a detached task and caches the finished image. `NSImage(data:)` on its own defers the
+  decode to the first draw, which puts it back on the main thread, and scrubbing a
+  two-thousand-frame recording asks for that many times a second.
 - **The app never polls for screenshots.** The daemon captures frames on its own and
   pushes each one down the event stream as `event: frame`; the Screen tab is a player
   over `GET /api/runs/{id}/frames` and `.../frames/{file}`, not a timer that asks for a

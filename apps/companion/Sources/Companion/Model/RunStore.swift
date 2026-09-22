@@ -237,7 +237,10 @@ final class RunStore {
             held.append(message)
             messages[runId] = held
             if let index = runs.firstIndex(where: { $0.runId == runId }) {
-                runs[index].messages = max(runs[index].messages, message.seq)
+                // `messages` in the run list is a count (the daemon sends
+                // len(msgs)), not a sequence number. Appending one message
+                // adds one.
+                runs[index].messages += 1
                 runs[index].lastActivity = max(runs[index].lastActivity, message.at)
             }
             // A verdict or its closing changes the badge, so re-read the run.
@@ -293,6 +296,11 @@ final class RunStore {
         do {
             _ = try await client.screenshot(runId: runId)
             steps[runId] = try await client.steps(runId)
+            // The daemon writes the capture into the run's conversation, so
+            // the transcript is stale until it is re-read. Waiting for the
+            // event stream to say so would leave the app wrong whenever the
+            // stream is the thing that is broken.
+            await reloadMessages(runId)
             if lastError != nil { lastError = nil }
         } catch {
             report(error)
@@ -320,6 +328,15 @@ final class RunStore {
         }
     }
 
+    /// One artifact as a drawn image. A screenshot artifact is the guest's
+    /// full display and much bigger than a frame, so it goes through the same
+    /// detached decode: a view must not turn bytes into pixels on the main
+    /// actor, and a view must not be the thing that knows they are bytes.
+    func artifactImage(runId: String, name: String) async -> NSImage? {
+        guard let data = await artifact(runId: runId, name: name) else { return nil }
+        return await Self.decode(data)
+    }
+
     /// One frame's decoded image, from the cache if it is already there. The
     /// Screen tab calls this while scrubbing, so a frame it has shown before
     /// never crosses the network or a decoder twice.
@@ -327,13 +344,30 @@ final class RunStore {
         if let cached = frameCache.image(runId: runId, file: file) { return cached }
         do {
             let data = try await client.frame(runId: runId, file: file)
-            guard let image = NSImage(data: data) else { return nil }
+            // Decoding is the expensive half, and scrubbing a 2000-frame
+            // recording asks for it many times a second. On the main actor
+            // that is a window that stops answering the scrubber that caused
+            // it, so the JPEG is turned into pixels off the main actor and
+            // only the finished image comes back.
+            guard let image = await Self.decode(data) else { return nil }
             frameCache.store(image, runId: runId, file: file)
             return image
         } catch {
             report(error)
             return nil
         }
+    }
+
+    /// Turns JPEG bytes into an image that is already drawn. `NSImage(data:)`
+    /// alone defers the decode to the first draw, which puts it back on the
+    /// main thread; going through a bitmap representation does the work here.
+    private nonisolated static func decode(_ data: Data) async -> NSImage? {
+        await Task.detached(priority: .userInitiated) { () -> NSImage? in
+            guard let rep = NSBitmapImageRep(data: data) else { return nil }
+            let image = NSImage(size: NSSize(width: rep.pixelsWide, height: rep.pixelsHigh))
+            image.addRepresentation(rep)
+            return image
+        }.value
     }
 
     /// The run's recording, built from its frames. `nil` on failure, with the

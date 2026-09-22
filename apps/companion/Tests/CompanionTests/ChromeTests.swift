@@ -59,4 +59,55 @@ final class ChromeTests: XCTestCase {
         XCTAssertEqual(Chrome.glyph(for: .contested), "exclamationmark")
         XCTAssertEqual(Chrome.glyph(for: .rejected), "xmark")
     }
+
+    // MARK: - Clock
+
+    /// `%02d:%02d` of minutes and seconds turned an eight-hour run into
+    /// "476:12", which is not a time anybody reads.
+    func testAClockGrowsAnHoursColumnRatherThanCountingToFourHundred() {
+        XCTAssertEqual(Chrome.clock(0), "0:00")
+        XCTAssertEqual(Chrome.clock(7), "0:07")
+        XCTAssertEqual(Chrome.clock(723), "12:03")
+        XCTAssertEqual(Chrome.clock(3600), "1:00:00")
+        XCTAssertEqual(Chrome.clock(28_572), "7:56:12")
+    }
+
+    func testAClockNeverGoesBackwards() {
+        XCTAssertEqual(Chrome.clock(-90), "0:00")
+    }
+
+    // MARK: - Counts
+
+    func testACountLosesItsDigitsOnceItHasEnoughOfThem() {
+        XCTAssertEqual(Chrome.count(0), "0")
+        XCTAssertEqual(Chrome.count(999), "999")
+        XCTAssertEqual(Chrome.count(2385), "2.4k")
+        XCTAssertEqual(Chrome.count(24_000), "24k")
+        XCTAssertEqual(Chrome.count(1_500_000), "1.5M")
+    }
+
+    // MARK: - Run names
+
+    /// Twenty ids stacked up differ only in the middle, so the list shows the
+    /// run's own clock time and this much of the hash after it.
+    func testARunIdGivesUpItsHash() {
+        XCTAssertEqual(Chrome.runHash("20260921-050808-8ecfd5"), "8ecfd5")
+    }
+
+    func testALongHashIsCutDown() {
+        XCTAssertEqual(Chrome.runHash("20260921-201720-40e7ef2a554f9922"), "40e7ef")
+    }
+
+    func testAnIdWithNoHashHasNone() {
+        XCTAssertEqual(Chrome.runHash("something-else"), "")
+        XCTAssertEqual(Chrome.runHash("plain"), "")
+    }
+
+    // MARK: - Days
+
+    func testTodayAndYesterdayAreNamedRatherThanDated() {
+        XCTAssertEqual(Chrome.day(now, now: now), "Today")
+        XCTAssertEqual(Chrome.day(now.addingTimeInterval(-86_400), now: now), "Yesterday")
+        XCTAssertNotEqual(Chrome.day(now.addingTimeInterval(-5 * 86_400), now: now), "Yesterday")
+    }
 }
