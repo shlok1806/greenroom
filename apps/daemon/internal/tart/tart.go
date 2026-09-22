@@ -383,7 +383,6 @@ func (c *child) exited() bool {
 // observe which groups are signalled.
 var watchExit = awaitExit
 
-
 var killGroup = func(pgid int) error {
 	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return fmt.Errorf("kill process group %d: %w", pgid, err)
