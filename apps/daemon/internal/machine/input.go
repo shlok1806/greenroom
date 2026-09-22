@@ -25,7 +25,7 @@ var inputHelper string
 // inputHelperVersion names the compiled helper. Bump it whenever
 // guest/input.swift changes, or running machines and prepared images keep
 // the old binary.
-const inputHelperVersion = 2
+const inputHelperVersion = 3
 
 // ControlTTL is how long an unused screen-control lease lives unless the taker
 // asks otherwise. Every input renews it by its own ttl, so a crashed holder
@@ -92,6 +92,8 @@ type inputState struct {
 	mu     sync.Mutex             // held across the install
 	screen atomic.Pointer[Screen] // set once installed; screenshots read it without mu
 	asMu   sync.Mutex             // serializes InputAs so one call's release cannot end another's lease
+
+	screenMu sync.Mutex // serializes starting the live screen
 }
 
 // helperName is the compiled helper's path relative to the guest home.
@@ -295,6 +297,15 @@ func (m *Manager) postInput(ctx context.Context, mc *Machine, screen Screen, act
 	scaled := make([]InputAction, len(actions))
 	for i, a := range actions {
 		scaled[i] = pixels(a, screen)
+	}
+	if s := m.liveScreen(mc); s != nil {
+		err := s.input(ctx, scaled)
+		if !errors.Is(err, errScreenEnded) {
+			if err != nil {
+				return fmt.Errorf("input failed: %w", err)
+			}
+			return nil
+		}
 	}
 	payload, err := json.Marshal(struct {
 		Actions []InputAction `json:"actions"`
