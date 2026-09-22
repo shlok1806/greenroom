@@ -104,10 +104,13 @@ Two formatting rules that are easy to get wrong:
   the app is written into the run's transcript by the daemon, so the coding agent learns
   of it on its next `agent_wait`. The app must never gain a way to change a run that the
   transcript does not show.
-- **A frame is decoded off the main actor.** `RunStore.frameImage` turns the JPEG into pixels
-  in a detached task and caches the finished image. `NSImage(data:)` on its own defers the
-  decode to the first draw, which puts it back on the main thread, and scrubbing a
-  two-thousand-frame recording asks for that many times a second.
+- **Only a frame's header is parsed off the main actor; its pixels are not.** `RunStore.frameImage`
+  builds an `NSBitmapImageRep` in a detached task and caches the image, but that parses only
+  the header (about 0.2ms). The JPEG decompression (about 1.7ms) is deferred to first draw and
+  still lands on the main thread. This is known and left as it is on purpose: forcing the
+  decode would hold about 3.1MB of pixels per cached frame, roughly 189MB at the cache's
+  capacity of 60, so the frame cache would have to be re-bounded in bytes in the same change.
+  That trade has not been chosen yet; do not "fix" one half without the other.
 - **The app never polls for screenshots.** The daemon captures frames on its own and
   pushes each one down the event stream as `event: frame`; the Screen tab is a player
   over `GET /api/runs/{id}/frames` and `.../frames/{file}`, not a timer that asks for a

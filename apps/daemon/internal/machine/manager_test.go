@@ -992,16 +992,29 @@ func TestAFailedBootEndsTheRun(t *testing.T) {
 func TestAMachineWhoseProcessExitsIsFailed(t *testing.T) {
 	mgr, root, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
+	stopped := make(chan struct{})
+	var once sync.Once
+	stop := mgr.Listen(func(ev LifecycleEvent) {
+		if ev.Kind == "stopped" && ev.RunID == mc.RunID {
+			once.Do(func() { close(stopped) })
+		}
+	})
+	defer stop()
 
 	// What the fake tart's `run` watches for: the VM went away underneath it.
 	testsupport.Flag(t, control, "stopped")
 
-	deadline := time.Now().Add(20 * time.Second)
-	for len(mgr.List()) > 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("the daemon still lists a machine whose tart process exited")
-		}
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-stopped:
+	case <-time.After(20 * time.Second):
+		t.Fatal("no stopped event for a machine whose tart process exited")
+	}
+	if len(mgr.List()) > 0 {
+		t.Error("the daemon still lists a machine whose tart process exited")
+	}
+	// The machine is disposable and goes; the evidence is not and stays.
+	if log := testsupport.Calls(t, control); !strings.Contains(log, "delete "+mc.Name) {
+		t.Errorf("a machine that stopped on its own left its VM behind\ncalls:\n%s", log)
 	}
 	man := readManifest(t, filepath.Join(root, "runs", mc.RunID))
 	if man.DestroyedAt == nil {

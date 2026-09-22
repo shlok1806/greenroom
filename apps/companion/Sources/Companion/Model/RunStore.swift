@@ -250,7 +250,11 @@ final class RunStore {
             }
         case .step(let runId, let seq, let step):
             if let index = runs.firstIndex(where: { $0.runId == runId }) {
-                runs[index].steps = max(runs[index].steps, seq)
+                // `steps` in the run list is a count of steps.jsonl, not the
+                // highest seq: numbering can have gaps. One new step adds one.
+                if steps[runId]?.contains(where: { $0.seq == seq }) != true {
+                    runs[index].steps += 1
+                }
                 if let at = step?.at {
                     runs[index].lastActivity = max(runs[index].lastActivity, at)
                 }
@@ -344,11 +348,8 @@ final class RunStore {
         if let cached = frameCache.image(runId: runId, file: file) { return cached }
         do {
             let data = try await client.frame(runId: runId, file: file)
-            // Decoding is the expensive half, and scrubbing a 2000-frame
-            // recording asks for it many times a second. On the main actor
-            // that is a window that stops answering the scrubber that caused
-            // it, so the JPEG is turned into pixels off the main actor and
-            // only the finished image comes back.
+            // Only the header is parsed off the main actor; see `decode` for
+            // why the pixels are not.
             guard let image = await Self.decode(data) else { return nil }
             frameCache.store(image, runId: runId, file: file)
             return image
@@ -358,9 +359,14 @@ final class RunStore {
         }
     }
 
-    /// Turns JPEG bytes into an image that is already drawn. `NSImage(data:)`
-    /// alone defers the decode to the first draw, which puts it back on the
-    /// main thread; going through a bitmap representation does the work here.
+    /// Wraps JPEG bytes in an image, parsing only the header off the main
+    /// actor. `NSBitmapImageRep(data:)` defers decompression, so the real
+    /// decode (about 1.7ms, against 0.2ms for the header) still happens on the
+    /// main thread at first draw. This is a known, deliberately unfixed cost:
+    /// forcing the decode here would hold about 3.1MB of pixels per cached
+    /// frame, roughly 189MB at the cache's capacity of 60, so the cache would
+    /// have to be re-bounded in bytes at the same time, and that trade has
+    /// not been chosen yet.
     private nonisolated static func decode(_ data: Data) async -> NSImage? {
         await Task.detached(priority: .userInitiated) { () -> NSImage? in
             guard let rep = NSBitmapImageRep(data: data) else { return nil }

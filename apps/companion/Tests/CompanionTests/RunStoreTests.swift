@@ -56,11 +56,27 @@ final class RunStoreTests: XCTestCase {
     func testAStepAsksForTheStepsAgain() {
         let store = store()
         XCTAssertEqual(store.apply(.step(runId: "run-1", seq: 3, step: nil)), .steps("run-1"))
-        XCTAssertEqual(store.runs[0].steps, 3)
+        XCTAssertEqual(store.runs[0].steps, 1)
 
         // A run whose steps are not loaded needs no fetch.
         XCTAssertEqual(store.apply(.step(runId: "other", seq: 4, step: nil)), .nothing)
-        XCTAssertEqual(store.runs[0].steps, 3)
+        XCTAssertEqual(store.runs[0].steps, 1)
+    }
+
+    func testAStepAddsOneToTheCountEvenAcrossAGapInNumbering() {
+        let store = store()
+        let held = [1, 2, 3, 4, 6].map {
+            Step(seq: $0, at: Date(timeIntervalSince1970: Double($0)), tool: "t", durationMs: 0)
+        }
+        store.steps["run-1"] = held
+        store.runs[0].steps = held.count
+
+        store.apply(.step(runId: "run-1", seq: 7, step: nil))
+        XCTAssertEqual(store.runs[0].steps, 6)
+
+        // A step already held, replayed by a reconnect, is not counted twice.
+        store.apply(.step(runId: "run-1", seq: 6, step: nil))
+        XCTAssertEqual(store.runs[0].steps, 6)
     }
 
     func testARunEventUpdatesTheMachineInPlace() throws {

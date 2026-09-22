@@ -660,6 +660,7 @@ func (m *Manager) watchProcess(mc *Machine) {
 		m.mu.Unlock()
 
 		m.Log.Warn("machine stopped on its own", "runId", mc.RunID, "err", err)
+		m.cleanupVM(mc.Name)
 		now := time.Now().UTC()
 		_ = mc.rec.update(func(man *Manifest) { man.DestroyedAt = &now })
 		m.emit(LifecycleEvent{Kind: "stopped", RunID: mc.RunID, Machine: m.snapshot(mc)})
