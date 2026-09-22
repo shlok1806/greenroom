@@ -97,8 +97,7 @@ func serve(args []string) error {
 	}
 	mgr.CheckTart(context.Background()) // logs a version mismatch, never fatal
 
-	reg := session.NewRegistry(*root, *maxDisputes)
-	reg.OnVerdict = func(runID string, v session.VerdictState) { _ = mgr.RecordVerdict(runID, v) }
+	reg := session.NewRegistry(*root, *maxDisputes, session.WithOnVerdict(func(runID string, v session.VerdictState) { _ = mgr.RecordVerdict(runID, v) }))
 
 	kind := strings.ToLower(strings.TrimSpace(*verifierKind))
 	if kind == "" {
@@ -195,7 +194,9 @@ func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnable
 		case "stopped":
 			text = withError("machine stopped", ev.Machine) // a ready machine's VM went away, not a boot failure
 		case "destroyed":
-			text = "machine destroyed"
+			post(ev.RunID, "machine destroyed")
+			reg.Evict(ev.RunID)
+			return
 		default:
 			return
 		}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
@@ -175,6 +176,36 @@ func TestManualTypeKeyAndScroll(t *testing.T) {
 	last := lastMessage(t, store)
 	if last.Kind != session.Verdict || len(last.Evidence) != 3 {
 		t.Fatalf("verdict = %+v, want evidence for all three steps", last)
+	}
+}
+
+// Like the model brain, an empty type is refused before it reaches the machine.
+func TestManualTypeNeedsText(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	store := openStore(t, mgr, runID)
+	post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "type\nverdict fail nothing typed"})
+
+	if _, err := NewManual(mgr, testLog()).Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	progress := messagesOfKind(store, session.Progress)
+	if len(progress) != 1 || progress[0].Step != 0 || !strings.Contains(progress[0].Text, "machine_type needs text") {
+		t.Fatalf("progress = %+v, want one unrecorded refusal", progress)
+	}
+	if last := lastMessage(t, store); len(last.Evidence) != 0 {
+		t.Errorf("verdict cites %v, want no steps", last.Evidence)
+	}
+}
+
+func TestSummarizeRunsKeepsWholeRunes(t *testing.T) {
+	for _, out := range []string{strings.Repeat("é", 150), "x" + strings.Repeat("é", 150)} {
+		got := summarizeRuns(1, []int{0}, out)
+		if !utf8.ValidString(got) {
+			t.Errorf("summarizeRuns split a rune: %q", got)
+		}
+		if !strings.HasSuffix(got, "éé") {
+			t.Errorf("summarizeRuns lost the tail: %q", got)
+		}
 	}
 }
 

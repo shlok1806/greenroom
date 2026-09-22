@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultBaseURL is NVIDIA's hosted endpoint.
@@ -176,11 +177,13 @@ func (c *Client) post(ctx context.Context, body map[string]any, out *wireRespons
 	attempts := len(RetryBackoff) + 1
 	for attempt := 1; ; attempt++ {
 		raw, status, retryAfter, err := c.attempt(ctx, data)
+		var last string
 		switch {
 		case err != nil:
 			if attempt >= attempts || !retryableTransport(ctx, err) {
 				return fmt.Errorf("call %s failed after %s: %w", c.BaseURL, plural(attempt), err)
 			}
+			last = err.Error()
 		case status == http.StatusOK:
 			if err := json.Unmarshal(raw, out); err != nil {
 				return fmt.Errorf("decode response: %w: %s", err, truncate(string(raw), 200))
@@ -190,13 +193,14 @@ func (c *Client) post(ctx context.Context, body map[string]any, out *wireRespons
 			if attempt >= attempts || !retryableStatus(status) {
 				return fmt.Errorf("%s returned %d after %s: %s", c.BaseURL, status, plural(attempt), strings.TrimSpace(truncate(string(raw), 300)))
 			}
+			last = "status " + strconv.Itoa(status)
 		}
 		wait := RetryBackoff[attempt-1]
 		if retryAfter >= 0 {
 			wait = retryAfter
 		}
 		if err := sleep(ctx, wait); err != nil {
-			return err
+			return fmt.Errorf("gave up on %s after %s (last: %s): %w", c.BaseURL, plural(attempt), last, err)
 		}
 	}
 }
@@ -240,6 +244,8 @@ func retryableStatus(status int) bool {
 }
 
 // retryableTransport is true for a network failure while ctx is still live.
+// A timeout is final: the client's 3-minute limit, retried, would outlast the
+// verifier's whole turn.
 func retryableTransport(ctx context.Context, err error) bool {
 	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
@@ -248,7 +254,7 @@ func retryableTransport(ctx context.Context, err error) bool {
 		return true
 	}
 	var ne net.Error
-	return errors.As(err, &ne)
+	return errors.As(err, &ne) && !ne.Timeout()
 }
 
 // retryAfterOf reads a 429/503 Retry-After in seconds (the date form is
@@ -346,9 +352,13 @@ func textOf(content any) string {
 	}
 }
 
+// truncate cuts s to at most n bytes on a rune boundary.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "..."
 }

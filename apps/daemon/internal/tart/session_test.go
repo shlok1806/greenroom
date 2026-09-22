@@ -1,6 +1,7 @@
 package tart
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,11 +26,11 @@ func recordKills(t *testing.T) func() []int {
 	var mu sync.Mutex
 	var got []int
 	orig := killGroup
-	killGroup = func(pgid int) {
+	killGroup = func(pgid int) error {
 		mu.Lock()
 		got = append(got, pgid)
 		mu.Unlock()
-		orig(pgid)
+		return orig(pgid)
 	}
 	t.Cleanup(func() { killGroup = orig })
 	return func() []int {
@@ -83,6 +84,49 @@ func TestClosingARunningSessionKillsItsGroup(t *testing.T) {
 	}
 	if s.Running() {
 		t.Error("the session is still running after Close")
+	}
+}
+
+// Without an exit watch Close must still kill a running session.
+func TestClosingKillsASessionWhoseExitCannotBeWatched(t *testing.T) {
+	orig := watchExit
+	watchExit = func(int) error { return errors.New("kqueue: too many open files") }
+	t.Cleanup(func() { watchExit = orig })
+	kills := recordKills(t)
+
+	s, err := sessionBin(t, "exec sleep 60").StartSession("vm", "true")
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	pid := s.cmd.Process.Pid
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if got := kills(); len(got) != 1 || got[0] != pid {
+		t.Errorf("Close signalled %v, want the session's own group %d", got, pid)
+	}
+	if s.Running() {
+		t.Error("the session is still running after Close")
+	}
+}
+
+// A session that outlives its kill is reported, not closed silently.
+func TestClosingReportsASessionThatWouldNotDie(t *testing.T) {
+	orig, origWait := killGroup, closeWait
+	killGroup = func(int) error { return nil }
+	closeWait = 100 * time.Millisecond
+	t.Cleanup(func() { killGroup, closeWait = orig, origWait })
+
+	s, err := sessionBin(t, "exec sleep 60").StartSession("vm", "true")
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = orig(s.cmd.Process.Pid)
+		waitSessionEnd(t, s)
+	})
+	if err := s.Close(); err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Errorf("Close = %v, want it to say the session is still running", err)
 	}
 }
 
