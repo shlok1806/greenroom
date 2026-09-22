@@ -78,6 +78,8 @@ func (a *api) events(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
+	// URLSession holds the response until the first body bytes; send some now.
+	_, _ = fmt.Fprint(w, ": ok\n\n")
 	flusher.Flush()
 
 	ticker := time.NewTicker(Heartbeat)
