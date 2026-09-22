@@ -2,6 +2,7 @@
 package machine
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -9,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	imagepng "image/png"
 	"log/slog"
 	"math"
 	"net"
@@ -25,8 +27,24 @@ import (
 )
 
 const (
-	namePrefix   = "greenroom-"
-	guestUser    = "admin"
+	namePrefix = "greenroom-"
+	guestUser  = "admin"
+
+	// GuestWorkDir is where a project lands in the guest, relative to the
+	// guest home, so the absolute path is /Users/admin/work/<project>.
+	//
+	// This is pinned, not incidental. A SwiftPM build cache is keyed to the
+	// absolute path it was built at, and moving it is not a cache miss that
+	// costs a rebuild, it is a hard failure: "error: missing required module
+	// 'SwiftShims'", reproduced through every transport tested
+	// (docs/10-build-transport.md). Warm caches are the reason greenroom
+	// syncs a tree at all, so the path they were built at has to be the same
+	// path every time, on every machine, for every run.
+	//
+	// images/scripts/firstboot.sh clones a repo to the same place. Change one
+	// and you must change the other.
+	GuestWorkDir = "work"
+
 	readyTimeout = 3 * time.Minute
 	readyGrace   = 20 * time.Second // how long guest tools wait for a booting machine
 	stopTimeout  = 30 * time.Second
@@ -63,6 +81,21 @@ type Machine struct {
 	proc  *tart.Process // the `tart run` subprocess, nil for a reattached machine
 	input *inputState   // the guest-side input helper, installed on first use (input.go)
 
+	// sessions are this machine's live interactive shells, keyed by the
+	// daemon's own session id (ptysession.go). Manager.mu guards the map.
+	// They hang off the machine rather than off the Manager so that they die
+	// with it: forgetLocked, the only way out of the map, ends them, so every
+	// handle into a machine goes at the same moment the machine does. That
+	// is why a call against a destroyed machine answers "no machine for run"
+	// instead of something about a process that is no longer there.
+	//
+	// They are deliberately not part of the JSON. state.json is what the
+	// daemon reattaches from, and a session cannot be reattached to: the
+	// handle is the daemon's, so a restarted daemon has no way to prove a
+	// guest process is the one an old id named. A restart therefore drops
+	// the handles, and the guest's own processes go when the machine does.
+	sessions map[string]*PTYSession
+
 	// frameCancel stops this machine's frame recorder (frames.go). It is set
 	// once, by startFrames, and read by Destroy; both hold Manager.mu while
 	// they touch it.
@@ -83,7 +116,7 @@ func (m *Manager) snapshot(mc *Machine) *Machine {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	c := *mc
-	c.rec, c.ready, c.input = nil, nil, nil
+	c.rec, c.ready, c.input, c.sessions = nil, nil, nil, nil
 	return &c
 }
 
@@ -158,9 +191,19 @@ func (m *Manager) emitStep(runID string, seq int) {
 type Option func(*Manager)
 
 // WithTartBin makes the Manager drive a different tart binary. Tests point
-// this at a fake so that every path is reachable without a real VM.
+// this at a fake so that every path is reachable without a real VM, and the
+// -tart flag points it at a chosen install. An empty path leaves the
+// resolution tart.New already did, so a caller can pass a flag through
+// without first checking whether it was set.
 func WithTartBin(path string) Option {
-	return func(m *Manager) { m.tart = &tart.Client{Bin: path} }
+	return func(m *Manager) {
+		if path == "" {
+			return
+		}
+		// NewAt rather than a bare Client so the startup log can say the
+		// binary was chosen explicitly rather than reporting no source.
+		m.tart = tart.NewAt(path)
+	}
 }
 
 // WithMaxMachines sets how many VMs the host may run at the same time. The
@@ -247,6 +290,15 @@ func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error)
 		return nil, err
 	}
 	return m, nil
+}
+
+// CheckTart logs which tart binary the Manager drives and whether it is the
+// version this repo pins. It never fails: an unexpected version is a warning,
+// because a daemon already serving machines must not stop working over one.
+// The knowledge of what is pinned and where it lives belongs to internal/tart
+// and stays there; this only forwards the Manager's client and logger.
+func (m *Manager) CheckTart(ctx context.Context) {
+	m.tart.CheckVersion(ctx, m.Log)
 }
 
 func (m *Manager) ensureSSHKey() error {
@@ -381,6 +433,10 @@ func (m *Manager) saveStateLocked() error {
 // round1 reports a duration in seconds with one decimal.
 func round1(d time.Duration) float64 { return math.Round(d.Seconds()*10) / 10 }
 
+// round2 keeps a scale factor readable. The common factors are exactly 1 and
+// 2; two places is enough for the odd display that is neither.
+func round2(f float64) float64 { return math.Round(f*100) / 100 }
+
 // newRunID names a run. The timestamp is for a person reading a directory
 // listing; the random half is what actually keeps two runs apart.
 //
@@ -407,7 +463,7 @@ func (m *Manager) List() []*Machine {
 	out := make([]*Machine, 0, len(m.machines))
 	for _, mc := range m.machines {
 		c := *mc
-		c.rec, c.ready, c.input = nil, nil, nil
+		c.rec, c.ready, c.input, c.sessions = nil, nil, nil, nil
 		out = append(out, &c)
 	}
 	return out
@@ -652,12 +708,10 @@ func (m *Manager) watchProcess(mc *Machine) {
 		}
 		err := mc.proc.Err()
 		mc.Status, mc.Error = Failed, err.Error()
-		delete(m.machines, mc.RunID)
-		if mc.frameCancel != nil {
-			mc.frameCancel()
-		}
+		live := m.forgetLocked(mc)
 		_ = m.saveStateLocked()
 		m.mu.Unlock()
+		closeSessions(live)
 
 		m.Log.Warn("machine stopped on its own", "runId", mc.RunID, "err", err)
 		m.cleanupVM(mc.Name)
@@ -849,7 +903,7 @@ func truncatedForLog(r ExecResult) ExecResult {
 }
 
 // captureScreen runs the guest screencapture-and-base64 command and returns
-// the decoded PNG bytes. Both ScreenshotStep, which stores the lossless
+// the decoded PNG bytes. Both Screenshot, which stores the lossless
 // on-demand shot, and the frame recorder (frames.go), which stores a resized
 // JPEG every frameInterval, share this: it is the one place that knows how
 // to ask the guest for its screen.
@@ -868,40 +922,103 @@ func (m *Manager) captureScreen(ctx context.Context, mc *Machine) ([]byte, error
 	return png, nil
 }
 
-// Screenshot captures the guest display as PNG, stores it in the run
-// directory, and returns the bytes and the stored path.
-func (m *Manager) Screenshot(ctx context.Context, runID string) (png []byte, path string, err error) {
-	png, path, _, err = m.ScreenshotStep(ctx, runID)
-	return png, path, err
+// Shot is one screenshot and the geometry needed to read it.
+//
+// Width and Height are the image's own pixels. Scale is how many of those
+// there are per guest point, which is the space input coordinates end up in
+// (see the fraction invariant in CLAUDE.md and `pixels` in input.go): a
+// Retina guest hands back a 2048x1536 PNG for a 1024x768 desktop, so Scale
+// is 2. It is computed, never assumed, because the factor is the guest's
+// choice and a machine pinned to a non-Retina display reports 1.
+//
+// None of this changes how a click is aimed. Input is a fraction of the
+// screen, and a fraction of the image is the same number as a fraction of
+// the desktop whatever the scale is, so a caller that divides by the picture
+// it was handed is already right. Scale is here so that the picture explains
+// itself: docs/09-image-strategy.md asks for a screenshot's resolution to be
+// reconstructible from the record, on the grounds that a screenshot whose
+// resolution you cannot recover is not evidence.
+type Shot struct {
+	Path   string  `json:"path"`
+	Bytes  int     `json:"bytes"`
+	Width  int     `json:"width"`
+	Height int     `json:"height"`
+	Scale  float64 `json:"scale,omitempty"` // absent while the point size is unknown
+	Step   int     `json:"step"`
 }
 
-// ScreenshotStep is Screenshot that also returns the step number, so the
-// caller can cite the artifact by step.
-func (m *Manager) ScreenshotStep(ctx context.Context, runID string) (png []byte, path string, seq int, err error) {
+// Screenshot captures the guest display as PNG, stores the lossless image in
+// the run directory, and returns the bytes with the geometry that describes
+// them.
+func (m *Manager) Screenshot(ctx context.Context, runID string) (data []byte, shot Shot, err error) {
 	mc, err := m.get(runID)
 	if err != nil {
-		return nil, "", 0, err
+		return nil, Shot{}, err
 	}
 	if err := m.awaitReady(ctx, mc); err != nil {
-		return nil, "", 0, err
+		return nil, Shot{}, err
 	}
 	started := time.Now()
 	// Claim the step number before the artifact is named, so that two
 	// screenshots at the same time cannot choose the same file.
-	seq = mc.rec.begin()
+	seq := mc.rec.begin()
+	shot.Step = seq
 	defer func() {
-		mc.rec.complete(seq, "machine_screenshot", nil, map[string]any{"path": path, "bytes": len(png)}, err, started)
+		mc.rec.complete(seq, "machine_screenshot", nil, shot, err, started)
 		m.emitStep(mc.RunID, seq)
 	}()
-	png, err = m.captureScreen(ctx, mc)
+	data, err = m.captureScreen(ctx, mc)
 	if err != nil {
-		return nil, "", seq, err
+		return nil, Shot{Step: seq}, err
 	}
-	path = mc.rec.artifactPath(seq, "screenshot", "png")
-	if err = os.WriteFile(path, png, 0o644); err != nil {
-		return nil, "", seq, err
+	path := mc.rec.artifactPath(seq, "screenshot", "png")
+	if err = os.WriteFile(path, data, 0o644); err != nil {
+		return nil, Shot{Step: seq}, err
 	}
-	return png, path, seq, nil
+	shot.Path, shot.Bytes = path, len(data)
+	shot.Width, shot.Height, shot.Scale = m.geometryOf(mc, data)
+	return data, shot, nil
+}
+
+// geometryOf measures a captured PNG and relates it to the guest's point
+// size. Only the header is decoded, which is all the dimensions need.
+func (m *Manager) geometryOf(mc *Machine, data []byte) (width, height int, scale float64) {
+	cfg, err := imagepng.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		// A shot we cannot measure still gets stored and still gets
+		// returned: a caller looking at the screen is better served by the
+		// picture with no geometry than by an error.
+		m.Log.Warn("screenshot dimensions unreadable", "runId", mc.RunID, "err", err)
+		return 0, 0, 0
+	}
+	if s, ok := cachedScreen(mc); ok && s.Width > 0 && cfg.Width > 0 {
+		scale = round2(float64(cfg.Width) / float64(s.Width))
+	}
+	return cfg.Width, cfg.Height, scale
+}
+
+// cachedScreen reports the guest's display size in points if anything has
+// already asked the guest for it, and false otherwise.
+//
+// It deliberately never installs the input helper. `ScreenOf` does, and that
+// costs a Swift compile inside the guest, tens of seconds on an image that
+// was not prepared ahead of time. A screenshot is the cheap "what is on the
+// screen" call and the frame recorder takes one every couple of seconds, so
+// neither may pay for it. The consequence is that Scale is absent until
+// something takes control or posts an event, which is honest: until then the
+// daemon genuinely does not know the point size, and the image's own pixel
+// size, which is always reported, is what a caller needs to aim a click.
+func cachedScreen(mc *Machine) (Screen, bool) {
+	st := mc.input
+	if st == nil {
+		return Screen{}, false
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if !st.installed || st.screen.Width <= 0 {
+		return Screen{}, false
+	}
+	return st.screen, true
 }
 
 // SyncResult reports what rsync did.
@@ -912,7 +1029,9 @@ type SyncResult struct {
 }
 
 // Sync copies a host directory into the guest with rsync over ssh. dest
-// defaults to ~/work/<basename of source> in the guest.
+// defaults to ~/<GuestWorkDir>/<basename of source>, which is the canonical
+// place a project lives in a guest: see GuestWorkDir for why that path is
+// pinned rather than chosen per run.
 func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude []string) (SyncResult, error) {
 	mc, err := m.get(runID)
 	if err != nil {
@@ -930,14 +1049,24 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 		return SyncResult{}, fmt.Errorf("source %q is not a directory", source)
 	}
 	if dest == "" {
-		dest = "work/" + filepath.Base(source)
+		dest = GuestWorkDir + "/" + filepath.Base(source)
 	}
 	dest, err = guestDest(dest)
 	if err != nil {
 		return SyncResult{}, err
 	}
 	sshCmd := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR", m.sshKey)
-	args := []string{"-az", "--stats", "-e", sshCmd, "--rsync-path", "mkdir -p " + shellQuote(dest) + " && rsync"}
+	// "-a", deliberately not "-az". The guest is on this host's virtual NIC
+	// at about 0.1 ms, so compression has no transfer time to save and only
+	// costs CPU: measured on a 714 MiB, 7,144 file payload, "-az" took 25.5 s
+	// and burned 20 s of host CPU where "-a" took 6.7 s
+	// (docs/10-build-transport.md).
+	//
+	// This is a fact about a local VM, not about rsync. Bring "-z" back if
+	// greenroom ever syncs to a machine across a real network, for example a
+	// Mac mini on a LAN, where the link is slow enough for compression to pay
+	// again. Make it conditional on the transport then; do not guess here.
+	args := []string{"-a", "--stats", "-e", sshCmd, "--rsync-path", "mkdir -p " + shellQuote(dest) + " && rsync"}
 	for _, ex := range exclude {
 		args = append(args, "--exclude", ex)
 	}
@@ -983,15 +1112,15 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 		return err
 	}
 	started := time.Now()
+	// Interactive sessions are host processes the daemon owns, so they have
+	// to be ended here: a destroyed machine that left them running would
+	// leak a `tart exec` child per session, and every handle into the
+	// machine must stop answering at the same moment the machine goes.
 	m.mu.Lock()
-	delete(m.machines, runID)
-	// The frame recorder must not outlive the machine, but it also must not
-	// hold up Destroy: cancel and move on, never wait for the goroutine.
-	if mc.frameCancel != nil {
-		mc.frameCancel()
-	}
+	live := m.forgetLocked(mc)
 	err = m.saveStateLocked()
 	m.mu.Unlock()
+	closeSessions(live)
 	if err != nil {
 		return err
 	}

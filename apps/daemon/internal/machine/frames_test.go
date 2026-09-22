@@ -195,6 +195,7 @@ func TestFrameCaptureFailureDoesNotFailTheRunAndLogsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	settleOnCleanup(t, mgr)
 
 	mc := readyMachine(t, mgr)
 	if mc.Status != Ready {

@@ -114,12 +114,14 @@ linesLoop:
 				res.Ended = session.Reply
 				break linesLoop
 			}
-			_, path, seq, err := m.mgr.ScreenshotStep(ctx, runID)
+			_, shot, err := m.mgr.Screenshot(ctx, runID)
+			seq := shot.Step
 			var text string
 			if err != nil {
 				text = fmt.Sprintf("machine_screenshot {}\nerror: %s", err.Error())
 			} else {
-				text = fmt.Sprintf("machine_screenshot {}\nstep %d\nThe image is saved at %s", seq, path)
+				text = fmt.Sprintf("machine_screenshot {}\nstep %d\n%s\nThe image is saved at %s",
+					seq, shotGeometry(shot), shot.Path)
 			}
 			if seq > 0 {
 				steps = append(steps, seq)

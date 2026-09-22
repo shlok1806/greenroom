@@ -248,7 +248,7 @@ func TestStepsAreTheRunsEvidence(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
 	h.putShot()
-	if _, _, _, err := h.mgr.ScreenshotStep(context.Background(), runID); err != nil {
+	if _, _, err := h.mgr.Screenshot(context.Background(), runID); err != nil {
 		t.Fatalf("screenshot: %v", err)
 	}
 
@@ -307,7 +307,7 @@ func TestLastActivityFollowsTheStepsAndNotJustTheConversation(t *testing.T) {
 	// both dated from the moment the run began, so neither of them can tell a
 	// lastActivity that follows the steps from one that does not.
 	h.putShot()
-	if _, _, _, err := h.mgr.ScreenshotStep(context.Background(), runID); err != nil {
+	if _, _, err := h.mgr.Screenshot(context.Background(), runID); err != nil {
 		t.Fatalf("screenshot: %v", err)
 	}
 	var steps []machine.Step
@@ -624,7 +624,7 @@ func TestEventStreamDeliversMessagesAndStepsThenEndsWithTheRequest(t *testing.T)
 	if _, err := store.Append(session.Message{From: session.Coder, Kind: session.Note, Text: "watch this"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := h.mgr.ScreenshotStep(context.Background(), runID); err != nil {
+	if _, _, err := h.mgr.Screenshot(context.Background(), runID); err != nil {
 		t.Fatalf("screenshot: %v", err)
 	}
 

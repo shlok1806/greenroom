@@ -443,7 +443,7 @@ func (a *api) screenshot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	png, path, seq, err := a.mgr.ScreenshotStep(r.Context(), id)
+	_, shot, err := a.mgr.Screenshot(r.Context(), id)
 	if err != nil {
 		code := http.StatusInternalServerError
 		if !a.mgr.Live(id) {
@@ -453,12 +453,11 @@ func (a *api) screenshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The coder learns what the human did on its next agent_wait (ADR 0006).
-	a.event(id, fmt.Sprintf("human took a screenshot (step %d)", seq))
-	writeJSON(w, http.StatusOK, struct {
-		Step  int    `json:"step"`
-		Path  string `json:"path"`
-		Bytes int    `json:"bytes"`
-	}{seq, path, len(png)})
+	a.event(id, fmt.Sprintf("human took a screenshot (step %d)", shot.Step))
+	// The companion draws the frame at whatever size its window is, so it
+	// needs the image's own size and scale to put a click back where the
+	// person aimed it.
+	writeJSON(w, http.StatusOK, shot)
 }
 
 // --- driving the screen (ADR 0009) ---

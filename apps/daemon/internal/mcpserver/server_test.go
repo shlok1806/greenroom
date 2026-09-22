@@ -45,10 +45,23 @@ func newHarness(t *testing.T) *harness {
 	root := t.TempDir()
 	mgr, err := machine.NewManager(root, slog.New(slog.NewTextHandler(io.Discard, nil)),
 		machine.WithTartBin(bin), machine.WithReadyTimeout(10*time.Second),
-		machine.WithSSHProbe(func(context.Context, string, string) error { return nil }))
+		machine.WithSSHProbe(func(context.Context, string, string) error { return nil }),
+		machine.WithFrameInterval(0))
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
+	// A machine left running keeps the fake tart writing into the control
+	// directory, which races t.TempDir's cleanup and fails an unrelated test
+	// with "directory not empty". The frame recorder is off for the same
+	// reason: its captures are tart calls too. Boot is let to settle first:
+	// Destroy does not stop the boot goroutine, which would otherwise write
+	// its machine_boot step into the run directory during the cleanup.
+	t.Cleanup(func() {
+		for _, mc := range mgr.List() {
+			_, _ = mgr.Wait(context.Background(), mc.RunID, 15*time.Second)
+			_ = mgr.Destroy(context.Background(), mc.RunID)
+		}
+	})
 	// No live verifier is needed: the agent_* tools only reach the store, so
 	// a test can play the verifier by appending to it directly.
 	reg := session.NewRegistry(mgr.Root, 2)
@@ -149,6 +162,8 @@ func TestServerExposesExactlyItsTools(t *testing.T) {
 		"agent_send":      false, "agent_wait": false, "agent_transcript": false,
 		"machine_click": false, "machine_type": false, "machine_key": false,
 		"machine_scroll": false, "machine_input": false,
+		"machine_session_start": false, "machine_session_send": false,
+		"machine_session_read": false, "machine_session_close": false,
 	}
 	for _, tool := range res.Tools {
 		if _, ok := want[tool.Name]; !ok {

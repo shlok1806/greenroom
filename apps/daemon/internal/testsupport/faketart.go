@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
 
 // FakeTart writes a shell script that answers every tart subcommand the
@@ -26,6 +28,10 @@ import (
 //	fail-input-install  compiling the guest input helper fails, as it does on
 //	                a machine with no Swift toolchain
 //	input-down      the input helper refuses every event
+//	fail-session    `tart exec -i -t`, an interactive session, refuses to start
+//	session-exits   a session ends at once instead of staying alive, after
+//	                printing session-output if that file exists, so a test can
+//	                reach the paths for a command that has already finished
 //	screen          "<width>x<height>" the input helper reports as the guest
 //	                display size; without it, 1024x768
 //	list-empty      `tart list` returns an empty JSON array
@@ -51,6 +57,13 @@ C="` + control + `"
 printf '%s\n' "$*" >> "$C/calls.log"
 sub="$1"; shift
 case "$sub" in
+  --version)
+    # The daemon pins a tart version and warns when it is driving a
+    # different one. A test writes tart-version to make this fake claim to
+    # be something else; with no control file it claims to be the pinned
+    # version, so the ordinary suite sees the quiet path.
+    if [ -f "$C/tart-version" ]; then cat "$C/tart-version"; else echo "` + tart.PinnedVersion + `"; fi
+    exit 0 ;;
   clone)
     [ -f "$C/fail-clone" ] && { echo "Error: image not found" >&2; exit 1; }
     exit 0 ;;
@@ -73,6 +86,29 @@ case "$sub" in
     echo "192.168.64.9"
     exit 0 ;;
   exec)
+    # An interactive session is "tart exec -i -t <name> <command>": a child
+    # that keeps running, with stdin attached and a pty on the guest side.
+    # cat models it well enough to drive start, send, read and close: it
+    # stays alive, gives back whatever is sent, and ends when it is killed.
+    # The flags come before the VM name, so seeing one here is what tells a
+    # session apart from a one-shot exec.
+    if [ "$1" = "-i" ] || [ "$1" = "-t" ]; then
+      # Record whether the daemon handed us a real terminal, and how big.
+      # Real "tart exec -t" reads the window size from its own stdin and dies
+      # outright when that is a pipe, so a session driven through pipes is
+      # dead on arrival. That regressed once; session-stdin is what pins it.
+      if [ -t 0 ]; then
+        printf 'tty %s\n' "$(stty size < /dev/tty 2>/dev/null || stty size 2>/dev/null)" > "$C/session-stdin"
+      else
+        echo "pipe" > "$C/session-stdin"
+      fi
+      [ -f "$C/fail-session" ] && { echo "Error: VM is not running" >&2; exit 1; }
+      if [ -f "$C/session-exits" ]; then
+        cat "$C/session-output" 2>/dev/null
+        exit 0
+      fi
+      exec cat
+    fi
     if [ -f "$C/agent-down" ]; then echo "Error: is the Tart Guest Agent running?" >&2; exit 1; fi
     [ -f "$C/fail-exec" ] && { echo "Error: VM is not running" >&2; exit 1; }
     case "$*" in

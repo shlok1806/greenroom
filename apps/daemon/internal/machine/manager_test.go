@@ -44,6 +44,16 @@ func newTestManager(t *testing.T, extra ...Option) (*Manager, string, string) {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
+	settleOnCleanup(t, mgr)
+	return mgr, root, control
+}
+
+// settleOnCleanup registers a cleanup that waits for every boot to finish and
+// then destroys the machines, so that nothing is writing into the run
+// directories when t.TempDir removes them. Every test that builds a Manager
+// on a t.TempDir root and boots a machine needs it.
+func settleOnCleanup(t *testing.T, mgr *Manager) {
+	t.Helper()
 	// A test is over as soon as Wait returns, but the boot goroutine records
 	// the boot step after that and the fake `tart run` keeps writing vm.log
 	// into the run directory. t.TempDir's own cleanup would race them, which
@@ -77,7 +87,6 @@ func newTestManager(t *testing.T, extra ...Option) (*Manager, string, string) {
 			_ = mgr.Destroy(context.Background(), mc.RunID)
 		}
 	})
-	return mgr, root, control
 }
 
 // readyMachine creates a machine and waits for it, which the fake tart
@@ -324,12 +333,100 @@ func TestSyncBuildsTheRsyncCommand(t *testing.T) {
 	}
 	args := string(got)
 	for _, want := range []string{
-		"-az", "--stats", "--exclude node_modules", "--exclude .git",
+		"-a --stats", "--exclude node_modules", "--exclude .git",
 		"StrictHostKeyChecking=no", "mkdir -p 'work/", "admin@192.168.64.9:work/",
 	} {
 		if !strings.Contains(args, want) {
 			t.Errorf("rsync arguments have no %q\nargs: %s", want, args)
 		}
+	}
+	// Compression is off on purpose and has to stay off. The guest is on a
+	// virtual NIC, so "-z" has no transfer time to save and costs real host
+	// CPU: 25.5 s against 6.7 s on a 714 MiB tree
+	// (docs/10-build-transport.md). Without this assertion someone restores
+	// it as an obvious improvement and every sync gets four times slower.
+	if strings.Contains(args, "-az") || strings.Contains(args, "-z") {
+		t.Errorf("rsync must not compress to a local VM\nargs: %s", args)
+	}
+}
+
+func TestSyncPutsAProjectAtThePinnedGuestPath(t *testing.T) {
+	mgr, _, _ := newTestManager(t)
+	mc := readyMachine(t, mgr)
+
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > " + argsFile + "\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "rsync"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	source := filepath.Join(t.TempDir(), "myapp")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res, err := mgr.Sync(context.Background(), mc.RunID, source, "", nil)
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	// A SwiftPM build cache is keyed to the absolute path it was built at,
+	// and syncing it somewhere else fails the build outright with "missing
+	// required module 'SwiftShims'" rather than just rebuilding. So the
+	// destination is part of the contract, not an implementation detail.
+	want := GuestWorkDir + "/myapp"
+	if res.Dest != want {
+		t.Fatalf("dest = %q, want %q", res.Dest, want)
+	}
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("the fake rsync never ran: %v", err)
+	}
+	if !strings.Contains(string(args), "admin@192.168.64.9:"+want+"/") {
+		t.Errorf("rsync target is not the pinned guest path\nargs: %s", args)
+	}
+}
+
+func TestCheckTartWarnsWhenTheHostTartIsNotThePinnedVersion(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	bin, control := testsupport.FakeTart(t)
+
+	mgr, err := NewManager(t.TempDir(), log, WithTartBin(bin), WithSSHProbe(sshAnswers))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The fake claims the pinned version unless told otherwise, so the
+	// ordinary case stays quiet.
+	mgr.CheckTart(context.Background())
+	if strings.Contains(buf.String(), "WARN") {
+		t.Fatalf("the pinned version must not warn: %s", buf.String())
+	}
+
+	buf.Reset()
+	if err := os.WriteFile(filepath.Join(control, "tart-version"), []byte("2.32.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr.CheckTart(context.Background())
+	out := buf.String()
+	if !strings.Contains(out, "WARN") || !strings.Contains(out, "2.32.1") || !strings.Contains(out, tart.PinnedVersion) {
+		t.Fatalf("a version mismatch must warn and name both versions: %s", out)
+	}
+}
+
+func TestWithTartBinIgnoresAnEmptyPath(t *testing.T) {
+	// main passes the -tart flag straight through, so an unset flag must
+	// leave the resolution tart.New already made rather than blanking it.
+	m := &Manager{tart: &tart.Client{Bin: "resolved-tart"}}
+	WithTartBin("")(m)
+	if m.tart.Bin != "resolved-tart" {
+		t.Fatalf("an empty -tart must not replace the resolved binary, got %q", m.tart.Bin)
+	}
+	WithTartBin("chosen")(m)
+	if m.tart.Bin != "chosen" {
+		t.Fatalf("an explicit -tart must be used, got %q", m.tart.Bin)
 	}
 }
 
@@ -377,10 +474,11 @@ func TestScreenshotWritesThePNG(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, path, err := mgr.Screenshot(context.Background(), mc.RunID)
+	data, shot, err := mgr.Screenshot(context.Background(), mc.RunID)
 	if err != nil {
 		t.Fatalf("Screenshot: %v", err)
 	}
+	path := shot.Path
 	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
 		t.Errorf("the returned bytes are not a PNG: %v", err)
 	}
@@ -655,8 +753,8 @@ func TestConcurrentScreenshotsGetDistinctFiles(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, p, err := mgr.Screenshot(context.Background(), mc.RunID)
-			paths[i], errs[i] = p, err
+			_, shot, err := mgr.Screenshot(context.Background(), mc.RunID)
+			paths[i], errs[i] = shot.Path, err
 		}(i)
 	}
 	wg.Wait()
@@ -693,6 +791,7 @@ func TestMachineIsNotReadyUntilSSHAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	settleOnCleanup(t, mgr)
 
 	mc := readyMachine(t, mgr)
 	if got := probes.Load(); got < 3 {
@@ -711,6 +810,7 @@ func TestBootFailsWhenSSHNeverAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	settleOnCleanup(t, mgr)
 
 	created, err := mgr.Create(context.Background(), testImage, false)
 	if err != nil {
@@ -738,6 +838,7 @@ func TestDefaultSSHProbeAsksTheGuestOverVsock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	settleOnCleanup(t, mgr)
 
 	mc := readyMachine(t, mgr)
 	log := testsupport.Calls(t, control)
@@ -757,6 +858,7 @@ func TestSSHTimeoutNamesTheLastProbeError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	settleOnCleanup(t, mgr)
 
 	created, err := mgr.Create(context.Background(), testImage, false)
 	if err != nil {
@@ -787,6 +889,7 @@ func TestConcurrentCreatesRespectTheHostLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	settleOnCleanup(t, mgr)
 
 	const n = 4
 	var wg sync.WaitGroup
