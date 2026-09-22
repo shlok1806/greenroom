@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
-	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
@@ -132,6 +131,33 @@ func TestControlOfAMachineThatIsGone(t *testing.T) {
 	}
 }
 
+func TestAFailedWarmUpKeepsALeaseTheHumanAlreadyHeld(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	if _, _, err := h.mgr.TakeControl(runID, humanSeat, 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	testsupport.Flag(t, h.control, "fail-input-install")
+	if code, body := h.status(http.MethodPost, "/api/runs/"+runID+"/control", nil); code != http.StatusConflict {
+		t.Fatalf("a failed warm-up answered %d: %s", code, body)
+	}
+	if c, held := h.mgr.ControlState(runID); !held || c.Holder != humanSeat {
+		t.Errorf("the human lost a lease they already held: %+v held=%v", c, held)
+	}
+}
+
+func TestAFailedWarmUpReleasesAFreshLease(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	testsupport.Flag(t, h.control, "fail-input-install")
+	if code, body := h.status(http.MethodPost, "/api/runs/"+runID+"/control", nil); code != http.StatusConflict {
+		t.Fatalf("a failed warm-up answered %d: %s", code, body)
+	}
+	if c, held := h.mgr.ControlState(runID); held {
+		t.Errorf("a lease taken by the failed request is still held: %+v", c)
+	}
+}
+
 func TestControlOfAnUnknownRun(t *testing.T) {
 	h := newHarness(t)
 	if code, _ := h.status(http.MethodPost, "/api/runs/nope/control", nil); code != http.StatusNotFound {
@@ -142,8 +168,7 @@ func TestControlOfAnUnknownRun(t *testing.T) {
 func TestTheScreenIsLockedToOneHolder(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
-	// The verifier, not the companion, takes it first: the API's own seat is
-	// always "human", so this is the only way to stand in another's shoes.
+	// The API's seat is always "human", so another holder must come from the manager.
 	if _, _, err := h.mgr.TakeControl(runID, "verifier", 0); err != nil {
 		t.Fatalf("TakeControl: %v", err)
 	}
@@ -171,11 +196,6 @@ func TestInputFailureLeavesTheReasonInTheBody(t *testing.T) {
 
 // --- helpers ---
 
-func conversationMessages(h *harness, runID string) []session.Message {
-	h.t.Helper()
-	return h.store(runID).After(0)
-}
-
 func conversationSays(h *harness, runID, text string) bool {
 	return conversationCount(h, runID, text) > 0
 }
@@ -183,7 +203,7 @@ func conversationSays(h *harness, runID, text string) bool {
 func conversationCount(h *harness, runID, text string) int {
 	h.t.Helper()
 	n := 0
-	for _, m := range conversationMessages(h, runID) {
+	for _, m := range h.store(runID).After(0) {
 		if strings.Contains(m.Text, text) {
 			n++
 		}

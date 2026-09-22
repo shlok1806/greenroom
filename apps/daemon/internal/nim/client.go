@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultBaseURL is NVIDIA's hosted endpoint.
@@ -114,26 +115,19 @@ func (c *Client) Chat(ctx context.Context, model string, msgs []Message, tools [
 		body["tools"] = encodeTools(tools)
 		body["tool_choice"] = "auto"
 	}
-	var out wireResponse
-	if err := c.post(ctx, body, &out); err != nil {
-		return Message{}, Usage{}, err
+	wm, usage, err := c.complete(ctx, model, body)
+	if err != nil {
+		return Message{}, usage, err
 	}
-	if out.Error != nil && out.Error.Message != "" {
-		return Message{}, out.Usage, fmt.Errorf("%s: %s", model, out.Error.Message)
-	}
-	if len(out.Choices) == 0 {
-		return Message{}, out.Usage, fmt.Errorf("%s: the endpoint returned no choices", model)
-	}
-	wm := out.Choices[0].Message
 	msg := Message{Role: "assistant", Content: textOf(wm.Content)}
 	for _, tc := range wm.ToolCalls {
 		msg.ToolCalls = append(msg.ToolCalls, ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
 	}
-	return msg, out.Usage, nil
+	return msg, usage, nil
 }
 
-// Describe asks a vision model what is in an image. The reasoning model
-// cannot accept images (ADR 0005), so a screenshot reaches it as this text.
+// Describe asks a vision model what is in an image (ADR 0005: the reasoning
+// model cannot take images).
 func (c *Client) Describe(ctx context.Context, model string, jpeg []byte, prompt string) (string, error) {
 	body := map[string]any{
 		"model":       model,
@@ -149,24 +143,30 @@ func (c *Client) Describe(ctx context.Context, model string, jpeg []byte, prompt
 			},
 		}},
 	}
-	var out wireResponse
-	if err := c.post(ctx, body, &out); err != nil {
+	wm, _, err := c.complete(ctx, model, body)
+	if err != nil {
 		return "", err
 	}
-	if out.Error != nil && out.Error.Message != "" {
-		return "", fmt.Errorf("%s: %s", model, out.Error.Message)
-	}
-	if len(out.Choices) == 0 {
-		return "", fmt.Errorf("%s: the endpoint returned no choices", model)
-	}
-	return strings.TrimSpace(textOf(out.Choices[0].Message.Content)), nil
+	return strings.TrimSpace(textOf(wm.Content)), nil
 }
 
-// RetryBackoff is the wait before each retry of a request the endpoint could
-// not serve. Its length is the number of retries, so the client makes
-// len(RetryBackoff)+1 attempts. A hosted model returns the odd 500 and a
-// minute later serves the same request, so one bad response must not end a
-// verifier turn. Tests zero it.
+// complete posts body and returns the first choice's message.
+func (c *Client) complete(ctx context.Context, model string, body map[string]any) (wireMessage, Usage, error) {
+	var out wireResponse
+	if err := c.post(ctx, body, &out); err != nil {
+		return wireMessage{}, Usage{}, err
+	}
+	if out.Error != nil && out.Error.Message != "" {
+		return wireMessage{}, out.Usage, fmt.Errorf("%s: %s", model, out.Error.Message)
+	}
+	if len(out.Choices) == 0 {
+		return wireMessage{}, out.Usage, fmt.Errorf("%s: the endpoint returned no choices", model)
+	}
+	return out.Choices[0].Message, out.Usage, nil
+}
+
+// RetryBackoff is the wait before each retry of a failed request, so the
+// client makes len(RetryBackoff)+1 attempts. Tests zero it.
 var RetryBackoff = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}
 
 func (c *Client) post(ctx context.Context, body map[string]any, out *wireResponse) error {
@@ -177,11 +177,13 @@ func (c *Client) post(ctx context.Context, body map[string]any, out *wireRespons
 	attempts := len(RetryBackoff) + 1
 	for attempt := 1; ; attempt++ {
 		raw, status, retryAfter, err := c.attempt(ctx, data)
+		var last string
 		switch {
 		case err != nil:
 			if attempt >= attempts || !retryableTransport(ctx, err) {
 				return fmt.Errorf("call %s failed after %s: %w", c.BaseURL, plural(attempt), err)
 			}
+			last = err.Error()
 		case status == http.StatusOK:
 			if err := json.Unmarshal(raw, out); err != nil {
 				return fmt.Errorf("decode response: %w: %s", err, truncate(string(raw), 200))
@@ -191,13 +193,14 @@ func (c *Client) post(ctx context.Context, body map[string]any, out *wireRespons
 			if attempt >= attempts || !retryableStatus(status) {
 				return fmt.Errorf("%s returned %d after %s: %s", c.BaseURL, status, plural(attempt), strings.TrimSpace(truncate(string(raw), 300)))
 			}
+			last = "status " + strconv.Itoa(status)
 		}
 		wait := RetryBackoff[attempt-1]
 		if retryAfter >= 0 {
 			wait = retryAfter
 		}
 		if err := sleep(ctx, wait); err != nil {
-			return err
+			return fmt.Errorf("gave up on %s after %s (last: %s): %w", c.BaseURL, plural(attempt), last, err)
 		}
 	}
 }
@@ -227,9 +230,7 @@ func (c *Client) attempt(ctx context.Context, data []byte) ([]byte, int, time.Du
 	return raw, resp.StatusCode, retryAfterOf(resp), nil
 }
 
-// retryableStatus is true for the statuses that mean "not now" rather than
-// "not ever". Every other 4xx is the request's own fault and repeating it
-// would only waste the budget.
+// retryableStatus is true for "not now" statuses; any other 4xx is final.
 func retryableStatus(status int) bool {
 	switch status {
 	case http.StatusTooManyRequests,
@@ -242,9 +243,9 @@ func retryableStatus(status int) bool {
 	return false
 }
 
-// retryableTransport is true for a connection that failed on the way, as
-// long as the caller still wants the answer. A cancelled or expired context
-// is the caller's decision and is never retried.
+// retryableTransport is true for a network failure while ctx is still live.
+// A timeout is final: the client's 3-minute limit, retried, would outlast the
+// verifier's whole turn.
 func retryableTransport(ctx context.Context, err error) bool {
 	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
@@ -253,11 +254,11 @@ func retryableTransport(ctx context.Context, err error) bool {
 		return true
 	}
 	var ne net.Error
-	return errors.As(err, &ne)
+	return errors.As(err, &ne) && !ne.Timeout()
 }
 
-// retryAfterOf reads Retry-After in seconds, which 429 and 503 may carry.
-// The date form is not read: the endpoints greenroom talks to send seconds.
+// retryAfterOf reads a 429/503 Retry-After in seconds (the date form is
+// ignored), or returns -1.
 func retryAfterOf(resp *http.Response) time.Duration {
 	switch resp.StatusCode {
 	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
@@ -300,11 +301,8 @@ func plural(attempts int) string {
 func encodeTools(tools []Tool) []wireTool {
 	out := make([]wireTool, 0, len(tools))
 	for _, t := range tools {
-		var wt wireTool
-		wt.Type = "function"
-		wt.Function.Name = t.Name
-		wt.Function.Description = t.Description
-		wt.Function.Parameters = t.Schema
+		wt := wireTool{Type: "function"}
+		wt.Function.Name, wt.Function.Description, wt.Function.Parameters = t.Name, t.Description, t.Schema
 		out = append(out, wt)
 	}
 	return out
@@ -313,10 +311,9 @@ func encodeTools(tools []Tool) []wireTool {
 func encodeMessages(msgs []Message) []any {
 	out := make([]any, 0, len(msgs))
 	for _, m := range msgs {
-		wm := map[string]any{"role": m.Role}
-		// An assistant turn that only calls tools must still carry content,
-		// because some endpoints reject a missing field.
-		wm["content"] = m.Content
+		// content is always sent: some endpoints reject a tool-call-only
+		// assistant turn without it.
+		wm := map[string]any{"role": m.Role, "content": m.Content}
 		if m.ToolCallID != "" {
 			wm["tool_call_id"] = m.ToolCallID
 		}
@@ -355,9 +352,13 @@ func textOf(content any) string {
 	}
 }
 
+// truncate cuts s to at most n bytes on a rune boundary.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "..."
 }

@@ -1,14 +1,11 @@
 import Foundation
 
-/// What went wrong talking to the daemon, in words a window can show.
 enum DaemonError: Error, LocalizedError, Equatable {
     case notReachable(String)
     case status(code: Int, body: String)
     case badResponse(String)
-    /// The request was cancelled by the app itself, not refused by the daemon.
-    /// SwiftUI cancels a `.task(id:)` every time its id changes, so the Screen
-    /// tab cancels the previous frame's download on every new frame. That is
-    /// ordinary, and it must never reach the window as a failure.
+    /// The app cancelled the request itself (e.g. a `.task(id:)` whose id moved
+    /// on). Never shown as a failure.
     case cancelled
 
     var errorDescription: String? {
@@ -26,15 +23,18 @@ enum DaemonError: Error, LocalizedError, Equatable {
     }
 }
 
-/// The only thing in the app that speaks HTTP. Everything the companion can do
-/// is a method here, and every method is a route in ADR 0007. The app never
-/// touches tart, ssh or a run directory.
+extension DaemonError {
+    init(_ error: URLError) {
+        self = error.code == .cancelled ? .cancelled : .notReachable(error.localizedDescription)
+    }
+}
+
+/// The only thing in the app that speaks HTTP: one method per route in ADR 0007.
 final class DaemonClient: Sendable {
     let baseURL: URL
     private let session: URLSession
 
-    /// The daemon's address. `GREENROOM_URL` in the environment overrides
-    /// the default, for a daemon on another port or, later, another host.
+    /// `GREENROOM_URL` overrides the default address.
     static let defaultBaseURL: URL = {
         if let raw = ProcessInfo.processInfo.environment["GREENROOM_URL"], let url = URL(string: raw) {
             return url
@@ -50,127 +50,89 @@ final class DaemonClient: Sendable {
     // MARK: - Reads
 
     func runs() async throws -> [RunSummary] {
-        try await get([RunSummary].self, path: "api/runs")
+        try await get([RunSummary].self, ["api", "runs"])
     }
 
     func run(_ runId: String) async throws -> RunDetail {
-        try await get(RunDetail.self, path: "api/runs/\(escape(runId))")
+        try await get(RunDetail.self, runPath(runId))
     }
 
     func steps(_ runId: String) async throws -> [Step] {
-        try await get([Step].self, path: "api/runs/\(escape(runId))/steps")
+        try await get([Step].self, runPath(runId, "steps"))
     }
 
-    func messages(_ runId: String, after: Int = 0) async throws -> MessagePage {
-        try await get(
-            MessagePage.self,
-            path: "api/runs/\(escape(runId))/messages",
-            query: [URLQueryItem(name: "after", value: String(after))]
-        )
+    func messages(_ runId: String) async throws -> [Message] {
+        let query = [URLQueryItem(name: "after", value: "0")]
+        return try await get(MessagePage.self, runPath(runId, "messages"), query: query).messages
+    }
+
+    /// Oldest first (ADR 0008).
+    func frames(_ runId: String) async throws -> [Frame] {
+        try await get([Frame].self, runPath(runId, "frames"))
     }
 
     func artifact(runId: String, name: String) async throws -> Data {
-        let request = URLRequest(url: try url(path: "api/runs/\(escape(runId))/artifacts/\(escape(name))"))
-        let (data, response) = try await perform(request)
-        try check(response, data: data)
-        return data
-    }
-
-    /// The run's recorded frames (ADR 0008), oldest first.
-    func frames(_ runId: String) async throws -> [Frame] {
-        try await get([Frame].self, path: "api/runs/\(escape(runId))/frames")
+        try await data(URLRequest(url: url(runPath(runId, "artifacts", name))))
     }
 
     /// One frame's JPEG bytes.
     func frame(runId: String, file: String) async throws -> Data {
-        let request = URLRequest(url: try url(path: "api/runs/\(escape(runId))/frames/\(escape(file))"))
-        let (data, response) = try await perform(request)
-        try check(response, data: data)
-        return data
+        try await data(URLRequest(url: url(runPath(runId, "frames", file))))
     }
 
-    /// The run's recording as an mp4, built from its frames. Throws with the
-    /// server's own text (`{"error": "..."}`, e.g. "ffmpeg not found") when
-    /// none exists.
+    /// An mp4 of the run's frames. Needs `ffmpeg` on the daemon host; without it
+    /// the daemon's own error text is thrown.
     func recording(runId: String) async throws -> Data {
-        let request = URLRequest(url: try url(path: "api/runs/\(escape(runId))/recording.mp4"))
-        let (data, response) = try await perform(request)
-        try check(response, data: data)
-        return data
+        try await data(URLRequest(url: url(runPath(runId, "recording.mp4"))))
     }
 
     // MARK: - Writes
 
-    @discardableResult
-    func send(runId: String, kind: MessageKind, text: String, replyTo: Int? = nil) async throws -> SentMessage {
+    func send(runId: String, kind: MessageKind, text: String, replyTo: Int? = nil) async throws {
         struct Body: Encodable {
             var kind: String
             var text: String
             var replyTo: Int?
         }
-        return try await post(
-            SentMessage.self,
-            path: "api/runs/\(escape(runId))/messages",
-            body: Body(kind: kind.text, text: text, replyTo: replyTo)
-        )
+        try await post(runPath(runId, "messages"), body: Body(kind: kind.text, text: text, replyTo: replyTo))
     }
 
-    @discardableResult
-    func screenshot(runId: String) async throws -> ScreenshotResult {
-        try await post(ScreenshotResult.self, path: "api/runs/\(escape(runId))/screenshot", body: Empty())
+    func screenshot(runId: String) async throws {
+        try await post(runPath(runId, "screenshot"))
+    }
+
+    func destroy(runId: String) async throws {
+        try await post(runPath(runId, "destroy"))
     }
 
     // MARK: - Driving the screen (ADR 0009)
 
-    /// Takes the machine's mouse and keyboard, or renews a lease this app
-    /// already holds. The daemon answers with the lease and the size of the
-    /// screen the coordinates are fractions of, and it announces the
-    /// handover in the run's conversation.
-    @discardableResult
-    func takeControl(runId: String, ttlSeconds: Int? = nil) async throws -> ControlResponse {
-        struct Body: Encodable { var ttlSeconds: Int? }
-        return try await post(
-            ControlResponse.self,
-            path: "api/runs/\(escape(runId))/control",
-            body: Body(ttlSeconds: ttlSeconds)
-        )
+    /// Takes the mouse and keyboard, or renews a lease this app already holds.
+    func takeControl(runId: String) async throws -> ControlResponse {
+        try decode(ControlResponse.self, from: await post(runPath(runId, "control")))
     }
 
-    /// Gives the screen back. The daemon records what was done with it.
     func releaseControl(runId: String) async throws {
-        var request = URLRequest(url: try url(path: "api/runs/\(escape(runId))/control"))
+        var request = URLRequest(url: try url(runPath(runId, "control")))
         request.httpMethod = "DELETE"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await perform(request)
-        try check(response, data: data)
+        _ = try await data(request)
     }
 
-    /// Posts one batch of mouse and keyboard actions into the machine.
-    @discardableResult
     func input(runId: String, actions: [InputAction]) async throws -> InputResult {
         struct Body: Encodable { var actions: [InputAction] }
-        return try await post(
-            InputResult.self,
-            path: "api/runs/\(escape(runId))/input",
-            body: Body(actions: actions)
-        )
-    }
-
-    func destroy(runId: String) async throws {
-        struct OK: Decodable { var ok: Bool? }
-        _ = try await post(OK.self, path: "api/runs/\(escape(runId))/destroy", body: Empty())
+        return try decode(InputResult.self, from: await post(runPath(runId, "input"), body: Body(actions: actions)))
     }
 
     // MARK: - Events
 
-    /// The daemon's event stream, one `ServerEvent` per SSE frame. The stream
-    /// ends when the connection does; reconnecting is the caller's business.
-    func events(runId: String?) -> AsyncThrowingStream<ServerEvent, Error> {
+    /// `.opened` once the daemon answers 200, then one `.event` per SSE frame.
+    /// Ends with the connection; reconnecting is the caller's business.
+    func events() -> AsyncThrowingStream<EventStreamItem, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let query = runId.map { [URLQueryItem(name: "runId", value: $0)] } ?? []
-                    var request = URLRequest(url: try url(path: "api/events", query: query))
+                    var request = URLRequest(url: try url(["api", "events"]))
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                     request.timeoutInterval = 3600
                     let (bytes, response) = try await session.bytes(for: request)
@@ -180,21 +142,21 @@ final class DaemonClient: Sendable {
                     guard http.statusCode == 200 else {
                         throw DaemonError.status(code: http.statusCode, body: "")
                     }
+                    continuation.yield(.opened)
                     var parser = SSEParser()
                     var splitter = SSELineSplitter()
-                    // Deliberately not `bytes.lines`: that sequence drops the
-                    // blank line, and a blank line is exactly what ends an SSE
-                    // frame. See SSELineSplitter.
                     for try await byte in bytes {
                         guard let line = splitter.consume(byte) else { continue }
                         if let event = try parser.consume(line) {
-                            continuation.yield(event)
+                            continuation.yield(.event(event))
                         }
                     }
                     if let line = splitter.flush(), let event = try parser.consume(line) {
-                        continuation.yield(event)
+                        continuation.yield(.event(event))
                     }
                     continuation.finish()
+                } catch let error as URLError {
+                    continuation.finish(throwing: DaemonError(error))
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -207,197 +169,67 @@ final class DaemonClient: Sendable {
 
     private struct Empty: Encodable {}
 
-    private func escape(_ component: String) -> String {
-        component.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? component
+    private func runPath(_ runId: String, _ rest: String...) -> [String] {
+        ["api", "runs", runId] + rest
     }
 
-    private func url(path: String, query: [URLQueryItem] = []) throws -> URL {
-        guard var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false) else {
-            throw DaemonError.badResponse("cannot build a URL for \(path)")
-        }
-        if !query.isEmpty { components.queryItems = query }
-        guard let built = components.url else {
-            throw DaemonError.badResponse("cannot build a URL for \(path)")
+    /// One segment per element, each percent-encoded whole, so an id or file
+    /// name with a slash, space or percent sign stays one segment.
+    private func url(_ segments: [String], query: [URLQueryItem] = []) throws -> URL {
+        let path = segments.reduce(baseURL) { $0.appending(component: $1) }
+        var components = URLComponents(url: path, resolvingAgainstBaseURL: false)
+        if !query.isEmpty { components?.queryItems = query }
+        guard let built = components?.url else {
+            throw DaemonError.badResponse("cannot build a URL for \(segments.joined(separator: "/"))")
         }
         return built
     }
 
-    private func perform(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    /// Sends `request` and returns the body of a 2xx answer.
+    private func data(_ request: URLRequest) async throws -> Data {
+        let data: Data
+        let response: URLResponse
         do {
-            return try await session.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch let error as URLError {
-            if error.code == .cancelled { throw DaemonError.cancelled }
-            throw DaemonError.notReachable(error.localizedDescription)
+            throw DaemonError(error)
         }
-    }
-
-    private func check(_ response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else {
             throw DaemonError.badResponse("no HTTP response")
         }
         guard (200..<300).contains(http.statusCode) else {
-            // Every failing route answers {"error": "..."}; show that rather
-            // than the raw body.
+            // Every failing route answers {"error": "..."}.
             struct Failure: Decodable { var error: String }
             let message = (try? JSONDecoder().decode(Failure.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)
                 ?? ""
             throw DaemonError.status(code: http.statusCode, body: message)
         }
+        return data
     }
 
+    /// An empty body decodes as `{}`, so all-optional responses accept one.
     private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
-            return try JSONDecoder.daemon().decode(type, from: data)
+            return try JSONDecoder.daemon().decode(type, from: data.isEmpty ? Data("{}".utf8) : data)
         } catch {
             throw DaemonError.badResponse(String(describing: error))
         }
     }
 
-    private func get<T: Decodable>(_ type: T.Type, path: String, query: [URLQueryItem] = []) async throws -> T {
-        var request = URLRequest(url: try url(path: path, query: query))
+    private func get<T: Decodable>(_ type: T.Type, _ path: [String], query: [URLQueryItem] = []) async throws -> T {
+        var request = URLRequest(url: try url(path, query: query))
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await perform(request)
-        try check(response, data: data)
-        return try decode(type, from: data)
+        return try decode(type, from: await data(request))
     }
 
-    private func post<T: Decodable, B: Encodable>(_ type: T.Type, path: String, body: B) async throws -> T {
-        var request = URLRequest(url: try url(path: path))
+    @discardableResult
+    private func post(_ path: [String], body: some Encodable = Empty()) async throws -> Data {
+        var request = URLRequest(url: try url(path))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONEncoder.daemon().encode(body)
-        let (data, response) = try await perform(request)
-        try check(response, data: data)
-        if data.isEmpty, let empty = try? JSONDecoder.daemon().decode(type, from: Data("{}".utf8)) {
-            return empty
-        }
-        return try decode(type, from: data)
-    }
-}
-
-// MARK: - SSE
-
-/// Cuts a byte stream into lines, **keeping the empty ones**.
-///
-/// This exists because `URLSession.AsyncBytes.lines` does not: it skips blank
-/// lines, and in server-sent events a blank line is not filler, it is the
-/// terminator that ends a frame. Fed through `.lines`, the daemon's stream
-/// arrives as an endless run of `event:`/`data:` lines that never dispatch, so
-/// no event ever reaches the store. Splitting the bytes here is a value type
-/// with no I/O in it, so the tests can feed it a fixed transcript.
-struct SSELineSplitter {
-    private var buffer: [UInt8] = []
-
-    init() {}
-
-    /// Feeds one byte. Returns a line when the byte closed one; a trailing
-    /// `\r` is left on for `SSEParser.consume` to strip.
-    mutating func consume(_ byte: UInt8) -> String? {
-        guard byte == 0x0A else {
-            buffer.append(byte)
-            return nil
-        }
-        let line = String(decoding: buffer, as: UTF8.self)
-        buffer.removeAll(keepingCapacity: true)
-        return line
-    }
-
-    /// Whatever is left when the stream ends without a final newline.
-    mutating func flush() -> String? {
-        guard !buffer.isEmpty else { return nil }
-        let line = String(decoding: buffer, as: UTF8.self)
-        buffer.removeAll(keepingCapacity: true)
-        return line
-    }
-
-    /// Splits a whole body. Used by the tests and by anything that already
-    /// holds the bytes.
-    static func lines(of bytes: [UInt8]) -> [String] {
-        var splitter = SSELineSplitter()
-        var lines: [String] = []
-        for byte in bytes {
-            if let line = splitter.consume(byte) { lines.append(line) }
-        }
-        if let line = splitter.flush() { lines.append(line) }
-        return lines
-    }
-}
-
-/// A line-at-a-time server-sent events parser. It is a value type with no I/O
-/// in it so the tests can feed it a fixed transcript.
-struct SSEParser {
-    private var eventName: String?
-    private var data: [String] = []
-
-    init() {}
-
-    /// Feeds one line. Returns an event when the line closed a frame.
-    mutating func consume(_ rawLine: String) throws -> ServerEvent? {
-        var line = rawLine
-        if line.hasSuffix("\r") { line.removeLast() }
-
-        if line.isEmpty { return try dispatch() }
-        if line.hasPrefix(":") { return nil } // a heartbeat or another comment
-
-        let field: String
-        var value: String
-        if let colon = line.firstIndex(of: ":") {
-            field = String(line[line.startIndex..<colon])
-            value = String(line[line.index(after: colon)...])
-            if value.hasPrefix(" ") { value.removeFirst() }
-        } else {
-            field = line
-            value = ""
-        }
-
-        switch field {
-        case "event": eventName = value
-        case "data": data.append(value)
-        default: break // id and retry mean nothing here
-        }
-        return nil
-    }
-
-    private mutating func dispatch() throws -> ServerEvent? {
-        defer {
-            eventName = nil
-            data = []
-        }
-        guard !data.isEmpty else { return nil }
-        let payload = Data(data.joined(separator: "\n").utf8)
-        let decoder = JSONDecoder.daemon()
-        do {
-            switch eventName {
-            case "run":
-                return .run(try decoder.decode(LifecycleEvent.self, from: payload))
-            case "step":
-                let event = try decoder.decode(StepEvent.self, from: payload)
-                return .step(runId: event.runId, seq: event.seq, step: event.step)
-            case "message":
-                let event = try decoder.decode(MessageEvent.self, from: payload)
-                return .message(runId: event.runId, message: event.message)
-            case "frame":
-                let event = try decoder.decode(FrameEvent.self, from: payload)
-                return .frame(runId: event.runId, frame: event.frame)
-            default:
-                return nil // an event kind this app does not know yet
-            }
-        } catch {
-            throw DaemonError.badResponse("bad \(eventName ?? "unnamed") event: \(error)")
-        }
-    }
-
-    /// Parses a whole SSE body. Used by the tests and by anything that already
-    /// holds the bytes.
-    static func parse(_ text: String) throws -> [ServerEvent] {
-        var parser = SSEParser()
-        var events: [ServerEvent] = []
-        for line in text.components(separatedBy: "\n") {
-            if let event = try parser.consume(line) { events.append(event) }
-        }
-        if let event = try parser.consume("") { events.append(event) }
-        return events
+        return try await data(request)
     }
 }

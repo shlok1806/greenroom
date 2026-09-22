@@ -1,7 +1,7 @@
 # 0008. Every run records its screen as a timelapse, kept with the evidence
 
 Date: 2026-09-19
-Status: proposed
+Status: accepted (implemented)
 
 ## Context
 

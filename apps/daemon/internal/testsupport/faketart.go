@@ -9,40 +9,26 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
 
-// FakeTart writes a shell script that answers every tart subcommand the
-// daemon uses, so that tests reach every path without a real VM.
+// FakeTart writes a shell script answering every tart subcommand the daemon uses, so tests need no VM.
+// Every invocation is appended to <control>/calls.log. Files in the control directory switch behavior:
 //
-// Behavior is driven by files in a control directory:
+//	fail-clone, fail-run, fail-ip, fail-exec, fail-stop, fail-delete, fail-keyinstall
+//	                    the matching operation exits 1 with a message
+//	exec-exit-<n>       `tart exec` exits n
+//	exec-codes          `tart exec` exits with the next line of this file (consumed), then 0
+//	agent-down          `tart exec` fails as if the guest agent is unreachable
+//	ssh-down            the in-guest sshd probe is refused
+//	fail-input-install  compiling the guest input helper fails
+//	input-down          the input helper refuses every event
+//	screen              "<width>x<height>" the input helper reports (default 1024x768)
+//	shot.b64            base64 PNG a screenshot returns
+//	fail-session        an interactive session (`exec -i -t`) refuses to start
+//	session-exits       a session prints session-output, if present, and exits at once
+//	tart-version        what `tart --version` prints (default tart.PinnedVersion)
+//	list-empty          `tart list` returns []
+//	vmnames, vmname     `tart list` reports these VMs running (default: one unrelated VM)
 //
-//	fail-clone, fail-run, fail-ip, fail-exec, fail-stop, fail-delete
-//	    the matching subcommand exits 1 with a message
-//	exec-exit-<n>   `tart exec` returns exit code n
-//	exec-codes      `tart exec` returns the next newline-separated code in
-//	                this file on each call, consuming it, then returns 0
-//	                once the file is empty; for a test that runs several
-//	                commands in one turn and needs their exit codes to
-//	                differ
-//	agent-down      `tart exec` fails as if the guest agent is unreachable
-//	ssh-down        the in-guest `nc -z 127.0.0.1 22` probe exits 1 with
-//	                "Connection refused", as it does while sshd is starting
-//	fail-input-install  compiling the guest input helper fails, as it does on
-//	                a machine with no Swift toolchain
-//	input-down      the input helper refuses every event
-//	fail-session    `tart exec -i -t`, an interactive session, refuses to start
-//	session-exits   a session ends at once instead of staying alive, after
-//	                printing session-output if that file exists, so a test can
-//	                reach the paths for a command that has already finished
-//	screen          "<width>x<height>" the input helper reports as the guest
-//	                display size; without it, 1024x768
-//	list-empty      `tart list` returns an empty JSON array
-//	vmnames         one VM name per line; `tart list` reports each as running
-//	vmname          one VM name; `tart list` reports it as the only running VM
-//
-// With neither file, `tart list` reports one unrelated running VM, the way a
-// host with other tart usage would.
-//
-// Every invocation is appended to <control>/calls.log so a test can assert
-// the exact argument list the daemon built.
+// The script writes session-stdin ("tty <rows> <cols>" or "pipe") and stopped (after stop or delete).
 func FakeTart(t *testing.T) (bin string, control string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -58,10 +44,6 @@ printf '%s\n' "$*" >> "$C/calls.log"
 sub="$1"; shift
 case "$sub" in
   --version)
-    # The daemon pins a tart version and warns when it is driving a
-    # different one. A test writes tart-version to make this fake claim to
-    # be something else; with no control file it claims to be the pinned
-    # version, so the ordinary suite sees the quiet path.
     if [ -f "$C/tart-version" ]; then cat "$C/tart-version"; else echo "` + tart.PinnedVersion + `"; fi
     exit 0 ;;
   clone)
@@ -69,12 +51,8 @@ case "$sub" in
     exit 0 ;;
   run)
     [ -f "$C/fail-run" ] && { echo "The number of VMs exceeds the system limit" >&2; exit 1; }
-    # A real "tart run" stays in the foreground for the life of the VM, so
-    # this waits too. It must never outlive the test: it stops when the VM is
-    # stopped, when the control directory goes away with the test's temporary
-    # directory, and in any case after the cap below. Without those exits a
-    # test that does not destroy its machine leaks a process that spins
-    # forever, and enough of them will bring a host to its knees.
+    # Stays in the foreground like a real VM, but never outlives the test: it exits on stop,
+    # when the control directory is removed, or after 5 minutes.
     i=0
     while [ ! -f "$C/stopped" ] && [ -d "$C" ] && [ "$i" -lt 600 ]; do
       sleep 0.5
@@ -86,17 +64,9 @@ case "$sub" in
     echo "192.168.64.9"
     exit 0 ;;
   exec)
-    # An interactive session is "tart exec -i -t <name> <command>": a child
-    # that keeps running, with stdin attached and a pty on the guest side.
-    # cat models it well enough to drive start, send, read and close: it
-    # stays alive, gives back whatever is sent, and ends when it is killed.
-    # The flags come before the VM name, so seeing one here is what tells a
-    # session apart from a one-shot exec.
+    # A session is "exec -i -t <name> <command>", modelled by cat. Real "tart exec -t" dies when its
+    # stdin is not a terminal, so record what the daemon handed us.
     if [ "$1" = "-i" ] || [ "$1" = "-t" ]; then
-      # Record whether the daemon handed us a real terminal, and how big.
-      # Real "tart exec -t" reads the window size from its own stdin and dies
-      # outright when that is a pipe, so a session driven through pipes is
-      # dead on arrival. That regressed once; session-stdin is what pins it.
       if [ -t 0 ]; then
         printf 'tty %s\n' "$(stty size < /dev/tty 2>/dev/null || stty size 2>/dev/null)" > "$C/session-stdin"
       else
@@ -114,17 +84,13 @@ case "$sub" in
     case "$*" in
       *authorized_keys*) [ -f "$C/fail-keyinstall" ] && { echo "Error: cannot write" >&2; exit 1; } ;;
     esac
-    # The ssh readiness probe runs inside the guest over vsock, so it arrives
-    # here rather than as a host-side dial. Answer it before the generic
-    # exec-exit-<n> hook, which speaks for machine_exec and not for boot.
+    # The sshd readiness probe; answered before exec-exit-<n>, which is for machine_exec.
     case "$*" in
       *"nc -z 127.0.0.1 22"*)
         [ -f "$C/ssh-down" ] && { echo "Connection refused" >&2; exit 1; }
         exit 0 ;;
     esac
-    # Computer use (ADR 0009). The helper is compiled in the guest once, then
-    # called with a base64 payload; both arrive here as a /bin/sh script, so
-    # the compile is matched before the call.
+    # Input helper (ADR 0009): the compile must match before the call.
     case "$*" in
       *swiftc*)
         [ -f "$C/fail-input-install" ] && { echo "swiftc: command not found" >&2; exit 1; }
@@ -144,9 +110,7 @@ case "$sub" in
       echo "fake stdout"; echo "fake stderr" >&2
       exit "$code"
     done
-    # Screenshot support: the daemon base64s a PNG out of the guest. This
-    # comes before exec-codes because the frame recorder screenshots on a
-    # timer, and a capture must not eat an exit code queued for a command.
+    # Screenshots come before exec-codes so a timed frame capture cannot consume a queued code.
     case "$*" in
       *base64*) cat "$C/shot.b64" 2>/dev/null; exit 0 ;;
       *screencapture*) exit 0 ;;

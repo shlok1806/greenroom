@@ -278,6 +278,94 @@ func TestHumanDisputeRejectsAndOnlyAHumanCanAcceptAfter(t *testing.T) {
 	}
 }
 
+// A crash mid-append leaves a torn final line; the run must still open.
+func TestOpenDropsATornFinalLine(t *testing.T) {
+	for _, torn := range []string{`{"seq":3,"from":"cod`, "{\"seq\":3,\n"} {
+		s, dir := open(t)
+		must(t, s, Message{From: Coder, Kind: Task, Text: "build"})
+		must(t, s, Message{From: Human, Kind: Note, Text: "héllo"})
+		path := filepath.Join(dir, fileName)
+		good, _ := os.ReadFile(path)
+		if err := os.WriteFile(path, append(append([]byte{}, good...), torn...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		s2, err := Open(dir, 2)
+		if err != nil {
+			t.Fatalf("Open with torn line %q: %v", torn, err)
+		}
+		if s2.Len() != 2 {
+			t.Fatalf("Len = %d, want the 2 whole messages", s2.Len())
+		}
+		if got, _ := os.ReadFile(path); string(got) != string(good) {
+			t.Fatalf("file = %q, want the torn line cut off", got)
+		}
+		if m := must(t, s2, Message{From: Coder, Kind: Note, Text: "next"}); m.Seq != 3 {
+			t.Fatalf("next seq = %d, want 3", m.Seq)
+		}
+		if s3, err := Open(dir, 2); err != nil || s3.Len() != 3 {
+			t.Fatalf("reopen after append: %v, %d messages", err, s3.Len())
+		}
+	}
+}
+
+func TestOpenRefusesABadLineInTheMiddle(t *testing.T) {
+	s, dir := open(t)
+	must(t, s, Message{From: Coder, Kind: Task, Text: "build"})
+	path := filepath.Join(dir, fileName)
+	good, _ := os.ReadFile(path)
+	bad := string(good) + "not json\n" + string(good)
+	if err := os.WriteFile(path, []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(dir, 2); err == nil || !strings.Contains(err.Error(), "line 2") {
+		t.Fatalf("Open = %v, want a parse error naming line 2", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != bad {
+		t.Error("Open changed a file it refused")
+	}
+}
+
+func TestEvictClosesTheStoreAndGetReopensIt(t *testing.T) {
+	root := t.TempDir()
+	const id = "20260921-005642-e3b35b"
+	if err := os.MkdirAll(filepath.Join(root, "runs", id), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := NewRegistry(root, 2)
+	old, err := r.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	must(t, old, Message{From: Coder, Kind: Task, Text: "build"})
+
+	waited := make(chan []Message)
+	go func() { waited <- old.Wait(context.Background(), old.Len()) }()
+	r.Evict(id)
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Evict left a waiter blocked")
+	}
+	if _, err := old.Append(Message{From: Coder, Kind: Note, Text: "late"}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Append to an evicted store = %v, want ErrClosed", err)
+	}
+
+	fresh, err := r.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh == old || fresh.Len() != 1 {
+		t.Fatalf("Get after Evict returned the old store or lost history (len %d)", fresh.Len())
+	}
+	var heard int
+	r.Listen(func(string, Message) { heard++ })
+	if m := must(t, fresh, Message{From: Coder, Kind: Note, Text: "again"}); m.Seq != 2 || heard != 1 {
+		t.Fatalf("seq %d, heard %d; want 2 and 1", m.Seq, heard)
+	}
+	r.Evict("never-opened") // a no-op
+}
+
 func TestSubscribeSeesAppendsUntilRemoved(t *testing.T) {
 	s, _ := open(t)
 	var got []Kind
@@ -293,8 +381,7 @@ func TestSubscribeSeesAppendsUntilRemoved(t *testing.T) {
 func TestRegistrySharesStoresAndFansOut(t *testing.T) {
 	root := t.TempDir()
 	var verdicts []VerdictState
-	r := NewRegistry(root, 2)
-	r.OnVerdict = func(_ string, v VerdictState) { verdicts = append(verdicts, v) }
+	r := NewRegistry(root, 2, WithOnVerdict(func(_ string, v VerdictState) { verdicts = append(verdicts, v) }))
 	var heard []string
 	r.Listen(func(runID string, m Message) { heard = append(heard, runID+":"+string(m.Kind)) })
 

@@ -1,14 +1,7 @@
 import Foundation
 
-/// One line that says what a step actually did.
-///
-/// A run's evidence is mostly `machine_input` and `machine_exec`, and the tool
-/// name alone does not tell them apart: 136 rows reading `machine_input` are a
-/// log, not a timeline. This turns a step's own input into the shortest true
-/// sentence about it, so a reviewer can read the list instead of expanding it.
-///
-/// It is pure and it never interprets: it reads the keys the daemon's tools
-/// already write and falls back to compact JSON for anything it has not met.
+/// One line saying what a step did, read from the input keys the daemon's
+/// tools write, falling back to compact JSON.
 enum StepSummary {
     static func line(for step: Step) -> String {
         if let actions = step.input?["actions"], case .array(let list) = actions {
@@ -21,13 +14,12 @@ enum StepSummary {
         }
         if let name = step.screenshotArtifact { return name }
         if let input = step.input, case .object(let fields) = input, !fields.isEmpty {
-            return oneLine(compact(input))
+            return oneLine(input.compact)
         }
         return ""
     }
 
-    /// What a batch of mouse and keyboard actions did, in the grain a person
-    /// reads: one action is spelled out, several are counted after the first.
+    /// The first action spelled out, the rest counted.
     private static func inputLine(_ actions: [JSONValue]) -> String {
         guard let first = actions.first else { return "no actions" }
         let head = actionLine(first)
@@ -61,9 +53,7 @@ enum StepSummary {
         return names.isEmpty ? "" : names.joined(separator: "-") + "-"
     }
 
-    /// Where on the guest's screen an action landed. The app speaks fractions
-    /// (ADR 0009), so the evidence reads in percentages rather than in pixels
-    /// it never knew.
+    /// Percentages, because the app only knows fractions (ADR 0009).
     private static func place(_ action: JSONValue) -> String? {
         guard let x = number(action["x"]), let y = number(action["y"]) else { return nil }
         return String(format: "%.0f%%, %.0f%%", x * 100, y * 100)
@@ -83,20 +73,8 @@ enum StepSummary {
         return "\"\(clipped)\""
     }
 
-    /// Newlines and runs of spaces become single spaces: a row is one line
-    /// high, and a command that wraps in the shell must not make it taller.
+    /// Collapses all whitespace runs to single spaces.
     static func oneLine(_ text: String) -> String {
-        text
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-    }
-
-    private static func compact(_ value: JSONValue) -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        guard let data = try? encoder.encode(value), let text = String(data: data, encoding: .utf8) else {
-            return ""
-        }
-        return text
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }

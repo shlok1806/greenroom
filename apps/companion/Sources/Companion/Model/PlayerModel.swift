@@ -1,9 +1,6 @@
 import Foundation
 
-/// The Screen tab's own state, apart from any view: which frames it knows
-/// about, where the scrubber sits, how fast it plays and whether it is
-/// following the newest frame. A pure value type (ADR 0008, "Companion"), so
-/// its rules can be tested without a window or a daemon.
+/// The Screen tab's player state (ADR 0008), kept out of the view so it is testable.
 struct PlayerModel: Equatable, Sendable {
     enum Speed: Double, CaseIterable, Sendable {
         case normal = 1
@@ -13,34 +10,25 @@ struct PlayerModel: Equatable, Sendable {
     var frames: [Frame] = []
     var index: Int = 0
     var speed: Speed = .normal
-    /// Follows the newest frame as it arrives. Scrubbing, seeking or reaching
-    /// the end of a finished run's recording turns this off.
-    var live: Bool = true
-    var playing: Bool = false
+    /// Follows the newest frame as it arrives.
+    var live = true
+    var playing = false
 
-    /// Time left over from the last `advance`, in seconds, so playback stays
-    /// smooth across ticks instead of rounding down every one of them.
+    /// Recorded time carried between `advance` calls so ticks do not round down.
     private var remainder: TimeInterval = 0
-
-    init() {}
 
     var current: Frame? {
         guard frames.indices.contains(index) else { return nil }
         return frames[index]
     }
 
-    /// Whether `file` is still the frame on screen. A frame's image is fetched
-    /// asynchronously, and the fetch outlives the request for it: switching
-    /// runs starts a new load and leaves the old one suspended, so a load that
-    /// comes back has to ask whether anyone still wants what it carries. Frame
-    /// files are named by capture time, so this is also the run check: no two
-    /// runs name a frame the same.
+    /// Whether a finished image load is still wanted. Frame files are named by
+    /// capture time, so this also rejects a load from a previous run.
     func shows(_ file: String) -> Bool { current?.file == file }
 
     var isAtEnd: Bool { frames.isEmpty || index >= frames.count - 1 }
 
-    /// Moves the index forward when enough sped-up time has passed to reach
-    /// the next frame's timestamp, carrying over whatever is left.
+    /// Advances by recorded time (`elapsed` times `speed`), frame by frame.
     mutating func advance(by elapsed: TimeInterval) {
         guard playing, elapsed > 0, frames.count > 1, index < frames.count - 1 else { return }
         remainder += elapsed * speed.rawValue
@@ -56,8 +44,7 @@ struct PlayerModel: Equatable, Sendable {
         }
     }
 
-    /// Jumps to the first frame at or after `step`, or the last frame if none
-    /// reaches it. A jump into the recording's past is no longer live.
+    /// The first frame at or after `step`, else the last. Leaves live mode.
     mutating func seek(toStep step: Int) {
         guard !frames.isEmpty else { return }
         remainder = 0
@@ -65,8 +52,7 @@ struct PlayerModel: Equatable, Sendable {
         index = frames.firstIndex { $0.step >= step } ?? frames.count - 1
     }
 
-    /// A new frame arrived on the stream. It is always appended (the store
-    /// already dedupes by file); the index only follows it while live.
+    /// The store already dedupes by file; the index follows only while live.
     mutating func append(_ frame: Frame) {
         frames.append(frame)
         if live {

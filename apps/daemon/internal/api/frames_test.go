@@ -13,8 +13,7 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 )
 
-// waitForFrame polls the run's frame list until it has at least one entry,
-// the way the fake tart's fast boot lets other tests poll for readiness.
+// waitForFrame polls the run's frame list until it has an entry.
 func waitForFrame(t *testing.T, h *harness, runID string) machine.Frame {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -81,12 +80,7 @@ func TestFrameFileRefusesPathTraversal(t *testing.T) {
 	}
 }
 
-// TestRecordingAnswers404WithTheFfmpegMessageWhenAbsent covers the negative
-// path from ADR 0008: a host with no ffmpeg on PATH gets a clear error
-// pointing at /frames instead of a generic failure. The positive path (an
-// actual mp4 built by ffmpeg) is not exercised here because this suite's
-// host has no ffmpeg installed; if one is ever added to the CI image this
-// test will skip itself rather than assert a codepath it can no longer see.
+// Without ffmpeg the recording is a 404 pointing at /frames (ADR 0008). The ffmpeg path itself is untested.
 func TestRecordingAnswers404WithTheFfmpegMessageWhenAbsent(t *testing.T) {
 	if _, err := exec.LookPath("ffmpeg"); err == nil {
 		t.Skip("ffmpeg is installed on this host; the 404-without-ffmpeg path cannot be exercised here")

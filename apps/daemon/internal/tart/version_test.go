@@ -21,8 +21,7 @@ func fakeTartBin(t *testing.T, version string) string {
 	return bin
 }
 
-// pinAt points the resolver at a file for the duration of one test, so these
-// never depend on what is installed on the machine running them.
+// pinAt points the resolver at path for one test, independent of the host.
 func pinAt(t *testing.T, path string) {
 	t.Helper()
 	old := pinnedInstall
@@ -43,8 +42,7 @@ func TestResolvePrefersExplicitOverrideThenPinnedThenPath(t *testing.T) {
 		t.Fatalf("the pinned install must be used when it exists: got %+v", got)
 	}
 
-	// The env var sits between the two: above the pinned install, below an
-	// explicit argument, which is how -tart beats GREENROOM_TART.
+	// The env var beats the pinned install but not an explicit argument.
 	t.Setenv(EnvVar, "/from/env/tart")
 	if got := Resolve(""); got.Bin != "/from/env/tart" || got.Source != SourceOverride {
 		t.Fatalf("%s must beat the pinned install: got %+v", EnvVar, got)
@@ -66,10 +64,7 @@ func TestResolveFallsBackToPathWhenNothingIsPinned(t *testing.T) {
 
 func TestResolveIgnoresADirectoryAtThePinnedPath(t *testing.T) {
 	t.Setenv(EnvVar, "")
-	// The pinned path points inside an app bundle, so a half-finished
-	// install can leave a directory where the binary should be. Treating
-	// that as the binary would fail on every command instead of falling
-	// through to PATH.
+	// A half-finished app bundle install can leave a directory there.
 	dir := filepath.Join(t.TempDir(), "tart")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -130,8 +125,6 @@ func TestCheckVersionWarnsRatherThanFailingWhenTartIsMissing(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 
-	// A daemon that cannot find tart still has to start: it may be asked for
-	// run records, and the user's daemon must not die over this.
 	c := &Client{Bin: filepath.Join(t.TempDir(), "no-such-tart")}
 	c.CheckVersion(context.Background(), log)
 

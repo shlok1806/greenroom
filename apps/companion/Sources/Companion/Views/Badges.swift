@@ -1,69 +1,60 @@
 import SwiftUI
 
-/// The shared pieces of chrome: what a status looks like, how a time reads,
-/// how a run is named.
-///
-/// The palette is deliberately short. Status and verdict are the only things
-/// on screen allowed a strong colour; everything else is the window's own
-/// greys, so that a failed run or a contested verdict is the first thing the
-/// eye lands on rather than one colour among many.
+/// Shared formatting. Status and verdict are the only things allowed a strong
+/// colour, so a failed run or a contested verdict is what the eye lands on.
 enum Chrome {
     // MARK: - Status
 
     static func symbol(for status: RunStatus) -> String {
         switch status {
-        case .booting: return "hourglass"
-        case .ready: return "checkmark.circle.fill"
-        case .failed: return "exclamationmark.triangle.fill"
-        case .finished: return "archivebox"
-        case .unknown: return "questionmark.circle"
+        case .booting: "hourglass"
+        case .ready: "checkmark.circle.fill"
+        case .failed: "exclamationmark.triangle.fill"
+        case .finished: "archivebox"
+        case .unknown: "questionmark.circle"
         }
     }
 
     static func color(for status: RunStatus) -> Color {
         switch status {
-        case .booting: return .orange
-        case .ready: return .green
-        case .failed: return .red
-        case .finished: return .secondary
-        case .unknown: return .secondary
+        case .booting: .orange
+        case .ready: .green
+        case .failed: .red
+        case .finished, .unknown: .secondary
         }
     }
 
     static func color(for status: VerdictStatus) -> Color {
         switch status {
-        case .accepted: return .green
-        case .proposed: return .blue
-        case .contested: return .orange
-        case .rejected: return .red
-        case .none, .unknown: return .secondary
+        case .accepted: .green
+        case .proposed: .blue
+        case .contested: .orange
+        case .rejected: .red
+        case .none, .unknown: .secondary
         }
     }
 
     static func color(forVerdict verdict: String?) -> Color {
         switch verdict {
-        case "pass": return .green
-        case "fail": return .red
-        case "inconclusive": return .orange
-        default: return .secondary
+        case "pass": .green
+        case "fail": .red
+        case "inconclusive": .orange
+        default: .secondary
         }
     }
 
-    /// The suffix a closed verdict carries where there is no room for the
-    /// word. An open (`proposed`) verdict gets none: it is the common case.
+    /// A closed verdict's glyph where there is no room for the word.
     static func glyph(for status: VerdictStatus) -> String? {
         switch status {
-        case .accepted: return "checkmark"
-        case .contested: return "exclamationmark"
-        case .rejected: return "xmark"
-        case .proposed, .none, .unknown: return nil
+        case .accepted: "checkmark"
+        case .contested: "exclamationmark"
+        case .rejected: "xmark"
+        case .proposed, .none, .unknown: nil
         }
     }
 
     // MARK: - Time
 
-    /// A short, readable age. `now` is a parameter so the thresholds can be
-    /// tested, and so a list can hand every row the same tick of the clock.
     static func relative(_ date: Date, now: Date = Date()) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
         switch seconds {
@@ -84,19 +75,14 @@ enum Chrome {
         }
     }
 
-    /// The time of day, to the second. A transcript where two hundred rows all
-    /// read "2 days ago" tells a reader nothing about their order or their
-    /// spacing; this is what actually separates them.
     static func timeOfDay(_ date: Date) -> String {
         timeOfDayFormatter.string(from: date)
     }
 
-    /// Date and time together, for a header and for tooltips.
     static func stamp(_ date: Date) -> String {
         stampFormatter.string(from: date)
     }
 
-    /// The heading a day's runs are grouped under.
     static func day(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         if calendar.isDate(date, inSameDayAs: now) { return "Today" }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
@@ -106,9 +92,7 @@ enum Chrome {
         return dayFormatter.string(from: date)
     }
 
-    /// A span, as a clock reads it: `0:07`, `12:03`, `1:23:45`. The old
-    /// `%02d:%02d` of minutes and seconds turned an eight-hour run into
-    /// "476:12", which is not a time anybody reads.
+    /// `0:07`, `12:03`, `1:23:45`. Minutes alone would read "476:12" for eight hours.
     static func clock(_ seconds: TimeInterval) -> String {
         let total = Int(max(0, seconds).rounded())
         let hours = total / 3600
@@ -127,21 +111,18 @@ enum Chrome {
 
     // MARK: - Numbers and names
 
-    /// A count at a glance. Four digits of frames in a sidebar row is noise;
-    /// "2.4k" is the same fact in half the space.
+    /// "2.4k" rather than four digits.
     static func count(_ value: Int) -> String {
         switch value {
-        case ..<1000: return "\(value)"
-        case ..<10_000: return String(format: "%.1fk", Double(value) / 1000)
-        case ..<1_000_000: return "\(value / 1000)k"
-        default: return String(format: "%.1fM", Double(value) / 1_000_000)
+        case ..<1000: "\(value)"
+        case ..<10_000: String(format: "%.1fk", Double(value) / 1000)
+        case ..<1_000_000: "\(value / 1000)k"
+        default: String(format: "%.1fM", Double(value) / 1_000_000)
         }
     }
 
-    /// What there is to look at in a run, in the order a person cares: what
-    /// it did, what it recorded, what was said. Returned longest first, each
-    /// candidate dropping the least useful term of the one before, so a row
-    /// short of width loses whole terms instead of being cut mid-word.
+    /// Steps, frames, messages, longest first, each candidate dropping the
+    /// last term, so a narrow row loses whole terms instead of mid-word.
     static func shapes(steps: Int, frames: Int?, messages: Int) -> [String] {
         var parts: [String] = []
         if steps > 0 { parts.append(countAndNoun(steps, "step")) }
@@ -155,16 +136,8 @@ enum Chrome {
         "\(count(value)) \(noun)\(value == 1 ? "" : "s")"
     }
 
-    /// The part of a run id that only tells runs apart.
-    ///
-    /// Every id is `yyyymmdd-hhmmss-<hash>`, so twenty of them stacked up are
-    /// twenty near-identical strings whose only difference is in the middle.
-    /// The list shows the run's clock time and this hash after it, quieter;
-    /// the whole id stays one copy away in the header.
-    ///
-    /// The time comes from `createdAt` and never from the id: the daemon
-    /// names a run in UTC, so reading the clock out of the id put the list
-    /// five hours away from every other time in the window.
+    /// The hash tail of a `yyyymmdd-hhmmss-<hash>` run id. The id's clock is
+    /// UTC, so displayed times always come from `createdAt`, never the id.
     static func runHash(_ runId: String) -> String {
         let parts = runId.split(separator: "-", maxSplits: 2, omittingEmptySubsequences: false)
         guard parts.count > 2 else { return "" }
@@ -193,31 +166,23 @@ enum Chrome {
     }()
 }
 
-/// A run's lifecycle as a single dot. Twenty rows that each say "finished" in
-/// words are twenty rows of noise; the word belongs in the header, where there
-/// is one of it.
 struct StatusDot: View {
     let status: RunStatus
-    var size: CGFloat = 7
 
     var body: some View {
         Circle()
             .fill(Chrome.color(for: status))
-            .frame(width: size, height: size)
+            .frame(width: 7, height: 7)
             .help(status.text)
     }
 }
 
-/// The lifecycle of a run, as an icon and a word, for the one place that has
-/// room for it. A status the app cannot name shows nothing rather than a lone
-/// question mark with an empty label beside it.
+/// Shows nothing for an empty status rather than a lone question mark.
 struct StatusBadge: View {
     let status: RunStatus
 
     var body: some View {
-        if case .unknown(let raw) = status, raw.isEmpty {
-            EmptyView()
-        } else {
+        if status != .unknown("") {
             Label(status.text, systemImage: Chrome.symbol(for: status))
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
@@ -227,12 +192,8 @@ struct StatusBadge: View {
     }
 }
 
-/// Where the verdict stands, when there is one.
-///
-/// The `.full` style spells out both words and belongs in the run header. The
-/// `.compact` style is for the run list, where "inconclusive, proposed" has no
-/// room: it shows a coloured dot, the verdict word, and a glyph for a closed
-/// status, with the full wording in the tooltip.
+/// `.full` for the run header; `.compact` for the run list, with the full
+/// wording in the tooltip.
 struct VerdictBadge: View {
     enum Style {
         case full
@@ -248,9 +209,7 @@ struct VerdictBadge: View {
     }
 
     var body: some View {
-        if case .none = state.status {
-            EmptyView()
-        } else {
+        if state.status != VerdictStatus.none {
             content
                 .padding(.horizontal, style == .compact ? 5 : 6)
                 .padding(.vertical, 1)
@@ -295,6 +254,18 @@ struct VerdictBadge: View {
     }
 }
 
+/// The small uppercase caption used above values and blocks.
+struct SectionCaption: View {
+    let title: String
+
+    var body: some View {
+        Text(title.uppercased())
+            .font(.system(size: 9, weight: .semibold))
+            .tracking(0.6)
+            .foregroundStyle(.tertiary)
+    }
+}
+
 /// One label above one value, the unit the run header is built from.
 struct FieldLabel: View {
     let label: String
@@ -303,10 +274,7 @@ struct FieldLabel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label.uppercased())
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(.tertiary)
+            SectionCaption(title: label)
             Text(value)
                 .font(monospaced ? .caption.monospaced() : .caption)
                 .foregroundStyle(.secondary)

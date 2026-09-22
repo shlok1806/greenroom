@@ -1,7 +1,8 @@
 # 0004. Go for the daemon, official Go MCP SDK over Streamable HTTP
 
 Date: 2026-09-11
-Status: accepted. Supersedes the "TypeScript is the default for everything" line of
+Status: accepted, amended: daemon state is a JSON file (`~/.greenroom/state.json`),
+not SQLite. Supersedes the "TypeScript is the default for everything" line of
 ADR 0001; the pnpm/Turborepo/Biome tooling from ADR 0001 stays for future TypeScript
 packages (JS SDK, run viewer).
 

@@ -2,8 +2,6 @@ import XCTest
 
 @testable import Companion
 
-/// A hundred and thirty rows reading `machine_input` are a log. These are the
-/// rules that turn them back into a timeline.
 final class StepSummaryTests: XCTestCase {
     private func step(_ tool: String, input: JSONValue?, output: JSONValue? = nil) -> Step {
         Step(seq: 1, at: Date(timeIntervalSince1970: 0), tool: tool, input: input, output: output)
@@ -20,8 +18,6 @@ final class StepSummaryTests: XCTestCase {
         XCTAssertEqual(line, "cat <<EOF hello EOF")
     }
 
-    /// The app speaks fractions (ADR 0009), so the evidence reads in
-    /// percentages rather than in pixels it never knew.
     func testAClickReadsAsAPlaceOnTheScreen() {
         let actions = JSONValue.array([
             .object(["type": .string("click"), "x": .double(0.35), "y": .double(0.4)])
@@ -53,8 +49,6 @@ final class StepSummaryTests: XCTestCase {
         XCTAssertEqual(StepSummary.line(for: step("machine_input", input: .object(["actions": actions]))), "key cmd-a")
     }
 
-    /// A batch is one step (ADR 0009). The first action is spelled out and the
-    /// rest are counted, because that is the grain a reviewer reads.
     func testABatchSpellsOutTheFirstActionAndCountsTheRest() {
         let actions = JSONValue.array([
             .object(["type": .string("down"), "x": .double(0.1), "y": .double(0.2)]),

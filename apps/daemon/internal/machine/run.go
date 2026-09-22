@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -23,17 +25,11 @@ type Manifest struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 	DestroyedAt *time.Time `json:"destroyedAt,omitempty"`
 
-	// Steps is the highest step number handed out, not a count of the steps
-	// on disk. `begin` claims a number before the work runs, so a daemon
-	// stopped between `begin` and `complete` leaves a number claimed that no
-	// line in steps.jsonl ever uses, and the two numbers part company for
-	// the life of the run. It stays a high-water mark on purpose: reusing a
-	// claimed number would overwrite an artifact. Anything reporting what a
-	// run counts steps.jsonl instead, through ReadStepLog.
+	// Steps is the highest step number handed out, not a count: a number
+	// claimed by begin may never reach steps.jsonl. Count via ReadStepLog.
 	Steps int `json:"steps"`
 
-	// Verdict is the state of the conversation's latest verdict (ADR 0006),
-	// kept here so a reviewer sees it without opening the transcript.
+	// Verdict is the conversation's latest verdict (ADR 0006).
 	Verdict *session.VerdictState `json:"verdict,omitempty"`
 }
 
@@ -47,50 +43,99 @@ func ReadManifest(dir string) (Manifest, error) {
 	return m, json.Unmarshal(data, &m)
 }
 
+// saveManifest replaces dir/manifest.json atomically, because the API reads
+// it while the recorder writes it.
+func saveManifest(dir string, m Manifest) error {
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(filepath.Join(dir, "manifest.json"), data)
+}
+
+// writeFileAtomic replaces path with data through a synced temp file in the
+// same directory, so a crash leaves the old file or the new one, never a torn one.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp.Name(), 0o644)
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp.Name())
+	}
+	return err
+}
+
 // ReadSteps loads a run's step log. A run with no steps yet has none.
 func ReadSteps(dir string) ([]Step, error) {
-	f, err := os.Open(filepath.Join(dir, "steps.jsonl"))
+	return readJSONL[Step](dir, "steps.jsonl")
+}
+
+// readJSONL decodes one T per line of dir/name. A missing file is empty.
+func readJSONL[T any](dir, name string) ([]T, error) {
+	f, err := os.Open(filepath.Join(dir, name))
 	if errors.Is(err, os.ErrNotExist) {
-		return []Step{}, nil
+		return []T{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	steps := []Step{}
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	out := []T{}
+	sc := lineScanner(f)
 	for sc.Scan() {
-		var s Step
-		if err := json.Unmarshal(sc.Bytes(), &s); err != nil {
-			return nil, fmt.Errorf("parse steps.jsonl line %d: %w", len(steps)+1, err)
+		var v T
+		if err := json.Unmarshal(sc.Bytes(), &v); err != nil {
+			return nil, fmt.Errorf("parse %s line %d: %w", name, len(out)+1, err)
 		}
-		steps = append(steps, s)
+		out = append(out, v)
 	}
-	return steps, sc.Err()
+	return out, sc.Err()
 }
 
-// StepLog is what a run's step log says about itself: how many steps it
-// holds, the highest number any of them carries, and when the last of them
-// finished. It answers every question about a run that does not need the
-// steps themselves.
+// lineScanner allows lines up to 16 MiB; a step can carry a lot of output.
+func lineScanner(r io.Reader) *bufio.Scanner {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	return sc
+}
+
+// appendLine appends one JSON line to path.
+func appendLine(path string, line []byte) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(append(line, '\n'))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// StepLog summarises a run's step log.
 type StepLog struct {
 	Count   int
 	Highest int
-
-	// Last is when the newest step ended, which is its own start plus how
-	// long it took. A step is dated from when its tool call began, so a
-	// build that ran for ten minutes would otherwise date a run's last
-	// activity ten minutes before the machine was last known to be alive.
+	// Last is when the newest step ended (start plus duration), so a long
+	// final build does not date the run's last activity too early.
 	Last time.Time
 }
 
-// ReadStepLog summarises steps.jsonl, which is the run's evidence; the
-// manifest only says how many numbers were handed out.
-//
-// It decodes two fields per line rather than whole steps, because a step
-// carries a command's entire output and a caller that only wants a count
-// should not pay to decode it.
+// ReadStepLog summarises steps.jsonl, decoding only the fields it needs.
 func ReadStepLog(dir string) (StepLog, error) {
 	var out StepLog
 	f, err := os.Open(filepath.Join(dir, "steps.jsonl"))
@@ -101,8 +146,7 @@ func ReadStepLog(dir string) (StepLog, error) {
 		return out, err
 	}
 	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	sc := lineScanner(f)
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(bytes.TrimSpace(line)) == 0 {
@@ -117,9 +161,7 @@ func ReadStepLog(dir string) (StepLog, error) {
 			return out, fmt.Errorf("parse steps.jsonl line %d: %w", out.Count+1, err)
 		}
 		out.Count++
-		if s.Seq > out.Highest {
-			out.Highest = s.Seq
-		}
+		out.Highest = max(out.Highest, s.Seq)
 		if end := s.At.Add(time.Duration(s.DurationMS) * time.Millisecond); end.After(out.Last) {
 			out.Last = end
 		}
@@ -138,53 +180,25 @@ type Step struct {
 	DurationMS int64     `json:"durationMs"`
 }
 
-// recorder writes a run's manifest, step log and frame log under dir.
+// recorder writes a run's manifest, step log and frame log under dir. It is
+// the only thing that hands out step numbers.
 type recorder struct {
-	mu       sync.Mutex
-	dir      string
-	manifest Manifest
-
-	// frameErrLogged makes the frame recorder's capture-failure log a
-	// once-per-run event rather than a line every frameInterval.
+	mu             sync.Mutex
+	dir            string
+	log            *slog.Logger
+	manifest       Manifest
 	frameErrLogged bool
 }
 
-func newRecorder(dir string, m Manifest) (*recorder, error) {
+func newRecorder(dir string, m Manifest, log *slog.Logger) (*recorder, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	r := &recorder{dir: dir, manifest: m}
+	r := &recorder{dir: dir, log: log, manifest: m}
 	return r, r.writeManifest()
 }
 
-// writeManifest replaces manifest.json atomically. The API and the tests read
-// the file while the recorder writes it, and a truncate-then-write would let
-// a reader see an empty or half-written manifest.
-func (r *recorder) writeManifest() error {
-	data, err := json.MarshalIndent(r.manifest, "", "  ")
-	if err != nil {
-		return err
-	}
-	final := filepath.Join(r.dir, "manifest.json")
-	tmp, err := os.CreateTemp(r.dir, ".manifest-*.json")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), final)
-}
+func (r *recorder) writeManifest() error { return saveManifest(r.dir, r.manifest) }
 
 func (r *recorder) update(fn func(*Manifest)) error {
 	r.mu.Lock()
@@ -193,18 +207,28 @@ func (r *recorder) update(fn func(*Manifest)) error {
 	return r.writeManifest()
 }
 
-// begin claims the next step number. A caller that must name an artifact
-// before it can record the step claims its number first, so that two callers
-// at the same time never choose the same file name.
+// markEnded stamps destroyedAt with the current time.
+func (r *recorder) markEnded() {
+	now := time.Now().UTC()
+	if err := r.update(func(man *Manifest) { man.DestroyedAt = &now }); err != nil {
+		r.log.Warn("cannot record the end of the run", "dir", r.dir, "err", err)
+	}
+}
+
+// begin claims the next step number. A tool that names an artifact claims
+// its number first so concurrent callers never pick the same file. This is
+// the step's only manifest write: complete leaves Steps unchanged.
 func (r *recorder) begin() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.manifest.Steps++
-	_ = r.writeManifest()
+	if err := r.writeManifest(); err != nil {
+		r.log.Warn("cannot write the run manifest", "dir", r.dir, "step", r.manifest.Steps, "err", err)
+	}
 	return r.manifest.Steps
 }
 
-// complete records a step under a number that begin already claimed.
+// complete records a step under a number begin already claimed.
 func (r *recorder) complete(seq int, tool string, input, output any, err error, started time.Time) {
 	s := Step{
 		Seq:        seq,
@@ -217,20 +241,20 @@ func (r *recorder) complete(seq int, tool string, input, output any, err error, 
 	if err != nil {
 		s.Error = err.Error()
 	}
-	line, _ := json.Marshal(s)
+	line, err := json.Marshal(s)
+	if err != nil {
+		r.log.Warn("cannot encode a step; it is not recorded", "dir", r.dir, "step", seq, "tool", tool, "err", err)
+		return
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	f, ferr := os.OpenFile(filepath.Join(r.dir, "steps.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if ferr == nil {
-		_, _ = f.Write(append(line, '\n'))
-		_ = f.Close()
+	if err := appendLine(filepath.Join(r.dir, "steps.jsonl"), line); err != nil {
+		r.log.Warn("cannot record a step", "dir", r.dir, "step", seq, "tool", tool, "err", err)
 	}
-	_ = r.writeManifest()
 }
 
-// step claims a number and records the step in one call. Use it for every
-// tool that does not name a file.
+// step claims a number and records the step in one call.
 func (r *recorder) step(tool string, input, output any, err error, started time.Time) int {
 	seq := r.begin()
 	r.complete(seq, tool, input, output, err, started)
@@ -242,18 +266,14 @@ func (r *recorder) artifactPath(seq int, kind, ext string) string {
 	return filepath.Join(r.dir, fmt.Sprintf("%03d-%s.%s", seq, kind, ext))
 }
 
-// currentStep reports the manifest's step count at this instant, so a frame
-// can record which step was current when it was captured. A frame never
-// claims a step number of its own; it only cites the latest one.
+// currentStep is the latest claimed step, which a frame cites.
 func (r *recorder) currentStep() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.manifest.Steps
 }
 
-// appendFrame adds one line to frames.jsonl, guarded by the same lock that
-// guards the step log, so a frame and a step recorded at the same instant
-// never interleave their writes.
+// appendFrame adds one line to frames.jsonl under the step log's lock.
 func (r *recorder) appendFrame(fr Frame) error {
 	line, err := json.Marshal(fr)
 	if err != nil {
@@ -261,18 +281,10 @@ func (r *recorder) appendFrame(fr Frame) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	f, ferr := os.OpenFile(filepath.Join(r.dir, "frames.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if ferr != nil {
-		return ferr
-	}
-	defer func() { _ = f.Close() }()
-	_, err = f.Write(append(line, '\n'))
-	return err
+	return appendLine(filepath.Join(r.dir, "frames.jsonl"), line)
 }
 
-// logFrameErrOnce reports whether this is the first frame-capture failure
-// this run has had, so recordFrames logs it once and then keeps retrying
-// silently: a capture error is never allowed to fail the run.
+// logFrameErrOnce reports whether this is the run's first frame-capture failure.
 func (r *recorder) logFrameErrOnce() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

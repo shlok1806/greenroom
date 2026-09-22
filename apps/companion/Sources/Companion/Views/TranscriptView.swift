@@ -1,61 +1,69 @@
 import SwiftUI
 
-/// Nothing but whitespace, so nothing worth sending.
 private func isBlank(_ text: String) -> Bool {
     text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 }
 
-/// Return sends, Shift-Return makes a newline, Cmd-Return sends too.
-///
-/// A `TextField` with `axis: .vertical` treats Return as a newline on its own,
-/// so the key has to be caught before the field's own handling. `.onKeyPress`
-/// on the field runs while the focus is there and ahead of the text view, and
-/// returning `.ignored` hands Shift-Return straight back to it.
-private struct SendOnReturn: ViewModifier {
-    let enabled: Bool
-    let action: () -> Void
-
-    func body(content: Content) -> some View {
-        content.onKeyPress(phases: .down) { press in
+private extension View {
+    /// Return and Cmd-Return send; Shift-Return is the field's own newline.
+    /// Caught with `.onKeyPress` because a vertical `TextField` would insert
+    /// the newline itself. A blank draft swallows Return without a newline.
+    func sendOnReturn(enabled: Bool, _ action: @escaping () -> Void) -> some View {
+        onKeyPress(phases: .down) { press in
             guard press.key == .return else { return .ignored }
-            // Shift-Return is the field's own newline. Cmd-Return sends, like
-            // the Send button's shortcut: that shortcut gets first refusal on
-            // it, and this catches it when the button is not in the responder
-            // chain to take it.
             guard press.modifiers.isEmpty || press.modifiers == .command else { return .ignored }
-            // A blank draft sends nothing, and must not leave a stray newline
-            // behind either.
-            guard enabled else { return .handled }
-            action()
+            if enabled { action() }
             return .handled
         }
     }
 }
 
-private extension View {
-    /// Makes Return in a text field send, the way every chat composer does.
-    func sendOnReturn(enabled: Bool, _ action: @escaping () -> Void) -> some View {
-        modifier(SendOnReturn(enabled: enabled, action: action))
+/// A one-line reply box: a field and a button that both send the trimmed text.
+/// The text stays until the daemon has taken it.
+private struct ReplyField: View {
+    let prompt: String
+    let button: String
+    @Binding var text: String
+    let send: (String) async -> Bool
+
+    @State private var sending = false
+
+    private var canSend: Bool { !sending && !isBlank(text) }
+
+    var body: some View {
+        HStack {
+            TextField(prompt, text: $text)
+                .textFieldStyle(.roundedBorder)
+                .sendOnReturn(enabled: canSend, submit)
+            Button(button, action: submit)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!canSend)
+        }
+    }
+
+    private func submit() {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !sending else { return }
+        sending = true
+        Task {
+            if await send(trimmed) { text = "" }
+            sending = false
+        }
     }
 }
 
-/// The run's one conversation, and the human's seat in it (ADR 0006).
-///
-/// The column has a measure. A message stretched across a wide window is a
-/// line of prose two hundred characters long, which nobody reads; capping it
-/// and leaving the rest of the window empty is what makes a transcript
-/// readable next to the evidence rather than beside it.
+/// The run's conversation and the human's seat in it (ADR 0006). The column
+/// is capped at a readable measure.
 struct TranscriptView: View {
-    @Bindable var store: RunStore
+    let store: RunStore
     let runId: String
 
     @State private var draft = ""
     @State private var draftKind: MessageKind = .note
+    @State private var sending = false
     @FocusState private var composing: Bool
     @State private var atBottom = true
-    /// Whether the view has ever managed to put the newest message on screen.
-    /// `onAppear` runs before `select` has answered, so there is nothing to
-    /// scroll to yet; the first batch to arrive wins.
+    /// Whether the newest message has been scrolled to at least once.
     @State private var anchored = false
 
     private var messages: [Message] { store.messages[runId] ?? [] }
@@ -64,10 +72,7 @@ struct TranscriptView: View {
 
     private static let thinkingRowId = -1
 
-    /// How near the end still counts as the end, in points.
     private static let bottomSlack: CGFloat = 40
-
-    /// The widest a line of the conversation is allowed to get.
     private static let measure: CGFloat = 820
 
     var body: some View {
@@ -89,9 +94,7 @@ struct TranscriptView: View {
                     .padding(.vertical, 14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                // Follow the conversation only for someone who is already at
-                // the end of it. Someone who scrolled back to read is not
-                // dragged away by a message landing.
+                // Follow new messages only for someone already at the end.
                 .onScrollGeometryChange(for: Bool.self) { geometry in
                     geometry.contentOffset.y + geometry.containerSize.height
                         >= geometry.contentSize.height - Self.bottomSlack
@@ -100,11 +103,8 @@ struct TranscriptView: View {
                 }
                 .onChange(of: messages.count) {
                     guard let last = messages.last else { return }
-                    // The first messages to arrive always win: until they do,
-                    // the empty list leaves the view at its top, and the
-                    // geometry observer has already decided "not at the
-                    // bottom" — so waiting for `atBottom` left a run opening
-                    // on its oldest message and never following again.
+                    // The first batch always anchors: before it arrives the
+                    // empty list reads as "not at the bottom".
                     guard atBottom || !anchored else { return }
                     anchored = true
                     atBottom = true
@@ -151,31 +151,33 @@ struct TranscriptView: View {
                 .lineLimit(1...5)
                 .textFieldStyle(.roundedBorder)
                 .focused($composing)
-                .sendOnReturn(enabled: !isBlank(draft), send)
+                .sendOnReturn(enabled: canSend, send)
 
             Button("Send") { send() }
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(isBlank(draft))
+                .disabled(!canSend)
         }
         .padding(12)
     }
 
+    private var canSend: Bool { !sending && !isBlank(draft) }
+
+    /// The draft stays in the field until the daemon has taken it.
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        draft = ""
-        // Your own message always brings you back to the end.
+        guard !text.isEmpty, !sending else { return }
+        sending = true
         atBottom = true
         let kind = draftKind
-        Task { await store.send(runId: runId, kind: kind, text: text) }
+        Task {
+            if await store.send(runId: runId, kind: kind, text: text) { draft = "" }
+            sending = false
+        }
     }
 }
 
-/// One message. The verifier's own voice reads as a bubble, a human's as the
-/// same bubble in the accent colour, and a system event as the quietest line on
-/// screen. A verdict, a question and a run of progress each keep their shape.
 private struct MessageRow: View {
-    @Bindable var store: RunStore
+    let store: RunStore
     let runId: String
     let message: Message
 
@@ -192,7 +194,7 @@ private struct MessageRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Machine ready, destroyed, budget spent: it happened, it is not speech.
+    /// Machine ready, destroyed, budget spent: not speech.
     private var eventRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "info.circle")
@@ -229,8 +231,6 @@ private struct MessageRow: View {
         }
     }
 
-    /// The agent's voice and the human's stand apart from system events and
-    /// from the coder, without any left/right alignment: this is a transcript.
     private var bubble: AnyShapeStyle? {
         switch message.from {
         case .verifier:
@@ -245,15 +245,12 @@ private struct MessageRow: View {
         }
     }
 
-    /// A `reply` is plain speech, so its kind adds nothing to read.
-    private var showsKind: Bool { message.kind != .reply }
-
     private var header: some View {
         HStack(spacing: 6) {
             Text(message.from.text)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(tint)
-            if showsKind {
+            if message.kind != .reply {
                 Text(message.kind.text)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -264,9 +261,6 @@ private struct MessageRow: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer()
-            // The time of day, not "2 days ago": two hundred rows that all
-            // read "2 days ago" say nothing about their order or their
-            // spacing. The age is a tooltip away.
             Text(Chrome.timeOfDay(message.at))
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.tertiary)
@@ -277,8 +271,7 @@ private struct MessageRow: View {
         }
     }
 
-    /// Only the human's seat is coloured. The agents are told apart by weight,
-    /// so that the strongest colour in the window stays the verdict.
+    /// Only the human is coloured, so the verdict stays the strongest colour.
     private var tint: Color {
         switch message.from {
         case .human: return .accentColor
@@ -288,16 +281,12 @@ private struct MessageRow: View {
     }
 }
 
-/// A message's body, with the little Markdown an agent actually writes: a
-/// heading is a heading, a fenced block and a table keep their columns, and
-/// `**bold**` and `` `code` `` stop being punctuation.
 private struct MessageText: View {
     let text: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // By position, never by content: a message that says the same
-            // thing twice must not hand the list two rows with one id.
+            // By position: block text can repeat.
             ForEach(Array(RichText.blocks(text).enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .heading(let title, let level):
@@ -325,9 +314,7 @@ private struct MessageText: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Inline Markdown only: emphasis, code spans and links. Whitespace is
-    /// preserved so the agent's own line breaks survive, which is what keeps a
-    /// bulleted list looking like one without a list parser.
+    /// Preserving whitespace keeps the agent's line breaks, and so its lists.
     private func inline(_ body: String) -> AttributedString {
         (try? AttributedString(
             markdown: body,
@@ -336,7 +323,6 @@ private struct MessageText: View {
     }
 }
 
-/// The verifier has the turn and has not answered yet.
 private struct ThinkingRow: View {
     var body: some View {
         HStack(spacing: 6) {
@@ -350,14 +336,15 @@ private struct ThinkingRow: View {
     }
 }
 
-/// A verdict is a proposal. A human closes it.
+/// A verdict is a proposal; a human accepts or disputes it.
 private struct VerdictBody: View {
-    @Bindable var store: RunStore
+    let store: RunStore
     let runId: String
     let message: Message
 
     @State private var disputing = false
     @State private var reason = ""
+    @State private var accepting = false
 
     private var state: VerdictState? { store.verdict(runId) }
 
@@ -385,10 +372,7 @@ private struct VerdictBody: View {
             MessageText(text: message.text)
             if let evidence = message.evidence, !evidence.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("EVIDENCE")
-                        .font(.system(size: 9, weight: .semibold))
-                        .tracking(0.6)
-                        .foregroundStyle(.tertiary)
+                    SectionCaption(title: "Evidence")
                     ForEach(evidence, id: \.self) { item in
                         Text(item)
                             .font(.caption.monospaced())
@@ -399,18 +383,21 @@ private struct VerdictBody: View {
             if canClose {
                 HStack(spacing: 8) {
                     Button("Accept") {
-                        Task { await store.send(runId: runId, kind: .accept, text: "accepted", replyTo: message.seq) }
+                        accepting = true
+                        Task {
+                            await store.send(runId: runId, kind: .accept, text: "accepted", replyTo: message.seq)
+                            accepting = false
+                        }
                     }
+                    .disabled(accepting)
                     Button(disputing ? "Cancel" : "Dispute") { disputing.toggle() }
+                        .disabled(accepting)
                 }
                 if disputing {
-                    HStack {
-                        TextField("Why the verdict is wrong, with evidence", text: $reason)
-                            .textFieldStyle(.roundedBorder)
-                            .sendOnReturn(enabled: !isBlank(reason), sendDispute)
-                        Button("Send dispute") { sendDispute() }
-                            .keyboardShortcut(.return, modifiers: .command)
-                            .disabled(isBlank(reason))
+                    ReplyField(prompt: "Why the verdict is wrong, with evidence", button: "Send dispute", text: $reason) { text in
+                        let sent = await store.send(runId: runId, kind: .dispute, text: text, replyTo: message.seq)
+                        if sent { disputing = false }
+                        return sent
                     }
                 }
             }
@@ -419,27 +406,16 @@ private struct VerdictBody: View {
         .padding(10)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
         .overlay(alignment: .leading) {
-            // One strong stroke, in the verdict's own colour: this is the row
-            // a reviewer is looking for.
             Rectangle()
                 .fill(Chrome.color(forVerdict: message.verdict))
                 .frame(width: 3)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
         }
     }
-
-    private func sendDispute() {
-        let text = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        reason = ""
-        disputing = false
-        Task { await store.send(runId: runId, kind: .dispute, text: text, replyTo: message.seq) }
-    }
 }
 
-/// A question ends the verifier's turn. Answering starts the next one.
 private struct QuestionBody: View {
-    @Bindable var store: RunStore
+    let store: RunStore
     let runId: String
     let message: Message
 
@@ -457,43 +433,25 @@ private struct QuestionBody: View {
                 MessageText(text: message.text)
             }
             if !answered {
-                HStack {
-                    TextField("Answer", text: $answer)
-                        .textFieldStyle(.roundedBorder)
-                        .sendOnReturn(enabled: !isBlank(answer), sendAnswer)
-                    Button("Reply") { sendAnswer() }
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .disabled(isBlank(answer))
+                ReplyField(prompt: "Answer", button: "Reply", text: $answer) { text in
+                    await store.send(runId: runId, kind: .answer, text: text, replyTo: message.seq)
                 }
             }
         }
     }
-
-    private func sendAnswer() {
-        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        answer = ""
-        Task { await store.send(runId: runId, kind: .answer, text: text, replyTo: message.seq) }
-    }
 }
 
-/// One verifier tool call. Collapsed to a line, because there are many.
-/// Clicking it also jumps the Screen tab to the frame at or after its step
-/// (ADR 0008).
+/// One verifier tool call, collapsed to a line. The chevron expands; the line
+/// seeks the Screen tab to its step (ADR 0008).
 private struct ProgressBody: View {
-    @Bindable var store: RunStore
+    let store: RunStore
     let runId: String
     let message: Message
 
     @State private var expanded = false
 
-    /// What the step did, at the grain the Steps tab reads it.
-    ///
-    /// The message's own text is the tool name and the raw JSON it was called
-    /// with, which is the debug dump this transcript is trying not to be. When
-    /// the app already holds the step's record, the summary comes from there
-    /// instead; the message's text is the fallback, and stays behind the
-    /// chevron either way.
+    /// The step's own summary when the record is held; else the first line of
+    /// the message, which is the tool name and raw JSON.
     private var headline: String {
         if let number = message.step,
            let step = (store.steps[runId] ?? []).first(where: { $0.seq == number }) {
@@ -509,9 +467,6 @@ private struct ProgressBody: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Two targets, the way the Steps tab has them: one click cannot
-            // both open the row and carry the person off to the Screen tab,
-            // because then the thing it opened is on a tab they have left.
             HStack(spacing: 6) {
                 Button {
                     expanded.toggle()

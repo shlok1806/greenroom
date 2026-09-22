@@ -8,14 +8,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
-// manualHelp is what Manual says when it is told to do something it does
-// not understand, or nothing at all. It is the whole grammar, so "help" is
-// also how a person learns it.
+// manualHelp is the whole instruction grammar.
 const manualHelp = `Instructions, one per line, case-insensitive first word:
   run <shell command>                       run a command on the machine
   screenshot                                capture the screen
@@ -27,23 +27,9 @@ const manualHelp = `Instructions, one per line, case-insensitive first word:
   ask <question>                            ask a question
   help                                      show this text`
 
-// verifierHolder is the screen-lease seat every computer-use call takes,
-// whether it reaches the machine through this package's own tool loop or
-// through the MCP machine_click family (internal/mcpserver/inputtools.go
-// hardcodes the same string, so a human sees the same name whichever path
-// posted the batch). The lease is held per call, not for the whole turn
-// (apps/daemon/CLAUDE.md, ADR 0009, issue #11): take it, post the batch,
-// release it, so a person watching the run can take the screen back between
-// calls rather than only between turns. The take-post-release sequence
-// itself lives once, in machine.Manager.InputAs (issue #12).
-const verifierHolder = "verifier"
-
-// Manual is a Brain with no model behind it: a person types instructions
-// into the same conversation a model-driven verifier would answer, and
-// Manual carries them out on the machine and posts the results back in the
-// same shapes (CLAUDE.md: the manual brain is the model brain with a person
-// for a model). It exists to test and demo the whole loop, the conversation,
-// the companion app, the recording, with nobody paying for tokens.
+// Manual is a Brain driven by a person's typed instructions instead of a
+// model. It posts the same message shapes as Verifier, so the whole loop can
+// be tested and demoed without a model.
 type Manual struct {
 	mgr *machine.Manager
 	log *slog.Logger
@@ -54,233 +40,142 @@ func NewManual(mgr *machine.Manager, log *slog.Logger) *Manual {
 	return &Manual{mgr: mgr, log: log}
 }
 
-// Turn reads the last turn-starting message in store, task, answer, dispute
-// or human note, and interprets its text as one instruction per line. It
-// always ends by posting exactly one reply, question or verdict, like the
-// model-driven verifier.
+// Turn runs the last turn-starting message's text as one instruction per
+// line, and always ends by posting exactly one reply, question or verdict.
 func (m *Manual) Turn(ctx context.Context, runID string, store *session.Store) (TurnResult, error) {
 	started := time.Now()
-	res := TurnResult{}
-
-	target := lastTurnStarter(store.After(0))
-	if target == nil {
-		m.postReply(store, "(nothing to do)")
-		res.Ended, res.Seconds = session.Reply, since(started)
-		return res, nil
-	}
-
-	lines := instructionLines(target.Text)
-	if len(lines) == 0 {
-		m.postReply(store, manualHelp)
-		res.Ended, res.Seconds = session.Reply, since(started)
-		return res, nil
-	}
-
-	var steps []int
-	var ran int
-	var exitCodes []int
-	var lastStdout string
-
-linesLoop:
-	for _, line := range lines {
-		verb, arg := splitInstruction(line)
-		res.Steps++
-		switch strings.ToLower(verb) {
-		case "run":
-			if why := unusable(ctx, m.mgr, runID); why != "" {
-				m.postReply(store, machineStatus(ctx, m.mgr, runID))
-				res.Ended = session.Reply
-				break linesLoop
-			}
-			result, err := m.mgr.Exec(ctx, runID, arg, "", execTimeout)
-			ran++
-			args, _ := json.Marshal(map[string]string{"command": arg})
-			var text string
-			if err != nil {
-				text = "machine_exec " + string(args) + "\nerror: " + err.Error()
-			} else {
-				text = "machine_exec " + string(args) + "\n" + execResultText(result)
-				exitCodes = append(exitCodes, result.ExitCode)
-				lastStdout = result.Stdout
-			}
-			if result.Step > 0 {
-				steps = append(steps, result.Step)
-			}
-			m.postProgress(store, text, result.Step)
-
-		case "screenshot":
-			if why := unusable(ctx, m.mgr, runID); why != "" {
-				m.postReply(store, machineStatus(ctx, m.mgr, runID))
-				res.Ended = session.Reply
-				break linesLoop
-			}
-			_, shot, err := m.mgr.Screenshot(ctx, runID)
-			seq := shot.Step
-			var text string
-			if err != nil {
-				text = fmt.Sprintf("machine_screenshot {}\nerror: %s", err.Error())
-			} else {
-				text = fmt.Sprintf("machine_screenshot {}\nstep %d\n%s\nThe image is saved at %s",
-					seq, shotGeometry(shot), shot.Path)
-			}
-			if seq > 0 {
-				steps = append(steps, seq)
-			}
-			m.postProgress(store, text, seq)
-
-		case "click":
-			if why := unusable(ctx, m.mgr, runID); why != "" {
-				m.postReply(store, machineStatus(ctx, m.mgr, runID))
-				res.Ended = session.Reply
-				break linesLoop
-			}
-			x, y, perr := parseTwoFloats(arg)
-			args, _ := json.Marshal(map[string]float64{"x": x, "y": y})
-			var text string
-			var step int
-			if perr != nil {
-				text = "machine_click " + string(args) + "\nerror: click needs two numbers, x and y, 0 to 1"
-			} else {
-				result, err := m.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{{Type: "click", X: &x, Y: &y}})
-				step = result.Step
-				if err != nil {
-					text = "machine_click " + string(args) + "\nerror: " + err.Error()
-				} else {
-					text = fmt.Sprintf("machine_click %s\nstep %d\nclicked (%.2f, %.2f)", args, step, x, y)
-				}
-			}
-			if step > 0 {
-				steps = append(steps, step)
-			}
-			m.postProgress(store, text, step)
-
-		case "type":
-			if why := unusable(ctx, m.mgr, runID); why != "" {
-				m.postReply(store, machineStatus(ctx, m.mgr, runID))
-				res.Ended = session.Reply
-				break linesLoop
-			}
-			args, _ := json.Marshal(map[string]string{"text": arg})
-			result, err := m.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{{Type: "type", Text: arg}})
-			var text string
-			if err != nil {
-				text = "machine_type " + string(args) + "\nerror: " + err.Error()
-			} else {
-				text = fmt.Sprintf("machine_type %s\nstep %d\ntyped %q", args, result.Step, arg)
-			}
-			if result.Step > 0 {
-				steps = append(steps, result.Step)
-			}
-			m.postProgress(store, text, result.Step)
-
-		case "key":
-			if why := unusable(ctx, m.mgr, runID); why != "" {
-				m.postReply(store, machineStatus(ctx, m.mgr, runID))
-				res.Ended = session.Reply
-				break linesLoop
-			}
-			fields := strings.Fields(arg)
-			var text string
-			var step int
-			if len(fields) == 0 {
-				text = "machine_key {}\nerror: key needs a key name, e.g. key a cmd shift"
-			} else {
-				key, mods := fields[0], fields[1:]
-				args, _ := json.Marshal(map[string]any{"key": key, "mods": mods})
-				result, err := m.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{{Type: "key", Key: key, Mods: mods}})
-				step = result.Step
-				if err != nil {
-					text = "machine_key " + string(args) + "\nerror: " + err.Error()
-				} else {
-					label := key
-					if len(mods) > 0 {
-						label = strings.Join(mods, "+") + "+" + key
-					}
-					text = fmt.Sprintf("machine_key %s\nstep %d\npressed %s", args, step, label)
-				}
-			}
-			if step > 0 {
-				steps = append(steps, step)
-			}
-			m.postProgress(store, text, step)
-
-		case "scroll":
-			if why := unusable(ctx, m.mgr, runID); why != "" {
-				m.postReply(store, machineStatus(ctx, m.mgr, runID))
-				res.Ended = session.Reply
-				break linesLoop
-			}
-			dx, dy, perr := parseTwoFloats(arg)
-			args, _ := json.Marshal(map[string]float64{"deltaX": dx, "deltaY": dy})
-			var text string
-			var step int
-			if perr != nil {
-				text = "machine_scroll " + string(args) + "\nerror: scroll needs two numbers, dx and dy"
-			} else {
-				result, err := m.mgr.InputAs(ctx, runID, verifierHolder, []machine.InputAction{{Type: "scroll", DeltaX: dx, DeltaY: dy}})
-				step = result.Step
-				if err != nil {
-					text = "machine_scroll " + string(args) + "\nerror: " + err.Error()
-				} else {
-					text = fmt.Sprintf("machine_scroll %s\nstep %d\nscrolled (deltaX %.0f, deltaY %.0f)", args, step, dx, dy)
-				}
-			}
-			if step > 0 {
-				steps = append(steps, step)
-			}
-			m.postProgress(store, text, step)
-
-		case "verdict":
-			word, summary := splitInstruction(arg)
-			verdict := strings.ToLower(strings.TrimSpace(word))
-			switch verdict {
-			case "pass", "fail", "inconclusive":
-			default:
-				verdict = "inconclusive"
-			}
-			m.postVerdict(store, verdict, orElse(strings.TrimSpace(summary), "(no summary)"), evidenceOf(steps))
-			res.Ended = session.Verdict
-			break linesLoop
-
-		case "ask":
-			m.postQuestion(store, orElse(strings.TrimSpace(arg), "(empty question)"))
-			res.Ended = session.Question
-			break linesLoop
-
-		default: // "help" and anything unrecognised
-			m.postReply(store, manualHelp)
-			res.Ended = session.Reply
-			break linesLoop
-		}
-	}
-
-	if res.Ended == "" {
-		m.postReply(store, summarizeRuns(ran, exitCodes, lastStdout))
+	var res TurnResult
+	if target := lastTurnStarter(store.After(0)); target == nil {
+		m.post(store, session.Message{Kind: session.Reply, Text: "(nothing to do)"})
 		res.Ended = session.Reply
+	} else {
+		res.Steps, res.Ended = m.follow(ctx, runID, store, instructionLines(target.Text))
 	}
 	res.Seconds = since(started)
 	return res, nil
 }
 
-func (m *Manual) postReply(store *session.Store, text string) {
-	appendMessage(m.log, store, session.Message{From: session.Verifier, Kind: session.Reply, Text: text})
+// runTally is what a turn's run instructions did, for the closing reply.
+type runTally struct {
+	steps      []int
+	ran        int
+	exitCodes  []int
+	lastStdout string
 }
 
-func (m *Manual) postQuestion(store *session.Store, text string) {
-	appendMessage(m.log, store, session.Message{From: session.Verifier, Kind: session.Question, Text: text})
+func (m *Manual) follow(ctx context.Context, runID string, store *session.Store, lines []string) (int, session.Kind) {
+	if len(lines) == 0 {
+		m.post(store, session.Message{Kind: session.Reply, Text: manualHelp})
+		return 0, session.Reply
+	}
+	var t runTally
+	for i, line := range lines {
+		steps := i + 1
+		verb, arg := splitInstruction(line)
+		switch verb = strings.ToLower(verb); verb {
+		case "verdict":
+			word, summary := splitInstruction(arg)
+			m.post(store, session.Message{Kind: session.Verdict, Verdict: normalVerdict(word),
+				Text: orElse(strings.TrimSpace(summary), "(no summary)"), Evidence: evidenceOf(t.steps)})
+			return steps, session.Verdict
+		case "ask":
+			m.post(store, session.Message{Kind: session.Question, Text: orElse(strings.TrimSpace(arg), "(empty question)")})
+			return steps, session.Question
+		case "run", "screenshot", "click", "type", "key", "scroll":
+			if unusable(ctx, m.mgr, runID) != "" {
+				m.post(store, session.Message{Kind: session.Reply, Text: machineStatus(ctx, m.mgr, runID)})
+				return steps, session.Reply
+			}
+			call, result, step := m.do(ctx, runID, verb, arg, &t)
+			if step > 0 {
+				t.steps = append(t.steps, step)
+			}
+			m.post(store, session.Message{Kind: session.Progress, Text: progressText(call, result), Step: step})
+		default: // "help" and anything unrecognised
+			m.post(store, session.Message{Kind: session.Reply, Text: manualHelp})
+			return steps, session.Reply
+		}
+	}
+	m.post(store, session.Message{Kind: session.Reply, Text: summarizeRuns(t.ran, t.exitCodes, t.lastStdout)})
+	return len(lines), session.Reply
 }
 
-func (m *Manual) postProgress(store *session.Store, text string, step int) {
-	appendMessage(m.log, store, session.Message{From: session.Verifier, Kind: session.Progress, Text: text, Step: step})
+// do runs one machine instruction as the equivalent model tool call, so the
+// progress text matches what Verifier would post.
+func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (call nim.ToolCall, result string, step int) {
+	switch verb {
+	case "run":
+		call = callOf("machine_exec", map[string]string{"command": arg})
+		res, err := m.mgr.Exec(ctx, runID, arg, "", execTimeout)
+		t.ran++
+		if err != nil {
+			return call, "error: " + err.Error(), res.Step
+		}
+		t.exitCodes = append(t.exitCodes, res.ExitCode)
+		t.lastStdout = res.Stdout
+		return call, execResultText(res), res.Step
+
+	case "screenshot":
+		call = nim.ToolCall{Name: "machine_screenshot", Arguments: "{}"}
+		_, shot, err := m.mgr.Screenshot(ctx, runID)
+		if err != nil {
+			return call, "error: " + err.Error(), shot.Step
+		}
+		return call, fmt.Sprintf("step %d\n%s\nThe image is saved at %s", shot.Step, shotGeometry(shot), shot.Path), shot.Step
+
+	case "click":
+		x, y, err := parseTwoFloats(arg)
+		call = callOf("machine_click", map[string]float64{"x": x, "y": y})
+		if err != nil {
+			return call, "error: click needs two numbers, x and y, 0 to 1", 0
+		}
+		result, step = postInput(ctx, m.mgr, runID, fmt.Sprintf("clicked (%.2f, %.2f)", x, y),
+			machine.InputAction{Type: "click", X: &x, Y: &y})
+		return call, result, step
+
+	case "type":
+		call = callOf("machine_type", map[string]string{"text": arg})
+		if arg == "" {
+			return call, "error: machine_type needs text", 0
+		}
+		result, step = postInput(ctx, m.mgr, runID, fmt.Sprintf("typed %q", arg),
+			machine.InputAction{Type: "type", Text: arg})
+		return call, result, step
+
+	case "key":
+		fields := strings.Fields(arg)
+		if len(fields) == 0 {
+			return nim.ToolCall{Name: "machine_key", Arguments: "{}"}, "error: key needs a key name, e.g. key a cmd shift", 0
+		}
+		key, mods := fields[0], fields[1:]
+		call = callOf("machine_key", map[string]any{"key": key, "mods": mods})
+		result, step = postInput(ctx, m.mgr, runID, "pressed "+keyLabel(key, mods),
+			machine.InputAction{Type: "key", Key: key, Mods: mods})
+		return call, result, step
+
+	default: // scroll
+		dx, dy, err := parseTwoFloats(arg)
+		call = callOf("machine_scroll", map[string]float64{"deltaX": dx, "deltaY": dy})
+		if err != nil {
+			return call, "error: scroll needs two numbers, dx and dy", 0
+		}
+		result, step = postInput(ctx, m.mgr, runID, fmt.Sprintf("scrolled (deltaX %.0f, deltaY %.0f)", dx, dy),
+			machine.InputAction{Type: "scroll", DeltaX: dx, DeltaY: dy})
+		return call, result, step
+	}
 }
 
-func (m *Manual) postVerdict(store *session.Store, verdict, summary string, evidence []string) {
-	appendMessage(m.log, store, session.Message{From: session.Verifier, Kind: session.Verdict, Verdict: verdict, Text: summary, Evidence: evidence})
+func (m *Manual) post(store *session.Store, msg session.Message) {
+	msg.From = session.Verifier
+	appendMessage(m.log, store, msg)
 }
 
-// lastTurnStarter returns the last message in msgs that should be read as an
-// instruction, or nil. It is what Manual answers, the same message an
-// actor's loop decided the turn was for.
+func callOf(name string, args any) nim.ToolCall {
+	b, _ := json.Marshal(args)
+	return nim.ToolCall{Name: name, Arguments: string(b)}
+}
+
+// lastTurnStarter returns the last turn-starting message in msgs, or nil.
 func lastTurnStarter(msgs []session.Message) *session.Message {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].StartsTurn() {
@@ -301,7 +196,7 @@ func instructionLines(text string) []string {
 	return out
 }
 
-// splitInstruction takes one line apart into its first word and the rest.
+// splitInstruction splits a line into its first word and the trimmed rest.
 func splitInstruction(line string) (verb, rest string) {
 	line = strings.TrimSpace(line)
 	i := strings.IndexAny(line, " \t")
@@ -311,8 +206,7 @@ func splitInstruction(line string) (verb, rest string) {
 	return line[:i], strings.TrimSpace(line[i+1:])
 }
 
-// parseTwoFloats reads exactly two whitespace-separated numbers out of arg,
-// the shape click, scroll and any future two-number instruction share.
+// parseTwoFloats reads exactly two whitespace-separated numbers.
 func parseTwoFloats(arg string) (a, b float64, err error) {
 	fields := strings.Fields(arg)
 	if len(fields) != 2 {
@@ -327,8 +221,7 @@ func parseTwoFloats(arg string) (a, b float64, err error) {
 	return a, b, nil
 }
 
-// evidenceOf turns the steps a turn produced into the "step N" strings a
-// verdict cites, the same shape the model-driven verifier uses.
+// evidenceOf formats steps as the "step N" strings a verdict cites.
 func evidenceOf(steps []int) []string {
 	out := make([]string, len(steps))
 	for i, s := range steps {
@@ -337,16 +230,20 @@ func evidenceOf(steps []int) []string {
 	return out
 }
 
-// summarizeRuns is the reply Manual gives when a turn ran commands but
-// nobody told it to end with a verdict or a question.
+// summarizeRuns is the reply to a turn that ran commands without ending in a
+// verdict or question.
 func summarizeRuns(ran int, exitCodes []int, lastStdout string) string {
 	codes := make([]string, len(exitCodes))
 	for i, c := range exitCodes {
-		codes[i] = fmt.Sprintf("%d", c)
+		codes[i] = strconv.Itoa(c)
 	}
 	tail := strings.TrimSpace(lastStdout)
 	if len(tail) > 200 {
-		tail = tail[len(tail)-200:]
+		i := len(tail) - 200
+		for i < len(tail) && !utf8.RuneStart(tail[i]) {
+			i++
+		}
+		tail = tail[i:]
 	}
 	return fmt.Sprintf("ran %d commands; exit codes: %s; last stdout tail: %s", ran, strings.Join(codes, ", "), tail)
 }

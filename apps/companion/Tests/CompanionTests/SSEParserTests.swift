@@ -2,9 +2,23 @@ import XCTest
 
 @testable import Companion
 
+private func parse(_ text: String) throws -> [ServerEvent] {
+    var parser = SSEParser()
+    var events: [ServerEvent] = []
+    for line in text.components(separatedBy: "\n") + [""] {
+        if let event = try parser.consume(line) { events.append(event) }
+    }
+    return events
+}
+
+private func lines(of bytes: [UInt8]) -> [String] {
+    var splitter = SSELineSplitter()
+    var lines = bytes.compactMap { splitter.consume($0) }
+    if let last = splitter.flush() { lines.append(last) }
+    return lines
+}
+
 final class SSEParserTests: XCTestCase {
-    /// Two frames, a multi-line data field, a heartbeat comment and an event
-    /// kind the app does not know. Nothing here may throw or crash.
     func testParsesAStream() throws {
         let body = """
         : heartbeat
@@ -26,7 +40,7 @@ final class SSEParserTests: XCTestCase {
 
         """
 
-        let events = try SSEParser.parse(body)
+        let events = try parse(body)
         XCTAssertEqual(events.count, 3)
 
         guard case .run(let lifecycle) = events[0] else { return XCTFail("first event is not a run event") }
@@ -49,8 +63,6 @@ final class SSEParserTests: XCTestCase {
         XCTAssertNil(step)
     }
 
-    /// A whole step record in the same field decodes too, so a daemon that
-    /// starts sending one needs no change here.
     func testAStepEventCarryingTheWholeRecord() throws {
         var parser = SSEParser()
         XCTAssertNil(try parser.consume("event: step"))
@@ -72,8 +84,7 @@ final class SSEParserTests: XCTestCase {
         XCTAssertEqual(message.from, .human)
     }
 
-    /// A recorded frame (ADR 0008): the daemon flattens the frame's fields
-    /// into the event rather than nesting them under a `frame` key.
+    /// The daemon flattens the frame's fields into the envelope.
     func testAFrameEventDecodes() throws {
         var parser = SSEParser()
         XCTAssertNil(try parser.consume("event: frame"))
@@ -98,22 +109,16 @@ final class SSEParserTests: XCTestCase {
     }
 }
 
-/// The bug these cover: the stream used to be cut into lines by
-/// `URLSession.AsyncBytes.lines`, which drops empty lines. In server-sent
-/// events the empty line *is* the frame terminator, so every frame stayed
-/// open, `dispatch()` never ran, and no verifier message ever reached the
-/// store until something else refetched the transcript.
+/// `AsyncBytes.lines` drops blank lines, which terminate SSE frames.
 final class SSELineSplitterTests: XCTestCase {
-    /// The blank line between two frames has to survive the split.
     func testBlankLinesSurvive() {
         let body = "event: message\ndata: {}\n\nevent: frame\ndata: {}\n\n"
         XCTAssertEqual(
-            SSELineSplitter.lines(of: Array(body.utf8)),
+            lines(of: Array(body.utf8)),
             ["event: message", "data: {}", "", "event: frame", "data: {}", ""]
         )
     }
 
-    /// Byte by byte, as the network delivers it, two whole events come out.
     func testAByteStreamDispatchesEveryEvent() throws {
         let body = """
         : ping
@@ -144,7 +149,6 @@ final class SSELineSplitterTests: XCTestCase {
         XCTAssertEqual(reply.text, "it builds")
     }
 
-    /// A last line with no closing newline is not swallowed.
     func testFlushReturnsATrailingPartialLine() {
         var splitter = SSELineSplitter()
         for byte in Array("a\nb".utf8) { _ = splitter.consume(byte) }
@@ -152,8 +156,7 @@ final class SSELineSplitterTests: XCTestCase {
         XCTAssertNil(splitter.flush())
     }
 
-    /// CRLF framing leaves the `\r` for the parser, which strips it.
     func testCarriageReturnsAreLeftForTheParser() {
-        XCTAssertEqual(SSELineSplitter.lines(of: Array("event: run\r\n\r\n".utf8)), ["event: run\r", "\r"])
+        XCTAssertEqual(lines(of: Array("event: run\r\n\r\n".utf8)), ["event: run\r", "\r"])
     }
 }

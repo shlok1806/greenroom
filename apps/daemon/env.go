@@ -6,10 +6,8 @@ import (
 	"strings"
 )
 
-// loadEnvFile reads KEY=VALUE lines from path into the process environment.
-// It never overwrites a variable that is already set, so an explicit export
-// still wins. A missing file is not an error: the daemon runs without a
-// model, it just does not offer machine_verify.
+// loadEnvFile sets KEY=VALUE lines from path into the environment without overriding variables already set.
+// A missing file is fine: the daemon then runs without a model verifier.
 func loadEnvFile(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -31,7 +29,7 @@ func loadEnvFile(path string) error {
 			continue
 		}
 		key = strings.TrimSpace(strings.TrimPrefix(key, "export "))
-		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		value = envValue(value)
 		if key == "" {
 			continue
 		}
@@ -43,4 +41,21 @@ func loadEnvFile(path string) error {
 		}
 	}
 	return sc.Err()
+}
+
+// envValue unquotes a matching quote pair; an unquoted value ends at a # that follows whitespace.
+func envValue(raw string) string {
+	v := strings.TrimSpace(raw)
+	if v != "" && (v[0] == '"' || v[0] == '\'') {
+		if end := strings.IndexByte(v[1:], v[0]); end >= 0 {
+			return v[1 : end+1]
+		}
+		return v
+	}
+	for i := 1; i < len(raw); i++ {
+		if raw[i] == '#' && (raw[i-1] == ' ' || raw[i-1] == '\t') {
+			return strings.TrimSpace(raw[:i])
+		}
+	}
+	return v
 }

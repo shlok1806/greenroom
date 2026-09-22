@@ -1,4 +1,4 @@
-// Package mcpserver exposes machines to agents as MCP tools.
+// Package mcpserver exposes machines and their conversations to agents as MCP tools.
 package mcpserver
 
 import (
@@ -22,14 +22,11 @@ const Version = "0.0.2"
 
 const (
 	defaultWait = 45 * time.Second
-	maxWait     = 50 * time.Second // stay under the MCP client's 60 s first-byte timer
+	maxWait     = 50 * time.Second // under the MCP client's 60 s first-byte timer
 	jpegQuality = 80
 )
 
-// New builds the MCP server over mgr. defaultImage is used when a caller
-// does not name one, and reg is the conversation store every agent_* tool
-// speaks into. The verifier is not passed in: it is an actor that reacts to
-// the conversation, so this layer only needs the registry (ADR 0006).
+// New builds the MCP server over mgr and reg. defaultImage is used when machine_create names none.
 func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "greenroom", Version: Version}, &mcp.ServerOptions{
 		Instructions: "greenroom gives you a disposable macOS machine. Call machine_create once and keep its runId, " +
@@ -48,8 +45,8 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_create",
 		Description: "Clone and start a fresh macOS machine. Returns at once with status booting and the runId every " +
-			"other tool needs. Call machine_wait next; boot takes 30 to 90 seconds. Pass watch true to show the " +
-			"screen while the machine works, which is what a person wants when they are looking on.",
+			"other tool needs. Call machine_wait next; boot takes 30 to 90 seconds. Pass watch true when a person " +
+			"wants to see the screen while the machine works.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, *machine.Machine, error) {
 		image := in.Image
 		if image == "" {
@@ -67,11 +64,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 		Description: "Wait for a machine to finish booting. Returns its status: booting (call again), ready (ip and " +
 			"bootSeconds are set), or failed (error is set).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitIn) (*mcp.CallToolResult, *machine.Machine, error) {
-		timeout := defaultWait
-		if in.TimeoutSeconds > 0 {
-			timeout = min(time.Duration(in.TimeoutSeconds)*time.Second, maxWait)
-		}
-		return wrap(mgr.Wait(ctx, in.RunID, timeout))
+		return wrap(mgr.Wait(ctx, in.RunID, waitTimeout(in.TimeoutSeconds)))
 	})
 
 	type listOut struct {
@@ -80,7 +73,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "machine_list",
 		Description: "List live machines with their runIds and status, for example to pick up a machine from an earlier session.",
-	}, func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listOut, error) {
+	}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, listOut, error) {
 		return nil, listOut{Machines: mgr.List()}, nil
 	})
 
@@ -118,17 +111,16 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 		return nil, res, err
 	})
 
-	type screenshotIn struct {
+	type runIn struct {
 		RunID string `json:"runId" jsonschema:"runId from machine_create"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_screenshot",
-		Description: "Capture the machine's screen. Returns a JPEG of the screen to look at, the path of the " +
-			"lossless PNG saved in the run directory, and the image's size in pixels. The guest draws on a " +
-			"Retina display, so the image is bigger than the desktop it shows and scale says by how much. " +
-			"Aim clicks as a fraction of this image, x divided by width and y divided by height, never in " +
-			"pixels: machine_click takes 0 to 1.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in screenshotIn) (*mcp.CallToolResult, machine.Shot, error) {
+		Description: "Capture the machine's screen. Returns a JPEG to look at, the path of the lossless PNG saved in " +
+			"the run directory, and the image's size in pixels. The guest has a Retina display, so the image is " +
+			"larger than the desktop it shows; scale says by how much. Aim clicks as a fraction of this image " +
+			"(x divided by width, y divided by height), never in pixels: machine_click takes 0 to 1.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, machine.Shot, error) {
 		pngBytes, out, err := mgr.Screenshot(ctx, in.RunID)
 		if err != nil {
 			return nil, machine.Shot{}, err
@@ -146,20 +138,14 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 		}, out, nil
 	})
 
-	type destroyIn struct {
-		RunID string `json:"runId" jsonschema:"runId from machine_create"`
-	}
 	type destroyOut struct {
 		OK bool `json:"ok"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "machine_destroy",
 		Description: "Stop and delete the machine. The run's recording stays on disk.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in destroyIn) (*mcp.CallToolResult, destroyOut, error) {
-		// A human watching the run learns of this from the conversation, but
-		// nothing is posted here: the daemon's lifecycle bridge announces a
-		// destroy from the manager's own event, after the machine has really
-		// gone away.
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, destroyOut, error) {
+		// Nothing is posted here: main.go's lifecycle bridge announces the destroy once it has happened.
 		if err := mgr.Destroy(ctx, in.RunID); err != nil {
 			return nil, destroyOut{}, err
 		}
@@ -169,16 +155,23 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	addAgentTools(s, reg)
 	addInputTools(s, mgr)
 	addSessionTools(s, mgr)
-
 	return s
 }
 
-// wrap adapts (value, error) pairs to the handler's three return values.
+// wrap adapts a (machine, error) pair to a tool handler's three results.
 func wrap(mc *machine.Machine, err error) (*mcp.CallToolResult, *machine.Machine, error) {
 	if err != nil {
 		return nil, nil, err
 	}
 	return nil, mc, nil
+}
+
+// waitTimeout turns a caller's timeoutSeconds into a wait: defaultWait when unset, capped at maxWait.
+func waitTimeout(seconds int) time.Duration {
+	if seconds <= 0 {
+		return defaultWait
+	}
+	return min(time.Duration(seconds)*time.Second, maxWait)
 }
 
 func toJPEG(pngBytes []byte) ([]byte, error) {

@@ -1,7 +1,7 @@
 # 0009. A human can take the machine's mouse and keyboard, under a lease the run records
 
 Date: 2026-09-20
-Status: proposed
+Status: accepted (implemented)
 
 ## Context
 

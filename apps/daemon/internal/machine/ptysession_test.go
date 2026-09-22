@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// The window is what keeps a runaway build out of the daemon's memory. When
-// it overflows the oldest bytes go, and a caller that was behind them is told
-// how many, because a gap it cannot see is worse than no output at all.
+// An overflowing window drops the oldest bytes and reports how many.
 func TestTheOutputWindowDropsTheOldestAndSaysSo(t *testing.T) {
 	s := newStream(10)
 	if _, err := s.Write([]byte("0123456789")); err != nil {
@@ -74,8 +72,6 @@ func TestAReadIsCappedAndReportsWhatIsLeft(t *testing.T) {
 	}
 }
 
-// A pty carries what a terminal would act on. A model reading build output
-// gets nothing from it but noise, so it goes before the text is handed on.
 func TestCleanTTYLeavesTheTextAndDropsTheTerminalCodes(t *testing.T) {
 	for _, c := range []struct{ name, in, want string }{
 		{"colour", "\x1b[32mPASS\x1b[0m tests", "PASS tests"},
@@ -94,25 +90,17 @@ func TestCleanTTYLeavesTheTextAndDropsTheTerminalCodes(t *testing.T) {
 	}
 }
 
-// Output has to be valid UTF-8 to travel in a tool result, and a build can
-// print anything at all.
 func TestCleanTTYRepairsBrokenBytes(t *testing.T) {
 	got := cleanTTY("ok \xff\xfe done")
 	if !strings.HasPrefix(got, "ok ") || !strings.HasSuffix(got, " done") {
 		t.Errorf("cleanTTY mangled the readable text: %q", got)
 	}
-	for i, r := range got {
-		if r == '�' {
-			return
-		}
-		_ = i
+	if !strings.ContainsRune(got, '�') {
+		t.Errorf("the broken bytes were not replaced: %q", got)
 	}
-	t.Errorf("the broken bytes were not replaced: %q", got)
 }
 
-// A read ends wherever the stream happens to, which can split an escape
-// sequence, a multi-byte character or a CR LF pair. Read in pieces, the text
-// must come out exactly as it would have read whole.
+// Text read in arbitrary pieces must equal the text read whole.
 func TestAReadNeverSplitsASequenceOrACharacter(t *testing.T) {
 	whole := "a\x1b[31mred\x1b[0m €uro\r\nend\x1b]0;title\x07!"
 	pieces := []string{"a\x1b[3", "1mred\x1b[0m \xe2\x82", "\xacuro\r", "\nend\x1b]0;ti", "tle\x07!"}

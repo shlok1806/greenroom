@@ -1,6 +1,8 @@
 package mcpserver
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,8 +22,7 @@ type transcriptResult struct {
 	Verdict  session.VerdictState `json:"verdict"`
 }
 
-// store is the run's conversation as the verifier or a human would reach it,
-// which is what lets these tests play the other side without a model.
+// store opens the run's conversation so a test can play the verifier or a human.
 func (h *harness) store(runID string) *session.Store {
 	h.t.Helper()
 	s, err := h.reg.Get(runID)
@@ -53,7 +54,7 @@ func TestAgentSendTaskThenTranscriptThenAnEmptyWait(t *testing.T) {
 		t.Errorf("last = %d, verdict = %+v, want 1 and no verdict", tr.Last, tr.Verdict)
 	}
 
-	// Nothing has answered, so the wait must time out empty rather than fail.
+	// Nothing answers, so the wait times out empty rather than failing.
 	started := time.Now()
 	var waited transcriptResult
 	h.call("agent_wait", map[string]any{"runId": runID, "after": 1, "timeoutSeconds": 1}, &waited)
@@ -92,7 +93,6 @@ func TestAgentWaitUnblocksWhenTheVerifierSpeaks(t *testing.T) {
 		t.Errorf("the wait blocked for %v although a message arrived at once", elapsed)
 	}
 
-	// The answer the question needs goes back the same way.
 	var sent sendResult
 	h.call("agent_send", map[string]any{"runId": runID, "kind": "answer", "text": "The Debug scheme.", "replyTo": got.Messages[0].Seq}, &sent)
 	if sent.Seq != 3 {
@@ -138,8 +138,7 @@ func TestTheThirdDisputeIsRefusedAsContested(t *testing.T) {
 		return m.Seq
 	}
 
-	// Two disputes are the coder's budget; the verifier restates its verdict
-	// after each one.
+	// Two disputes are the coder's budget.
 	for i := 0; i < 2; i++ {
 		seq := propose()
 		h.call("agent_send", map[string]any{"runId": runID, "kind": "dispute", "text": "You built the wrong scheme.", "replyTo": seq}, nil)
@@ -166,9 +165,7 @@ func TestTheThirdDisputeIsRefusedAsContested(t *testing.T) {
 func TestDestroyIsAnnouncedByTheLifecycleBridge(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
-	// The tool itself posts nothing: the daemon announces a destroy from the
-	// manager's own lifecycle, after the machine has really gone away. This
-	// test subscribes the way the daemon's bridge does.
+	// machine_destroy posts nothing itself; subscribe the way main.go's lifecycle bridge does.
 	store := h.store(runID)
 	posted := make(chan struct{})
 	stop := h.mgr.Listen(func(ev machine.LifecycleEvent) {
@@ -203,5 +200,35 @@ func TestDestroyIsAnnouncedByTheLifecycleBridge(t *testing.T) {
 	}
 	if want := tr.Messages[len(tr.Messages)-1].Seq; tr.Last != want {
 		t.Errorf("last = %d, want the seq of the last message, %d", tr.Last, want)
+	}
+}
+
+func TestAgentToolsRefuseARunIdThatLeavesRuns(t *testing.T) {
+	h := newHarness(t)
+	// Real directories where "." and "../x" would land, so only validation can refuse them.
+	for _, dir := range []string{filepath.Join(h.root, "runs"), filepath.Join(h.root, "x")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, runID := range []string{"../x", ".", "..", `..\x`, "a/b"} {
+		for tool, args := range map[string]map[string]any{
+			"agent_send":       {"runId": runID, "kind": "task", "text": "escape"},
+			"agent_wait":       {"runId": runID, "timeoutSeconds": 1},
+			"agent_transcript": {"runId": runID},
+		} {
+			if res := h.raw(tool, args); !res.IsError {
+				t.Errorf("%s accepted runId %q", tool, runID)
+			}
+		}
+	}
+	err := filepath.WalkDir(h.root, func(path string, d os.DirEntry, err error) error {
+		if err == nil && d.Name() == "conversation.jsonl" {
+			t.Errorf("a conversation was written at %s", path)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

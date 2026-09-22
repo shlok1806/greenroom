@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,23 +20,14 @@ import (
 
 // Client runs tart commands.
 type Client struct {
-	Bin string
-
-	// source records which candidate Bin came from, for the startup log
-	// line. It is only ever set by New: a Client built directly, which is
-	// what tests do, reports an empty source and that is honest.
-	source Source
+	Bin    string
+	source Source // set only by New/NewAt; empty for a Client built directly
 }
 
-// New returns a Client driving the pinned tart if it is installed, falling
-// back to PATH. See version.go for why the daemon pins one at all.
-func New() *Client {
-	r := Resolve("")
-	return &Client{Bin: r.Bin, source: r.Source}
-}
+// New returns a Client driving the pinned tart if installed, else tart on PATH.
+func New() *Client { return NewAt("") }
 
-// NewAt returns a Client driving an explicitly chosen binary, with the same
-// resolution rules applied when the choice is empty.
+// NewAt returns a Client driving bin, resolved as Resolve does.
 func NewAt(bin string) *Client {
 	r := Resolve(bin)
 	return &Client{Bin: r.Bin, source: r.Source}
@@ -86,10 +79,7 @@ func (c *Client) Stop(ctx context.Context, name string) error {
 // IP returns the guest's IP address, or an error if it has none yet.
 func (c *Client) IP(ctx context.Context, name string) (string, error) {
 	out, err := c.run(ctx, "ip", name)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(out), nil
+	return strings.TrimSpace(out), err
 }
 
 // List returns all local VMs.
@@ -105,104 +95,18 @@ func (c *Client) List(ctx context.Context) ([]VM, error) {
 	return vms, nil
 }
 
-// VNCURL returns the address of the VM's screen, once tart has printed it.
-// It is empty for a machine started without graphics. tart writes the line
-// "Opening vnc://..." to its log a moment after start, so this waits.
-func (p *Process) VNCURL(timeout time.Duration) string {
-	deadline := time.Now().Add(timeout)
-	for {
-		data, err := os.ReadFile(p.logPath)
-		if err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
-				if i := strings.Index(line, "vnc://"); i >= 0 {
-					return strings.TrimRight(strings.TrimSpace(line[i:]), ".")
-				}
-			}
-		}
-		if p.Exited() || time.Now().After(deadline) {
-			return ""
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-}
-
-// Process is a running `tart run` subprocess. A VM that cannot start makes
-// tart exit at once and print the reason to its log, so callers watch the
-// process while they wait for the guest to come up.
+// Process is a running `tart run`. tart stays in the foreground for the life
+// of the VM, so an exit means the VM is gone and the log says why.
 type Process struct {
+	*child
 	name    string
 	logPath string
-	cmd     *exec.Cmd
-	done    chan struct{}
-	waitErr error // written before done is closed
-}
-
-// Kill stops the tart process. A VM normally goes away through `tart stop`,
-// so this is for the cases where the subprocess must be ended directly.
-func (p *Process) Kill() error {
-	if p.cmd == nil || p.cmd.Process == nil {
-		return nil
-	}
-	return p.cmd.Process.Kill()
-}
-
-// Exited reports whether the tart process has stopped. A VM that is running
-// keeps its process alive, so an exit during boot means the VM is gone.
-func (p *Process) Exited() bool {
-	select {
-	case <-p.done:
-		return true
-	default:
-		return false
-	}
-}
-
-// Wait blocks until the process stops. It is how a caller watches a VM for
-// the whole of its life rather than polling Exited, and it may be called by
-// any number of goroutines: the channel it waits on is only ever closed.
-func (p *Process) Wait() {
-	<-p.done
-}
-
-// Err explains why the process stopped. It prefers what tart printed,
-// because that names the real cause, for example the host VM limit.
-func (p *Process) Err() error {
-	if !p.Exited() {
-		return nil
-	}
-	if msg := p.tail(); msg != "" {
-		return fmt.Errorf("tart run %s exited: %s", p.name, msg)
-	}
-	if p.waitErr != nil {
-		return fmt.Errorf("tart run %s exited: %w", p.name, p.waitErr)
-	}
-	return fmt.Errorf("tart run %s exited", p.name)
-}
-
-// tail returns the last few lines that tart wrote, which is where it puts
-// the reason a VM could not start.
-func (p *Process) tail() string {
-	data, err := os.ReadFile(p.logPath)
-	if err != nil {
-		return ""
-	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) > logTailLines {
-		lines = lines[len(lines)-logTailLines:]
-	}
-	return strings.TrimSpace(strings.Join(lines, "; "))
 }
 
 const logTailLines = 3
 
-// Start boots a VM in its own process group so it outlives the daemon.
-// Output goes to logPath. The caller does not wait on the process; a
-// goroutine reaps it and records why it stopped.
-//
-// A watched machine runs its screen over VNC so a person can see the work as
-// it happens. An unwatched machine runs headless, which is the default,
-// because a screen costs the host work that a machine nobody looks at does
-// not need.
+// Start boots a VM in its own process group so it outlives the daemon, with
+// output appended to logPath. watch runs it with a VNC screen, else headless.
 func (c *Client) Start(name, logPath string, watch bool) (*Process, error) {
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
@@ -216,23 +120,71 @@ func (c *Client) Start(name, logPath string, watch bool) (*Process, error) {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
+	ch, err := startChild(cmd, func() { _ = logFile.Close() })
+	if err != nil {
 		_ = logFile.Close()
 		return nil, fmt.Errorf("tart run %s: %w", name, err)
 	}
-	p := &Process{name: name, logPath: logPath, cmd: cmd, done: make(chan struct{})}
-	go func() {
-		p.waitErr = cmd.Wait()
-		_ = logFile.Close()
-		close(p.done)
-	}()
-	return p, nil
+	return &Process{child: ch, name: name, logPath: logPath}, nil
 }
 
-// Exec runs a command inside the guest through the Tart guest agent. A
-// non-zero exit status from the guest command is reported in ExitCode, not
-// as an error. Errors are for failures of tart itself (VM not running, agent
-// unreachable, context cancelled).
+// Kill ends the tart process group directly; the normal path is `tart stop`.
+func (p *Process) Kill() error { return p.kill() }
+
+// Exited reports whether the tart process has stopped.
+func (p *Process) Exited() bool { return p.exited() }
+
+// Wait blocks until the process stops. Safe from any number of goroutines.
+func (p *Process) Wait() { <-p.done }
+
+// Err explains why the process stopped, preferring the tail of tart's log
+// because that names the real cause (for example the host VM limit).
+func (p *Process) Err() error {
+	if !p.Exited() {
+		return nil
+	}
+	if msg := p.tail(); msg != "" {
+		return fmt.Errorf("tart run %s exited: %s", p.name, msg)
+	}
+	if p.waitErr != nil {
+		return fmt.Errorf("tart run %s exited: %w", p.name, p.waitErr)
+	}
+	return fmt.Errorf("tart run %s exited", p.name)
+}
+
+func (p *Process) tail() string {
+	data, err := os.ReadFile(p.logPath)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) > logTailLines {
+		lines = lines[len(lines)-logTailLines:]
+	}
+	return strings.TrimSpace(strings.Join(lines, "; "))
+}
+
+// VNCURL waits up to timeout for tart to log its "vnc://" address and returns
+// it, or "" for a headless VM or one that exited.
+func (p *Process) VNCURL(timeout time.Duration) string {
+	deadline := time.Now().Add(timeout)
+	for {
+		if data, err := os.ReadFile(p.logPath); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				if i := strings.Index(line, "vnc://"); i >= 0 {
+					return strings.TrimRight(strings.TrimSpace(line[i:]), ".")
+				}
+			}
+		}
+		if p.Exited() || time.Now().After(deadline) {
+			return ""
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// Exec runs a command in the guest via the guest agent. A non-zero guest exit
+// is reported in ExitCode, not as an error: errors mean tart itself failed.
 func (c *Client) Exec(ctx context.Context, name string, args ...string) (ExecResult, error) {
 	cmd := exec.CommandContext(ctx, c.Bin, append([]string{"exec", name}, args...)...)
 	var stdout, stderr bytes.Buffer
@@ -250,188 +202,190 @@ func (c *Client) Exec(ctx context.Context, name string, args ...string) (ExecRes
 	if !errors.As(err, &exitErr) {
 		return res, fmt.Errorf("tart exec %s: %w", name, err)
 	}
-	if isTartFailure(res.Stderr) {
+	if isTartFailure(exitErr.ExitCode(), res.Stderr) {
 		return res, fmt.Errorf("tart exec %s: %s", name, strings.TrimSpace(res.Stderr))
 	}
 	res.ExitCode = exitErr.ExitCode()
 	return res, nil
 }
 
-// Session is a command running inside a guest behind a pseudo-terminal, with
-// its input and output attached to this process for as long as it lives.
-//
-// It exists because `Exec` is one shot: it runs a command, waits, and
-// returns, so nothing that needs state between calls has anywhere to live.
-// A Session is the long-running `tart exec -i -t` child itself, so the handle
-// the daemon keeps is a host process it owns rather than a process id inside
-// the guest that it would have to trust and could not reliably kill.
-//
-// `-t` is what makes isatty() true for the guest command, which xcodebuild,
-// swift build, git and most test runners branch on. `-i` attaches stdin, so
-// the command can be typed at.
-//
-// tart is driven through a host-side pty rather than through pipes, and that
-// is not a detail: `-t` makes tart read its own stdin's terminal size to
-// forward to the guest, and a pipe makes it die outright rather than fall
-// back. See openPTY in pty.go. The daemon writes to the master to type at the
-// command and reads the master to collect its output.
-type Session struct {
-	cmd    *exec.Cmd
-	master *os.File
-	stderr bytes.Buffer // tart's own complaints, not the guest's output
-	done   chan struct{}
-	mu     sync.Mutex
-	err    error // written before done is closed
+// tartErrorLine matches the line tart 2.37 prints last when it fails itself:
+// ArgumentParser's "Error: ..." or one of the RuntimeErrors exec can raise.
+var tartErrorLine = regexp.MustCompile(`^(Error: .*|VM ".*" is not running|the specified VM ".*" does not exist|Failed to connect to the VM using its control socket: .*)$`)
 
-	// reaping is set, under mu, once the command has exited and just before
-	// it is reaped. Close only signals while it is false and holds mu while
-	// it does, so a signal can only ever reach a process that is still ours:
-	// until the reap its pid, which is also its process group id, cannot be
-	// handed to anyone else.
-	reaping bool
+// isTartFailure tells tart's own failure from a failing guest command. tart
+// forwards a guest's exit code and prints nothing of its own; it fails with
+// exit 1, 2 (no such VM, not running) or 64 (usage) and one final stderr line.
+// A guest that exits 1 after printing "Error: ..." last is still ambiguous.
+func isTartFailure(code int, stderr string) bool {
+	switch code {
+	case 1, 2, 64:
+	default:
+		return false
+	}
+	s := strings.TrimSpace(stderr)
+	return tartErrorLine.MatchString(strings.TrimSpace(s[strings.LastIndexByte(s, '\n')+1:]))
 }
 
-// StartSession runs command inside the guest behind a remote pty. The
-// returned Session stays alive until the command exits or Close is called.
-//
-// The flags go before the VM name: `tart exec [-i] [-t] <name> <command>...`.
-// Putting them after the name would make tart read them as part of the
-// command.
+// Session is a long-lived `tart exec -i -t` child giving a guest command a
+// real terminal. It must run behind a host pty, never pipes: see openPTY.
+type Session struct {
+	*child
+	master *os.File
+	stderr bytes.Buffer // tart's own complaints, not the guest's output
+}
+
+// StartSession runs command in the guest behind a pty until it exits or Close
+// is called. tart's flags must precede the VM name or it treats them as part
+// of the command.
 func (c *Client) StartSession(name string, command ...string) (*Session, error) {
 	master, slave, err := openPTY()
 	if err != nil {
 		return nil, fmt.Errorf("tart exec -i -t %s: %w", name, err)
 	}
 
-	args := append([]string{"exec", "-i", "-t", name}, command...)
-	cmd := exec.Command(c.Bin, args...)
-	// tart's stdin and stdout are the terminal. Its stderr is kept apart so
-	// that tart's own complaints can explain a session that would not start
-	// rather than being mixed into the guest command's output.
-	cmd.Stdin, cmd.Stdout = slave, slave
-	s := &Session{cmd: cmd, master: master, done: make(chan struct{})}
-	cmd.Stderr = &s.stderr
-	// Its own session, with the pty for a controlling terminal, so Close ends
-	// the command and anything it started rather than only the tart process
-	// in front of them. Setsid also makes it a process group leader, which is
-	// what lets Close signal the whole group.
+	cmd := exec.Command(c.Bin, append([]string{"exec", "-i", "-t", name}, command...)...)
+	s := &Session{master: master}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, &s.stderr
+	// A new session with the pty as controlling terminal makes tart a group
+	// leader, so Close can kill everything it started.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
 
-	if err := cmd.Start(); err != nil {
-		_ = slave.Close()
+	s.child, err = startChild(cmd, nil)
+	// Drop the parent's slave so the master sees EOF when the command exits.
+	_ = slave.Close()
+	if err != nil {
 		_ = master.Close()
 		return nil, fmt.Errorf("tart exec -i -t %s: %w", name, err)
 	}
-	// The parent's copy of the slave goes now, so that when the command exits
-	// the last slave is closed and a read on the master ends the stream
-	// instead of blocking forever.
-	_ = slave.Close()
-
-	go func() {
-		// Wait for the exit without reaping first, so the pid stays ours
-		// until reaping is set. If that cannot be watched, Close stops
-		// signalling at all rather than risk a pid that may be reused.
-		_ = awaitExit(cmd.Process.Pid)
-		s.mu.Lock()
-		s.reaping = true
-		s.mu.Unlock()
-		err := cmd.Wait()
-		s.mu.Lock()
-		s.err = err
-		s.mu.Unlock()
-		close(s.done)
-	}()
 	return s, nil
 }
 
-// Output is the stream the guest command writes to. The caller reads it to
-// exhaustion in its own goroutine; nothing else drains it.
-//
-// A terminal echoes what is typed at it, so a caller reading this sees its
-// own input come back before the command's reply. That is kept rather than
-// turned off: it is what a real terminal does, it makes the run record show
-// the command next to the output it produced, and a program that wants its
-// input hidden, a password prompt above all, turns echo off itself the way it
-// would on any terminal. Forcing echo off here would break that and make
-// every prompt silent.
+// Output is the command's terminal output, including the pty's echo of what
+// was written. The caller must drain it; nothing else does.
 func (s *Session) Output() io.Reader { return ptyReader{s.master} }
 
-// Write sends bytes to the command's terminal input, exactly as given.
+// Write sends bytes to the command's terminal input.
 func (s *Session) Write(p []byte) (int, error) { return s.master.Write(p) }
 
 // Running reports whether the command is still going.
-func (s *Session) Running() bool {
-	select {
-	case <-s.done:
-		return false
-	default:
-		return true
-	}
-}
+func (s *Session) Running() bool { return !s.exited() }
 
-// Err explains why a finished session stopped, if tart itself failed.
-//
-// tart passes the guest command's exit status on as its own exit code, so a
-// non-zero exit is the command's result, not an error, for the same reason it
-// is not in Exec: a failing build is a result, not an infrastructure fault.
-// tart being ended by a signal is never the guest's doing, so that is the
-// test, and it covers a crash of any kind: a Swift trap such as the one
-// `tart exec -t` hits without a terminal dies of a signal whatever it
-// prints. tart's own error messages, which exit normally, are recognised as
-// well. Either way what tart printed is the explanation.
+// Err explains why a finished session stopped, if tart itself failed. tart
+// forwards the guest's exit code, so a non-zero exit is a result; tart being
+// killed by a signal, or printing one of its own errors, is a failure.
 func (s *Session) Err() error {
 	if s.Running() {
 		return nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// stderr and ProcessState are complete once done is closed.
 	msg := strings.TrimSpace(s.stderr.String())
-	if st := s.cmd.ProcessState; st != nil {
-		if ws, ok := st.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-			if msg == "" {
-				return fmt.Errorf("tart exec was killed by %s", ws.Signal())
-			}
-			return fmt.Errorf("tart exec was killed by %s: %s", ws.Signal(), msg)
-		}
+	st := s.cmd.ProcessState
+	if st == nil {
+		return nil
 	}
-	if msg != "" && isTartFailure(msg) {
+	if ws, ok := st.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		if msg == "" {
+			return fmt.Errorf("tart exec was killed by %s", ws.Signal())
+		}
+		return fmt.Errorf("tart exec was killed by %s: %s", ws.Signal(), msg)
+	}
+	if isTartFailure(st.ExitCode(), msg) {
 		return fmt.Errorf("tart exec: %s", msg)
 	}
 	return nil
 }
 
-// Close ends the command and releases the terminal. Closing a session whose
-// command has already exited is not an error, and sends no signal: once the
-// command has been reaped its pid, and so its process group id, may belong
-// to an unrelated process.
+// closeWait is how long Close waits for a killed session to be reaped.
+var closeWait = 5 * time.Second
+
+// Close kills the command's process group, unless it has already exited,
+// then releases the terminal.
 func (s *Session) Close() error {
-	s.mu.Lock()
-	if !s.reaping && s.cmd.Process != nil {
-		// Negative pid is the process group, so the guest command goes with
-		// the tart process in front of it.
-		killGroup(s.cmd.Process.Pid)
-	}
-	s.mu.Unlock()
+	killErr := s.kill()
+	var waitErr error
 	select {
 	case <-s.done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(closeWait):
+		waitErr = fmt.Errorf("tart exec (pid %d) still running %s after kill", s.cmd.Process.Pid, closeWait)
 	}
-	// The master goes last, so anything the command wrote on its way out has
-	// already been read, and closing it ends the reader's pump.
-	return s.master.Close()
+	// Closing the master last lets the reader drain the command's final output.
+	return errors.Join(killErr, waitErr, s.master.Close())
 }
 
-// killGroup kills a session's whole process group. It is a variable so a
-// test can see which groups Close signals.
-var killGroup = func(pgid int) {
-	_ = syscall.Kill(-pgid, syscall.SIGKILL)
+// child is a started tart process leading its own process group, which can
+// be signalled without racing the reuse of its pid.
+type child struct {
+	cmd     *exec.Cmd
+	done    chan struct{}
+	waitErr error // written before done is closed
+
+	// reaping is set under mu just before the child is reaped. kill signals
+	// only while it is false and holds mu to do so.
+	mu      sync.Mutex
+	reaping bool
 }
 
-// isTartFailure recognises tart's own error messages so they are not
-// mistaken for a failing guest command.
-func isTartFailure(stderr string) bool {
-	s := strings.TrimSpace(stderr)
-	return strings.Contains(s, "is not running") ||
-		strings.Contains(s, "Error:") && strings.HasPrefix(s, "Error:") ||
-		strings.Contains(s, "guest agent")
+// startChild starts cmd and reaps it in the background, calling onExit (if
+// set) before done closes.
+func startChild(cmd *exec.Cmd, onExit func()) (*child, error) {
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	c := &child{cmd: cmd, done: make(chan struct{})}
+	watch := watchExit
+	go func() {
+		// Observe the exit without reaping so the pid stays ours until
+		// reaping is set.
+		if err := watch(cmd.Process.Pid); err != nil {
+			// Degraded: a kill could now race the reap, but a child that can
+			// never be killed would be worse.
+			slog.Warn("cannot watch tart for its exit", "pid", cmd.Process.Pid, "err", err)
+		} else {
+			c.setReaping()
+		}
+		c.waitErr = cmd.Wait()
+		c.setReaping()
+		if onExit != nil {
+			onExit()
+		}
+		close(c.done)
+	}()
+	return c, nil
+}
+
+func (c *child) setReaping() {
+	c.mu.Lock()
+	c.reaping = true
+	c.mu.Unlock()
+}
+
+// kill signals the process group unless the child has already exited.
+func (c *child) kill() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.reaping {
+		return nil
+	}
+	return killGroup(c.cmd.Process.Pid)
+}
+
+func (c *child) exited() bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// watchExit and killGroup are variables so tests can fail the watch and
+// observe which groups are signalled.
+var watchExit = awaitExit
+
+var killGroup = func(pgid int) error {
+	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("kill process group %d: %w", pgid, err)
+	}
+	return nil
 }

@@ -10,8 +10,7 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
-// noRetryWaits keeps both retry schedules, the client's and the actor's, but
-// spends no time on them, so a test of every attempt costs no seconds.
+// noRetryWaits keeps both retry schedules (client and actor) but zeroes them.
 func noRetryWaits(t *testing.T) {
 	t.Helper()
 	backoff, delays := nim.RetryBackoff, TurnRetryDelays
@@ -20,8 +19,7 @@ func noRetryWaits(t *testing.T) {
 	t.Cleanup(func() { nim.RetryBackoff, TurnRetryDelays = backoff, delays })
 }
 
-// eventSaying reports whether the transcript holds a system event containing
-// text.
+// eventSaying reports whether a system event contains text.
 func eventSaying(store *session.Store, text string) bool {
 	for _, m := range messagesOfKind(store, session.Event) {
 		if m.From == session.System && strings.Contains(m.Text, text) {
@@ -81,8 +79,7 @@ func TestActorTakesATurnWhenATaskArrivesAndStopsWithTheMachine(t *testing.T) {
 	}
 }
 
-// The coder's note is context, not a question: its reply channel is its next
-// agent_wait, so it must not cost a model call.
+// A coder note is context and must not cost a model call.
 func TestACoderNoteDoesNotStartATurn(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{}
@@ -137,13 +134,11 @@ func TestLastUnansweredFindsTheTurnStillOwed(t *testing.T) {
 	}
 }
 
-// A hosted model has bad minutes. The task that triggered the turn must still
-// be answered, without a human having to notice and speak again.
+// A turn that fails on a bad minute is retried until the task is answered.
 func TestActorRetriesATurnTheEndpointCouldNotServe(t *testing.T) {
 	noRetryWaits(t)
 	mgr, runID, _ := ready(t)
-	// Five failures is the client's whole schedule, so the first turn dies
-	// and only the actor's own retry can save it.
+	// Five failures exhaust the client's schedule; only the actor's retry helps.
 	model := &scriptedModel{failures: 5, replies: []string{
 		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "The build succeeded."}),
 	}}
@@ -175,8 +170,7 @@ func TestActorRetriesATurnTheEndpointCouldNotServe(t *testing.T) {
 	}
 }
 
-// An endpoint that is down for good is a state the conversation must show,
-// because only a human can decide what happens next.
+// An endpoint down for good ends in a visible "gave up" event.
 func TestActorGivesUpAndSaysSo(t *testing.T) {
 	noRetryWaits(t)
 	mgr, runID, _ := ready(t)

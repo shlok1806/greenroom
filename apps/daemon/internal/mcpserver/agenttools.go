@@ -9,14 +9,15 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
-// addAgentTools exposes the run's conversation (ADR 0006). These three tools
-// are the only way the coding agent reaches greenroom's verifier, and the
-// same store carries everything a watching human does, so the coder sees it.
+// addAgentTools exposes the run's conversation, the coder's only channel to the verifier (ADR 0006).
 func addAgentTools(s *mcp.Server, reg *session.Registry) {
 	type transcriptOut struct {
 		Messages []session.Message    `json:"messages"`
 		Last     int                  `json:"last"`
 		Verdict  session.VerdictState `json:"verdict"`
+	}
+	transcript := func(store *session.Store, msgs []session.Message, after int) transcriptOut {
+		return transcriptOut{Messages: msgs, Last: lastSeq(msgs, after, store), Verdict: store.Verdict()}
 	}
 
 	type sendIn struct {
@@ -31,26 +32,19 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "agent_send",
-		Description: "Say something into the run's conversation, which is how you reach greenroom's verifier. " +
-			"Send a task to set it working, then call agent_wait in a loop until it replies. A note adds context " +
-			"it reads on its next turn. If it sends you a question, reply with kind answer and replyTo set to the " +
-			"question's seq. A verdict is a proposal, not an outcome: accept it, or dispute it with replyTo and " +
-			"the reason, and it takes another turn. After two disputes the verdict is contested and only a human " +
-			"can close it. The verifier may also answer with a reply, which is a plain answer and not a verdict, " +
-			"so keep waiting if your task is not done. Returns the seq the conversation gave your message.",
+		Description: "Post into the run's conversation, which is how you reach greenroom's verifier. Send a task " +
+			"to set it working, then call agent_wait in a loop until it replies. A note adds context it reads on " +
+			"its next turn. Answer a question with kind answer and replyTo set to the question's seq. A verdict " +
+			"is a proposal: accept it, or dispute it with replyTo and the reason, and the verifier takes another " +
+			"turn. After two disputes the verdict is contested and only a human can close it. A reply is a plain " +
+			"answer, not a verdict, so keep waiting if your task is not done. Returns your message's seq.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, sendOut, error) {
 		store, err := reg.Get(in.RunID)
 		if err != nil {
 			return nil, sendOut{}, err
 		}
-		// Validation errors, and session.ErrContested, go straight back to the
-		// coder: their text is the whole message it needs.
-		m, err := store.Append(session.Message{
-			From:    session.Coder,
-			Kind:    session.Kind(in.Kind),
-			Text:    in.Text,
-			ReplyTo: in.ReplyTo,
-		})
+		// Validation errors and ErrContested go back verbatim: their text is what the coder needs.
+		m, err := store.Append(session.Message{From: session.Coder, Kind: session.Kind(in.Kind), Text: in.Text, ReplyTo: in.ReplyTo})
 		if err != nil {
 			return nil, sendOut{}, err
 		}
@@ -64,25 +58,20 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "agent_wait",
-		Description: "Block until the conversation has something newer than after, then return it. This is how you " +
-			"hear the verifier: send a task, then call agent_wait with after set to last from the previous call, " +
-			"over and over, until a verdict arrives. An empty messages list means nothing happened in the timeout, " +
-			"which is normal; call again. A question needs an agent_send of kind answer before the verifier moves; " +
-			"a reply is the verifier answering in words with no verdict, so it does not end your task. " +
-			"Anything a watching human does shows up here too, and a human's note is answered by the verifier.",
+		Description: "Block until the conversation has something newer than after, then return it. After sending " +
+			"a task, call this repeatedly with after set to last from the previous call until a verdict arrives. " +
+			"An empty messages list means nothing happened before the timeout; call again. A question needs an " +
+			"agent_send of kind answer before the verifier continues; a reply is the verifier answering in words " +
+			"with no verdict, so it does not end your task. A watching human's actions show up here too, and the " +
+			"verifier answers a human's note.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitIn) (*mcp.CallToolResult, transcriptOut, error) {
 		store, err := reg.Get(in.RunID)
 		if err != nil {
 			return nil, transcriptOut{}, err
 		}
-		timeout := defaultWait
-		if in.TimeoutSeconds > 0 {
-			timeout = min(time.Duration(in.TimeoutSeconds)*time.Second, maxWait)
-		}
-		ctx, cancel := context.WithTimeout(ctx, timeout)
+		ctx, cancel := context.WithTimeout(ctx, waitTimeout(in.TimeoutSeconds))
 		defer cancel()
-		msgs := store.Wait(ctx, in.After)
-		return nil, transcriptOut{Messages: msgs, Last: lastSeq(msgs, in.After, store), Verdict: store.Verdict()}, nil
+		return nil, transcript(store, store.Wait(ctx, in.After), in.After), nil
 	})
 
 	type transcriptIn struct {
@@ -92,22 +81,19 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "agent_transcript",
 		Description: "Read the run's conversation without waiting: every message from you, greenroom's verifier, " +
-			"a watching human and the daemon, plus the current verdict and its status. The verifier's replies to a " +
-			"watching human are in here too, so this is where you see what it told them. Use it to catch up, for " +
-			"example after picking a run back up with machine_list.",
+			"a watching human and the daemon, plus the current verdict and its status. It includes what the " +
+			"verifier told a watching human. Use it to catch up, for example after picking a run back up with " +
+			"machine_list.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in transcriptIn) (*mcp.CallToolResult, transcriptOut, error) {
 		store, err := reg.Get(in.RunID)
 		if err != nil {
 			return nil, transcriptOut{}, err
 		}
-		msgs := store.After(in.After)
-		return nil, transcriptOut{Messages: msgs, Last: lastSeq(msgs, in.After, store), Verdict: store.Verdict()}, nil
+		return nil, transcript(store, store.After(in.After), in.After), nil
 	})
 }
 
-// lastSeq is what the caller should pass as `after` next time. It comes from
-// the messages the caller just got, so a reader that is behind the
-// conversation does not skip whatever arrived while it was reading.
+// lastSeq is the caller's next after. It comes from the messages returned, so a reader never skips what arrived meanwhile.
 func lastSeq(msgs []session.Message, after int, store *session.Store) int {
 	if n := len(msgs); n > 0 {
 		return msgs[n-1].Seq

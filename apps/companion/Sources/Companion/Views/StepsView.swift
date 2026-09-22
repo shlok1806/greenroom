@@ -1,15 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// The evidence timeline: every tool call the run recorded.
-///
-/// It is a table, because that is what it is: one row per step, in fixed
-/// columns, so the eye runs down the times, the tools and the durations rather
-/// than reading each row from the start. The column that earns the most is the
-/// summary: a hundred and thirty rows all reading `machine_input` say nothing,
-/// while "click 35%, 40%" and "type \"hi shlok\"" say what happened.
+/// Every tool call the run recorded, as a fixed-column table.
 struct StepsView: View {
-    @Bindable var store: RunStore
+    let store: RunStore
     let runId: String
 
     private var steps: [Step] { store.steps[runId] ?? [] }
@@ -18,10 +12,7 @@ struct StepsView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
                 Section {
-                    // Keyed by the whole record, not by `seq`: a daemon that
-                    // was restarted mid-run used to hand out a number twice,
-                    // and two rows with one id make SwiftUI draw the first
-                    // one's content for both.
+                    // Keyed by the whole record: a restarted daemon has reused seqs.
                     ForEach(Array(steps.enumerated()), id: \.element) { position, step in
                         StepRow(store: store, runId: runId, step: step, shaded: position.isMultiple(of: 2))
                     }
@@ -42,8 +33,7 @@ struct StepsView: View {
     }
 }
 
-/// The widths the header and every row share. Two views agreeing on a number
-/// by accident is how a table stops lining up.
+/// Column widths shared by the header and every row.
 private enum StepColumn {
     static let chevron: CGFloat = 16
     static let seq: CGFloat = 40
@@ -76,11 +66,9 @@ private struct StepsHeader: View {
 }
 
 private struct StepRow: View {
-    @Bindable var store: RunStore
+    let store: RunStore
     let runId: String
     let step: Step
-    /// Alternating rows, which is what lets an eye stay on one line while it
-    /// crosses a wide window.
     let shaded: Bool
 
     @State private var expanded = false
@@ -91,11 +79,8 @@ private struct StepRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Two targets, because one click cannot do both: opening the JSON
-            // and jumping to the Screen tab used to fire together, so the rows
-            // expanded on a tab the person was already being carried away from
-            // and the JSON was unreadable. The chevron opens the step; the
-            // rest of the row goes and looks at it.
+            // Two targets: the chevron expands, the rest of the row seeks the
+            // Screen tab. One click doing both expanded a tab being left.
             HStack(spacing: StepColumn.gap) {
                 Button {
                     expanded.toggle()
@@ -189,9 +174,7 @@ private struct StepRow: View {
         }
         .background(background)
         .onHover { hovering = $0 }
-        // The screenshot is fetched only when the row is opened. Loading a
-        // thumbnail for every one of a few hundred rows was a few hundred
-        // requests for pictures nobody had asked to see.
+        // Fetched only when opened, not once per row.
         .task(id: expanded) {
             guard expanded, let name = step.screenshotArtifact, thumbnail == nil else { return }
             let loaded = await store.artifactImage(runId: runId, name: name)
@@ -213,10 +196,7 @@ private struct StepRow: View {
 
     private func json(_ label: String, _ value: JSONValue) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(label.uppercased())
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(.tertiary)
+            SectionCaption(title: label)
             Text(value.prettyPrinted)
                 .font(.system(.caption, design: .monospaced))
                 .textSelection(.enabled)

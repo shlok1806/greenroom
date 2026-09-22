@@ -1,12 +1,7 @@
 //go:build tart
 
-// Proves PrepareGuest actually saves what it promises (issue #12): clone the
-// base image scripts/build-image.sh built, boot it, and time the first
-// ScreenOf the same way TestEndToEndInput does against an unprepared image.
-// A clone of a prepared image must answer far faster, because the helper is
-// already compiled and the ssh key is already installed. Requires
-// scripts/build-image.sh to have already built the base image (default name
-// greenroom-base; override with GREENROOM_BASE_IMAGE). Run with:
+// Proves a clone of the image scripts/build-image.sh prepared skips the helper compile (issue #12).
+// Needs that image (GREENROOM_BASE_IMAGE, default greenroom-base). Run with:
 //
 //	go test -tags tart -run TestPreparedImageNeedsNoCompile -v -timeout 12m .
 package main
@@ -24,8 +19,6 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 )
 
-// greenroomBaseImage is the local VM name scripts/build-image.sh prepares by
-// default (its own -name default).
 func greenroomBaseImage() string {
 	if v := os.Getenv("GREENROOM_BASE_IMAGE"); v != "" {
 		return v
@@ -33,22 +26,13 @@ func greenroomBaseImage() string {
 	return "greenroom-base"
 }
 
-// noCompileCeiling is what a prepared image's first ScreenOf must stay
-// under. TestEndToEndInput measures the unprepared cost on a fresh clone of
-// defaultImage every time it runs (its own "first ScreenOf ... took" log
-// line is the real baseline, since that number moves with host load); this
-// project's own measurements have put it at roughly 27-30s, all of it the
-// guest's swiftc compile. A prepared image doing that work at all, even
-// quickly, would still be seconds, not tens of milliseconds, so 10s is a
-// generous ceiling that only a genuinely skipped compile clears.
+// noCompileCeiling bounds a prepared image's first ScreenOf; an unprepared one compiles for ~27-30s
+// (TestEndToEndInput logs the live baseline).
 const noCompileCeiling = 10 * time.Second
 
 func TestPreparedImageNeedsNoCompile(t *testing.T) {
 	base := greenroomBaseImage()
 
-	// Confirm the base VM actually exists locally before spending a clone
-	// and a boot on it: a missing base is a setup mistake ("run
-	// scripts/build-image.sh first"), not a flake worth retrying.
 	out, err := exec.Command("tart", "list", "--source", "local", "--quiet").CombinedOutput()
 	if err != nil {
 		t.Fatalf("tart list: %v: %s", err, out)
@@ -64,13 +48,7 @@ func TestPreparedImageNeedsNoCompile(t *testing.T) {
 		t.Fatalf("no local VM named %q. Run scripts/build-image.sh first.\ntart list --source local:\n%s", base, out)
 	}
 
-	// Captured before this test's own clone and boot, so that any file the
-	// guest genuinely wrote during THIS boot has a later mtime than this
-	// timestamp, and anything baked in earlier by scripts/build-image.sh
-	// does not. This is the no-compile proof: it reads a timestamp out of
-	// the guest's own filesystem with a plain `stat`, not our code's say-so,
-	// so it would catch a regression that silently recompiled while still
-	// reporting itself installed.
+	// A helper compiled during this boot would have a later mtime than this; one baked into the image does not.
 	beforeThisBoot := time.Now()
 
 	root := t.TempDir()
@@ -118,8 +96,6 @@ func TestPreparedImageNeedsNoCompile(t *testing.T) {
 			firstInputLatency, noCompileCeiling)
 	}
 
-	// The no-compile proof itself: stat the helper binary's mtime inside the
-	// guest and require it to predate this test's own clone and boot.
 	helperPath := ".greenroom/bin/greenroom-input-" + strconv.Itoa(machine.InputHelperVersion())
 	res, err := mgr.Exec(ctx, runID, `stat -f %m "$HOME/`+helperPath+`"`, "", 15*time.Second)
 	if err != nil {

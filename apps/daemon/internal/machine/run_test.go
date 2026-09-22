@@ -3,6 +3,7 @@ package machine
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,7 +28,7 @@ func newTestRecorder(t *testing.T) (*recorder, string) {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "run")
 	man := Manifest{RunID: "20260917-000000-abcdef", Image: "img", MachineName: "greenroom-x", CreatedAt: time.Now().UTC()}
-	r, err := newRecorder(dir, man)
+	r, err := newRecorder(dir, man, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("newRecorder: %v", err)
 	}
@@ -36,35 +37,49 @@ func newTestRecorder(t *testing.T) (*recorder, string) {
 
 func readManifest(t *testing.T, dir string) Manifest {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	m, err := ReadManifest(dir)
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
-	}
-	var m Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		t.Fatalf("decode manifest: %v", err)
 	}
 	return m
 }
 
 func readSteps(t *testing.T, dir string) []Step {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, "steps.jsonl"))
+	steps, err := ReadSteps(dir)
 	if err != nil {
 		t.Fatalf("read steps: %v", err)
 	}
-	var steps []Step
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		if line == "" {
-			continue
-		}
-		var s Step
-		if err := json.Unmarshal([]byte(line), &s); err != nil {
-			t.Fatalf("decode step %q: %v", line, err)
-		}
-		steps = append(steps, s)
-	}
 	return steps
+}
+
+func TestRecorderLogsWritesItCannotMake(t *testing.T) {
+	var logs logBuffer
+	dir := filepath.Join(t.TempDir(), "run")
+	r, err := newRecorder(dir, Manifest{RunID: "r"}, logs.logger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOnly(t, dir)
+
+	r.step("machine_exec", nil, nil, nil, time.Now())
+	for _, want := range []string{"cannot write the run manifest", "cannot record a step"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("log lacks %q:\n%s", want, logs.String())
+		}
+	}
+}
+
+func TestRecorderWritesTheManifestOncePerStep(t *testing.T) {
+	r, dir := newTestRecorder(t)
+	seq := r.begin()
+	if err := os.Remove(filepath.Join(dir, "manifest.json")); err != nil {
+		t.Fatal(err)
+	}
+	r.complete(seq, "machine_exec", nil, nil, nil, time.Now())
+	if _, err := os.Stat(filepath.Join(dir, "manifest.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("complete rewrote the manifest that begin already wrote (stat: %v)", err)
+	}
 }
 
 func TestNewRecorderWritesManifest(t *testing.T) {
@@ -90,7 +105,7 @@ func TestNewRecorderFailsOnAnUnusableDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A path under a regular file cannot become a directory.
-	if _, err := newRecorder(filepath.Join(file, "run"), Manifest{}); err == nil {
+	if _, err := newRecorder(filepath.Join(file, "run"), Manifest{}, slog.New(slog.DiscardHandler)); err == nil {
 		t.Fatal("newRecorder accepted a path under a regular file")
 	}
 }

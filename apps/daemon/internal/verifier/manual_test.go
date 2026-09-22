@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
@@ -16,9 +17,7 @@ import (
 
 func testLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-// execExitSeq queues exit codes for the fake tart's exec-codes control file:
-// the first "run" instruction in a turn gets the first code, the second gets
-// the second, and so on.
+// execExitSeq queues one exit code per "run" via the fake tart's exec-codes.
 func execExitSeq(t *testing.T, control string, codes string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(control, "exec-codes"), []byte(codes), 0o644); err != nil {
@@ -180,6 +179,36 @@ func TestManualTypeKeyAndScroll(t *testing.T) {
 	}
 }
 
+// Like the model brain, an empty type is refused before it reaches the machine.
+func TestManualTypeNeedsText(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	store := openStore(t, mgr, runID)
+	post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "type\nverdict fail nothing typed"})
+
+	if _, err := NewManual(mgr, testLog()).Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	progress := messagesOfKind(store, session.Progress)
+	if len(progress) != 1 || progress[0].Step != 0 || !strings.Contains(progress[0].Text, "machine_type needs text") {
+		t.Fatalf("progress = %+v, want one unrecorded refusal", progress)
+	}
+	if last := lastMessage(t, store); len(last.Evidence) != 0 {
+		t.Errorf("verdict cites %v, want no steps", last.Evidence)
+	}
+}
+
+func TestSummarizeRunsKeepsWholeRunes(t *testing.T) {
+	for _, out := range []string{strings.Repeat("é", 150), "x" + strings.Repeat("é", 150)} {
+		got := summarizeRuns(1, []int{0}, out)
+		if !utf8.ValidString(got) {
+			t.Errorf("summarizeRuns split a rune: %q", got)
+		}
+		if !strings.HasSuffix(got, "éé") {
+			t.Errorf("summarizeRuns lost the tail: %q", got)
+		}
+	}
+}
+
 func TestManualComputerUseIsRefusedWhileAHumanHoldsTheScreen(t *testing.T) {
 	mgr, runID, control := ready(t)
 	if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
@@ -261,8 +290,7 @@ func TestManualUnrecognisedInstructionAlsoGetsHelp(t *testing.T) {
 	}
 }
 
-// Each turn reads only the last turn-starting message: nothing from an
-// earlier turn leaks into the next one.
+// Each turn reads only the last turn-starting message.
 func TestManualTurnsAreIndependent(t *testing.T) {
 	mgr, runID, control := ready(t)
 	execExitSeq(t, control, "0")
