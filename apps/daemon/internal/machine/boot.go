@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -10,11 +11,22 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
 
+// newBoot gives mc the handles Destroy uses to stop its boot, and returns the
+// context finishBoot must run under. Call it before mc is shared.
+func newBoot(mc *Machine) context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	mc.bootCancel, mc.bootDone = cancel, make(chan struct{})
+	return ctx
+}
+
 // finishBoot takes the machine to Ready or Failed: guest agent answers, tart
 // reports an IP, the ssh key goes in, guest sshd accepts. The two waiting
 // phases get separate readyTimeout budgets so a slow agent cannot starve ssh.
-func (m *Manager) finishBoot(mc *Machine, started time.Time) {
-	ctx, cancel := context.WithTimeout(context.Background(), m.readyTimeout)
+// If Destroy takes the machine first, it records nothing and cleans nothing.
+func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Time) {
+	defer close(mc.bootDone)
+	defer mc.bootCancel()
+	ctx, cancel := context.WithTimeout(boot, m.readyTimeout)
 	defer cancel()
 
 	var ip string
@@ -34,24 +46,31 @@ func (m *Manager) finishBoot(mc *Machine, started time.Time) {
 	}
 	if err == nil {
 		err = phase("sshSeconds", func() error {
-			sshCtx, sshCancel := context.WithTimeout(context.Background(), m.readyTimeout)
+			sshCtx, sshCancel := context.WithTimeout(boot, m.readyTimeout)
 			defer sshCancel()
 			return m.waitSSH(sshCtx, mc, ip)
 		})
 	}
 
 	m.mu.Lock()
+	if !m.liveLocked(mc) {
+		m.mu.Unlock()
+		close(mc.ready)
+		return
+	}
 	if err != nil {
 		mc.Status, mc.Error = Failed, err.Error()
 	} else {
 		mc.Status, mc.IP, mc.BootSeconds = Ready, ip, round1(time.Since(started))
 	}
-	_ = m.saveStateLocked()
 	m.mu.Unlock()
+	m.persist()
 
 	// The boot step is on disk before ready closes, so a caller returning from
 	// Wait reads a record that agrees with it.
-	_ = mc.rec.update(func(man *Manifest) { man.IP = ip })
+	if uerr := mc.rec.update(func(man *Manifest) { man.IP = ip }); uerr != nil {
+		m.Log.Warn("cannot write the run manifest", "runId", mc.RunID, "err", uerr)
+	}
 	timings["status"], timings["ip"], timings["bootSeconds"] = mc.Status, ip, mc.BootSeconds
 	seq := mc.rec.step("machine_boot", nil, timings, err, started)
 	close(mc.ready)
@@ -70,32 +89,77 @@ func (m *Manager) finishBoot(mc *Machine, started time.Time) {
 	m.startFrames(mc)
 }
 
-// watchProcess fails a ready machine whose `tart run` exits: tart stays in the
-// foreground for the life of the VM. A machine Destroy already removed from
-// the map is left alone, since that exit is expected.
+// watchProcess fails a ready machine whose VM stops. This daemon's `tart run`
+// stays in the foreground for the life of the VM; a reattached machine's
+// belongs to an earlier daemon, so tart is polled for it instead.
 func (m *Manager) watchProcess(mc *Machine) {
-	if mc.proc == nil {
-		return // reattached: this daemon never started the process
+	if mc.proc != nil {
+		go func() {
+			mc.proc.Wait()
+			m.machineGone(mc, mc.proc.Err())
+		}()
+		return
 	}
-	go func() {
-		mc.proc.Wait()
+	go m.watchVM(mc)
+}
+
+// watchVM polls tart until the reattached machine leaves the map or its VM stops.
+func (m *Manager) watchVM(mc *Machine) {
+	for {
+		time.Sleep(m.vmPoll)
 		m.mu.Lock()
-		if _, alive := m.machines[mc.RunID]; !alive {
-			m.mu.Unlock()
+		alive := m.liveLocked(mc)
+		m.mu.Unlock()
+		if !alive {
 			return
 		}
-		err := mc.proc.Err()
-		mc.Status, mc.Error = Failed, err.Error()
-		live := m.forgetLocked(mc)
-		_ = m.saveStateLocked()
-		m.mu.Unlock()
-		closeSessions(live)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		running, err := m.runningVMs(ctx)
+		cancel()
+		if err != nil {
+			m.Log.Debug("cannot list VMs to watch a reattached machine", "runId", mc.RunID, "err", err)
+			continue
+		}
+		if !running[mc.Name] {
+			m.machineGone(mc, errors.New("tart no longer lists the VM as running"))
+			return
+		}
+	}
+}
 
-		m.Log.Warn("machine stopped on its own", "runId", mc.RunID, "err", err)
-		m.cleanupVM(mc.Name)
-		mc.rec.markEnded()
-		m.emit(LifecycleEvent{Kind: "stopped", RunID: mc.RunID, Machine: m.snapshot(mc)})
-	}()
+// runningVMs returns the names of the VMs tart reports as running.
+func (m *Manager) runningVMs(ctx context.Context) (map[string]bool, error) {
+	vms, err := m.tart.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	running := map[string]bool{}
+	for _, vm := range vms {
+		if vm.State == "running" {
+			running[vm.Name] = true
+		}
+	}
+	return running, nil
+}
+
+// machineGone ends the run of a machine whose VM stopped on its own. A machine
+// already destroyed is left alone, since that stop is expected.
+func (m *Manager) machineGone(mc *Machine, cause error) {
+	m.mu.Lock()
+	if !m.liveLocked(mc) {
+		m.mu.Unlock()
+		return
+	}
+	mc.Status, mc.Error = Failed, cause.Error()
+	live := m.forgetLocked(mc)
+	m.mu.Unlock()
+	closeSessions(live)
+	m.persist()
+
+	m.Log.Warn("machine stopped on its own", "runId", mc.RunID, "err", cause)
+	m.cleanupVM(mc.Name)
+	mc.rec.markEnded()
+	m.emit(LifecycleEvent{Kind: "stopped", RunID: mc.RunID, Machine: m.snapshot(mc)})
 }
 
 // startFrames starts the frame recorder unless recording is off or the
@@ -106,7 +170,7 @@ func (m *Manager) startFrames(mc *Machine) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.mu.Lock()
-	if _, alive := m.machines[mc.RunID]; !alive {
+	if !m.liveLocked(mc) {
 		m.mu.Unlock()
 		cancel()
 		return
@@ -188,7 +252,10 @@ func (m *Manager) poll(ctx context.Context, mc *Machine, what string, probe func
 			return fmt.Errorf("%s: %w", msg, ctx.Err())
 		}
 		last = err
-		time.Sleep(time.Second)
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+		}
 	}
 }
 

@@ -33,6 +33,9 @@ const (
 	readyGrace   = 20 * time.Second // how long guest tools wait for a booting machine
 	stopTimeout  = 30 * time.Second
 
+	// defaultVMPollInterval is how often a reattached machine is checked for a VM that stopped.
+	defaultVMPollInterval = 15 * time.Second
+
 	// defaultMaxMachines is Apple's licence limit of two macOS guests per host.
 	defaultMaxMachines = 2
 
@@ -66,6 +69,12 @@ type Machine struct {
 	sessions map[string]*PTYSession
 
 	frameCancel context.CancelFunc // guarded by Manager.mu
+
+	// bootCancel stops finishBoot and bootDone closes when it returns. Both are
+	// set before the machine is shared, and are nil when no boot runs.
+	bootCancel context.CancelFunc
+	bootDone   chan struct{}
+	destroying bool // guarded by Manager.mu
 }
 
 // Status is a machine's lifecycle state.
@@ -85,6 +94,7 @@ type Manager struct {
 
 	tart          *tart.Client
 	createMu      sync.Mutex // serializes Create so the capacity check cannot be raced
+	stateMu       sync.Mutex // serializes state.json writes; taken before mu, never under it
 	mu            sync.Mutex
 	machines      map[string]*Machine
 	sshKey        string
@@ -92,6 +102,7 @@ type Manager struct {
 	maxMachines   int
 	readyTimeout  time.Duration
 	frameInterval time.Duration
+	vmPoll        time.Duration
 	sshProbe      func(ctx context.Context, vmName, addr string) error
 	onWatch       func(vncURL string)
 
@@ -136,6 +147,11 @@ func WithFrameInterval(d time.Duration) Option {
 	return func(m *Manager) { m.frameInterval = d }
 }
 
+// WithVMPollInterval sets how often a reattached machine's VM is checked for having stopped.
+func WithVMPollInterval(d time.Duration) Option {
+	return func(m *Manager) { m.vmPoll = d }
+}
+
 // WithWatchHandler is called with the screen address of each watched machine.
 func WithWatchHandler(fn func(vncURL string)) Option {
 	return func(m *Manager) { m.onWatch = fn }
@@ -152,6 +168,7 @@ func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error)
 	m := &Manager{
 		Root: root, Log: log, tart: tart.New(), machines: map[string]*Machine{},
 		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout, frameInterval: defaultFrameInterval,
+		vmPoll: defaultVMPollInterval,
 	}
 	m.sshProbe = m.probeSSHInGuest
 	for _, opt := range opts {
@@ -190,6 +207,16 @@ func EnsureSSHKey(root string) (sshKey, pubKey string, err error) {
 		}
 	}
 	pub, err := os.ReadFile(sshKey + ".pub")
+	if errors.Is(err, os.ErrNotExist) {
+		// Images already trust the private key, so rebuild the lost half rather than a new pair.
+		var stderr strings.Builder
+		cmd := exec.Command("ssh-keygen", "-y", "-f", sshKey)
+		cmd.Stderr = &stderr
+		if pub, err = cmd.Output(); err != nil {
+			return "", "", fmt.Errorf("ssh-keygen -y: %w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+		err = os.WriteFile(sshKey+".pub", pub, 0o644)
+	}
 	if err != nil {
 		return "", "", err
 	}
@@ -234,6 +261,7 @@ func (m *Manager) emitStep(runID string, seq int) {
 func (mc *Machine) publicLocked() *Machine {
 	c := *mc
 	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel = nil, nil, nil, nil, nil, nil
+	c.bootCancel, c.bootDone = nil, nil
 	return &c
 }
 
@@ -302,22 +330,25 @@ func (m *Manager) Create(ctx context.Context, image string, watch bool) (*Machin
 	dir := m.RunDir(runID)
 	input := map[string]any{"image": image}
 
-	rec, err := newRecorder(dir, Manifest{RunID: runID, Image: image, MachineName: name, CreatedAt: started.UTC()})
+	rec, err := newRecorder(dir, Manifest{RunID: runID, Image: image, MachineName: name, CreatedAt: started.UTC()}, m.Log)
 	if err != nil {
+		return nil, err
+	}
+	fail := func(err error) (*Machine, error) {
+		rec.step("machine_create", input, nil, err, started)
+		rec.markEnded()
 		return nil, err
 	}
 	mc := &Machine{RunID: runID, Name: name, Image: image, Status: Booting, CreatedAt: started.UTC(), Dir: dir,
 		rec: rec, ready: make(chan struct{}), input: &inputState{}}
 
 	if err := m.tart.Clone(ctx, image, name); err != nil {
-		rec.step("machine_create", input, nil, err, started)
-		return nil, err
+		return fail(err)
 	}
 	proc, err := m.tart.Start(name, filepath.Join(dir, "vm.log"), watch)
 	if err != nil {
 		m.cleanupVM(name)
-		rec.step("machine_create", input, nil, err, started)
-		return nil, err
+		return fail(err)
 	}
 	mc.proc = proc
 	if watch {
@@ -330,18 +361,28 @@ func (m *Manager) Create(ctx context.Context, image string, watch bool) (*Machin
 		}
 	}
 
+	bootCtx := newBoot(mc)
 	m.mu.Lock()
 	m.machines[runID] = mc
-	err = m.saveStateLocked()
 	m.mu.Unlock()
-	if err != nil {
+	if err := m.saveState(); err != nil {
+		m.mu.Lock()
+		owned := !mc.destroying // else a racing Destroy owns the VM and the record
+		live := m.forgetLocked(mc)
+		m.mu.Unlock()
+		closeSessions(live)
+		mc.bootCancel()
+		close(mc.bootDone)
+		if !owned {
+			return nil, err
+		}
 		m.cleanupVM(name)
-		return nil, err
+		return fail(err)
 	}
 	seq := rec.step("machine_create", input, map[string]any{"runId": runID, "machineName": name, "status": Booting}, nil, started)
 	m.emitStep(runID, seq)
 	m.emit(LifecycleEvent{Kind: "created", RunID: runID, Machine: m.snapshot(mc)})
-	go m.finishBoot(mc, started)
+	go m.finishBoot(bootCtx, mc, started)
 	return m.snapshot(mc), nil
 }
 
@@ -400,7 +441,9 @@ func (m *Manager) checkHostCapacity(ctx context.Context) error {
 	}
 }
 
-// Destroy stops and deletes the machine. The run directory is kept.
+// Destroy stops and deletes the machine. The run directory is kept. The
+// machine stays in state.json until its VM is gone, so a daemon that dies
+// midway leaves it for the next one to find.
 func (m *Manager) Destroy(ctx context.Context, runID string) error {
 	mc, err := m.get(runID)
 	if err != nil {
@@ -408,32 +451,56 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 	}
 	started := time.Now()
 	m.mu.Lock()
-	live := m.forgetLocked(mc)
-	err = m.saveStateLocked()
+	if mc.destroying {
+		m.mu.Unlock()
+		return fmt.Errorf("machine %s is already being destroyed", runID)
+	}
+	mc.destroying = true
+	live := m.detachLocked(mc)
 	m.mu.Unlock()
 	closeSessions(live)
-	if err != nil {
-		return err
+	if mc.bootCancel != nil {
+		mc.bootCancel()
+		<-mc.bootDone
 	}
-	stopCtx, cancel := context.WithTimeout(ctx, stopTimeout)
-	defer cancel()
-	if err := m.tart.Stop(stopCtx, mc.Name); err != nil {
-		m.Log.Warn("stop failed, deleting anyway", "runId", runID, "err", err)
+
+	m.mu.Lock()
+	failed := mc.Status == Failed // a failed boot has already deleted its VM
+	m.mu.Unlock()
+	if !failed {
+		// Detached so a caller that gives up cannot leave the VM running.
+		if err = m.stopAndDelete(context.WithoutCancel(ctx), mc.Name); err != nil {
+			m.Log.Error("cannot delete the VM; it is left behind", "runId", runID, "name", mc.Name, "err", err)
+		}
 	}
-	err = m.tart.Delete(ctx, mc.Name)
+
+	m.mu.Lock()
+	live = m.forgetLocked(mc)
+	m.mu.Unlock()
+	closeSessions(live)
+	m.persist()
 	mc.rec.markEnded()
 	m.emitStep(runID, mc.rec.step("machine_destroy", nil, nil, err, started))
 	m.emit(LifecycleEvent{Kind: "destroyed", RunID: runID, Machine: m.snapshot(mc)})
 	return err
 }
 
-// forgetLocked is the only way a machine leaves the map. It stops the frame
-// recorder and detaches the sessions, which the caller must pass to
-// closeSessions after releasing m.mu.
+// liveLocked reports whether mc is in the map and not being destroyed.
+func (m *Manager) liveLocked(mc *Machine) bool {
+	return m.machines[mc.RunID] == mc && !mc.destroying
+}
+
+// forgetLocked is the only way a machine leaves the map. The caller must pass
+// the returned sessions to closeSessions after releasing m.mu.
 func (m *Manager) forgetLocked(mc *Machine) []*tart.Session {
 	if m.machines[mc.RunID] == mc {
 		delete(m.machines, mc.RunID)
 	}
+	return m.detachLocked(mc)
+}
+
+// detachLocked stops the frame recorder and detaches the sessions. It is safe to repeat.
+func (m *Manager) detachLocked(mc *Machine) []*tart.Session {
 	if mc.frameCancel != nil {
 		mc.frameCancel()
 	}
@@ -453,11 +520,22 @@ func closeSessions(live []*tart.Session) {
 	}
 }
 
-func (m *Manager) cleanupVM(name string) {
-	c, cancel := context.WithTimeout(context.Background(), stopTimeout)
+// stopAndDelete gives stop and delete separate budgets so a hung stop cannot starve the delete.
+func (m *Manager) stopAndDelete(ctx context.Context, name string) error {
+	stopCtx, cancel := context.WithTimeout(ctx, stopTimeout)
 	defer cancel()
-	_ = m.tart.Stop(c, name)
-	_ = m.tart.Delete(c, name)
+	if err := m.tart.Stop(stopCtx, name); err != nil {
+		m.Log.Warn("stop failed, deleting anyway", "name", name, "err", err)
+	}
+	delCtx, cancel := context.WithTimeout(ctx, stopTimeout)
+	defer cancel()
+	return m.tart.Delete(delCtx, name)
+}
+
+func (m *Manager) cleanupVM(name string) {
+	if err := m.stopAndDelete(context.Background(), name); err != nil {
+		m.Log.Error("cannot delete the VM; it is left behind", "name", name, "err", err)
+	}
 }
 
 // round1 reports a duration in seconds with one decimal.
