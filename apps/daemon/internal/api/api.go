@@ -123,22 +123,41 @@ func (a *api) summary(runID string, mc *machine.Machine) RunSummary {
 	s := RunSummary{RunID: runID, Status: statusFailed}
 	man, err := machine.ReadManifest(a.mgr.RunDir(runID))
 	if err == nil {
-		s.CreatedAt, s.DestroyedAt, s.Image, s.Steps = man.CreatedAt, man.DestroyedAt, man.Image, man.Steps
+		s.CreatedAt, s.DestroyedAt, s.Image = man.CreatedAt, man.DestroyedAt, man.Image
 		s.IP, s.Verdict, s.Status = man.IP, man.Verdict, statusFinished
 	}
+	// Counted from steps.jsonl, never taken from the manifest, whose Steps is
+	// the highest number handed out rather than a count of what was recorded
+	// (see machine.Manifest). The list has to agree with
+	// /api/runs/{id}/steps, or the app cannot trust either one.
+	steps := a.stepLog(runID)
+	s.Steps = steps.Count
 	if mc != nil {
 		s.Status, s.Image, s.IP, s.VNCURL = string(mc.Status), mc.Image, mc.IP, mc.VNCURL
 		s.CreatedAt = mc.CreatedAt
 	}
+	// LastActivity is the latest of everything the run recorded, not the
+	// conversation alone: a run driven entirely by an agent says nothing in
+	// the transcript for hours while its steps and frames pile up, and a
+	// list that dates it from its creation sorts and reads as abandoned.
+	s.LastActivity = s.CreatedAt
+	later := func(t time.Time) {
+		if t.After(s.LastActivity) {
+			s.LastActivity = t
+		}
+	}
+	later(steps.Last)
 	if frames, err := machine.ReadFrames(a.mgr.RunDir(runID)); err == nil {
 		s.Frames = len(frames)
+		if s.Frames > 0 {
+			later(frames[s.Frames-1].At)
+		}
 	}
-	s.LastActivity = s.CreatedAt
 	if store, err := a.reg.Get(runID); err == nil {
 		msgs := store.After(0)
 		s.Messages = len(msgs)
 		if len(msgs) > 0 {
-			s.LastActivity = msgs[len(msgs)-1].At
+			later(msgs[len(msgs)-1].At)
 		}
 		v := store.Verdict()
 		if v.Status != session.None {
@@ -158,17 +177,39 @@ func (a *api) runDetail(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Same count the list and /steps report: the manifest's own number is a
+	// high-water mark, not a total (see machine.Manifest).
+	man.Steps = a.stepLog(id).Count
 	d := RunDetail{Manifest: man}
 	for _, mc := range a.mgr.List() {
 		if mc.RunID == id {
 			d.Machine = mc
 		}
 	}
+	// RunDetail.Verdict shadows the manifest's field of the same name, so it
+	// has to carry the manifest's verdict when the conversation has none to
+	// give: otherwise a run whose store will not open answers with no verdict
+	// at all, and a run that never had one answers with an empty verdict
+	// object where the list says null.
+	d.Verdict = man.Verdict
 	if store, err := a.reg.Get(id); err == nil {
-		v := store.Verdict()
-		d.Verdict = &v
+		if v := store.Verdict(); v.Status != session.None {
+			d.Verdict = &v
+		}
 	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+// stepLog is what a run's steps.jsonl says about itself. A log that cannot
+// be read reads as empty and says so in the daemon log: a summary is worth
+// answering without it, and the caller can still open /steps for the error.
+func (a *api) stepLog(runID string) machine.StepLog {
+	log, err := machine.ReadStepLog(a.mgr.RunDir(runID))
+	if err != nil {
+		a.log.Warn("cannot read a run's steps", "runId", runID, "err", err)
+		return machine.StepLog{}
+	}
+	return log
 }
 
 func (a *api) runSteps(w http.ResponseWriter, r *http.Request) {
@@ -648,7 +689,7 @@ func (a *api) events(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch ev.Kind {
-		case "created", "ready", "failed", "destroyed", "control":
+		case "created", "ready", "failed", "stopped", "destroyed", "control":
 			c.send(sseEvent{name: "run", data: ev})
 		case "step":
 			c.send(sseEvent{name: "step", data: map[string]any{"runId": ev.RunID, "step": ev.Step}})

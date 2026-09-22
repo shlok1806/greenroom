@@ -110,9 +110,10 @@ type Manager struct {
 }
 
 // LifecycleEvent is one change a listener may care about: a machine was
-// created, became ready or failed, was destroyed, or recorded a step.
+// created, became ready or failed, stopped on its own, was destroyed, or
+// recorded a step.
 type LifecycleEvent struct {
-	Kind    string   `json:"kind"` // created, ready, failed, destroyed, step, frame
+	Kind    string   `json:"kind"` // created, ready, failed, stopped, destroyed, step, frame
 	RunID   string   `json:"runId"`
 	Machine *Machine `json:"machine,omitempty"`
 	Step    int      `json:"step,omitempty"`
@@ -309,6 +310,11 @@ func (m *Manager) loadState() error {
 	for _, mc := range saved {
 		if !running[mc.Name] {
 			m.Log.Warn("dropping machine that is no longer running", "runId", mc.RunID, "name", mc.Name)
+			// The run is over, and this reattach is the moment the daemon
+			// learns it. Without this the record keeps saying a machine tart
+			// has not had for days is still alive, and the companion shows a
+			// run that never ends.
+			m.endRun(mc.Dir)
 			continue
 		}
 		// Carry the run's own manifest forward. Building a fresh one here
@@ -324,6 +330,18 @@ func (m *Manager) loadState() error {
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {
 			m.Log.Warn("cannot read the run's manifest; its step count restarts", "runId", mc.RunID, "err", err)
+		}
+		// The steps on disk have the final say on how far the numbering got.
+		// A manifest that lost writes, or that an older daemon wiped, would
+		// otherwise hand out a number steps.jsonl already uses, and the
+		// second step of that number would overwrite the first one's
+		// artifact. Evidence outranks the summary of it.
+		if log, err := ReadStepLog(mc.Dir); err != nil {
+			m.Log.Warn("cannot read the run's steps; trusting the manifest's step count", "runId", mc.RunID, "err", err)
+		} else if log.Highest > man.Steps {
+			m.Log.Warn("manifest is behind the recorded steps; carrying the steps forward",
+				"runId", mc.RunID, "manifest", man.Steps, "recorded", log.Highest)
+			man.Steps = log.Highest
 		}
 		var err error
 		mc.rec, err = newRecorder(mc.Dir, man)
@@ -595,15 +613,57 @@ func (m *Manager) finishBoot(mc *Machine, started time.Time) {
 	if err != nil {
 		m.Log.Warn("machine failed to boot", "runId", mc.RunID, "err", err)
 		m.cleanupVM(mc.Name)
+		// The VM has been stopped and deleted, so this run is over even
+		// though nobody destroyed it. A record that gives it no end reads as
+		// a machine still running days later.
+		now := time.Now().UTC()
+		_ = mc.rec.update(func(man *Manifest) { man.DestroyedAt = &now })
 		m.emit(LifecycleEvent{Kind: "failed", RunID: mc.RunID, Machine: m.snapshot(mc)})
 		return
 	}
 	m.Log.Info("machine ready", "runId", mc.RunID, "ip", ip, "bootSeconds", mc.BootSeconds,
 		"agentSeconds", timings["agentSeconds"], "sshSeconds", timings["sshSeconds"])
 	m.emit(LifecycleEvent{Kind: "ready", RunID: mc.RunID, Machine: m.snapshot(mc)})
+	m.watchProcess(mc)
 	if m.frameInterval > 0 {
 		m.startFrames(mc)
 	}
+}
+
+// watchProcess marks a ready machine failed when its `tart run` process
+// exits. tart stays in the foreground for the life of a VM, so an exit after
+// boot means the same thing it means during boot: the machine is gone. Until
+// the daemon notices, every read of the run says `ready` about a VM that
+// stopped hours ago, and the record gives it no end.
+//
+// A machine that Destroy took out of the map is not this: Destroy removes it
+// before it stops the VM, so the exit that follows is expected and this
+// leaves the record alone.
+func (m *Manager) watchProcess(mc *Machine) {
+	if mc.proc == nil {
+		return // a reattached machine: this daemon never started the process
+	}
+	go func() {
+		mc.proc.Wait()
+		m.mu.Lock()
+		if _, alive := m.machines[mc.RunID]; !alive {
+			m.mu.Unlock()
+			return
+		}
+		err := mc.proc.Err()
+		mc.Status, mc.Error = Failed, err.Error()
+		delete(m.machines, mc.RunID)
+		if mc.frameCancel != nil {
+			mc.frameCancel()
+		}
+		_ = m.saveStateLocked()
+		m.mu.Unlock()
+
+		m.Log.Warn("machine stopped on its own", "runId", mc.RunID, "err", err)
+		now := time.Now().UTC()
+		_ = mc.rec.update(func(man *Manifest) { man.DestroyedAt = &now })
+		m.emit(LifecycleEvent{Kind: "stopped", RunID: mc.RunID, Machine: m.snapshot(mc)})
+	}()
 }
 
 // startFrames begins the frame recorder for a ready machine. It holds
@@ -974,6 +1034,40 @@ func (m *Manager) RecordVerdict(runID string, v session.VerdictState) error {
 	man.Verdict = &v
 	// A finished run has no recorder, so borrow one for the atomic write.
 	return (&recorder{dir: dir, manifest: man}).writeManifest()
+}
+
+// endRun records that a run's machine is gone, for a run that has no live
+// recorder left: the daemon was stopped, and by the time it came back tart
+// no longer had the machine. It is dated from the run's own evidence, the
+// last step or frame recorded, because that is the last moment the record
+// can show the machine alive; dating it "now" would credit the run with
+// however long the daemon happened to be down. A manifest that already has
+// an end, or that cannot be read, is left alone.
+func (m *Manager) endRun(dir string) {
+	man, err := ReadManifest(dir)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			m.Log.Warn("cannot read a finished run's manifest", "dir", dir, "err", err)
+		}
+		return
+	}
+	if man.DestroyedAt != nil {
+		return
+	}
+	end := man.CreatedAt
+	if log, err := ReadStepLog(dir); err == nil && log.Last.After(end) {
+		end = log.Last
+	}
+	if frames, err := ReadFrames(dir); err == nil && len(frames) > 0 {
+		if last := frames[len(frames)-1].At; last.After(end) {
+			end = last
+		}
+	}
+	end = end.UTC()
+	man.DestroyedAt = &end
+	if err := (&recorder{dir: dir, manifest: man}).writeManifest(); err != nil {
+		m.Log.Warn("cannot record the end of a finished run", "dir", dir, "err", err)
+	}
 }
 
 func shellQuote(s string) string {

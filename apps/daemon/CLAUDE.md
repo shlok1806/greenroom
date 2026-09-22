@@ -134,6 +134,23 @@ is 2 and `-max-machines` changes it. The error names the machines that hold the 
 callers that compute `manifest.Steps + 1` themselves choose the same name and overwrite each
 other's evidence.
 
+**`manifest.Steps` is a high-water mark, and nothing reports it as a count.** `begin` claims a
+number before the work runs, so a daemon stopped between `begin` and `complete` leaves a number
+claimed that no line in steps.jsonl ever uses. It stays a high-water mark on purpose: handing out
+a number the run has already spent would overwrite that step's artifact, and reattaching takes
+`max(manifest.Steps, highest seq in steps.jsonl)` so a manifest that lost writes cannot walk the
+numbering backwards. Anything that reports what a run did counts the record instead, through
+`machine.ReadStepLog`, which is why `/api/runs` agrees with `/api/runs/{id}/steps`. A run was
+found reporting `steps: 0` in the list with six steps on disk, from an older daemon that rebuilt
+the manifest on reattach.
+
+**Every way a run can end is recorded.** `destroyedAt` is not only written by `Destroy`: a boot
+that fails stops and deletes the VM and stamps it, a `tart run` process that exits after the
+machine was ready is watched by `watchProcess`, which fails the machine and stamps it, and a
+reattach that finds tart no longer listing a machine stamps it from the run's own evidence,
+dated at the end of the last step or frame rather than at the restart. A run with no end reads
+as a machine still running days later, and every duration computed from it is wrong.
+
 **Only the session store hands out message sequence numbers.** `Store.Append` numbers a message
 under its own lock, for the same reason only the recorder hands out step numbers: two writers
 that each compute `len(msgs) + 1` choose the same `seq` and one of them is lost.
@@ -243,7 +260,8 @@ Collapsing the two would make every failing build look like an infrastructure fa
 directory name.
 
 **The daemon outlives its own process.** SIGINT shuts down HTTP but leaves machines running;
-`loadState` reattaches on next boot and drops machines tart no longer lists.
+`loadState` reattaches on next boot, drops machines tart no longer lists, and records the end of
+each run it drops.
 
 ## Test seams
 

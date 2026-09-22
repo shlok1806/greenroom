@@ -137,6 +137,40 @@ func (h *harness) status(method, path string, in any) (int, string) {
 	return res.StatusCode, string(body)
 }
 
+// setManifestSteps rewrites one run's manifest step count, which is how a
+// daemon that died mid-run, or an older daemon, left it.
+func (h *harness) setManifestSteps(runID string, steps int) {
+	h.t.Helper()
+	path := filepath.Join(h.mgr.RunDir(runID), "manifest.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	var man map[string]any
+	if err := json.Unmarshal(data, &man); err != nil {
+		h.t.Fatal(err)
+	}
+	man["steps"] = steps
+	data, err = json.Marshal(man)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func findRun(t *testing.T, runs []RunSummary, runID string) RunSummary {
+	t.Helper()
+	for _, r := range runs {
+		if r.RunID == runID {
+			return r
+		}
+	}
+	t.Fatalf("run %s is not in the list of %d", runID, len(runs))
+	return RunSummary{}
+}
+
 func (h *harness) putShot() {
 	h.t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, 8, 6))
@@ -182,8 +216,10 @@ func TestRunsListFollowsTheMachineFromBootingToReady(t *testing.T) {
 	if runs[0].IP == "" {
 		t.Errorf("a ready machine has no ip: %+v", runs[0])
 	}
-	if !runs[0].LastActivity.Equal(runs[0].CreatedAt) {
-		t.Errorf("lastActivity = %v, want the creation time while nothing has been said", runs[0].LastActivity)
+	// Nothing has been said in the conversation, but the run has recorded
+	// its boot, and that is activity: lastActivity follows the evidence.
+	if runs[0].LastActivity.Before(runs[0].CreatedAt) {
+		t.Errorf("lastActivity = %v, before the run was created at %v", runs[0].LastActivity, runs[0].CreatedAt)
 	}
 }
 
@@ -220,6 +256,92 @@ func TestStepsAreTheRunsEvidence(t *testing.T) {
 	h.get("/api/runs/"+runID+"/steps", &steps)
 	if len(steps) == 0 || steps[len(steps)-1].Tool != "machine_screenshot" {
 		t.Fatalf("steps = %+v, want the screenshot last", steps)
+	}
+}
+
+// The list's step count is read from steps.jsonl, never from the manifest.
+// A run was found reporting steps: 0 in the list while /steps answered with
+// six records for the same run: the manifest's Steps is the highest number
+// handed out, not a count, so a daemon stopped between begin and complete,
+// or an older daemon that wiped the manifest on reattach, leaves the two
+// apart for the life of the run. The evidence on disk is what the product
+// sells, so the summary counts it.
+func TestTheRunListCountsTheStepsOnDiskNotTheManifest(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	var steps []machine.Step
+	h.get("/api/runs/"+runID+"/steps", &steps)
+	if len(steps) == 0 {
+		t.Fatal("the run recorded no steps, so this test cannot see the regression")
+	}
+
+	for _, manifestSteps := range []int{0, len(steps) + 40} {
+		h.setManifestSteps(runID, manifestSteps)
+
+		var runs []RunSummary
+		h.get("/api/runs", &runs)
+		got := findRun(t, runs, runID)
+		if got.Steps != len(steps) {
+			t.Errorf("the list says %d steps with a manifest claiming %d; /steps has %d",
+				got.Steps, manifestSteps, len(steps))
+		}
+		var d RunDetail
+		h.get("/api/runs/"+runID, &d)
+		if d.Steps != len(steps) {
+			t.Errorf("the detail says %d steps with a manifest claiming %d; /steps has %d",
+				d.Steps, manifestSteps, len(steps))
+		}
+	}
+}
+
+// A run that nobody talks to is still working. lastActivity used to follow
+// the conversation alone, so a run driven entirely by an agent was dated
+// from its creation while its steps piled up, and the list read it as
+// abandoned.
+func TestLastActivityFollowsTheStepsAndNotJustTheConversation(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	// A step taken after the machine was ready: the create and boot steps are
+	// both dated from the moment the run began, so neither of them can tell a
+	// lastActivity that follows the steps from one that does not.
+	h.putShot()
+	if _, _, _, err := h.mgr.ScreenshotStep(context.Background(), runID); err != nil {
+		t.Fatalf("screenshot: %v", err)
+	}
+	var steps []machine.Step
+	h.get("/api/runs/"+runID+"/steps", &steps)
+	if len(steps) == 0 {
+		t.Fatal("the run recorded no steps, so this test cannot see the regression")
+	}
+	last := steps[len(steps)-1].At
+
+	var runs []RunSummary
+	h.get("/api/runs", &runs)
+	got := findRun(t, runs, runID)
+	if got.LastActivity.Before(last) {
+		t.Errorf("lastActivity is %v, behind the last step at %v", got.LastActivity, last)
+	}
+}
+
+// A run whose conversation has reached no verdict answers with no verdict,
+// in the list and in the detail alike. RunDetail.Verdict shadows the
+// manifest's field of the same name, so the detail used to answer with an
+// empty verdict object where the list answered null.
+func TestARunWithNoVerdictSaysSoTheSameWayEverywhere(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	var runs []RunSummary
+	h.get("/api/runs", &runs)
+	if got := findRun(t, runs, runID); got.Verdict != nil {
+		t.Errorf("the list invented a verdict: %+v", got.Verdict)
+	}
+	var d RunDetail
+	h.get("/api/runs/"+runID, &d)
+	if d.Verdict != nil {
+		t.Errorf("the detail invented a verdict: %+v", d.Verdict)
 	}
 }
 

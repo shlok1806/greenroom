@@ -203,6 +203,13 @@ func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnable
 			if ev.Machine != nil && ev.Machine.Error != "" {
 				text += ": " + ev.Machine.Error
 			}
+		case "stopped":
+			// Not a boot failure: this machine worked and then its VM went
+			// away under the daemon, so the transcript must not blame boot.
+			text = "machine stopped"
+			if ev.Machine != nil && ev.Machine.Error != "" {
+				text += ": " + ev.Machine.Error
+			}
 		case "destroyed":
 			text = "machine destroyed"
 		default:
