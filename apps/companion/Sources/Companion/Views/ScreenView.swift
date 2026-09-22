@@ -2,12 +2,18 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// The machine's recording (ADR 0008): a scrubber over the frames the daemon
+/// The machine's recording (ADR 0008): a player over the frames the daemon
 /// captured, live or finished. The app never polls for a screenshot; it only
-/// ever shows the frames the daemon already took.
+/// ever shows frames the daemon already took.
 ///
-/// With "Take control" on it is also the machine's screen (ADR 0009): the
-/// same picture, with the mouse and the keyboard going the other way.
+/// With "Take control" on it is also the machine's screen (ADR 0009): the same
+/// picture, with the mouse and the keyboard going the other way.
+///
+/// The screen is the one thing on this window worth looking at, so it gets the
+/// room: picture edge to edge, one track under it, and a single line of
+/// controls. Everything that used to sit on top of the picture now sits beside
+/// the track, because a label over the guest's menu bar hides the very thing
+/// the person came to see.
 struct ScreenView: View {
     @Bindable var store: RunStore
     let runId: String
@@ -19,13 +25,13 @@ struct ScreenView: View {
     /// once and not again every time the tab comes back.
     @State private var appliedSeekNonce = 0
     /// When the last playback tick ran, so `advance` is told how much time
-    /// really passed rather than how much the timer was asked for.
+    /// really passed rather than how much the timer asked for.
     @State private var lastTick: Date?
     @State private var pilot: ControlPilot?
     @FocusState private var focused: Bool
 
-    /// True while this app is driving the machine.
-    private var driving: Bool { pilot?.active == true }
+    /// True while the app is driving the machine.
+    var driving: Bool { pilot?.active == true }
 
     private let tick = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
@@ -42,18 +48,16 @@ struct ScreenView: View {
         }
         .focusable(!driving)
         .focused($focused)
-        // While the machine has the keyboard, the scrubber does not: an
-        // arrow key is for the guest, not for the timeline.
+        // While the machine has the keyboard the scrubber does not: an arrow
+        // key is for the guest, not for the timeline.
         .onKeyPress(.leftArrow) {
             guard !driving else { return .ignored }
-            player.live = false
-            player.index = max(0, player.index - 1)
+            step(by: -1)
             return .handled
         }
         .onKeyPress(.rightArrow) {
             guard !driving else { return .ignored }
-            player.live = false
-            player.index = min(max(player.frames.count - 1, 0), player.index + 1)
+            step(by: 1)
             return .handled
         }
         .onKeyPress(.space) {
@@ -65,19 +69,17 @@ struct ScreenView: View {
             focused = true
             pilot = store.pilot(for: runId)
             syncFrames()
-            // A click in the Steps tab asks for the seek and *then* brings this
-            // view into being, so the request is already waiting by the time
-            // `onChange` could have seen it. Without this the jump silently
-            // became "show the newest frame, live".
+            // A click in the Steps tab asks for the seek and *then* brings
+            // this view into being, so the request is already waiting by the
+            // time `onChange` could have seen it. Without this the jump
+            // silently became "show the newest frame, live".
             applyPendingSeek()
-            lastTick = nil
-        }
-        .onDisappear {
             lastTick = nil
         }
         // Leaving the tab, or the run, gives the screen back. A machine must
         // never be left believing somebody is at its keyboard.
         .onDisappear {
+            lastTick = nil
             let leaving = pilot
             Task { await leaving?.release() }
         }
@@ -85,6 +87,17 @@ struct ScreenView: View {
             let leaving = store.pilot(for: old)
             Task { await leaving.release() }
             pilot = store.pilot(for: new)
+            // The tab keeps its state across a change of run, so without this
+            // the player went on showing the previous run's recording: its
+            // frames, its position, and the picture already on screen. It only
+            // corrected itself when the two runs happened to hold a different
+            // number of frames.
+            player = PlayerModel()
+            image = nil
+            appliedSeekNonce = 0
+            lastTick = nil
+            syncFrames()
+            applyPendingSeek()
         }
         .onChange(of: machineIsReady) { _, ready in
             guard !ready, let pilot else { return }
@@ -114,52 +127,48 @@ struct ScreenView: View {
     @ViewBuilder
     private var picture: some View {
         if let image {
-            ZStack(alignment: .topLeading) {
+            ZStack {
                 Color.black
                 Image(nsImage: image)
                     .resizable()
+                    .interpolation(.medium)
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // The events go through a layer over the picture, which is
-                // inert until the daemon has granted the lease.
+                // The events go through a layer over the picture, inert until
+                // the daemon has granted a lease.
                 InputSurface(imageSize: image.size, active: driving) { actions in
                     pilot?.send(actions)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // The labels sit above the surface and must not swallow a
-                // click meant for the machine underneath them.
-                overlayLabel
-                    .allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .topTrailing) { drivingBadge.allowsHitTesting(false) }
+            .overlay(alignment: .topTrailing) {
+                drivingBadge.allowsHitTesting(false)
+            }
         } else {
             ContentUnavailableView(
-                "No frames yet",
+                emptyTitle,
                 systemImage: "film",
-                description: Text("Recording starts when the machine is ready.")
+                description: Text(emptyDetail)
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    private var overlayLabel: some View {
-        HStack(spacing: 8) {
-            if let frame = player.current {
-                Text(elapsed(frame))
-                    .monospacedDigit()
-                Text("step \(frame.step)")
-            }
-        }
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(.white)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.black.opacity(0.55), in: Capsule())
-        .padding(10)
+    private var emptyTitle: String {
+        player.frames.isEmpty ? "No recording" : "Loading the frame..."
     }
 
-    /// Says, unmissably, that clicks are going into the machine.
+    /// A finished run will never record anything again, and telling its
+    /// reviewer to wait for a machine that is gone is an empty state that
+    /// says nothing true.
+    private var emptyDetail: String {
+        guard player.frames.isEmpty else { return "The frame is on its way from the daemon." }
+        if machineIsReady { return "Recording starts when the machine is ready." }
+        return "This run ended without any frames captured."
+    }
+
+    /// Says, unmissably, that the clicks are going into the machine.
     @ViewBuilder
     private var drivingBadge: some View {
         if driving {
@@ -181,24 +190,29 @@ struct ScreenView: View {
         }
     }
 
-    private func elapsed(_ frame: Frame) -> String {
-        guard let start = store.details[runId]?.createdAt else { return "" }
-        let seconds = max(0, Int(frame.at.timeIntervalSince(start)))
-        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
-    }
-
     // MARK: - Controls
 
     private var controls: some View {
         VStack(spacing: 8) {
-            scrubber
-            HStack(spacing: 12) {
+            FrameTrack(
+                frames: player.frames,
+                index: player.index,
+                enabled: !driving
+            ) { newIndex in
+                player.live = false
+                player.index = newIndex
+            }
+            .frame(height: 22)
+
+            HStack(spacing: 10) {
                 Button {
                     player.playing.toggle()
                 } label: {
                     Image(systemName: player.playing ? "pause.fill" : "play.fill")
+                        .frame(width: 12)
                 }
-                .disabled(player.frames.count < 2)
+                .disabled(player.frames.count < 2 || driving)
+                .help(player.playing ? "Pause" : "Play the recording")
 
                 Picker("Speed", selection: $player.speed) {
                     Text("1x").tag(PlayerModel.Speed.normal)
@@ -206,49 +220,67 @@ struct ScreenView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 90)
+                .frame(width: 80)
+                .disabled(driving)
 
-                Toggle("Live", isOn: liveBinding)
-                    .toggleStyle(.switch)
-                    .disabled(!machineIsReady || driving)
+                position
 
-                Toggle("Take control", isOn: controlBinding)
-                    .toggleStyle(.switch)
-                    .disabled(!machineIsReady || pilot?.busy == true)
-                    .help("Send this window's mouse and keyboard to the machine. "
-                        + "The run's conversation records that you took it.")
+                Spacer(minLength: 8)
 
-                Spacer()
+                if machineIsReady {
+                    Toggle("Live", isOn: liveBinding)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .disabled(driving)
+                        .help("Follow the newest frame as the daemon captures it.")
 
-                Button {
-                    Task { await capture() }
-                } label: {
-                    Label("Capture now", systemImage: "camera")
+                    Toggle("Take control", isOn: controlBinding)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .disabled(pilot?.busy == true)
+                        .fixedSize()
+                        .help("Send this window's mouse and keyboard to the machine. "
+                            + "The run's conversation records that you took it.")
+
+                    Button {
+                        Task { await capture() }
+                    } label: {
+                        Label("Capture", systemImage: "camera")
+                    }
+                    .disabled(busy)
+                    .help("Ask the daemon for a screenshot now. It lands in the run as a step.")
                 }
-                .disabled(!machineIsReady || busy)
+            }
+            .frame(minHeight: 22)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
 
-                if let frame = player.current {
-                    Text(frame.file)
-                        .font(.caption.monospaced())
+    /// Where in the recording the picture is, in the three units a reviewer
+    /// asks in: time, frame, and the step that was running.
+    private var position: some View {
+        HStack(spacing: 8) {
+            Text("\(Chrome.clock(offset)) / \(Chrome.clock(FrameTimeline.duration(player.frames)))")
+                .monospacedDigit()
+            if let frame = player.current {
+                Text("frame \(player.index + 1) of \(player.frames.count)")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                if frame.step > 0 {
+                    Text("step \(frame.step)")
                         .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
             }
         }
-        .padding(10)
+        .font(.caption)
+        .lineLimit(1)
+        .help(player.current.map { "\(Chrome.stamp($0.at))\n\($0.file)" } ?? "")
     }
 
-    private var scrubber: some View {
-        Slider(
-            value: Binding(
-                get: { Double(player.index) },
-                set: { newValue in
-                    player.live = false
-                    player.index = min(max(Int(newValue.rounded()), 0), max(player.frames.count - 1, 0))
-                }
-            ),
-            in: 0...Double(max(player.frames.count - 1, 0))
-        )
-        .disabled(player.frames.count < 2)
+    private var offset: TimeInterval {
+        FrameTimeline.offset(player.frames, at: player.index)
     }
 
     /// Taking control also pins the player to the newest frame: nobody can
@@ -286,6 +318,12 @@ struct ScreenView: View {
 
     // MARK: - Loading
 
+    private func step(by delta: Int) {
+        guard !player.frames.isEmpty else { return }
+        player.live = false
+        player.index = min(max(player.index + delta, 0), player.frames.count - 1)
+    }
+
     /// Reconciles the player's own frame list with the store's. A single new
     /// frame arriving live is appended in place (so `live` keeps following
     /// it); anything else (the first load, a reconnect's full reload) resets
@@ -309,13 +347,12 @@ struct ScreenView: View {
     }
 
     /// Acts on the store's standing seek request, at most once per request.
-    /// The nonce is what makes it once: coming back to this tab must not
-    /// re-run a jump the person has since scrubbed away from.
+    /// The nonce is what makes it once: coming back to the tab must not re-run
+    /// a jump the person has since scrubbed away from.
     private func applyPendingSeek() {
         guard let request = store.seekRequest,
               request.runId == runId,
-              request.nonce != appliedSeekNonce
-        else { return }
+              request.nonce != appliedSeekNonce else { return }
         appliedSeekNonce = request.nonce
         player.seek(toStep: request.step)
     }
@@ -325,12 +362,79 @@ struct ScreenView: View {
             image = nil
             return
         }
-        image = await store.frameImage(runId: runId, file: frame.file)
+        let loaded = await store.frameImage(runId: runId, file: frame.file)
+        // Cancelling a `.task(id:)` does not unwind the load it started: it
+        // resumes here and assigns anyway. Switching runs while a frame was
+        // still on the wire therefore painted the previous run's screen under
+        // the new run's name, and left it there when the new run had no
+        // frames of its own to overwrite it with. Nothing is shown unless the
+        // frame it was fetched for is still the frame being asked for.
+        guard !Task.isCancelled, player.shows(frame.file) else { return }
+        image = loaded
     }
 
     private func capture() async {
         busy = true
         defer { busy = false }
         await store.screenshot(runId: runId)
+    }
+}
+
+/// The timeline: where the recording is, and where its steps are.
+///
+/// A slider was fine for a hundred frames and useless for two thousand, where
+/// the only question a person has is "where did the work happen". The track
+/// answers it by drawing a tick wherever a new step began, so a run reads as a
+/// map rather than a length, and dragging anywhere on it seeks, rather than
+/// only on a knob that has to be found first.
+private struct FrameTrack: View {
+    let frames: [Frame]
+    let index: Int
+    var enabled: Bool = true
+    let onSeek: (Int) -> Void
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let timeline = FrameTimeline(count: frames.count, width: width)
+            let playhead = timeline.x(of: index)
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.quaternary)
+                    .frame(height: 4)
+
+                Capsule()
+                    .fill(.secondary)
+                    .frame(width: max(playhead, 0), height: 4)
+
+                ForEach(timeline.ticks(for: frames), id: \.index) { tick in
+                    Rectangle()
+                        .fill(.tertiary)
+                        .frame(width: 1, height: 9)
+                        .offset(x: min(tick.x, width - 1))
+                }
+
+                // Held inside the track: at the last frame the playhead is at
+                // the full width, and drawn from there it hangs off the end.
+                Capsule()
+                    .fill(enabled ? Color.accentColor : Color.secondary)
+                    .frame(width: 3, height: 16)
+                    .offset(x: min(max(playhead - 1.5, 0), max(width - 3, 0)))
+                    .shadow(radius: 1)
+            }
+            .frame(width: width, height: geometry.size.height, alignment: .leading)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard enabled, frames.count > 1 else { return }
+                        onSeek(timeline.index(atX: value.location.x))
+                    }
+            )
+            .opacity(frames.count > 1 ? 1 : 0.4)
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Recording position")
+        .accessibilityValue("frame \(index + 1) of \(frames.count)")
     }
 }

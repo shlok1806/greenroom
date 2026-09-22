@@ -201,6 +201,8 @@ enum LifecycleKind: OpenEnum {
     case ready
     case failed
     case destroyed
+    /// A screen lease was taken or given back (ADR 0009).
+    case control
     case unknown(String)
 
     init(text: String) {
@@ -209,6 +211,7 @@ enum LifecycleKind: OpenEnum {
         case "ready": self = .ready
         case "failed": self = .failed
         case "destroyed": self = .destroyed
+        case "control": self = .control
         default: self = .unknown(text)
         }
     }
@@ -219,6 +222,7 @@ enum LifecycleKind: OpenEnum {
         case .ready: return "ready"
         case .failed: return "failed"
         case .destroyed: return "destroyed"
+        case .control: return "control"
         case .unknown(let raw): return raw
         }
     }
@@ -760,8 +764,12 @@ struct RunDetail: Codable, Hashable, Sendable, Identifiable {
     /// The address a run is reachable at, from the live machine first.
     var address: String? { machine?.ip ?? ip }
 
+    /// A run with no live machine is finished. The manifest of a run recorded
+    /// before `destroyedAt` was written carries no end time, and reading that
+    /// absence as "unknown" put a lone question mark in the run header while
+    /// the run list beside it said "finished".
     var status: RunStatus {
-        guard let machine else { return destroyedAt == nil ? .unknown("") : .finished }
+        guard let machine else { return .finished }
         switch machine.status {
         case .booting: return .booting
         case .ready: return .ready

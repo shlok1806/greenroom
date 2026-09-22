@@ -2,6 +2,7 @@ package machine
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,7 +22,15 @@ type Manifest struct {
 	IP          string     `json:"ip,omitempty"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	DestroyedAt *time.Time `json:"destroyedAt,omitempty"`
-	Steps       int        `json:"steps"`
+
+	// Steps is the highest step number handed out, not a count of the steps
+	// on disk. `begin` claims a number before the work runs, so a daemon
+	// stopped between `begin` and `complete` leaves a number claimed that no
+	// line in steps.jsonl ever uses, and the two numbers part company for
+	// the life of the run. It stays a high-water mark on purpose: reusing a
+	// claimed number would overwrite an artifact. Anything reporting what a
+	// run counts steps.jsonl instead, through ReadStepLog.
+	Steps int `json:"steps"`
 
 	// Verdict is the state of the conversation's latest verdict (ADR 0006),
 	// kept here so a reviewer sees it without opening the transcript.
@@ -59,6 +68,63 @@ func ReadSteps(dir string) ([]Step, error) {
 		steps = append(steps, s)
 	}
 	return steps, sc.Err()
+}
+
+// StepLog is what a run's step log says about itself: how many steps it
+// holds, the highest number any of them carries, and when the last of them
+// finished. It answers every question about a run that does not need the
+// steps themselves.
+type StepLog struct {
+	Count   int
+	Highest int
+
+	// Last is when the newest step ended, which is its own start plus how
+	// long it took. A step is dated from when its tool call began, so a
+	// build that ran for ten minutes would otherwise date a run's last
+	// activity ten minutes before the machine was last known to be alive.
+	Last time.Time
+}
+
+// ReadStepLog summarises steps.jsonl, which is the run's evidence; the
+// manifest only says how many numbers were handed out.
+//
+// It decodes two fields per line rather than whole steps, because a step
+// carries a command's entire output and a caller that only wants a count
+// should not pay to decode it.
+func ReadStepLog(dir string) (StepLog, error) {
+	var out StepLog
+	f, err := os.Open(filepath.Join(dir, "steps.jsonl"))
+	if errors.Is(err, os.ErrNotExist) {
+		return out, nil
+	}
+	if err != nil {
+		return out, err
+	}
+	defer func() { _ = f.Close() }()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		line := sc.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var s struct {
+			Seq        int       `json:"seq"`
+			At         time.Time `json:"at"`
+			DurationMS int64     `json:"durationMs"`
+		}
+		if err := json.Unmarshal(line, &s); err != nil {
+			return out, fmt.Errorf("parse steps.jsonl line %d: %w", out.Count+1, err)
+		}
+		out.Count++
+		if s.Seq > out.Highest {
+			out.Highest = s.Seq
+		}
+		if end := s.At.Add(time.Duration(s.DurationMS) * time.Millisecond); end.After(out.Last) {
+			out.Last = end
+		}
+	}
+	return out, sc.Err()
 }
 
 // Step is one tool call against the machine, appended to steps.jsonl.

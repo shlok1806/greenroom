@@ -29,6 +29,14 @@ struct PlayerModel: Equatable, Sendable {
         return frames[index]
     }
 
+    /// Whether `file` is still the frame on screen. A frame's image is fetched
+    /// asynchronously, and the fetch outlives the request for it: switching
+    /// runs starts a new load and leaves the old one suspended, so a load that
+    /// comes back has to ask whether anyone still wants what it carries. Frame
+    /// files are named by capture time, so this is also the run check: no two
+    /// runs name a frame the same.
+    func shows(_ file: String) -> Bool { current?.file == file }
+
     var isAtEnd: Bool { frames.isEmpty || index >= frames.count - 1 }
 
     /// Moves the index forward when enough sped-up time has passed to reach

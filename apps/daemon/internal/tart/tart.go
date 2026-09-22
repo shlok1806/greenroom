@@ -139,6 +139,13 @@ func (p *Process) Exited() bool {
 	}
 }
 
+// Wait blocks until the process stops. It is how a caller watches a VM for
+// the whole of its life rather than polling Exited, and it may be called by
+// any number of goroutines: the channel it waits on is only ever closed.
+func (p *Process) Wait() {
+	<-p.done
+}
+
 // Err explains why the process stopped. It prefers what tart printed,
 // because that names the real cause, for example the host VM limit.
 func (p *Process) Err() error {

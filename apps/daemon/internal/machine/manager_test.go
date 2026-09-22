@@ -852,3 +852,172 @@ func TestFakeTartExitsWhenItsControlDirectoryGoesAway(t *testing.T) {
 	_ = proc.Kill()
 	t.Fatal("the fake tart kept running after its control directory was removed")
 }
+
+// The steps on disk outrank the manifest when the two disagree about how far
+// the numbering got. A manifest that lost writes, or that an older daemon
+// wiped on reattach, would otherwise hand out a number the run has already
+// spent and the second step of that number would overwrite the first one's
+// artifact.
+func TestLoadStateCarriesTheRecordedStepsForwardOverABehindManifest(t *testing.T) {
+	bin, control := testsupport.FakeTart(t)
+	root := t.TempDir()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	first, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mc := readyMachine(t, first)
+	if err := os.WriteFile(filepath.Join(control, "vmname"), []byte(mc.Name), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "runs", mc.RunID)
+	steps, err := ReadSteps(dir)
+	if err != nil || len(steps) == 0 {
+		t.Fatalf("the run recorded no steps (%v), so this test cannot see the regression", err)
+	}
+	highest := steps[len(steps)-1].Seq
+
+	// The manifest as a daemon that died mid-run left it.
+	man := readManifest(t, dir)
+	man.Steps = 0
+	data, err := json.MarshalIndent(man, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0))
+	if err != nil {
+		t.Fatalf("the second manager did not start: %v", err)
+	}
+	if _, err := second.Exec(context.Background(), mc.RunID, "echo hi", "", 10*time.Second); err != nil {
+		t.Fatalf("Exec after reattaching: %v", err)
+	}
+	after, err := ReadSteps(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[int]bool{}
+	for _, s := range after {
+		if seen[s.Seq] {
+			t.Fatalf("step %d was handed out twice; the run's evidence overwrites itself", s.Seq)
+		}
+		seen[s.Seq] = true
+	}
+	if got := after[len(after)-1].Seq; got != highest+1 {
+		t.Errorf("the step after reattaching is %d, want %d", got, highest+1)
+	}
+}
+
+// A machine tart no longer lists is gone, and the reattach is when the daemon
+// learns it. The run's record has to say so, or the companion shows a run
+// that never ends.
+func TestLoadStateRecordsTheEndOfADroppedRun(t *testing.T) {
+	bin, control := testsupport.FakeTart(t)
+	root := t.TempDir()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	first, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mc := readyMachine(t, first)
+	dir := filepath.Join(root, "runs", mc.RunID)
+	if man := readManifest(t, dir); man.DestroyedAt != nil {
+		t.Fatal("the run already has an end before the daemon restarted")
+	}
+	log2, err := ReadStepLog(dir)
+	if err != nil || log2.Count == 0 {
+		t.Fatalf("the run recorded no steps: %v", err)
+	}
+	testsupport.Flag(t, control, "list-empty")
+
+	if _, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0)); err != nil {
+		t.Fatal(err)
+	}
+	man := readManifest(t, dir)
+	if man.DestroyedAt == nil {
+		t.Fatal("a dropped machine left the run with no end")
+	}
+	// Dated from the run's own evidence, not from whenever the daemon
+	// happened to come back.
+	if want := log2.Last; !man.DestroyedAt.Equal(want) {
+		t.Errorf("the run ends at %v, want the end of its last step at %v", man.DestroyedAt, want)
+	}
+}
+
+// A boot that fails stops and deletes the VM, so the run is over even though
+// nobody destroyed it.
+func TestAFailedBootEndsTheRun(t *testing.T) {
+	mgr, root, control := newTestManager(t)
+	testsupport.Flag(t, control, "fail-ip")
+	// The end is recorded after the VM has been stopped and deleted, which
+	// is after Wait returns: stopping a VM is the slow part of a failed boot
+	// and the caller is told it failed before it happens.
+	failed := make(chan struct{})
+	var once sync.Once
+	stop := mgr.Listen(func(ev LifecycleEvent) {
+		if ev.Kind == "failed" {
+			once.Do(func() { close(failed) })
+		}
+	})
+	defer stop()
+	mc, err := mgr.Create(context.Background(), testImage, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := mgr.Wait(context.Background(), mc.RunID, 20*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != Failed {
+		t.Fatalf("machine is %s, want failed", got.Status)
+	}
+	select {
+	case <-failed:
+	case <-time.After(20 * time.Second):
+		t.Fatal("no failed event")
+	}
+	man := readManifest(t, filepath.Join(root, "runs", mc.RunID))
+	if man.DestroyedAt == nil {
+		t.Error("a failed boot left the run with no end")
+	}
+}
+
+// tart stays in the foreground for the life of a VM, so a process that exits
+// after boot means the same thing it means during boot: the machine is gone.
+// Until the daemon notices, every read of the run says ready about a VM that
+// stopped hours ago.
+func TestAMachineWhoseProcessExitsIsFailed(t *testing.T) {
+	mgr, root, control := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	stopped := make(chan struct{})
+	var once sync.Once
+	stop := mgr.Listen(func(ev LifecycleEvent) {
+		if ev.Kind == "stopped" && ev.RunID == mc.RunID {
+			once.Do(func() { close(stopped) })
+		}
+	})
+	defer stop()
+
+	// What the fake tart's `run` watches for: the VM went away underneath it.
+	testsupport.Flag(t, control, "stopped")
+
+	select {
+	case <-stopped:
+	case <-time.After(20 * time.Second):
+		t.Fatal("no stopped event for a machine whose tart process exited")
+	}
+	if len(mgr.List()) > 0 {
+		t.Error("the daemon still lists a machine whose tart process exited")
+	}
+	// The machine is disposable and goes; the evidence is not and stays.
+	if log := testsupport.Calls(t, control); !strings.Contains(log, "delete "+mc.Name) {
+		t.Errorf("a machine that stopped on its own left its VM behind\ncalls:\n%s", log)
+	}
+	man := readManifest(t, filepath.Join(root, "runs", mc.RunID))
+	if man.DestroyedAt == nil {
+		t.Error("a machine that stopped on its own left the run with no end")
+	}
+}

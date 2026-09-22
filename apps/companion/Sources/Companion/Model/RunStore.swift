@@ -237,7 +237,10 @@ final class RunStore {
             held.append(message)
             messages[runId] = held
             if let index = runs.firstIndex(where: { $0.runId == runId }) {
-                runs[index].messages = max(runs[index].messages, message.seq)
+                // `messages` in the run list is a count (the daemon sends
+                // len(msgs)), not a sequence number. Appending one message
+                // adds one.
+                runs[index].messages += 1
                 runs[index].lastActivity = max(runs[index].lastActivity, message.at)
             }
             // A verdict or its closing changes the badge, so re-read the run.
@@ -247,7 +250,11 @@ final class RunStore {
             }
         case .step(let runId, let seq, let step):
             if let index = runs.firstIndex(where: { $0.runId == runId }) {
-                runs[index].steps = max(runs[index].steps, seq)
+                // `steps` in the run list is a count of steps.jsonl, not the
+                // highest seq: numbering can have gaps. One new step adds one.
+                if steps[runId]?.contains(where: { $0.seq == seq }) != true {
+                    runs[index].steps += 1
+                }
                 if let at = step?.at {
                     runs[index].lastActivity = max(runs[index].lastActivity, at)
                 }
@@ -293,6 +300,11 @@ final class RunStore {
         do {
             _ = try await client.screenshot(runId: runId)
             steps[runId] = try await client.steps(runId)
+            // The daemon writes the capture into the run's conversation, so
+            // the transcript is stale until it is re-read. Waiting for the
+            // event stream to say so would leave the app wrong whenever the
+            // stream is the thing that is broken.
+            await reloadMessages(runId)
             if lastError != nil { lastError = nil }
         } catch {
             report(error)
@@ -320,6 +332,15 @@ final class RunStore {
         }
     }
 
+    /// One artifact as a drawn image. A screenshot artifact is the guest's
+    /// full display and much bigger than a frame, so it goes through the same
+    /// detached decode: a view must not turn bytes into pixels on the main
+    /// actor, and a view must not be the thing that knows they are bytes.
+    func artifactImage(runId: String, name: String) async -> NSImage? {
+        guard let data = await artifact(runId: runId, name: name) else { return nil }
+        return await Self.decode(data)
+    }
+
     /// One frame's decoded image, from the cache if it is already there. The
     /// Screen tab calls this while scrubbing, so a frame it has shown before
     /// never crosses the network or a decoder twice.
@@ -327,13 +348,32 @@ final class RunStore {
         if let cached = frameCache.image(runId: runId, file: file) { return cached }
         do {
             let data = try await client.frame(runId: runId, file: file)
-            guard let image = NSImage(data: data) else { return nil }
+            // Only the header is parsed off the main actor; see `decode` for
+            // why the pixels are not.
+            guard let image = await Self.decode(data) else { return nil }
             frameCache.store(image, runId: runId, file: file)
             return image
         } catch {
             report(error)
             return nil
         }
+    }
+
+    /// Wraps JPEG bytes in an image, parsing only the header off the main
+    /// actor. `NSBitmapImageRep(data:)` defers decompression, so the real
+    /// decode (about 1.7ms, against 0.2ms for the header) still happens on the
+    /// main thread at first draw. This is a known, deliberately unfixed cost:
+    /// forcing the decode here would hold about 3.1MB of pixels per cached
+    /// frame, roughly 189MB at the cache's capacity of 60, so the cache would
+    /// have to be re-bounded in bytes at the same time, and that trade has
+    /// not been chosen yet.
+    private nonisolated static func decode(_ data: Data) async -> NSImage? {
+        await Task.detached(priority: .userInitiated) { () -> NSImage? in
+            guard let rep = NSBitmapImageRep(data: data) else { return nil }
+            let image = NSImage(size: NSSize(width: rep.pixelsWide, height: rep.pixelsHigh))
+            image.addRepresentation(rep)
+            return image
+        }.value
     }
 
     /// The run's recording, built from its frames. `nil` on failure, with the

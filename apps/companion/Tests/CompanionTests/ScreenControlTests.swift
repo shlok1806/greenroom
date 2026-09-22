@@ -248,4 +248,28 @@ final class ScreenControlTests: XCTestCase {
         let machine = try JSONDecoder.daemon().decode(Machine.self, from: Data(json.utf8))
         XCTAssertEqual(machine.control?.holder, "human")
     }
+
+    // MARK: - Retina guests
+
+    /// The frames are 1024x768 and a `machine_screenshot` off a Retina guest
+    /// comes back 2048x1536. Only the aspect ratio reaches the arithmetic, so
+    /// the same click has to mean the same place on the guest's screen either
+    /// way; if it ever stops doing so, a person clicks in the wrong place on
+    /// somebody else's machine.
+    func testTheGuestsBackingScaleDoesNotMoveAClick() {
+        let view = CGSize(width: 1000, height: 640)
+        let point = CGPoint(x: 431, y: 288)
+        let atOne = ScreenGeometry.fraction(at: point, image: CGSize(width: 1024, height: 768), view: view)
+        let atTwo = ScreenGeometry.fraction(at: point, image: CGSize(width: 2048, height: 1536), view: view)
+        XCTAssertNotNil(atOne)
+        XCTAssertEqual(atOne?.x ?? -1, atTwo?.x ?? -2, accuracy: 0.0001)
+        XCTAssertEqual(atOne?.y ?? -1, atTwo?.y ?? -2, accuracy: 0.0001)
+    }
+
+    func testTheLetterboxIsTheSameShapeAtEitherScale() {
+        let view = CGSize(width: 1000, height: 640)
+        let atOne = ScreenGeometry.fitted(image: CGSize(width: 1024, height: 768), in: view)
+        let atTwo = ScreenGeometry.fitted(image: CGSize(width: 2048, height: 1536), in: view)
+        XCTAssertEqual(atOne, atTwo)
+    }
 }
