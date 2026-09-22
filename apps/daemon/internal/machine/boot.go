@@ -51,6 +51,10 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 			return m.waitSSH(sshCtx, mc, ip)
 		})
 	}
+	if err == nil {
+		// Before ready, so it lands before the first screenshot or frame.
+		m.quietCaptureAlert(ctx, mc)
+	}
 
 	m.mu.Lock()
 	if !m.liveLocked(mc) {
@@ -277,6 +281,43 @@ func (m *Manager) installSSHKey(ctx context.Context, name string) error {
 	}
 	return nil
 }
+
+// quietCaptureAlert stops macOS from putting its "tart-guest-agent is requesting
+// to bypass the system private window picker" alert over the guest screen. Every
+// capture greenroom runs (screencapture and the live helper) is charged to the
+// guest agent, and without a record for it replayd raises the alert on the first
+// one and leaves it up. Best effort: a machine that still shows it works.
+func (m *Manager) quietCaptureAlert(ctx context.Context, mc *Machine) {
+	if _, err := execChecked(ctx, m.tart, mc.Name, "/bin/sh", "-c", quietCaptureAlertScript); err != nil {
+		m.Log.Warn("cannot pre-approve screen capture; the guest may show a capture alert", "runId", mc.RunID, "err", err)
+	}
+}
+
+// quietCaptureAlertScript writes the guest agent's ScreenCaptureApprovals.plist
+// record with a hint date in 3024. On macOS 26 replayd drops a record missing
+// any of these five keys and alerts anyway. It caches the file, so it is held
+// with SIGSTOP across the write and then killed (launchd restarts it on demand)
+// so the next capture reads the new record. A record already dated 3024 is left
+// alone, so images and reboots that have it skip the restart.
+const quietCaptureAlertScript = `export LC_ALL=C
+agent="$(realpath /opt/homebrew/bin/tart-guest-agent 2>/dev/null)" || exit 0
+p="$HOME/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist"
+pb=/usr/libexec/PlistBuddy
+case "$($pb -c "Print :$agent:kScreenCapturePrivacyHintDate" "$p" 2>/dev/null)" in *" 3024") exit 0 ;; esac
+mkdir -p "$(dirname "$p")"
+pid="$(pgrep -x replayd)"
+[ -n "$pid" ] && kill -STOP $pid
+$pb -c "Delete :$agent" "$p" >/dev/null 2>&1
+now="$(date -u '+%a %b %d %H:%M:%S UTC %Y')"
+$pb -c "Add :$agent dict" \
+  -c "Add :$agent:kScreenCaptureAlertableUsageCount integer 1" \
+  -c "Add :$agent:kScreenCaptureApprovalLastAlerted date $now" \
+  -c "Add :$agent:kScreenCaptureApprovalLastUsed date $now" \
+  -c "Add :$agent:kScreenCapturePrivacyHintDate date Thu Jan 01 00:00:00 UTC 3024" \
+  -c "Add :$agent:kScreenCapturePrivacyHintPolicy integer 2592000" "$p"
+s=$?
+[ -n "$pid" ] && kill -9 $pid
+exit $s`
 
 // appendAuthorizedKeyScript idempotently appends pubKey to authorized_keys.
 // Boot and PrepareGuest both run it.

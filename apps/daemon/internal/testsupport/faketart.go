@@ -19,6 +19,7 @@ import (
 //	exec-codes          `tart exec` exits with the next line of this file (consumed), then 0
 //	agent-down          `tart exec` fails as if the guest agent is unreachable
 //	ssh-down            the in-guest sshd probe is refused
+//	fail-capture-approval  the boot's screen-capture approval record cannot be written
 //	fail-input-install  compiling the guest input helper fails
 //	input-down          the input helper refuses every event
 //	screen              "<width>x<height>" the input helper reports (default 1024x768)
@@ -100,6 +101,10 @@ case "$sub" in
     case "$*" in
       *"nc -z 127.0.0.1 22"*)
         [ -f "$C/ssh-down" ] && { echo "Connection refused" >&2; exit 1; }
+        exit 0 ;;
+      # The boot's capture-alert record; never consumes exec-codes meant for machine_exec.
+      *ScreenCaptureApprovals*)
+        [ -f "$C/fail-capture-approval" ] && { echo "PlistBuddy: cannot write" >&2; exit 1; }
         exit 0 ;;
     esac
     # Input helper (ADR 0009): the compile must match before the call.

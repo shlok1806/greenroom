@@ -70,6 +70,11 @@ Boot and lifecycle
   guest 127.0.0.1:22 (probed via `tart exec`). The waiting phases each get their own
   `readyTimeout` (3 min). A timeout names the last probe error.
 - `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`, `sshSeconds`.
+- Before ready, boot writes the guest agent's `ScreenCaptureApprovals.plist` record
+  (`quietCaptureAlertScript`). Without it the first capture (`screencapture` or the live
+  helper) raises a "bypass the system private window picker" alert that stays on the
+  guest screen. On macOS 26 replayd ignores a record missing any of the five keys, and it
+  caches the file, so the script stops and restarts it. Best effort: failure only logs.
 - `finishBoot` writes the step before closing `ready`. `manifest.json` is written by
   temp file and rename.
 - `waitReady` watches `tart run`'s process; if it exits, fail at once with the tail of
@@ -146,9 +151,11 @@ Live screen (ADR 0011)
   the cached FORMAT, and resumes at the next keyframe. Every new viewer and every drop sends
   KEYFRAME: a still screen sends nothing on its own.
 - LOG goes to the daemon log, never to viewers.
-- `Manager.Input` uses the stream (INPUT, then its ACK within 10 s) while it runs, else the
-  one-shot exec. It falls back only if nothing was sent, so a batch is never posted twice.
-  Lease, step and scaling are the same on both paths.
+- `Manager.Input` uses the stream (INPUT, then its ACK) while it runs, else the one-shot
+  exec. The ACK deadline is what the queued batches take to post (`inputCost`: sleeps and
+  typed keys) plus 10 s, never a fixed limit: long sleeps and `type` are valid batches. It
+  falls back only if nothing was sent, so a batch is never posted twice. Lease, step and
+  scaling are the same on both paths.
 - `/screen/live` answers 409 at once for a machine that is not ready; it never waits in
   `awaitReady`.
 
