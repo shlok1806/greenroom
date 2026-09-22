@@ -307,7 +307,7 @@ func TestLastActivityFollowsTheStepsAndNotJustTheConversation(t *testing.T) {
 	// both dated from the moment the run began, so neither of them can tell a
 	// lastActivity that follows the steps from one that does not.
 	h.putShot()
-	if _, _, _, err := h.mgr.ScreenshotStep(context.Background(), runID); err != nil {
+	if _, _, err := h.mgr.Screenshot(context.Background(), runID); err != nil {
 		t.Fatalf("screenshot: %v", err)
 	}
 	var steps []machine.Step

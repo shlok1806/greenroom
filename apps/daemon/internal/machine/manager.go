@@ -905,7 +905,7 @@ func truncatedForLog(r ExecResult) ExecResult {
 }
 
 // captureScreen runs the guest screencapture-and-base64 command and returns
-// the decoded PNG bytes. Both ScreenshotStep, which stores the lossless
+// the decoded PNG bytes. Both Screenshot, which stores the lossless
 // on-demand shot, and the frame recorder (frames.go), which stores a resized
 // JPEG every frameInterval, share this: it is the one place that knows how
 // to ask the guest for its screen.
