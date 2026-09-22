@@ -42,6 +42,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
@@ -124,7 +125,10 @@ type SessionReadResult struct {
 	Pending   int64  `json:"pending"`           // written but not yet returned
 	Dropped   int64  `json:"dropped,omitempty"` // lost because the caller fell behind
 	Running   bool   `json:"running"`
-	Step      int    `json:"step"`
+	// Error is why tart itself ended a session that is no longer running.
+	// It is empty for a command that finished, whatever its exit status.
+	Error string `json:"error,omitempty"`
+	Step  int    `json:"step"`
 }
 
 // SessionCloseResult confirms a session is gone.
@@ -152,7 +156,7 @@ func (m *Manager) session(runID, sessionID string) (*Machine, *PTYSession, error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := mc.sessions[sessionID]
-	if !ok {
+	if !ok || s.proc == nil {
 		return nil, nil, fmt.Errorf("no session %q on run %s", sessionID, runID)
 	}
 	return mc, s, nil
@@ -190,12 +194,17 @@ func (m *Manager) SessionStart(ctx context.Context, runID, command string) (Sess
 	// machine_exec makes. It is one argument, so nothing in it is split or
 	// re-read by a shell on the way.
 	proc, startErr := m.tart.StartSession(mc.Name, "/bin/zsh", "-lc", command)
+	if startErr == nil && !m.attachSession(mc, s, proc) {
+		// The machine went while tart was starting; the process must not
+		// outlive it.
+		_ = proc.Close()
+		startErr = fmt.Errorf("no machine for run %q", runID)
+	}
 	out := SessionStartResult{SessionID: id, Command: command, TTY: true}
 	if startErr != nil {
 		m.dropSession(mc, id)
 		out = SessionStartResult{}
 	} else {
-		s.proc = proc
 		// Nothing else drains the pipe, and a command that fills it would
 		// block forever, so the pump runs for the life of the session.
 		go s.out.pump(proc.Output())
@@ -209,9 +218,15 @@ func (m *Manager) SessionStart(ctx context.Context, runID, command string) (Sess
 	return out, nil
 }
 
+// reserveSession holds a slot for s on mc. A machine that has already left
+// the map is refused, so a start that looked the machine up before a
+// concurrent Destroy cannot leave a process on a machine nobody can reach.
 func (m *Manager) reserveSession(mc *Machine, s *PTYSession) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.machines[mc.RunID] != mc {
+		return fmt.Errorf("no machine for run %q", mc.RunID)
+	}
 	if mc.sessions == nil {
 		mc.sessions = map[string]*PTYSession{}
 	}
@@ -223,6 +238,18 @@ func (m *Manager) reserveSession(mc *Machine, s *PTYSession) error {
 	return nil
 }
 
+// attachSession gives a reserved session its process, and reports false if
+// the machine has gone, and taken the reservation with it, in the meantime.
+func (m *Manager) attachSession(mc *Machine, s *PTYSession, proc *tart.Session) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if mc.sessions[s.ID] != s {
+		return false
+	}
+	s.proc = proc
+	return true
+}
+
 func (m *Manager) dropSession(mc *Machine, id string) *PTYSession {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -231,21 +258,35 @@ func (m *Manager) dropSession(mc *Machine, id string) *PTYSession {
 	return s
 }
 
-// closeSessions ends every session a machine holds. Destroy calls it, so a
-// destroyed machine leaves no session process behind and every handle into
-// it stops answering at the same moment.
-func (m *Manager) closeSessions(mc *Machine) {
-	m.mu.Lock()
-	live := make([]*PTYSession, 0, len(mc.sessions))
+// forgetLocked takes mc out of the machine map. It is the only way a machine
+// leaves the map, so whatever ends a machine, Destroy or its tart process
+// exiting, also ends its frame recorder and detaches its sessions: every
+// handle into it stops answering at the same moment, and no session process
+// outlives it. The caller holds m.mu, and closes the returned sessions with
+// closeSessions once it has let go.
+func (m *Manager) forgetLocked(mc *Machine) []*tart.Session {
+	if m.machines[mc.RunID] == mc {
+		delete(m.machines, mc.RunID)
+	}
+	// The frame recorder must not outlive the machine, but it also must not
+	// hold anything up: cancel and move on, never wait for the goroutine.
+	if mc.frameCancel != nil {
+		mc.frameCancel()
+	}
+	live := make([]*tart.Session, 0, len(mc.sessions))
 	for _, s := range mc.sessions {
-		live = append(live, s)
+		if s.proc != nil {
+			live = append(live, s.proc)
+		}
 	}
 	mc.sessions = nil
-	m.mu.Unlock()
-	for _, s := range live {
-		if s.proc != nil {
-			_ = s.proc.Close()
-		}
+	return live
+}
+
+// closeSessions ends the session processes forgetLocked detached.
+func closeSessions(live []*tart.Session) {
+	for _, p := range live {
+		_ = p.Close()
 	}
 }
 
@@ -361,16 +402,23 @@ func (s *PTYSession) readUntil(ctx context.Context, wait time.Duration) (Session
 }
 
 func (s *PTYSession) readOnce() SessionReadResult {
-	raw, next, pending, dropped := s.out.read(s.offset, sessionReadLimit)
-	return SessionReadResult{
+	running := s.proc.Running()
+	text, next, pending, dropped := s.out.readText(s.offset, sessionReadLimit, running)
+	out := SessionReadResult{
 		SessionID: s.ID,
-		Output:    cleanTTY(string(raw)),
+		Output:    text,
 		FromByte:  s.offset,
 		NextByte:  next,
 		Pending:   pending,
 		Dropped:   dropped,
-		Running:   s.proc.Running(),
+		Running:   running,
 	}
+	if !running {
+		if err := s.proc.Err(); err != nil {
+			out.Error = err.Error()
+		}
+	}
+	return out
 }
 
 // SessionClose ends the command and forgets the handle. Closing a session
@@ -467,6 +515,103 @@ func (s *stream) read(off int64, limit int) (data []byte, next, pending, dropped
 	data = append([]byte(nil), s.buf[from:end]...)
 	next = off + int64(len(data))
 	return data, next, s.written - next, dropped
+}
+
+// readText is read, cleaned for a reader. A read ends wherever the stream
+// happens to, which can be partway through an escape sequence, a multi-byte
+// character or a carriage return and newline pair; cleaned on its own, each
+// half would come out wrong. So while more output may follow, because the
+// command is running or the read was capped, an incomplete tail is left for
+// the next read rather than returned. Once nothing more can come, the tail
+// is final and is returned as it is.
+func (s *stream) readText(off int64, limit int, running bool) (text string, next, pending, dropped int64) {
+	raw, next, pending, dropped := s.read(off, limit)
+	if running || pending > 0 {
+		held := incompleteTail(raw)
+		raw = raw[:len(raw)-held]
+		next -= int64(held)
+		pending += int64(held)
+	}
+	return cleanTTY(string(raw)), next, pending, dropped
+}
+
+// maxHeldEscape bounds how much of an unterminated escape sequence a read
+// holds back. A window title is short; anything longer is not a sequence
+// worth waiting for, and holding it would stall the reader.
+const maxHeldEscape = 4096
+
+// incompleteTail reports how many bytes at the end of b cannot be cleaned
+// correctly until more arrive: an escape sequence with no end yet, the start
+// of a multi-byte UTF-8 character, or a carriage return whose newline may be
+// the next byte.
+func incompleteTail(b []byte) int {
+	for i := 0; i < len(b); {
+		if b[i] != 0x1b {
+			i++
+			continue
+		}
+		end := escapeEnd(b, i)
+		if end < 0 {
+			if len(b)-i <= maxHeldEscape {
+				return len(b) - i
+			}
+			return 0
+		}
+		i = end
+	}
+	if n := len(b); n > 0 && b[n-1] == '\r' {
+		return 1
+	}
+	for k := len(b) - 1; k >= 0 && k >= len(b)-utf8.UTFMax; k-- {
+		if utf8.RuneStart(b[k]) {
+			if !utf8.FullRune(b[k:]) {
+				return len(b) - k
+			}
+			return 0
+		}
+	}
+	return 0
+}
+
+// escapeEnd returns the index just past the escape sequence starting at
+// b[i], or -1 if b ends before the sequence does. It follows the same shapes
+// cleanTTY strips.
+func escapeEnd(b []byte, i int) int {
+	if i+1 >= len(b) {
+		return -1
+	}
+	switch b[i+1] {
+	case '[':
+		j := i + 2
+		for j < len(b) && b[j] >= 0x30 && b[j] <= 0x3f {
+			j++
+		}
+		for j < len(b) && b[j] >= 0x20 && b[j] <= 0x2f {
+			j++
+		}
+		if j >= len(b) {
+			return -1
+		}
+		return j + 1
+	case ']':
+		for j := i + 2; j < len(b); j++ {
+			switch b[j] {
+			case 0x07:
+				return j + 1
+			case 0x1b:
+				if j+1 >= len(b) {
+					return -1
+				}
+				if b[j+1] == '\\' {
+					return j + 2
+				}
+				return j
+			}
+		}
+		return -1
+	default:
+		return i + 2
+	}
 }
 
 // --- output cleaning ---

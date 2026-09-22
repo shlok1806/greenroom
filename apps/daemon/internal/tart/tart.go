@@ -282,6 +282,13 @@ type Session struct {
 	done   chan struct{}
 	mu     sync.Mutex
 	err    error // written before done is closed
+
+	// reaping is set, under mu, once the command has exited and just before
+	// it is reaped. Close only signals while it is false and holds mu while
+	// it does, so a signal can only ever reach a process that is still ours:
+	// until the reap its pid, which is also its process group id, cannot be
+	// handed to anyone else.
+	reaping bool
 }
 
 // StartSession runs command inside the guest behind a remote pty. The
@@ -321,6 +328,13 @@ func (c *Client) StartSession(name string, command ...string) (*Session, error) 
 	_ = slave.Close()
 
 	go func() {
+		// Wait for the exit without reaping first, so the pid stays ours
+		// until reaping is set. If that cannot be watched, Close stops
+		// signalling at all rather than risk a pid that may be reused.
+		_ = awaitExit(cmd.Process.Pid)
+		s.mu.Lock()
+		s.reaping = true
+		s.mu.Unlock()
 		err := cmd.Wait()
 		s.mu.Lock()
 		s.err = err
@@ -372,14 +386,17 @@ func (s *Session) Err() error {
 }
 
 // Close ends the command and releases the terminal. Closing a session whose
-// command has already exited is not an error.
+// command has already exited is not an error, and sends no signal: once the
+// command has been reaped its pid, and so its process group id, may belong
+// to an unrelated process.
 func (s *Session) Close() error {
-	if s.cmd.Process != nil {
+	s.mu.Lock()
+	if !s.reaping && s.cmd.Process != nil {
 		// Negative pid is the process group, so the guest command goes with
 		// the tart process in front of it.
-		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
-		_ = s.cmd.Process.Kill()
+		killGroup(s.cmd.Process.Pid)
 	}
+	s.mu.Unlock()
 	select {
 	case <-s.done:
 	case <-time.After(5 * time.Second):
@@ -387,6 +404,12 @@ func (s *Session) Close() error {
 	// The master goes last, so anything the command wrote on its way out has
 	// already been read, and closing it ends the reader's pump.
 	return s.master.Close()
+}
+
+// killGroup kills a session's whole process group. It is a variable so a
+// test can see which groups Close signals.
+var killGroup = func(pgid int) {
+	_ = syscall.Kill(-pgid, syscall.SIGKILL)
 }
 
 // isTartFailure recognises tart's own error messages so they are not

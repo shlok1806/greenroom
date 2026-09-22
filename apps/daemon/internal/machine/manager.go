@@ -84,10 +84,10 @@ type Machine struct {
 	// sessions are this machine's live interactive shells, keyed by the
 	// daemon's own session id (ptysession.go). Manager.mu guards the map.
 	// They hang off the machine rather than off the Manager so that they die
-	// with it: Destroy drops the machine from the map and every handle into
-	// it goes at the same moment, which is why a call against a destroyed
-	// machine answers "no machine for run" instead of something about a
-	// process that is no longer there.
+	// with it: forgetLocked, the only way out of the map, ends them, so every
+	// handle into a machine goes at the same moment the machine does. That
+	// is why a call against a destroyed machine answers "no machine for run"
+	// instead of something about a process that is no longer there.
 	//
 	// They are deliberately not part of the JSON. state.json is what the
 	// daemon reattaches from, and a session cannot be reattached to: the
@@ -708,12 +708,10 @@ func (m *Manager) watchProcess(mc *Machine) {
 		}
 		err := mc.proc.Err()
 		mc.Status, mc.Error = Failed, err.Error()
-		delete(m.machines, mc.RunID)
-		if mc.frameCancel != nil {
-			mc.frameCancel()
-		}
+		live := m.forgetLocked(mc)
 		_ = m.saveStateLocked()
 		m.mu.Unlock()
+		closeSessions(live)
 
 		m.Log.Warn("machine stopped on its own", "runId", mc.RunID, "err", err)
 		m.cleanupVM(mc.Name)
@@ -1118,16 +1116,11 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 	// to be ended here: a destroyed machine that left them running would
 	// leak a `tart exec` child per session, and every handle into the
 	// machine must stop answering at the same moment the machine goes.
-	m.closeSessions(mc)
 	m.mu.Lock()
-	delete(m.machines, runID)
-	// The frame recorder must not outlive the machine, but it also must not
-	// hold up Destroy: cancel and move on, never wait for the goroutine.
-	if mc.frameCancel != nil {
-		mc.frameCancel()
-	}
+	live := m.forgetLocked(mc)
 	err = m.saveStateLocked()
 	m.mu.Unlock()
+	closeSessions(live)
 	if err != nil {
 		return err
 	}

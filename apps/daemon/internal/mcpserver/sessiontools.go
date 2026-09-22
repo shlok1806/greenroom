@@ -71,8 +71,10 @@ func addSessionTools(s *mcp.Server, mgr *machine.Manager) {
 		Description: "Read a session's output since your last read. Output is never returned twice: each call " +
 			"continues where the last one stopped, and pending says how many bytes are still waiting, so keep " +
 			"calling while it is above zero. running says whether the command is still going. Terminal colour " +
-			"and cursor codes are stripped; the raw bytes stay in the machine and the run record cites the byte " +
-			"range of every read.",
+			"and cursor codes are stripped, and the run record cites the byte range of every read. The daemon keeps " +
+			"only the last 1 MiB of output on the host and the guest stores none: if you fall behind, the oldest " +
+			"bytes are gone for good and dropped says how many. error says why tart ended a session that is no " +
+			"longer running; a command that exits non-zero is not an error.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in readIn) (*mcp.CallToolResult, machine.SessionReadResult, error) {
 		wait := defaultSessionReadWait
 		if in.WaitSeconds > 0 {

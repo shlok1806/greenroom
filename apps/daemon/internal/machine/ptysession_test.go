@@ -109,3 +109,57 @@ func TestCleanTTYRepairsBrokenBytes(t *testing.T) {
 	}
 	t.Errorf("the broken bytes were not replaced: %q", got)
 }
+
+// A read ends wherever the stream happens to, which can split an escape
+// sequence, a multi-byte character or a CR LF pair. Read in pieces, the text
+// must come out exactly as it would have read whole.
+func TestAReadNeverSplitsASequenceOrACharacter(t *testing.T) {
+	whole := "a\x1b[31mred\x1b[0m €uro\r\nend\x1b]0;title\x07!"
+	pieces := []string{"a\x1b[3", "1mred\x1b[0m \xe2\x82", "\xacuro\r", "\nend\x1b]0;ti", "tle\x07!"}
+
+	s := newStream(1024)
+	var off int64
+	var got strings.Builder
+	for i, p := range pieces {
+		if _, err := s.Write([]byte(p)); err != nil {
+			t.Fatal(err)
+		}
+		text, next, _, _ := s.readText(off, 1024, true)
+		if strings.ContainsRune(text, '�') {
+			t.Errorf("read %d split a character: %q", i, text)
+		}
+		got.WriteString(text)
+		off = next
+	}
+	if want := cleanTTY(whole); got.String() != want {
+		t.Errorf("read in pieces gave %q, want %q", got.String(), want)
+	}
+}
+
+// A capped read is split the same way, since the cap can land anywhere.
+func TestACappedReadHoldsBackItsIncompleteTail(t *testing.T) {
+	s := newStream(1024)
+	if _, err := s.Write([]byte("ab€cd")); err != nil {
+		t.Fatal(err)
+	}
+	text, next, pending, _ := s.readText(0, 3, false)
+	if text != "ab" || next != 2 || pending != 5 {
+		t.Errorf("capped read gave %q next %d pending %d, want \"ab\" 2 5", text, next, pending)
+	}
+	text, _, _, _ = s.readText(next, 1024, false)
+	if text != "€cd" {
+		t.Errorf("the next read gave %q, want \"€cd\"", text)
+	}
+}
+
+// Once nothing more can arrive, an incomplete tail is all there is, and it is
+// handed over rather than held forever.
+func TestAFinishedStreamReturnsItsTail(t *testing.T) {
+	s := newStream(1024)
+	if _, err := s.Write([]byte("done\r")); err != nil {
+		t.Fatal(err)
+	}
+	if text, _, _, _ := s.readText(0, 1024, false); text != "done\n" {
+		t.Errorf("a finished stream gave %q, want its tail too", text)
+	}
+}

@@ -266,6 +266,9 @@ func TestAFinishedSessionStopsReportingItselfRunning(t *testing.T) {
 	if got.Running {
 		t.Error("a command that has exited is still reported as running")
 	}
+	if got.Error != "" {
+		t.Errorf("a command that finished was reported as a tart failure: %q", got.Error)
+	}
 }
 
 // A session tart refuses must not look healthy. tart reports this by exiting
@@ -293,6 +296,10 @@ func TestASessionTartRefusesDoesNotLookHealthy(t *testing.T) {
 	}
 	if got.Running {
 		t.Error("a session tart refused still reports itself running")
+	}
+	// It must also say why, or it reads as a command that printed nothing.
+	if !strings.Contains(got.Error, "VM is not running") {
+		t.Errorf("a session tart refused gave error %q, want tart's own reason", got.Error)
 	}
 }
 
