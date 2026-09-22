@@ -77,7 +77,10 @@ final class LiveScreen {
         case playing
     }
 
+    /// Runs in the connection's task, so a report that was on its way when
+    /// `stop()` ran finds the task cancelled and changes nothing.
     private func handle(_ event: Event) {
+        guard !Task.isCancelled else { return }
         switch event {
         case .opened(let hello):
             backoff.reset()

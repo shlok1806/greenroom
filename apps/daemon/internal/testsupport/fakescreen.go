@@ -41,6 +41,7 @@ func init() {
 //	serve-exit    exit 3 with a message on the next tick
 //	input-down    ACK every INPUT with an error
 //
+// Like the real helper it runs an INPUT's sleeps before its ACK.
 // It appends each INPUT payload to serve-input and a line per KEYFRAME to serve-keyframes.
 func serveFakeScreen(control string, in io.Reader, out io.Writer) int {
 	w, h := 1024, 768
@@ -111,9 +112,18 @@ func serveFakeScreen(control string, in io.Reader, out io.Writer) int {
 			case 0x10:
 				appendLine("serve-input", payload)
 				var input struct {
-					ID int64 `json:"id"`
+					ID      int64 `json:"id"`
+					Actions []struct {
+						Type string `json:"type"`
+						MS   int    `json:"ms"`
+					} `json:"actions"`
 				}
 				_ = json.Unmarshal(payload, &input)
+				for _, a := range input.Actions {
+					if a.Type == "sleep" {
+						time.Sleep(time.Duration(a.MS) * time.Millisecond)
+					}
+				}
 				ack := map[string]any{"id": input.ID}
 				if exists("input-down") {
 					ack["error"] = "this machine refused the event"

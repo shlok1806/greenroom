@@ -328,6 +328,31 @@ func TestInputGoesThroughTheRunningScreen(t *testing.T) {
 	}
 }
 
+func TestSlowInputBatchesGetTimeForTheirActions(t *testing.T) {
+	mgr, _, control := newTestManager(t, WithScreenInputSlack(200*time.Millisecond))
+	mc := readyMachine(t, mgr)
+	watchScreen(t, mgr, mc.RunID)
+	if _, _, err := mgr.TakeControl(mc.RunID, "human", 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	batch := []InputAction{{Type: "sleep", MS: 300}, {Type: "sleep", MS: 300}, {Type: "key", Key: "a"}}
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := mgr.Input(context.Background(), mc.RunID, "human", batch)
+			errs <- err
+		}()
+	}
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Errorf("a batch that sleeps longer than the slack, queued behind another, got %v", err)
+		}
+	}
+	if inputs := servedInputs(t, control); len(inputs) != 2 {
+		t.Errorf("the helper got %d INPUTs, want 2", len(inputs))
+	}
+}
+
 func TestInputUsesExecOnceTheScreenStops(t *testing.T) {
 	mgr, _, control := newTestManager(t, WithScreenIdle(50*time.Millisecond))
 	mc := readyMachine(t, mgr)
