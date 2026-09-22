@@ -854,6 +854,35 @@ func TestTurnReportsAnEndpointFailure(t *testing.T) {
 	}
 }
 
+// A turn cancelled because its actor stopped (the machine was destroyed)
+// leaves the transcript alone.
+func TestACancelledTurnPostsNothing(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	hit := make(chan struct{}, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		hit <- struct{}{}
+		<-r.Context().Done()
+	}))
+	defer ts.Close()
+	v := newVerifier(t, mgr, ts.URL)
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Anything.")
+	before := store.Len()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-hit
+		cancel()
+	}()
+	if _, err := v.Turn(ctx, runID, store); err == nil {
+		t.Fatal("a cancelled turn returned no error")
+	}
+	if after := store.After(before); len(after) != 0 {
+		t.Errorf("a cancelled turn posted %+v", after)
+	}
+}
+
 func TestUnknownToolIsReportedToTheModel(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{

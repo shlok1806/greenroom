@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
@@ -134,6 +135,9 @@ func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (
 
 	case "type":
 		call = callOf("machine_type", map[string]string{"text": arg})
+		if arg == "" {
+			return call, "error: machine_type needs text", 0
+		}
 		result, step = postInput(ctx, m.mgr, runID, fmt.Sprintf("typed %q", arg),
 			machine.InputAction{Type: "type", Text: arg})
 		return call, result, step
@@ -235,7 +239,11 @@ func summarizeRuns(ran int, exitCodes []int, lastStdout string) string {
 	}
 	tail := strings.TrimSpace(lastStdout)
 	if len(tail) > 200 {
-		tail = tail[len(tail)-200:]
+		i := len(tail) - 200
+		for i < len(tail) && !utf8.RuneStart(tail[i]) {
+			i++
+		}
+		tail = tail[i:]
 	}
 	return fmt.Sprintf("ran %d commands; exit codes: %s; last stdout tail: %s", ran, strings.Join(codes, ", "), tail)
 }

@@ -13,7 +13,7 @@ import (
 type Registry struct {
 	Root        string
 	MaxDisputes int
-	OnVerdict   func(runID string, v VerdictState) // called after any message that changes the verdict state
+	onVerdict   func(runID string, v VerdictState)
 
 	mu        sync.Mutex
 	stores    map[string]*Store
@@ -21,9 +21,21 @@ type Registry struct {
 	nextID    int
 }
 
+// RegistryOption configures a Registry beyond its required arguments.
+type RegistryOption func(*Registry)
+
+// WithOnVerdict calls fn after any message that changes a run's verdict state.
+func WithOnVerdict(fn func(runID string, v VerdictState)) RegistryOption {
+	return func(r *Registry) { r.onVerdict = fn }
+}
+
 // NewRegistry returns a Registry over root.
-func NewRegistry(root string, maxDisputes int) *Registry {
-	return &Registry{Root: root, MaxDisputes: maxDisputes, stores: map[string]*Store{}, listeners: map[int]func(string, Message){}}
+func NewRegistry(root string, maxDisputes int, opts ...RegistryOption) *Registry {
+	r := &Registry{Root: root, MaxDisputes: maxDisputes, stores: map[string]*Store{}, listeners: map[int]func(string, Message){}}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // Get opens or returns the store for runID. The run directory must already
@@ -59,10 +71,10 @@ func (r *Registry) fanOut(runID string, s *Store, m Message) {
 	for _, fn := range listeners {
 		fn(runID, m)
 	}
-	if r.OnVerdict != nil {
+	if r.onVerdict != nil {
 		switch m.Kind {
 		case Verdict, Accept, Dispute:
-			r.OnVerdict(runID, s.verdictLocked())
+			r.onVerdict(runID, s.verdictLocked())
 		}
 	}
 }
@@ -99,4 +111,24 @@ func (r *Registry) RunIDs() ([]string, error) {
 	}
 	sort.Strings(ids) // run ids start with a timestamp
 	return ids, nil
+}
+
+// Evict drops runID's store from memory and closes it, so a destroyed run's
+// history is not held forever. A later Get reopens it from disk.
+func (r *Registry) Evict(runID string) {
+	r.mu.Lock()
+	s, ok := r.stores[runID]
+	r.mu.Unlock()
+	if !ok {
+		return
+	}
+	// Close before forgetting, so no append can land in the old store after
+	// Get has reopened the file. fanOut locks r.mu under s.mu, so close must
+	// not run under r.mu.
+	s.close()
+	r.mu.Lock()
+	if r.stores[runID] == s {
+		delete(r.stores, runID)
+	}
+	r.mu.Unlock()
 }

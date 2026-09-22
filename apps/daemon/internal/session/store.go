@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -22,6 +24,9 @@ const DefaultMaxDisputes = 2
 // only a human may now close.
 var ErrContested = errors.New("the verdict is contested; only a human can accept or dispute it now")
 
+// ErrClosed is returned by Append on a store the Registry has evicted.
+var ErrClosed = errors.New("the conversation store is closed")
+
 // Store is one run's conversation and the only source of its sequence
 // numbers, so two writers never choose the same one.
 type Store struct {
@@ -29,12 +34,15 @@ type Store struct {
 	path        string
 	msgs        []Message
 	changed     chan struct{} // closed and replaced on every append
+	closed      bool
 	subs        map[int]func(Message)
 	nextSub     int
 	maxDisputes int
 }
 
-// Open loads dir/conversation.jsonl, creating dir if needed.
+// Open loads dir/conversation.jsonl, creating dir if needed. A final line
+// torn by a crash mid-append is cut off the file; a bad line anywhere else is
+// an error.
 func Open(dir string, maxDisputes int) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -51,16 +59,37 @@ func Open(dir string, maxDisputes int) (*Store, error) {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for sc.Scan() {
-		var m Message
-		if err := json.Unmarshal(sc.Bytes(), &m); err != nil {
-			return nil, fmt.Errorf("parse %s line %d: %w", s.path, len(s.msgs)+1, err)
+	r := bufio.NewReader(f)
+	var offset, badAt int64
+	var badErr error
+	for line := 1; ; line++ {
+		raw, err := r.ReadBytes('\n')
+		if len(raw) > 0 {
+			if badErr != nil {
+				return nil, badErr
+			}
+			var m Message
+			if jerr := json.Unmarshal(raw, &m); jerr != nil {
+				badAt, badErr = offset, fmt.Errorf("parse %s line %d: %w", s.path, line, jerr)
+			} else {
+				s.msgs = append(s.msgs, m)
+			}
+			offset += int64(len(raw))
 		}
-		s.msgs = append(s.msgs, m)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
-	return s, sc.Err()
+	if badErr != nil {
+		if err := os.Truncate(s.path, badAt); err != nil {
+			return nil, fmt.Errorf("%w; truncating it: %w", badErr, err)
+		}
+		slog.Warn("dropped a torn final line from a conversation", "path", s.path, "err", badErr)
+	}
+	return s, nil
 }
 
 // Append validates m, numbers it, writes it and wakes every waiter. The
@@ -71,6 +100,9 @@ func (s *Store) Append(m Message) (Message, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return Message{}, ErrClosed
+	}
 	if err := s.checkReplyLocked(m); err != nil {
 		return Message{}, err
 	}
@@ -157,12 +189,12 @@ func (s *Store) Len() int {
 	return len(s.msgs)
 }
 
-// Wait blocks until a message newer than seq exists or ctx ends, then
-// returns whatever is newer, which is empty on a timeout.
+// Wait blocks until a message newer than seq exists, ctx ends or the store is
+// closed, then returns whatever is newer, which is empty on a timeout.
 func (s *Store) Wait(ctx context.Context, seq int) []Message {
 	for {
 		s.mu.Lock()
-		if len(s.msgs) > seq {
+		if len(s.msgs) > seq || s.closed {
 			s.mu.Unlock()
 			return s.After(seq)
 		}
@@ -174,6 +206,17 @@ func (s *Store) Wait(ctx context.Context, seq int) []Message {
 			return s.After(seq)
 		}
 	}
+}
+
+// close refuses further appends and wakes every waiter.
+func (s *Store) close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.closed = true
+	close(s.changed)
 }
 
 // Subscribe calls fn, under the store lock, for every message appended from

@@ -127,6 +127,11 @@ func (a *Actors) loop(ctx context.Context, runID string, store *session.Store, d
 		if ctx.Err() != nil {
 			return
 		}
+		if len(msgs) == 0 {
+			// The store was evicted on destroy, and Stop follows.
+			<-ctx.Done()
+			return
+		}
 		seen = store.Len()
 		if slices.ContainsFunc(msgs, session.Message.StartsTurn) {
 			a.runTurn(ctx, runID, store, &seen)
@@ -174,7 +179,10 @@ func awaitRetry(ctx context.Context, store *session.Store, seen int, d time.Dura
 	defer cancel()
 	at := store.Len()
 	for wctx.Err() == nil {
-		store.Wait(wctx, at)
+		if len(store.Wait(wctx, at)) == 0 {
+			<-wctx.Done() // timed out, or the store was evicted
+			return
+		}
 		at = store.Len()
 		if firstStarterAfter(store, seen) > 0 {
 			return

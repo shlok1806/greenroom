@@ -2,6 +2,7 @@ package nim
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // noBackoff makes the retry schedule instant for the length of a test, so a
@@ -140,6 +142,77 @@ func TestChatRetriesATransportFailure(t *testing.T) {
 	}
 	if got := atomic.LoadInt64(&calls); got != 2 {
 		t.Errorf("the endpoint saw %d requests, want 2", got)
+	}
+}
+
+// A retried client timeout would outlast the verifier's turn budget.
+func TestChatDoesNotRetryAClientTimeout(t *testing.T) {
+	noBackoff(t)
+	for _, c := range []struct {
+		name       string
+		sendHeader bool
+	}{{"awaiting headers", false}, {"reading the body", true}} {
+		t.Run(c.name, func(t *testing.T) {
+			var calls int64
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				atomic.AddInt64(&calls, 1)
+				// Draining the body lets the server notice the client hang up.
+				_, _ = io.Copy(io.Discard, r.Body)
+				if c.sendHeader {
+					w.WriteHeader(http.StatusOK)
+					_, _ = io.WriteString(w, `{"choices":`)
+					w.(http.Flusher).Flush()
+				}
+				select {
+				case <-r.Context().Done():
+				case <-time.After(5 * time.Second):
+				}
+			}))
+			defer ts.Close()
+			cl := New(ts.URL, "k")
+			cl.HTTP.Timeout = 100 * time.Millisecond
+
+			if _, _, err := cl.Chat(context.Background(), "m", []Message{{Role: "user", Content: "hi"}}, nil); err == nil {
+				t.Fatal("Chat returned no error although the request timed out")
+			}
+			if got := atomic.LoadInt64(&calls); got != 1 {
+				t.Errorf("the endpoint saw %d requests, want 1", got)
+			}
+		})
+	}
+}
+
+func TestChatExplainsGivingUpDuringBackoff(t *testing.T) {
+	old := RetryBackoff
+	RetryBackoff = []time.Duration{time.Hour}
+	t.Cleanup(func() { RetryBackoff = old })
+	c, _ := endpoint(t, func(w http.ResponseWriter, _ int) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	_, _, err := c.Chat(ctx, "m", []Message{{Role: "user", Content: "hi"}}, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want it to wrap the context's error", err)
+	}
+	if !strings.Contains(err.Error(), "1 attempt") || !strings.Contains(err.Error(), "503") {
+		t.Errorf("error = %v, want the attempt count and the last status", err)
+	}
+}
+
+func TestTruncateKeepsWholeRunes(t *testing.T) {
+	for n := 0; n <= 6; n++ {
+		got := truncate("héllo wörld", n)
+		if !utf8.ValidString(got) {
+			t.Errorf("truncate(_, %d) = %q, split a rune", n, got)
+		}
+		if len(strings.TrimSuffix(got, "...")) > n {
+			t.Errorf("truncate(_, %d) = %q, longer than %d bytes", n, got, n)
+		}
+	}
+	if got := truncate("héllo", 2); got != "h..." {
+		t.Errorf("truncate(héllo, 2) = %q, want h...", got)
 	}
 }
 

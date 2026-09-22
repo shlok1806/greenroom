@@ -102,9 +102,11 @@ type Brain interface {
 
 // Turn rebuilds the model context from the transcript, loops over tool calls
 // posting progress, and ends by posting a reply, question or verdict. An error
-// means the loop itself broke; it is also posted as an event.
+// means the loop itself broke; it is also posted as an event unless the caller
+// cancelled ctx.
 func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store) (TurnResult, error) {
 	started := time.Now()
+	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, v.cfg.Budget)
 	defer cancel()
 
@@ -128,6 +130,10 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 		res.Tokens += usage.PromptTokens + usage.CompletionTokens
 		res.Seconds = since(started)
 		if err != nil {
+			// The actor is stopping (the machine was destroyed): say nothing.
+			if parent.Err() != nil {
+				return res, err
+			}
 			// The turn's own budget running out is a graceful stop, not a failure.
 			if ctx.Err() == context.DeadlineExceeded {
 				res.Ended = session.Reply
@@ -177,8 +183,9 @@ func (v *Verifier) post(store *session.Store, m session.Message) {
 }
 
 // appendMessage posts m, logging rather than failing if the store refuses it.
+// A closed store belongs to a destroyed run, which has nobody left to tell.
 func appendMessage(log *slog.Logger, store *session.Store, m session.Message) {
-	if _, err := store.Append(m); err != nil {
+	if _, err := store.Append(m); err != nil && !errors.Is(err, session.ErrClosed) {
 		log.Error("could not post to conversation", "kind", m.Kind, "err", err)
 	}
 }

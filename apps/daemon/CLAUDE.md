@@ -104,7 +104,7 @@ Conversation and verifier
 - `Manual` answers exactly like `Verifier`, through the same `Manager` calls. Anything
   that works under `-verifier manual` works under `nim`.
 - Model failures retry: `nim.RetryBackoff` (1, 2, 4, 8 s on 429/5xx/transport, honours
-  `Retry-After`), then `verifier.TurnRetryDelays` (30, 60, 120 s). After the last, the
+  `Retry-After`; a timeout is never retried), then `verifier.TurnRetryDelays` (30, 60, 120 s). After the last, the
   actor posts that it gave up. Both are package vars so tests can zero them.
 - Every action that changes a machine lands in the transcript. Lifecycle events come only
   from the bridge in `main.go`.

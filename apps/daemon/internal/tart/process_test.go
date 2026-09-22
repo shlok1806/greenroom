@@ -3,8 +3,10 @@ package tart
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -205,4 +207,36 @@ func TestHeadlessProcessHasNoScreenAddress(t *testing.T) {
 	if url := p.VNCURL(time.Second); url != "" {
 		t.Errorf("VNCURL = %q, want empty for a headless machine", url)
 	}
+}
+
+// tart runs in its own process group, so Kill must end all of it.
+func TestKillEndsTheWholeProcessGroup(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	c := fakeBin(t, "sleep 60 & echo $! > "+pidFile+"; wait")
+	p, err := c.Start("vm-group", filepath.Join(t.TempDir(), "vm.log"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pid int
+	for i := 0; i < 100 && pid == 0; i++ {
+		if data, err := os.ReadFile(pidFile); err == nil {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(data)))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if pid == 0 {
+		t.Fatal("the stand-in tart never started its child")
+	}
+	if err := p.Kill(); err != nil {
+		t.Fatalf("Kill: %v", err)
+	}
+	waitExit(t, p)
+	for i := 0; i < 100; i++ {
+		if syscall.Kill(pid, 0) != nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	_ = syscall.Kill(pid, syscall.SIGKILL)
+	t.Errorf("Kill left tart's child %d running", pid)
 }
