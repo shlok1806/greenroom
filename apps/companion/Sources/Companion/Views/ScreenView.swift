@@ -16,9 +16,16 @@ struct ScreenView: View {
     @State private var appliedSeekNonce = 0
     @State private var lastTick: Date?
     @State private var pilot: ControlPilot?
+    @State private var live: LiveScreen?
+    @State private var onScreen = false
     @FocusState private var focused: Bool
 
     private var driving: Bool { pilot?.active == true }
+
+    /// Following live on a ready machine streams the screen (ADR 0011); the
+    /// past, and any moment the stream is down, come from the recording.
+    private var wantsLive: Bool { onScreen && player.live && machineIsReady }
+    private var showsLive: Bool { wantsLive && live?.phase == .playing && live?.pixelSize != nil }
 
     private let tick = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
@@ -52,17 +59,21 @@ struct ScreenView: View {
         }
         .onAppear {
             focused = true
+            onScreen = true
             pilot = store.pilot(for: runId)
             syncFrames()
             // A seek from the Steps tab is raised before this view exists.
             applyPendingSeek()
             lastTick = nil
+            syncLive()
         }
         // Leaving the tab or the run gives the screen back.
         .onDisappear {
+            onScreen = false
             lastTick = nil
             let leaving = pilot
             Task { await leaving?.release() }
+            syncLive()
         }
         .onChange(of: runId) { old, new in
             let leaving = store.pilot(for: old)
@@ -75,6 +86,10 @@ struct ScreenView: View {
             lastTick = nil
             syncFrames()
             applyPendingSeek()
+            syncLive()
+        }
+        .onChange(of: wantsLive) {
+            syncLive()
         }
         .onChange(of: machineIsReady) { _, ready in
             guard !ready, let pilot else { return }
@@ -104,17 +119,30 @@ struct ScreenView: View {
 
     // MARK: - Picture
 
+    /// What `InputSurface` maps against: the picture actually on screen.
+    private var pictureSize: CGSize? {
+        showsLive ? live?.pixelSize : image?.size
+    }
+
     @ViewBuilder
     private var picture: some View {
-        if let image {
+        if let pictureSize {
             ZStack {
                 Color.black
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.medium)
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                InputSurface(imageSize: image.size, active: driving) { actions in
+                if let image, !showsLive {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.medium)
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                // Mounted while connecting too, so the first frame shows the moment it decodes.
+                if wantsLive, let live {
+                    LiveScreenView(layer: live.output.layer, pixelSize: live.pixelSize ?? .zero)
+                        .opacity(showsLive ? 1 : 0)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                InputSurface(imageSize: pictureSize, active: driving) { actions in
                     pilot?.send(actions)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -206,7 +234,7 @@ struct ScreenView: View {
                         .toggleStyle(.switch)
                         .controlSize(.small)
                         .disabled(driving)
-                        .help("Follow the newest frame as the daemon captures it.")
+                        .help("Show the machine's screen as it happens.")
 
                     Toggle("Take control", isOn: controlBinding)
                         .toggleStyle(.switch)
@@ -227,6 +255,16 @@ struct ScreenView: View {
                 }
             }
             .frame(minHeight: 22)
+
+            if wantsLive, case .failed(let reason) = live?.phase {
+                Label("Live view unavailable, showing recorded frames: \(reason)", systemImage: "video.slash")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(reason)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
 
             // Outside the ready check: a stopped machine hides the switch but keeps the reason.
             if !driving, let reason = pilot?.endedReason {
@@ -301,6 +339,20 @@ struct ScreenView: View {
     }
 
     // MARK: - Loading
+
+    /// Streams only while wanted; scrubbing, leaving, a run change or a
+    /// stopped machine all end it.
+    private func syncLive() {
+        guard wantsLive else {
+            live?.stop()
+            return
+        }
+        if live?.runId != runId {
+            live?.stop()
+            live = store.liveScreen(for: runId)
+        }
+        live?.start()
+    }
 
     private func step(by delta: Int) {
         guard !player.frames.isEmpty else { return }

@@ -366,6 +366,11 @@ final class RunStore: PilotHost {
         return pilot
     }
 
+    /// A fresh live screen (ADR 0011); the caller starts it and must stop it.
+    func liveScreen(for runId: String) -> LiveScreen {
+        LiveScreen(runId: runId, source: client)
+    }
+
     var holdsControl: Bool {
         pilots.values.contains { $0.active || $0.busy }
     }
