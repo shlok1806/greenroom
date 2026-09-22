@@ -11,3 +11,11 @@ coverage/
 .DS_Store
 *.tsbuildinfo
 .claude/worktrees/
+
+# Compiled Go binaries. `go build` with no -o drops one named after the
+# package directory next to the source, and `smokeclient` reached the repo
+# that way: 12 MB of Mach-O, larger than the whole rest of the history.
+# Everything that uses it runs `go run ./internal/testsupport/smokeclient`.
+/apps/daemon/daemon
+/apps/daemon/greenroom
+/apps/daemon/smokeclient
