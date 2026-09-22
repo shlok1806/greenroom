@@ -1,22 +1,50 @@
 import AppKit
 import SwiftUI
 
-/// An unbundled `swift run` binary is treated as a background process and its
-/// window never takes keyboard focus; this makes it a regular app. Harmless
-/// in the real bundle.
+/// Owns the store so quitting can give back any screen being driven (ADR 0009).
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    let store = RunStore()
+    private var quitting = false
+
+    /// An unbundled `swift run` binary is treated as a background process and
+    /// its window never takes keyboard focus; this makes it a regular app.
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// The process would exit before an async release ran, so quitting waits
+    /// for it, but never more than two seconds on a daemon that is not answering.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard store.holdsControl else { return .terminateNow }
+        guard !quitting else { return .terminateLater }
+        quitting = true
+        Task {
+            await store.releaseAllControl()
+            finishQuitting()
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            finishQuitting()
+        }
+        return .terminateLater
+    }
+
+    private func finishQuitting() {
+        guard quitting else { return }
+        quitting = false
+        NSApp.reply(toApplicationShouldTerminate: true)
+    }
 }
 
 @main
 struct CompanionApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @State private var store = RunStore()
+
+    private var store: RunStore { delegate.store }
 
     var body: some Scene {
         WindowGroup {
@@ -56,10 +84,6 @@ struct RootView: View {
         // The SSE socket can look alive after sleep while the daemon restarted.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.resync() }
-        }
-        // Give back any screen being driven (ADR 0009).
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            Task { await store.releaseAllControl() }
         }
     }
 }

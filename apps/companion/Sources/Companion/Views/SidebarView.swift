@@ -47,13 +47,15 @@ struct SidebarView: View {
     }
 
     private var matches: [RunSummary] {
+        store.runs.filter { SidebarView.run($0, matches: query) }
+    }
+
+    /// Searches what a row shows: id, time, status, verdict, plus the image.
+    static func run(_ run: RunSummary, matches query: String) -> Bool {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !needle.isEmpty else { return store.runs }
-        return store.runs.filter {
-            $0.runId.lowercased().contains(needle)
-                || $0.image.lowercased().contains(needle)
-                || ($0.verdict?.verdict ?? "").lowercased().contains(needle)
-        }
+        guard !needle.isEmpty else { return true }
+        return [run.runId, run.image, run.status.text, Chrome.timeOfDay(run.createdAt), run.verdict?.verdict ?? ""]
+            .contains { $0.lowercased().contains(needle) }
     }
 
     private struct Group {

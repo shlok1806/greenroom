@@ -31,16 +31,24 @@ scripts/install.sh                           # bundle, replace /Applications/Gre
   - `Model/Models.swift` mirrors the daemon's Go structs; `OpenEnums.swift`, `DaemonJSON.swift`
     (dates, coders) and `EventStream.swift` (SSE) hold the rest of the wire layer.
   - `ScreenControl`, `FrameTimeline`, `StepSummary`, `RichText` are pure value types with
-    a test per rule. `ControlPilot` holds the lease and send queue.
+    a test per rule. `ControlPilot` holds the lease and send queue; it talks through
+    `ControlClient` and `PilotHost` so its tests need no daemon.
     `Views/InputSurface.swift` is the only AppKit event code.
 - The app only calls the API: no tart, no ssh, no run directory on disk. Missing
   capability means a new daemon route.
 - Never add a way to take the lease without a matching way to give it back (switch off,
-  tab or run change, machine not ready, quit).
+  tab or run change, machine not ready, quit). Quit waits up to 2 s for the release
+  (`AppDelegate.applicationShouldTerminate`); every way out lets go of a held button first.
+- Control that breaks under the person (input or renewal fails) is never silent:
+  `ControlPilot.endedReason` shows the daemon's words under the switch and the run is re-read.
+- While driving, Command shortcuts (Cmd-Q too) go to the guest. The "Take control" switch,
+  clicked with the mouse, is the way out.
 - `ScreenGeometry` is the only place a view point becomes a screen fraction.
 - `KeyTranslator`: anything with cmd/ctrl, or with no character (return, arrows, F-keys),
   is a named `key`; everything else is `type` with the produced characters.
-- Stream errors: back off 1, 2, 4 ... 10 s, re-read everything open, reconnect.
+- Stream errors: back off 1, 2, 4 ... 10 s, re-read everything open, reconnect. The
+  backoff resets once a connection opens. URLSession holds an SSE response until the first
+  bytes (the daemon's 15 s ping), so "Live" follows the resync, not the stream opening.
 
 ## UI rules
 

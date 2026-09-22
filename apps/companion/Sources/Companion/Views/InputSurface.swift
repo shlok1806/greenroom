@@ -44,6 +44,7 @@ final class InputSurfaceView: NSView {
         guard newValue != active else { return }
         active = newValue
         updateTrackingAreas()
+        window?.invalidateCursorRects(for: self)
         if active {
             window?.makeFirstResponder(self)
         } else if window?.firstResponder === self {
@@ -122,9 +123,38 @@ final class InputSurfaceView: NSView {
         send(InputAction(type: .down, x: at.x, y: at.y, button: "right", clicks: event.clickCount))
     }
 
+    override func rightMouseDragged(with event: NSEvent) {
+        guard active, let at = fraction(event, clamped: true) else { return super.rightMouseDragged(with: event) }
+        send(InputAction(type: .move, x: at.x, y: at.y))
+    }
+
     override func rightMouseUp(with event: NSEvent) {
         guard active, let at = fraction(event, clamped: true) else { return super.rightMouseUp(with: event) }
         send(InputAction(type: .up, x: at.x, y: at.y, button: "right", clicks: event.clickCount))
+    }
+
+    /// The guest helper knows left, right and middle; buttons 4 and up have nowhere to go.
+    private static let middleButton = 2
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard active, event.buttonNumber == Self.middleButton, let at = fraction(event) else {
+            return super.otherMouseDown(with: event)
+        }
+        send(InputAction(type: .down, x: at.x, y: at.y, button: "middle", clicks: event.clickCount))
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard active, event.buttonNumber == Self.middleButton, let at = fraction(event, clamped: true) else {
+            return super.otherMouseDragged(with: event)
+        }
+        send(InputAction(type: .move, x: at.x, y: at.y))
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard active, event.buttonNumber == Self.middleButton, let at = fraction(event, clamped: true) else {
+            return super.otherMouseUp(with: event)
+        }
+        send(InputAction(type: .up, x: at.x, y: at.y, button: "middle", clicks: event.clickCount))
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -139,6 +169,18 @@ final class InputSurfaceView: NSView {
     }
 
     // MARK: - Keyboard
+
+    /// Command shortcuts reach the view hierarchy here before the menu bar,
+    /// so while driving, Cmd-Q or Cmd-W go to the guest, not to this app.
+    /// Switching "Take control" off with the mouse is the way out.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard active, event.type == .keyDown, window?.firstResponder === self,
+              let action = KeyTranslator.action(for: InputSurfaceView.stroke(from: event)) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        send(action)
+        return true
+    }
 
     override func keyDown(with event: NSEvent) {
         guard active, let action = KeyTranslator.action(for: InputSurfaceView.stroke(from: event)) else {

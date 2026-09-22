@@ -62,10 +62,24 @@ final class FrameCache {
     private static func key(_ runId: String, _ file: String) -> String { "\(runId)/\(file)" }
 }
 
+/// Reconnect delays: 1, 2, 4 ... 10 s, back to 1 once a connection opens.
+struct Backoff: Equatable, Sendable {
+    static let ceiling = 10
+    private(set) var seconds = 1
+
+    /// The delay to wait now; the next one doubles.
+    mutating func next() -> Int {
+        defer { seconds = min(seconds * 2, Backoff.ceiling) }
+        return seconds
+    }
+
+    mutating func reset() { seconds = 1 }
+}
+
 /// The single source of truth the views read. Views never fetch for themselves.
 @Observable
 @MainActor
-final class RunStore {
+final class RunStore: PilotHost {
     var runs: [RunSummary] = []
     var details: [String: RunDetail] = [:]
     var messages: [String: [Message]] = [:]
@@ -105,13 +119,20 @@ final class RunStore {
     }
 
     private func runStream() async {
-        var backoff = 1
+        var backoff = Backoff()
         while !Task.isCancelled {
-            await resync()
+            // URLSession holds an SSE response back until the first bytes (a
+            // ping, up to 15 s), so a daemon that just answered counts as live.
+            connected = await resync()
             do {
-                connected = true
-                for try await event in client.events() {
-                    await handle(event)
+                for try await item in client.events() {
+                    switch item {
+                    case .opened:
+                        connected = true
+                        backoff.reset()
+                    case .event(let event):
+                        await handle(event)
+                    }
                 }
                 connected = false
             } catch {
@@ -120,8 +141,7 @@ final class RunStore {
                 report(error)
             }
             if Task.isCancelled { return }
-            try? await Task.sleep(for: .seconds(backoff))
-            backoff = min(backoff * 2, 10)
+            try? await Task.sleep(for: .seconds(backoff.next()))
         }
     }
 
@@ -135,13 +155,26 @@ final class RunStore {
         return [.runs, .detail(selected), .messages(selected), .steps(selected), .frames(selected)]
     }
 
-    func resync() async {
+    /// True when the daemon answered the run list.
+    @discardableResult
+    func resync() async -> Bool {
+        var failures: [Error] = []
+        var reached = true
         for fetch in RunStore.resyncPlan(selected: selectedRunId) {
-            await perform(fetch)
+            guard let error = await attempt(fetch) else { continue }
+            failures.append(error)
+            if fetch == .runs { reached = false }
         }
+        settle(failures)
+        return reached
     }
 
     private func perform(_ fetch: Fetch) async {
+        settle([await attempt(fetch)].compactMap { $0 })
+    }
+
+    /// Loads and stores one piece; `nil` on success.
+    private func attempt(_ fetch: Fetch) async -> Error? {
         do {
             switch fetch {
             case .runs: runs = try await client.runs()
@@ -150,26 +183,24 @@ final class RunStore {
             case .steps(let runId): steps[runId] = try await client.steps(runId)
             case .frames(let runId): frames[runId] = try await client.frames(runId)
             }
-            clearError()
+            return nil
         } catch {
-            report(error)
+            return error
         }
     }
 
+    /// A later success must not hide an earlier failure.
+    private func settle(_ failures: [Error]) {
+        if let first = failures.first { report(first) } else { clearError() }
+    }
+
+    /// Each piece lands on its own, so a run without frames still shows its transcript.
     func select(_ runId: String) async {
-        async let detail = client.run(runId)
-        async let messageList = client.messages(runId)
-        async let stepList = client.steps(runId)
-        async let frameList = client.frames(runId)
-        do {
-            details[runId] = try await detail
-            messages[runId] = try await messageList
-            steps[runId] = try await stepList
-            frames[runId] = try await frameList
-            clearError()
-        } catch {
-            report(error)
-        }
+        async let detail = attempt(.detail(runId))
+        async let messageList = attempt(.messages(runId))
+        async let stepList = attempt(.steps(runId))
+        async let frameList = attempt(.frames(runId))
+        settle([await detail, await messageList, await stepList, await frameList].compactMap { $0 })
     }
 
     // MARK: - Events
@@ -239,16 +270,18 @@ final class RunStore {
 
     // MARK: - Actions
 
-    /// The human seat in the conversation (ADR 0006).
-    func send(runId: String, kind: MessageKind, text: String, replyTo: Int? = nil) async {
+    /// The human seat in the conversation (ADR 0006). True once the daemon took it.
+    @discardableResult
+    func send(runId: String, kind: MessageKind, text: String, replyTo: Int? = nil) async -> Bool {
         do {
             try await client.send(runId: runId, kind: kind, text: text, replyTo: replyTo)
-            await reloadTranscript(runId)
-            await perform(.runs)
-            clearError()
         } catch {
             report(error)
+            return false
         }
+        await reloadTranscript(runId)
+        await perform(.runs)
+        return true
     }
 
     func screenshot(runId: String) async {
@@ -328,19 +361,32 @@ final class RunStore {
     /// redrawn tab keeps it and two views never both ask for it.
     func pilot(for runId: String) -> ControlPilot {
         if let held = pilots[runId] { return held }
-        let pilot = ControlPilot(runId: runId, store: self)
+        let pilot = ControlPilot(runId: runId, client: client, host: self)
         pilots[runId] = pilot
         return pilot
     }
 
+    var holdsControl: Bool {
+        pilots.values.contains { $0.active || $0.busy }
+    }
+
     func releaseAllControl() async {
-        for pilot in pilots.values {
-            await pilot.release()
+        await withTaskGroup(of: Void.self) { group in
+            for pilot in pilots.values {
+                group.addTask { await pilot.release() }
+            }
         }
     }
 
     func reloadTranscript(_ runId: String) async {
         await perform(.messages(runId))
+    }
+
+    /// Re-reads the run so a stopped machine shows as not ready. Unsettled, so
+    /// the lease error that caused it stays on screen.
+    func reloadRun(_ runId: String) async {
+        _ = await attempt(.detail(runId))
+        _ = await attempt(.runs)
     }
 
     func requestSeek(runId: String, step: Int) {

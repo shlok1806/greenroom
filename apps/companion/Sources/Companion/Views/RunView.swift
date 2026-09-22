@@ -9,6 +9,8 @@ struct RunView: View {
 
     @State private var tab: Tab = .transcript
     @State private var confirmingDestroy = false
+    @State private var capturing = false
+    @State private var savingRecording = false
 
     enum Tab: String, CaseIterable, Identifiable {
         case transcript = "Transcript"
@@ -38,18 +40,28 @@ struct RunView: View {
         .toolbar {
             ToolbarItemGroup {
                 Button {
-                    Task { await store.screenshot(runId: runId) }
+                    Task {
+                        capturing = true
+                        await store.screenshot(runId: runId)
+                        capturing = false
+                    }
                 } label: {
                     Label("Screenshot", systemImage: "camera")
                 }
-                .disabled(detail?.status != .ready)
+                .disabled(detail?.status != .ready || capturing)
 
                 Button {
                     Task { await saveRecording() }
                 } label: {
-                    Label("Save recording...", systemImage: "film")
+                    if savingRecording {
+                        ProgressView()
+                            .controlSize(.small)
+                            .help("Downloading the recording...")
+                    } else {
+                        Label("Save recording...", systemImage: "film")
+                    }
                 }
-                .disabled((store.frames[runId] ?? []).isEmpty)
+                .disabled((store.frames[runId] ?? []).isEmpty || savingRecording)
 
                 Button(role: .destructive) {
                     confirmingDestroy = true
@@ -81,7 +93,10 @@ struct RunView: View {
     }
 
     private func saveRecording() async {
-        guard let data = await store.recording(runId: runId) else { return }
+        savingRecording = true
+        let data = await store.recording(runId: runId)
+        savingRecording = false
+        guard let data else { return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "\(runId).mp4"
         panel.allowedContentTypes = [.mpeg4Movie]
@@ -109,17 +124,16 @@ struct RunView: View {
                     VerdictBadge(state: verdict)
                 }
             }
-            HStack(alignment: .top, spacing: 22) {
-                FieldLabel(label: "Started", value: detail.map { Chrome.stamp($0.createdAt) } ?? "-", monospaced: false)
-                FieldLabel(label: "Duration", value: runDuration)
-                FieldLabel(label: "Image", value: detail?.image ?? "-")
-                if let ip = detail?.address {
-                    FieldLabel(label: "IP", value: ip)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 22) {
+                    runFacts
+                    machineFacts
+                    Spacer(minLength: 0)
                 }
-                if let boot = detail?.machine?.bootSeconds {
-                    FieldLabel(label: "Boot", value: String(format: "%.1f s", boot))
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 22) { runFacts }
+                    HStack(alignment: .top, spacing: 22) { machineFacts }
                 }
-                Spacer(minLength: 0)
             }
             if let error = detail?.machine?.error, !error.isEmpty {
                 Text(error)
@@ -130,6 +144,23 @@ struct RunView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private var runFacts: some View {
+        FieldLabel(label: "Started", value: detail.map { Chrome.stamp($0.createdAt) } ?? "-", monospaced: false)
+        FieldLabel(label: "Duration", value: runDuration)
+        FieldLabel(label: "Image", value: detail?.image ?? "-")
+    }
+
+    @ViewBuilder
+    private var machineFacts: some View {
+        if let ip = detail?.address {
+            FieldLabel(label: "IP", value: ip)
+        }
+        if let boot = detail?.machine?.bootSeconds {
+            FieldLabel(label: "Boot", value: String(format: "%.1f s", boot))
+        }
     }
 
     /// A finished run stops counting when its machine went away.
