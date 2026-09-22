@@ -146,9 +146,10 @@ the manifest on reattach.
 
 **Every way a run can end is recorded.** `destroyedAt` is not only written by `Destroy`: a boot
 that fails stops and deletes the VM and stamps it, a `tart run` process that exits after the
-machine was ready is watched by `watchProcess`, which fails the machine and stamps it, and a
-reattach that finds tart no longer listing a machine stamps it from the run's own evidence,
-dated at the end of the last step or frame rather than at the restart. A run with no end reads
+machine was ready is watched by `watchProcess`, which fails the machine, deletes its VM and
+stamps it while leaving the run directory untouched, and a reattach that finds tart no longer
+listing a machine stamps it from the run's own evidence, dated at the end of the last step or
+frame rather than at the restart. A run with no end reads
 as a machine still running days later, and every duration computed from it is wrong.
 
 **Only the session store hands out message sequence numbers.** `Store.Append` numbers a message
@@ -215,8 +216,8 @@ batch travel as one base64 argument.
 
 **Every human or coder action that changes a machine lands in the conversation.** A destroy is
 announced by the lifecycle bridge in `main.go`, which subscribes to `Manager.Listen` and posts
-"machine is ready", "machine failed to boot" and "machine destroyed" from the one place that
-knows they really happened, whoever asked for them. The companion's own controls post what the
+"machine is ready", "machine failed to boot", "machine stopped" and "machine destroyed" from the
+one place that knows they really happened, whoever asked for them. The companion's own controls post what the
 manager cannot know: the app's screenshot says a human took it, and its destroy says a human
 asked. A control that leaves no message is a second, hidden source of truth.
 
