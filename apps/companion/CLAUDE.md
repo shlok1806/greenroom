@@ -2,7 +2,7 @@
 
 SwiftPM macOS app that watches runs, speaks into their conversation and can take a
 machine's screen. Vocabulary and invariants: `CONTEXT.md`. Decisions: ADR 0006
-(messages), 0007 (the app), 0008 (recording), 0009 (control).
+(messages), 0007 (the app), 0008 (recording), 0009 (control), 0011 (live screen).
 
 ## Commands
 
@@ -46,6 +46,14 @@ scripts/install.sh                           # bundle, replace /Applications/Gre
 - `ScreenGeometry` is the only place a view point becomes a screen fraction.
 - `KeyTranslator`: anything with cmd/ctrl, or with no character (return, arrows, F-keys),
   is a named `key`; everything else is `type` with the produced characters.
+- Live screen (ADR 0011): streams only while the Screen tab is on screen, following live,
+  on a ready machine. Anything else stops it, and the recording shows (also whenever the
+  stream is down, with a status line under the track). `ScreenStream.swift` is the pure wire
+  layer; `LiveScreen` owns the connection. Frames never hop through the main actor, and the
+  renderer is only touched on `VideoOutput`'s queue. A decoder failure reconnects, because a
+  new connection is how the daemon is asked for a keyframe.
+- `LiveScreenHostView` puts the display layer on `ScreenGeometry.fitted`, so the video
+  and `InputSurface` share one letterbox. Do not size the layer any other way.
 - Stream errors: back off 1, 2, 4 ... 10 s, re-read everything open, reconnect. The
   backoff resets once a connection opens. URLSession holds an SSE response until the first
   bytes (the daemon's 15 s ping), so "Live" follows the resync, not the stream opening.
@@ -71,6 +79,15 @@ scripts/install.sh                           # bundle, replace /Applications/Gre
   (~1.7 ms) happens on first draw, on main. Forcing the decode means ~3.1 MB per cached
   frame (~189 MB at the 60-frame cache), so the cache must be re-bounded in bytes in the
   same change. Do not fix one half alone.
+- Read streamed bodies in chunks (`DaemonClient.chunks`), never byte by byte off
+  `URLSession.AsyncBytes`: too slow for video.
+- Build the H.264 format from the avcC's SPS and PPS
+  (`CMVideoFormatDescriptionCreateFromH264ParameterSets`). Handing CoreMedia the avcC atom
+  alone gives a 0x0 description and every decode fails with -6661. VIDEO `pts` is not a
+  clock (it jumps on a re-encoded keyframe); samples display on arrival. A still screen
+  sends nothing, which is not a stall.
+- An `AVSampleBufferDisplayLayer` outside a window decodes nothing visible; tests that
+  read `displayedPixelBuffer()` host it in an offscreen `NSWindow` (`isReleasedWhenClosed = false`).
 - Unknown enum values decode to `unknown(String)`, never throw. Use `JSONDecoder.daemon()`
   (RFC3339 with or without fractional seconds).
 - `apps/daemon/internal/api/api.go` is the authority on shapes. A `step` event carries the

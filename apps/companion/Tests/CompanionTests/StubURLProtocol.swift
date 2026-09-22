@@ -8,6 +8,9 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     struct Reply: Sendable {
         var status = 200
         var body = Data()
+        var headers: [String: String]?
+        /// Delivers the body in pieces of this many bytes, as a network would.
+        var chunkSize: Int?
 
         static func json(_ text: String, status: Int = 200) -> Reply {
             Reply(status: status, body: Data(text.utf8))
@@ -37,9 +40,12 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         let id = request.value(forHTTPHeaderField: Self.header) ?? ""
         let handler = Self.lock.withLock { Self.handlers[id] }
         let reply = handler?(request) ?? Reply(status: 599)
-        let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: nil)!
+        let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: reply.headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: reply.body)
+        let size = max(reply.chunkSize ?? reply.body.count, 1)
+        for start in stride(from: reply.body.startIndex, to: reply.body.endIndex, by: size) {
+            client?.urlProtocol(self, didLoad: reply.body[start ..< min(start + size, reply.body.endIndex)])
+        }
         client?.urlProtocolDidFinishLoading(self)
     }
 

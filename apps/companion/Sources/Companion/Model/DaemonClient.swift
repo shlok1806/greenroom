@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 enum DaemonError: Error, LocalizedError, Equatable {
     case notReachable(String)
@@ -165,6 +166,38 @@ final class DaemonClient: Sendable {
         }
     }
 
+    // MARK: - Live screen (ADR 0011)
+
+    static let screenStreamType = "application/x-greenroom-screen"
+
+    /// The machine's screen as it happens: HELLO, then FORMAT and VIDEO. Ends
+    /// with the connection; reconnecting is the caller's business.
+    func liveScreen(runId: String) -> AsyncThrowingStream<ScreenMessage, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var request = URLRequest(url: try url(runPath(runId, "screen", "live")))
+                    request.setValue(Self.screenStreamType, forHTTPHeaderField: "Accept")
+                    // A still screen sends nothing; only the socket closing ends this.
+                    request.timeoutInterval = 3600
+                    var reader = ScreenFrameReader()
+                    for try await chunk in chunks(request, contentType: Self.screenStreamType) {
+                        for message in try reader.append(chunk) {
+                            continuation.yield(message)
+                        }
+                    }
+                    try reader.finish()
+                    continuation.finish()
+                } catch let error as ScreenStreamError {
+                    continuation.finish(throwing: DaemonError.badResponse(error.localizedDescription))
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     // MARK: - Plumbing
 
     private struct Empty: Encodable {}
@@ -198,14 +231,29 @@ final class DaemonClient: Sendable {
             throw DaemonError.badResponse("no HTTP response")
         }
         guard (200..<300).contains(http.statusCode) else {
-            // Every failing route answers {"error": "..."}.
-            struct Failure: Decodable { var error: String }
-            let message = (try? JSONDecoder().decode(Failure.self, from: data))?.error
-                ?? String(data: data, encoding: .utf8)
-                ?? ""
-            throw DaemonError.status(code: http.statusCode, body: message)
+            throw Self.failure(status: http.statusCode, body: data)
         }
         return data
+    }
+
+    /// Every failing route answers {"error": "..."}.
+    fileprivate static func failure(status: Int, body: Data) -> DaemonError {
+        struct Failure: Decodable { var error: String }
+        let message = (try? JSONDecoder().decode(Failure.self, from: body))?.error
+            ?? String(data: body, encoding: .utf8)
+            ?? ""
+        return .status(code: status, body: message)
+    }
+
+    /// The body of a 200 answer in whatever chunks the network delivers.
+    /// `URLSession.AsyncBytes` hands out single bytes, too slow for video.
+    private func chunks(_ request: URLRequest, contentType: String) -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { continuation in
+            let task = session.dataTask(with: request)
+            task.delegate = ChunkDelegate(continuation, contentType: contentType)
+            continuation.onTermination = { _ in task.cancel() }
+            task.resume()
+        }
     }
 
     /// An empty body decodes as `{}`, so all-optional responses accept one.
@@ -231,5 +279,55 @@ final class DaemonClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONEncoder.daemon().encode(body)
         return try await data(request)
+    }
+}
+
+/// Feeds `DaemonClient.chunks`. A failing answer's body is held back and
+/// thrown as the daemon's error text once the request completes.
+private final class ChunkDelegate: NSObject, URLSessionDataDelegate, Sendable {
+    private let continuation: AsyncThrowingStream<Data, Error>.Continuation
+    private let contentType: String
+    private let failure = Mutex<(status: Int, body: Data)?>(nil)
+
+    init(_ continuation: AsyncThrowingStream<Data, Error>.Continuation, contentType: String) {
+        self.continuation = continuation
+        self.contentType = contentType
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let http = response as? HTTPURLResponse else {
+            continuation.finish(throwing: DaemonError.badResponse("no HTTP response"))
+            return completionHandler(.cancel)
+        }
+        if http.statusCode != 200 {
+            failure.withLock { $0 = (http.statusCode, Data()) }
+        } else if http.mimeType != contentType {
+            continuation.finish(throwing: DaemonError.badResponse("\(http.mimeType ?? "no content type") instead of \(contentType)"))
+            return completionHandler(.cancel)
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let failed = failure.withLock { state in
+            state?.body.append(data)
+            return state != nil
+        }
+        if !failed { continuation.yield(data) }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        if let error {
+            continuation.finish(throwing: (error as? URLError).map(DaemonError.init) ?? error)
+        } else if let failed = failure.withLock({ $0 }) {
+            continuation.finish(throwing: DaemonClient.failure(status: failed.status, body: failed.body))
+        } else {
+            continuation.finish()
+        }
     }
 }
