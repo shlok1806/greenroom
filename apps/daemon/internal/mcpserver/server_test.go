@@ -149,6 +149,8 @@ func TestServerExposesExactlyItsTools(t *testing.T) {
 		"agent_send":      false, "agent_wait": false, "agent_transcript": false,
 		"machine_click": false, "machine_type": false, "machine_key": false,
 		"machine_scroll": false, "machine_input": false,
+		"machine_session_start": false, "machine_session_send": false,
+		"machine_session_read": false, "machine_session_close": false,
 	}
 	for _, tool := range res.Tools {
 		if _, ok := want[tool.Name]; !ok {

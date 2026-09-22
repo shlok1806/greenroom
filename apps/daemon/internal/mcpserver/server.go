@@ -121,24 +121,22 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	type screenshotIn struct {
 		RunID string `json:"runId" jsonschema:"runId from machine_create"`
 	}
-	type screenshotOut struct {
-		Path  string `json:"path"`
-		Bytes int    `json:"bytes"`
-	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_screenshot",
-		Description: "Capture the machine's screen. Returns a JPEG of the screen to look at, and the path of the " +
-			"lossless PNG saved in the run directory.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in screenshotIn) (*mcp.CallToolResult, screenshotOut, error) {
-		pngBytes, path, err := mgr.Screenshot(ctx, in.RunID)
+		Description: "Capture the machine's screen. Returns a JPEG of the screen to look at, the path of the " +
+			"lossless PNG saved in the run directory, and the image's size in pixels. The guest draws on a " +
+			"Retina display, so the image is bigger than the desktop it shows and scale says by how much. " +
+			"Aim clicks as a fraction of this image, x divided by width and y divided by height, never in " +
+			"pixels: machine_click takes 0 to 1.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in screenshotIn) (*mcp.CallToolResult, machine.Shot, error) {
+		pngBytes, out, err := mgr.Screenshot(ctx, in.RunID)
 		if err != nil {
-			return nil, screenshotOut{}, err
+			return nil, machine.Shot{}, err
 		}
 		jpg, err := toJPEG(pngBytes)
 		if err != nil {
-			return nil, screenshotOut{}, err
+			return nil, machine.Shot{}, err
 		}
-		out := screenshotOut{Path: path, Bytes: len(pngBytes)}
 		meta, _ := json.Marshal(out)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
@@ -170,6 +168,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 
 	addAgentTools(s, reg)
 	addInputTools(s, mgr)
+	addSessionTools(s, mgr)
 
 	return s
 }

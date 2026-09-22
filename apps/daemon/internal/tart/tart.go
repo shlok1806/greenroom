@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -17,10 +19,26 @@ import (
 // Client runs tart commands.
 type Client struct {
 	Bin string
+
+	// source records which candidate Bin came from, for the startup log
+	// line. It is only ever set by New: a Client built directly, which is
+	// what tests do, reports an empty source and that is honest.
+	source Source
 }
 
-// New returns a Client that uses the tart binary on PATH.
-func New() *Client { return &Client{Bin: "tart"} }
+// New returns a Client driving the pinned tart if it is installed, falling
+// back to PATH. See version.go for why the daemon pins one at all.
+func New() *Client {
+	r := Resolve("")
+	return &Client{Bin: r.Bin, source: r.Source}
+}
+
+// NewAt returns a Client driving an explicitly chosen binary, with the same
+// resolution rules applied when the choice is empty.
+func NewAt(bin string) *Client {
+	r := Resolve(bin)
+	return &Client{Bin: r.Bin, source: r.Source}
+}
 
 // VM is one row of `tart list`.
 type VM struct {
@@ -237,6 +255,138 @@ func (c *Client) Exec(ctx context.Context, name string, args ...string) (ExecRes
 	}
 	res.ExitCode = exitErr.ExitCode()
 	return res, nil
+}
+
+// Session is a command running inside a guest behind a pseudo-terminal, with
+// its input and output attached to this process for as long as it lives.
+//
+// It exists because `Exec` is one shot: it runs a command, waits, and
+// returns, so nothing that needs state between calls has anywhere to live.
+// A Session is the long-running `tart exec -i -t` child itself, so the handle
+// the daemon keeps is a host process it owns rather than a process id inside
+// the guest that it would have to trust and could not reliably kill.
+//
+// `-t` is what makes isatty() true for the guest command, which xcodebuild,
+// swift build, git and most test runners branch on. `-i` attaches stdin, so
+// the command can be typed at.
+//
+// tart is driven through a host-side pty rather than through pipes, and that
+// is not a detail: `-t` makes tart read its own stdin's terminal size to
+// forward to the guest, and a pipe makes it die outright rather than fall
+// back. See openPTY in pty.go. The daemon writes to the master to type at the
+// command and reads the master to collect its output.
+type Session struct {
+	cmd    *exec.Cmd
+	master *os.File
+	stderr bytes.Buffer // tart's own complaints, not the guest's output
+	done   chan struct{}
+	mu     sync.Mutex
+	err    error // written before done is closed
+}
+
+// StartSession runs command inside the guest behind a remote pty. The
+// returned Session stays alive until the command exits or Close is called.
+//
+// The flags go before the VM name: `tart exec [-i] [-t] <name> <command>...`.
+// Putting them after the name would make tart read them as part of the
+// command.
+func (c *Client) StartSession(name string, command ...string) (*Session, error) {
+	master, slave, err := openPTY()
+	if err != nil {
+		return nil, fmt.Errorf("tart exec -i -t %s: %w", name, err)
+	}
+
+	args := append([]string{"exec", "-i", "-t", name}, command...)
+	cmd := exec.Command(c.Bin, args...)
+	// tart's stdin and stdout are the terminal. Its stderr is kept apart so
+	// that tart's own complaints can explain a session that would not start
+	// rather than being mixed into the guest command's output.
+	cmd.Stdin, cmd.Stdout = slave, slave
+	s := &Session{cmd: cmd, master: master, done: make(chan struct{})}
+	cmd.Stderr = &s.stderr
+	// Its own session, with the pty for a controlling terminal, so Close ends
+	// the command and anything it started rather than only the tart process
+	// in front of them. Setsid also makes it a process group leader, which is
+	// what lets Close signal the whole group.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
+
+	if err := cmd.Start(); err != nil {
+		_ = slave.Close()
+		_ = master.Close()
+		return nil, fmt.Errorf("tart exec -i -t %s: %w", name, err)
+	}
+	// The parent's copy of the slave goes now, so that when the command exits
+	// the last slave is closed and a read on the master ends the stream
+	// instead of blocking forever.
+	_ = slave.Close()
+
+	go func() {
+		err := cmd.Wait()
+		s.mu.Lock()
+		s.err = err
+		s.mu.Unlock()
+		close(s.done)
+	}()
+	return s, nil
+}
+
+// Output is the stream the guest command writes to. The caller reads it to
+// exhaustion in its own goroutine; nothing else drains it.
+//
+// A terminal echoes what is typed at it, so a caller reading this sees its
+// own input come back before the command's reply. That is kept rather than
+// turned off: it is what a real terminal does, it makes the run record show
+// the command next to the output it produced, and a program that wants its
+// input hidden, a password prompt above all, turns echo off itself the way it
+// would on any terminal. Forcing echo off here would break that and make
+// every prompt silent.
+func (s *Session) Output() io.Reader { return ptyReader{s.master} }
+
+// Write sends bytes to the command's terminal input, exactly as given.
+func (s *Session) Write(p []byte) (int, error) { return s.master.Write(p) }
+
+// Running reports whether the command is still going.
+func (s *Session) Running() bool {
+	select {
+	case <-s.done:
+		return false
+	default:
+		return true
+	}
+}
+
+// Err explains why a finished session stopped, preferring what tart printed.
+// A command that exited non-zero is not an error here for the same reason it
+// is not in Exec: a failing build is a result, not an infrastructure fault.
+func (s *Session) Err() error {
+	if s.Running() {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	msg := strings.TrimSpace(s.stderr.String())
+	if msg != "" && isTartFailure(msg) {
+		return fmt.Errorf("tart exec: %s", msg)
+	}
+	return nil
+}
+
+// Close ends the command and releases the terminal. Closing a session whose
+// command has already exited is not an error.
+func (s *Session) Close() error {
+	if s.cmd.Process != nil {
+		// Negative pid is the process group, so the guest command goes with
+		// the tart process in front of it.
+		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+		_ = s.cmd.Process.Kill()
+	}
+	select {
+	case <-s.done:
+	case <-time.After(5 * time.Second):
+	}
+	// The master goes last, so anything the command wrote on its way out has
+	// already been read, and closing it ends the reader's pump.
+	return s.master.Close()
 }
 
 // isTartFailure recognises tart's own error messages so they are not

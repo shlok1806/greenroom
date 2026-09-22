@@ -22,6 +22,7 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/mcpserver"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/verifier"
 )
 
@@ -65,6 +66,7 @@ func serve(args []string) error {
 	maxDisputes := fs.Int("max-disputes", session.DefaultMaxDisputes, "how many times the coding agent may dispute a verdict before it is contested and only a human can close it")
 	maxMachines := fs.Int("max-machines", 2, "how many VMs the host may run at once; Apple allows two macOS guests, and 0 removes the check")
 	envFile := fs.String("env-file", ".env", "file of KEY=VALUE lines holding the model credentials")
+	tartBin := fs.String("tart", "", "path to the tart binary; defaults to "+tart.EnvVar+", then the pinned tart "+tart.PinnedVersion+" install, then tart on PATH")
 	openViewer := fs.Bool("open-viewer", true, "when a machine is created with watch, open its screen on this Mac")
 	frameInterval := fs.Duration("frame-interval", 2*time.Second, "screen frame capture interval for the run recording; 0 disables")
 	verifierKind := fs.String("verifier", "", "verifier brain: nim (model-driven) or manual (a person types instructions in the conversation); default nim, overridden by GREENROOM_VERIFIER when this flag is not set")
@@ -78,7 +80,14 @@ func serve(args []string) error {
 		return err
 	}
 
-	opts := []machine.Option{machine.WithMaxMachines(*maxMachines), machine.WithFrameInterval(*frameInterval)}
+	opts := []machine.Option{
+		machine.WithMaxMachines(*maxMachines),
+		machine.WithFrameInterval(*frameInterval),
+		// Empty when the flag is unset, which leaves the resolution
+		// internal/tart already made: GREENROOM_TART, then the pinned
+		// install, then PATH.
+		machine.WithTartBin(*tartBin),
+	}
 	if *openViewer {
 		opts = append(opts, machine.WithWatchHandler(func(vncURL string) {
 			log.Info("opening the machine's screen", "url", redactVNC(vncURL))
@@ -91,6 +100,10 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Say which tart this daemon drives before it drives it. A mismatch is
+	// logged, never fatal: a daemon already serving machines must keep
+	// working on the tart it started with.
+	mgr.CheckTart(context.Background())
 
 	// Every run owns one conversation (ADR 0006). It is the only way to
 	// reach the verifier, and the manifest follows whatever it decides.

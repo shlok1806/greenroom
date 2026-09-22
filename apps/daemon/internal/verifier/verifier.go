@@ -559,16 +559,18 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 		return execResultText(res), res.Step
 
 	case "machine_screenshot":
-		png, path, seq, err := v.mgr.ScreenshotStep(ctx, runID)
+		png, shot, err := v.mgr.Screenshot(ctx, runID)
+		seq := shot.Step
 		if err != nil {
 			return "error: " + err.Error(), seq
 		}
 		desc, err := v.describe(ctx, png)
 		if err != nil {
 			// A blind verifier is still useful, so say so and continue.
-			return fmt.Sprintf("step %d\nThe screenshot was saved to %s but it could not be described: %v", seq, path, err), seq
+			return fmt.Sprintf("step %d\nThe screenshot was saved to %s but it could not be described: %v", seq, shot.Path, err), seq
 		}
-		return fmt.Sprintf("step %d\nThe screen shows:\n%s\n\nThe image is saved at %s", seq, desc, path), seq
+		return fmt.Sprintf("step %d\n%s\nThe screen shows:\n%s\n\nThe image is saved at %s",
+			seq, shotGeometry(shot), desc, shot.Path), seq
 
 	case "machine_click":
 		var in struct {
