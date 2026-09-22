@@ -1,6 +1,8 @@
 package mcpserver
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -198,5 +200,35 @@ func TestDestroyIsAnnouncedByTheLifecycleBridge(t *testing.T) {
 	}
 	if want := tr.Messages[len(tr.Messages)-1].Seq; tr.Last != want {
 		t.Errorf("last = %d, want the seq of the last message, %d", tr.Last, want)
+	}
+}
+
+func TestAgentToolsRefuseARunIdThatLeavesRuns(t *testing.T) {
+	h := newHarness(t)
+	// Real directories where "." and "../x" would land, so only validation can refuse them.
+	for _, dir := range []string{filepath.Join(h.root, "runs"), filepath.Join(h.root, "x")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, runID := range []string{"../x", ".", "..", `..\x`, "a/b"} {
+		for tool, args := range map[string]map[string]any{
+			"agent_send":       {"runId": runID, "kind": "task", "text": "escape"},
+			"agent_wait":       {"runId": runID, "timeoutSeconds": 1},
+			"agent_transcript": {"runId": runID},
+		} {
+			if res := h.raw(tool, args); !res.IsError {
+				t.Errorf("%s accepted runId %q", tool, runID)
+			}
+		}
+	}
+	err := filepath.WalkDir(h.root, func(path string, d os.DirEntry, err error) error {
+		if err == nil && d.Name() == "conversation.jsonl" {
+			t.Errorf("a conversation was written at %s", path)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

@@ -42,7 +42,9 @@ func (a *api) takeControl(w http.ResponseWriter, r *http.Request, id string) {
 	// Warm the guest input helper now (a compile of seconds) so the first click after this answer is not slow.
 	screen, err := a.mgr.ScreenOf(r.Context(), id)
 	if err != nil {
-		_, _, _ = a.mgr.ReleaseControl(id, humanSeat)
+		if fresh { // a lease the human already held stays theirs
+			_, _, _ = a.mgr.ReleaseControl(id, humanSeat)
+		}
 		a.fail(w, http.StatusConflict, err)
 		return
 	}

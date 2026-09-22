@@ -28,11 +28,13 @@ scripts/uninstall.sh    # keeps the binary and ~/.greenroom
 scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-force]
 ```
 
-`serve` flags not in `usage()`: `-env-file` (default `.env`), `-tart`, `-open-viewer`.
+`usage()` prints each subcommand's flag set, so `greenroom` with no arguments lists every flag.
 `-verifier` defaults to `GREENROOM_VERIFIER`, then `nim`. `nim` without `NVIDIA_API_KEY`
 runs with no verifier and says so in each run's transcript.
 
-The smoke client's own `-url` default is `:7778`; always pass `-url`.
+HTTP has no authentication. `api.LocalOnly` wraps every route: 403 unless `Host` is loopback
+(DNS rebinding) and any `Origin` is loopback (cross-site). Writes under `/api` with a body
+must be `application/json` (415). The companion and smoke client send a loopback Host and no Origin.
 
 ## Layering
 

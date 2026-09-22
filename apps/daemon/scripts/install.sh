@@ -14,10 +14,17 @@ fi
 echo "env file: $env_file"
 echo "verifier: ${GREENROOM_VERIFIER:-nim}"
 
+# Resolve tart the way the daemon does (internal/tart/version.go): GREENROOM_TART, the pinned install, then PATH.
+pinned="$(sed -n 's/^const PinnedVersion = "\(.*\)"$/\1/p' internal/tart/version.go)"
+tart="${GREENROOM_TART:-$HOME/.local/tart-$pinned/tart.app/Contents/MacOS/tart}"
+if [ -z "${GREENROOM_TART:-}" ] && [ ! -x "$tart" ]; then
+  tart="tart"
+fi
+
 # Prefer the prepared image (issue #12) when it exists. GREENROOM_IMAGE overrides.
 image="${GREENROOM_IMAGE:-}"
 if [ -z "$image" ]; then
-  if tart list --source local 2>/dev/null | grep -q '^local[[:space:]]\{1,\}greenroom-base[[:space:]]'; then
+  if "$tart" list --source local 2>/dev/null | grep -q '^local[[:space:]]\{1,\}greenroom-base[[:space:]]'; then
     image="greenroom-base"
   else
     image="ghcr.io/cirruslabs/macos-tahoe-base:latest"
@@ -126,16 +133,18 @@ if [ -n "$killed" ]; then
 fi
 
 # bootstrap races launchd's own bookkeeping, so give it a few tries.
+bootstrap_err="$(mktemp -t greenroom-bootstrap)"
+trap 'rm -f "$bootstrap_err"' EXIT
 for attempt in $(seq 1 5); do
-  if launchctl bootstrap "gui/$(id -u)" "$plist" 2>/tmp/greenroom-bootstrap.err; then
+  if launchctl bootstrap "gui/$(id -u)" "$plist" 2>"$bootstrap_err"; then
     break
   fi
   if [ "$attempt" = 5 ]; then
     echo "launchctl bootstrap failed 5 times:" >&2
-    cat /tmp/greenroom-bootstrap.err >&2
+    cat "$bootstrap_err" >&2
     exit 1
   fi
-  echo "bootstrap attempt $attempt failed ($(tr -d '\n' </tmp/greenroom-bootstrap.err)); retrying"
+  echo "bootstrap attempt $attempt failed ($(tr -d '\n' <"$bootstrap_err")); retrying"
   sleep 1
 done
 launchctl kickstart -k "gui/$(id -u)/$label"
