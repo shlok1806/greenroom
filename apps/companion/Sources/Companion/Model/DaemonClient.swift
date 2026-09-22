@@ -23,6 +23,12 @@ enum DaemonError: Error, LocalizedError, Equatable {
     }
 }
 
+extension DaemonError {
+    init(_ error: URLError) {
+        self = error.code == .cancelled ? .cancelled : .notReachable(error.localizedDescription)
+    }
+}
+
 /// The only thing in the app that speaks HTTP: one method per route in ADR 0007.
 final class DaemonClient: Sendable {
     let baseURL: URL
@@ -44,40 +50,40 @@ final class DaemonClient: Sendable {
     // MARK: - Reads
 
     func runs() async throws -> [RunSummary] {
-        try await get([RunSummary].self, "api/runs")
+        try await get([RunSummary].self, ["api", "runs"])
     }
 
     func run(_ runId: String) async throws -> RunDetail {
-        try await get(RunDetail.self, "api/runs/\(escape(runId))")
+        try await get(RunDetail.self, runPath(runId))
     }
 
     func steps(_ runId: String) async throws -> [Step] {
-        try await get([Step].self, "api/runs/\(escape(runId))/steps")
+        try await get([Step].self, runPath(runId, "steps"))
     }
 
     func messages(_ runId: String) async throws -> [Message] {
         let query = [URLQueryItem(name: "after", value: "0")]
-        return try await get(MessagePage.self, "api/runs/\(escape(runId))/messages", query: query).messages
+        return try await get(MessagePage.self, runPath(runId, "messages"), query: query).messages
     }
 
     /// Oldest first (ADR 0008).
     func frames(_ runId: String) async throws -> [Frame] {
-        try await get([Frame].self, "api/runs/\(escape(runId))/frames")
+        try await get([Frame].self, runPath(runId, "frames"))
     }
 
     func artifact(runId: String, name: String) async throws -> Data {
-        try await data(URLRequest(url: url("api/runs/\(escape(runId))/artifacts/\(escape(name))")))
+        try await data(URLRequest(url: url(runPath(runId, "artifacts", name))))
     }
 
     /// One frame's JPEG bytes.
     func frame(runId: String, file: String) async throws -> Data {
-        try await data(URLRequest(url: url("api/runs/\(escape(runId))/frames/\(escape(file))")))
+        try await data(URLRequest(url: url(runPath(runId, "frames", file))))
     }
 
     /// An mp4 of the run's frames. Needs `ffmpeg` on the daemon host; without it
     /// the daemon's own error text is thrown.
     func recording(runId: String) async throws -> Data {
-        try await data(URLRequest(url: url("api/runs/\(escape(runId))/recording.mp4")))
+        try await data(URLRequest(url: url(runPath(runId, "recording.mp4"))))
     }
 
     // MARK: - Writes
@@ -88,26 +94,26 @@ final class DaemonClient: Sendable {
             var text: String
             var replyTo: Int?
         }
-        try await post("api/runs/\(escape(runId))/messages", body: Body(kind: kind.text, text: text, replyTo: replyTo))
+        try await post(runPath(runId, "messages"), body: Body(kind: kind.text, text: text, replyTo: replyTo))
     }
 
     func screenshot(runId: String) async throws {
-        try await post("api/runs/\(escape(runId))/screenshot")
+        try await post(runPath(runId, "screenshot"))
     }
 
     func destroy(runId: String) async throws {
-        try await post("api/runs/\(escape(runId))/destroy")
+        try await post(runPath(runId, "destroy"))
     }
 
     // MARK: - Driving the screen (ADR 0009)
 
     /// Takes the mouse and keyboard, or renews a lease this app already holds.
     func takeControl(runId: String) async throws -> ControlResponse {
-        try decode(ControlResponse.self, from: await post("api/runs/\(escape(runId))/control"))
+        try decode(ControlResponse.self, from: await post(runPath(runId, "control")))
     }
 
     func releaseControl(runId: String) async throws {
-        var request = URLRequest(url: try url("api/runs/\(escape(runId))/control"))
+        var request = URLRequest(url: try url(runPath(runId, "control")))
         request.httpMethod = "DELETE"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         _ = try await data(request)
@@ -115,18 +121,18 @@ final class DaemonClient: Sendable {
 
     func input(runId: String, actions: [InputAction]) async throws -> InputResult {
         struct Body: Encodable { var actions: [InputAction] }
-        return try decode(InputResult.self, from: await post("api/runs/\(escape(runId))/input", body: Body(actions: actions)))
+        return try decode(InputResult.self, from: await post(runPath(runId, "input"), body: Body(actions: actions)))
     }
 
     // MARK: - Events
 
-    /// One `ServerEvent` per SSE frame. Ends with the connection; reconnecting
-    /// is the caller's business.
-    func events() -> AsyncThrowingStream<ServerEvent, Error> {
+    /// `.opened` once the daemon answers 200, then one `.event` per SSE frame.
+    /// Ends with the connection; reconnecting is the caller's business.
+    func events() -> AsyncThrowingStream<EventStreamItem, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    var request = URLRequest(url: try url("api/events"))
+                    var request = URLRequest(url: try url(["api", "events"]))
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                     request.timeoutInterval = 3600
                     let (bytes, response) = try await session.bytes(for: request)
@@ -136,18 +142,21 @@ final class DaemonClient: Sendable {
                     guard http.statusCode == 200 else {
                         throw DaemonError.status(code: http.statusCode, body: "")
                     }
+                    continuation.yield(.opened)
                     var parser = SSEParser()
                     var splitter = SSELineSplitter()
                     for try await byte in bytes {
                         guard let line = splitter.consume(byte) else { continue }
                         if let event = try parser.consume(line) {
-                            continuation.yield(event)
+                            continuation.yield(.event(event))
                         }
                     }
                     if let line = splitter.flush(), let event = try parser.consume(line) {
-                        continuation.yield(event)
+                        continuation.yield(.event(event))
                     }
                     continuation.finish()
+                } catch let error as URLError {
+                    continuation.finish(throwing: DaemonError(error))
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -160,15 +169,18 @@ final class DaemonClient: Sendable {
 
     private struct Empty: Encodable {}
 
-    private func escape(_ component: String) -> String {
-        component.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? component
+    private func runPath(_ runId: String, _ rest: String...) -> [String] {
+        ["api", "runs", runId] + rest
     }
 
-    private func url(_ path: String, query: [URLQueryItem] = []) throws -> URL {
-        var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)
+    /// One segment per element, each percent-encoded whole, so an id or file
+    /// name with a slash, space or percent sign stays one segment.
+    private func url(_ segments: [String], query: [URLQueryItem] = []) throws -> URL {
+        let path = segments.reduce(baseURL) { $0.appending(component: $1) }
+        var components = URLComponents(url: path, resolvingAgainstBaseURL: false)
         if !query.isEmpty { components?.queryItems = query }
         guard let built = components?.url else {
-            throw DaemonError.badResponse("cannot build a URL for \(path)")
+            throw DaemonError.badResponse("cannot build a URL for \(segments.joined(separator: "/"))")
         }
         return built
     }
@@ -180,8 +192,7 @@ final class DaemonClient: Sendable {
         do {
             (data, response) = try await session.data(for: request)
         } catch let error as URLError {
-            if error.code == .cancelled { throw DaemonError.cancelled }
-            throw DaemonError.notReachable(error.localizedDescription)
+            throw DaemonError(error)
         }
         guard let http = response as? HTTPURLResponse else {
             throw DaemonError.badResponse("no HTTP response")
@@ -206,14 +217,14 @@ final class DaemonClient: Sendable {
         }
     }
 
-    private func get<T: Decodable>(_ type: T.Type, _ path: String, query: [URLQueryItem] = []) async throws -> T {
+    private func get<T: Decodable>(_ type: T.Type, _ path: [String], query: [URLQueryItem] = []) async throws -> T {
         var request = URLRequest(url: try url(path, query: query))
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return try decode(type, from: await data(request))
     }
 
     @discardableResult
-    private func post(_ path: String, body: some Encodable = Empty()) async throws -> Data {
+    private func post(_ path: [String], body: some Encodable = Empty()) async throws -> Data {
         var request = URLRequest(url: try url(path))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

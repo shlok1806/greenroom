@@ -31,6 +31,8 @@ struct ScreenView: View {
             controls
         }
         .focusable(!driving)
+        // Focus is only for the arrow and space keys; a ring round the whole tab is noise.
+        .focusEffectDisabled()
         .focused($focused)
         // While driving, keys belong to the guest.
         .onKeyPress(.leftArrow) {
@@ -85,6 +87,11 @@ struct ScreenView: View {
             applyPendingSeek()
         }
         .onReceive(tick) { now in
+            // A state write here redraws the view, so a paused player writes nothing.
+            guard player.playing else {
+                if lastTick != nil { lastTick = nil }
+                return
+            }
             // Real elapsed time: the timer fires late under load.
             let elapsed = lastTick.map { now.timeIntervalSince($0) } ?? 0
             lastTick = now
@@ -206,7 +213,8 @@ struct ScreenView: View {
                         .controlSize(.small)
                         .disabled(pilot?.busy == true)
                         .fixedSize()
-                        .help("Send this window's mouse and keyboard to the machine. "
+                        .help("Send this window's mouse and keyboard to the machine, "
+                            + "Command shortcuts included. Switch this off to give it back. "
                             + "The run's conversation records that you took it.")
 
                     Button {
@@ -219,6 +227,16 @@ struct ScreenView: View {
                 }
             }
             .frame(minHeight: 22)
+
+            // Outside the ready check: a stopped machine hides the switch but keeps the reason.
+            if !driving, let reason = pilot?.endedReason {
+                Label("Control ended: \(reason)", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

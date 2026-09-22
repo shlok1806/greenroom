@@ -1,5 +1,11 @@
 import Foundation
 
+/// What `DaemonClient.events()` yields: the connection opening, then frames.
+enum EventStreamItem: Hashable, Sendable {
+    case opened
+    case event(ServerEvent)
+}
+
 /// One frame off `/api/events`.
 enum ServerEvent: Hashable, Sendable {
     case run(LifecycleEvent)

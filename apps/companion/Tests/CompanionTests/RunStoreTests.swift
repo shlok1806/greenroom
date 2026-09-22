@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 @testable import Companion
@@ -234,5 +235,72 @@ final class RunStoreTests: XCTestCase {
         store.requestSeek(runId: "run-1", step: 9)
         XCTAssertEqual(store.seekRequest?.step, 9)
         XCTAssertNotEqual(store.seekRequest?.nonce, first?.nonce)
+    }
+
+    func testOneFailedPieceDoesNotLoseTheOthers() async {
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/runs/run-1": .json(#"{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z"}"#)
+            case "/api/runs/run-1/messages": .json(#"{"messages": [{"seq": 1, "from": "coder", "kind": "task", "text": "go"}]}"#)
+            case "/api/runs/run-1/steps": .json("[]")
+            default: .json(#"{"error": "no frames"}"#, status: 404)
+            }
+        }
+        let store = RunStore(client: client)
+        await store.select("run-1")
+
+        XCTAssertEqual(store.details["run-1"]?.runId, "run-1")
+        XCTAssertEqual(store.messages["run-1"]?.map(\.text), ["go"])
+        XCTAssertEqual(store.steps["run-1"], [])
+        XCTAssertNil(store.frames["run-1"])
+        XCTAssertEqual(store.lastError, "The daemon answered 404: no frames")
+    }
+
+    func testAFullSelectClearsAnEarlierError() async {
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/runs/run-1", "/api/runs/run-1/messages": .json("{}")
+            default: .json("[]")
+            }
+        }
+        let store = RunStore(client: client)
+        store.lastError = "stale"
+        await store.select("run-1")
+        XCTAssertNil(store.lastError)
+        XCTAssertEqual(store.frames["run-1"], [])
+    }
+
+    func testBackoffDoublesToTheCeilingAndResetsOnAConnection() {
+        var backoff = Backoff()
+        XCTAssertEqual((0..<6).map { _ in backoff.next() }, [1, 2, 4, 8, 10, 10])
+        backoff.reset()
+        XCTAssertEqual(backoff.next(), 1)
+        XCTAssertEqual(backoff.next(), 2)
+    }
+
+    func testTheFrameCacheEvictsTheLeastRecentlyUsed() {
+        let cache = FrameCache(capacity: 2)
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        cache.store(image, runId: "r", file: "a")
+        cache.store(image, runId: "r", file: "b")
+        // Reading `a` makes `b` the oldest.
+        XCTAssertNotNil(cache.image(runId: "r", file: "a"))
+        cache.store(image, runId: "r", file: "c")
+
+        XCTAssertNotNil(cache.image(runId: "r", file: "a"))
+        XCTAssertNil(cache.image(runId: "r", file: "b"))
+        XCTAssertNotNil(cache.image(runId: "r", file: "c"))
+        // Same file, other run: a different frame.
+        XCTAssertNil(cache.image(runId: "other", file: "a"))
+    }
+
+    func testSearchMatchesWhatTheRowShows() {
+        let created = Date(timeIntervalSince1970: 1_700_000_000)
+        let run = RunSummary(runId: "20260921-050808-8ecfd5", createdAt: created, status: .finished)
+        XCTAssertTrue(SidebarView.run(run, matches: ""))
+        XCTAssertTrue(SidebarView.run(run, matches: "8ECFD5"))
+        XCTAssertTrue(SidebarView.run(run, matches: "finish"))
+        XCTAssertTrue(SidebarView.run(run, matches: Chrome.timeOfDay(created)))
+        XCTAssertFalse(SidebarView.run(run, matches: "booting"))
     }
 }

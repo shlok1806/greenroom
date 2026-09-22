@@ -19,28 +19,36 @@ private extension View {
 }
 
 /// A one-line reply box: a field and a button that both send the trimmed text.
+/// The text stays until the daemon has taken it.
 private struct ReplyField: View {
     let prompt: String
     let button: String
     @Binding var text: String
-    let send: (String) -> Void
+    let send: (String) async -> Bool
+
+    @State private var sending = false
+
+    private var canSend: Bool { !sending && !isBlank(text) }
 
     var body: some View {
         HStack {
             TextField(prompt, text: $text)
                 .textFieldStyle(.roundedBorder)
-                .sendOnReturn(enabled: !isBlank(text), submit)
+                .sendOnReturn(enabled: canSend, submit)
             Button(button, action: submit)
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(isBlank(text))
+                .disabled(!canSend)
         }
     }
 
     private func submit() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        text = ""
-        send(trimmed)
+        guard !trimmed.isEmpty, !sending else { return }
+        sending = true
+        Task {
+            if await send(trimmed) { text = "" }
+            sending = false
+        }
     }
 }
 
@@ -52,6 +60,7 @@ struct TranscriptView: View {
 
     @State private var draft = ""
     @State private var draftKind: MessageKind = .note
+    @State private var sending = false
     @FocusState private var composing: Bool
     @State private var atBottom = true
     /// Whether the newest message has been scrolled to at least once.
@@ -142,22 +151,28 @@ struct TranscriptView: View {
                 .lineLimit(1...5)
                 .textFieldStyle(.roundedBorder)
                 .focused($composing)
-                .sendOnReturn(enabled: !isBlank(draft), send)
+                .sendOnReturn(enabled: canSend, send)
 
             Button("Send") { send() }
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(isBlank(draft))
+                .disabled(!canSend)
         }
         .padding(12)
     }
 
+    private var canSend: Bool { !sending && !isBlank(draft) }
+
+    /// The draft stays in the field until the daemon has taken it.
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        draft = ""
+        guard !text.isEmpty, !sending else { return }
+        sending = true
         atBottom = true
         let kind = draftKind
-        Task { await store.send(runId: runId, kind: kind, text: text) }
+        Task {
+            if await store.send(runId: runId, kind: kind, text: text) { draft = "" }
+            sending = false
+        }
     }
 }
 
@@ -329,6 +344,7 @@ private struct VerdictBody: View {
 
     @State private var disputing = false
     @State private var reason = ""
+    @State private var accepting = false
 
     private var state: VerdictState? { store.verdict(runId) }
 
@@ -367,14 +383,21 @@ private struct VerdictBody: View {
             if canClose {
                 HStack(spacing: 8) {
                     Button("Accept") {
-                        Task { await store.send(runId: runId, kind: .accept, text: "accepted", replyTo: message.seq) }
+                        accepting = true
+                        Task {
+                            await store.send(runId: runId, kind: .accept, text: "accepted", replyTo: message.seq)
+                            accepting = false
+                        }
                     }
+                    .disabled(accepting)
                     Button(disputing ? "Cancel" : "Dispute") { disputing.toggle() }
+                        .disabled(accepting)
                 }
                 if disputing {
                     ReplyField(prompt: "Why the verdict is wrong, with evidence", button: "Send dispute", text: $reason) { text in
-                        disputing = false
-                        Task { await store.send(runId: runId, kind: .dispute, text: text, replyTo: message.seq) }
+                        let sent = await store.send(runId: runId, kind: .dispute, text: text, replyTo: message.seq)
+                        if sent { disputing = false }
+                        return sent
                     }
                 }
             }
@@ -411,7 +434,7 @@ private struct QuestionBody: View {
             }
             if !answered {
                 ReplyField(prompt: "Answer", button: "Reply", text: $answer) { text in
-                    Task { await store.send(runId: runId, kind: .answer, text: text, replyTo: message.seq) }
+                    await store.send(runId: runId, kind: .answer, text: text, replyTo: message.seq)
                 }
             }
         }
