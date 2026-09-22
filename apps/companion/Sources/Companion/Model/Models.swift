@@ -1,352 +1,7 @@
 import Foundation
 
-// MARK: - Open enums
-
-/// A string-backed enum that keeps a value it does not recognise instead of
-/// failing to decode. The daemon may grow a message kind or a machine status
-/// before the app knows about it, and that must never crash a window.
-protocol OpenEnum: Codable, Hashable, Sendable, CustomStringConvertible {
-    init(text: String)
-    var text: String { get }
-}
-
-extension OpenEnum {
-    init(from decoder: any Decoder) throws {
-        self.init(text: try decoder.singleValueContainer().decode(String.self))
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(text)
-    }
-
-    var description: String { text }
-}
-
-/// The lifecycle of a run as the run list reports it. `finished` is a run whose
-/// machine is gone; the other three come from the machine package.
-enum RunStatus: OpenEnum {
-    case booting
-    case ready
-    case failed
-    case finished
-    case unknown(String)
-
-    init(text: String) {
-        switch text {
-        case "booting": self = .booting
-        case "ready": self = .ready
-        case "failed": self = .failed
-        case "finished": self = .finished
-        default: self = .unknown(text)
-        }
-    }
-
-    var text: String {
-        switch self {
-        case .booting: return "booting"
-        case .ready: return "ready"
-        case .failed: return "failed"
-        case .finished: return "finished"
-        case .unknown(let raw): return raw
-        }
-    }
-}
-
-/// A machine's own status. A run can be `finished` while no machine exists at all.
-enum MachineStatus: OpenEnum {
-    case booting
-    case ready
-    case failed
-    case unknown(String)
-
-    init(text: String) {
-        switch text {
-        case "booting": self = .booting
-        case "ready": self = .ready
-        case "failed": self = .failed
-        default: self = .unknown(text)
-        }
-    }
-
-    var text: String {
-        switch self {
-        case .booting: return "booting"
-        case .ready: return "ready"
-        case .failed: return "failed"
-        case .unknown(let raw): return raw
-        }
-    }
-}
-
-/// Who said something. ADR 0006 names four participants.
-enum MessageFrom: OpenEnum {
-    case coder
-    case human
-    case verifier
-    case system
-    case unknown(String)
-
-    init(text: String) {
-        switch text {
-        case "coder": self = .coder
-        case "human": self = .human
-        case "verifier": self = .verifier
-        case "system": self = .system
-        default: self = .unknown(text)
-        }
-    }
-
-    var text: String {
-        switch self {
-        case .coder: return "coder"
-        case .human: return "human"
-        case .verifier: return "verifier"
-        case .system: return "system"
-        case .unknown(let raw): return raw
-        }
-    }
-}
-
-/// What a message is for. The table in ADR 0006 is the reference.
-enum MessageKind: OpenEnum {
-    case task
-    case note
-    case reply
-    case question
-    case answer
-    case progress
-    case verdict
-    case accept
-    case dispute
-    case event
-    case unknown(String)
-
-    init(text: String) {
-        switch text {
-        case "task": self = .task
-        case "note": self = .note
-        case "reply": self = .reply
-        case "question": self = .question
-        case "answer": self = .answer
-        case "progress": self = .progress
-        case "verdict": self = .verdict
-        case "accept": self = .accept
-        case "dispute": self = .dispute
-        case "event": self = .event
-        default: self = .unknown(text)
-        }
-    }
-
-    var text: String {
-        switch self {
-        case .task: return "task"
-        case .note: return "note"
-        case .reply: return "reply"
-        case .question: return "question"
-        case .answer: return "answer"
-        case .progress: return "progress"
-        case .verdict: return "verdict"
-        case .accept: return "accept"
-        case .dispute: return "dispute"
-        case .event: return "event"
-        case .unknown(let raw): return raw
-        }
-    }
-}
-
-/// Where the latest verdict stands.
-enum VerdictStatus: OpenEnum {
-    case none
-    case proposed
-    case accepted
-    case contested
-    case rejected
-    case unknown(String)
-
-    init(text: String) {
-        switch text {
-        case "none": self = .none
-        case "proposed": self = .proposed
-        case "accepted": self = .accepted
-        case "contested": self = .contested
-        case "rejected": self = .rejected
-        default: self = .unknown(text)
-        }
-    }
-
-    var text: String {
-        switch self {
-        case .none: return "none"
-        case .proposed: return "proposed"
-        case .accepted: return "accepted"
-        case .contested: return "contested"
-        case .rejected: return "rejected"
-        case .unknown(let raw): return raw
-        }
-    }
-
-    /// A human may close a verdict that is still open to argument.
-    var isOpen: Bool {
-        switch self {
-        case .proposed, .contested: return true
-        default: return false
-        }
-    }
-}
-
-/// What kind of lifecycle event the daemon published.
-enum LifecycleKind: OpenEnum {
-    case created
-    case ready
-    case failed
-    case destroyed
-    /// A screen lease was taken or given back (ADR 0009).
-    case control
-    case unknown(String)
-
-    init(text: String) {
-        switch text {
-        case "created": self = .created
-        case "ready": self = .ready
-        case "failed": self = .failed
-        case "destroyed": self = .destroyed
-        case "control": self = .control
-        default: self = .unknown(text)
-        }
-    }
-
-    var text: String {
-        switch self {
-        case .created: return "created"
-        case .ready: return "ready"
-        case .failed: return "failed"
-        case .destroyed: return "destroyed"
-        case .control: return "control"
-        case .unknown(let raw): return raw
-        }
-    }
-}
-
-// MARK: - Dates
-
-/// RFC3339 in, RFC3339 out. Go writes fractional seconds only when it has
-/// them, so both spellings have to parse.
-enum DaemonDate {
-    static let withFractionalSeconds = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-    static let plain = Date.ISO8601FormatStyle()
-
-    static func parse(_ text: String) -> Date? {
-        if let date = try? withFractionalSeconds.parse(text) { return date }
-        return try? plain.parse(text)
-    }
-
-    static func format(_ date: Date) -> String {
-        date.formatted(withFractionalSeconds)
-    }
-}
-
-extension JSONDecoder {
-    /// The one decoder the app uses for daemon JSON.
-    static func daemon() -> JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .custom { decoder in
-            let container = try decoder.singleValueContainer()
-            let text = try container.decode(String.self)
-            guard let date = DaemonDate.parse(text) else {
-                throw DecodingError.dataCorruptedError(
-                    in: container,
-                    debugDescription: "not an RFC3339 time: \(text)"
-                )
-            }
-            return date
-        }
-        return decoder
-    }
-}
-
-extension JSONEncoder {
-    static func daemon() -> JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .custom { date, encoder in
-            var container = encoder.singleValueContainer()
-            try container.encode(DaemonDate.format(date))
-        }
-        return encoder
-    }
-}
-
-// MARK: - JSON values
-
-/// A step's input and output are whatever the tool passed. The app shows them
-/// rather than interpreting them, so it keeps the tree as it arrived.
-indirect enum JSONValue: Codable, Hashable, Sendable {
-    case null
-    case bool(Bool)
-    case int(Int)
-    case double(Double)
-    case string(String)
-    case array([JSONValue])
-    case object([String: JSONValue])
-
-    init(from decoder: any Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if container.decodeNil() {
-            self = .null
-        } else if let value = try? container.decode(Bool.self) {
-            self = .bool(value)
-        } else if let value = try? container.decode(Int.self) {
-            self = .int(value)
-        } else if let value = try? container.decode(Double.self) {
-            self = .double(value)
-        } else if let value = try? container.decode(String.self) {
-            self = .string(value)
-        } else if let value = try? container.decode([JSONValue].self) {
-            self = .array(value)
-        } else if let value = try? container.decode([String: JSONValue].self) {
-            self = .object(value)
-        } else {
-            throw DecodingError.dataCorruptedError(in: container, debugDescription: "not JSON")
-        }
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .null: try container.encodeNil()
-        case .bool(let value): try container.encode(value)
-        case .int(let value): try container.encode(value)
-        case .double(let value): try container.encode(value)
-        case .string(let value): try container.encode(value)
-        case .array(let value): try container.encode(value)
-        case .object(let value): try container.encode(value)
-        }
-    }
-
-    /// The value at a top-level key, if this is an object.
-    subscript(key: String) -> JSONValue? {
-        if case .object(let fields) = self { return fields[key] }
-        return nil
-    }
-
-    var stringValue: String? {
-        if case .string(let value) = self { return value }
-        return nil
-    }
-
-    /// Indented JSON for the steps view. Falls back to a plain description if
-    /// re-encoding ever fails.
-    var prettyPrinted: String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        guard let data = try? encoder.encode(self), let text = String(data: data, encoding: .utf8) else {
-            return String(describing: self)
-        }
-        return text
-    }
-}
-
-// MARK: - Payloads
+// Wire types. `apps/daemon/internal/api/api.go` is the authority on every shape.
+// Decoders live in extensions so the memberwise initialisers survive.
 
 struct Machine: Codable, Hashable, Sendable {
     var runId: String
@@ -359,56 +14,46 @@ struct Machine: Codable, Hashable, Sendable {
     var createdAt: Date
     var dir: String
     var vncUrl: String?
-    /// Who holds the machine's mouse and keyboard, if anyone (ADR 0009).
+    /// Who holds the mouse and keyboard, if anyone (ADR 0009).
     var control: ControlLease?
+}
 
+extension Machine {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        runId = try c.decodeIfPresent(String.self, forKey: .runId) ?? ""
-        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
-        image = try c.decodeIfPresent(String.self, forKey: .image) ?? ""
+        runId = try c.decode(.runId, or: "")
+        name = try c.decode(.name, or: "")
+        image = try c.decode(.image, or: "")
         ip = try c.decodeIfPresent(String.self, forKey: .ip)
-        status = try c.decodeIfPresent(MachineStatus.self, forKey: .status) ?? .unknown("")
+        status = try c.decode(.status, or: .unknown(""))
         error = try c.decodeIfPresent(String.self, forKey: .error)
         bootSeconds = try c.decodeIfPresent(Double.self, forKey: .bootSeconds)
-        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSince1970: 0)
-        dir = try c.decodeIfPresent(String.self, forKey: .dir) ?? ""
+        createdAt = try c.decode(.createdAt, or: .epoch)
+        dir = try c.decode(.dir, or: "")
         vncUrl = try c.decodeIfPresent(String.self, forKey: .vncUrl)
         control = try c.decodeIfPresent(ControlLease.self, forKey: .control)
     }
 }
 
-/// A screen-control lease (ADR 0009): who may drive this machine, until when,
-/// and how much they have done with it. The daemon expires it on its own, so
-/// a window that goes away does not lock the screen for good.
+/// A screen-control lease (ADR 0009). The daemon expires it on its own.
 struct ControlLease: Codable, Hashable, Sendable {
     var holder: String
     var since: Date
     var expires: Date
     var actions: Int
-
-    init(holder: String = "human", since: Date = Date(), expires: Date = Date(), actions: Int = 0) {
-        self.holder = holder
-        self.since = since
-        self.expires = expires
-        self.actions = actions
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        holder = try c.decodeIfPresent(String.self, forKey: .holder) ?? ""
-        since = try c.decodeIfPresent(Date.self, forKey: .since) ?? Date(timeIntervalSince1970: 0)
-        expires = try c.decodeIfPresent(Date.self, forKey: .expires) ?? Date(timeIntervalSince1970: 0)
-        actions = try c.decodeIfPresent(Int.self, forKey: .actions) ?? 0
-    }
-
-    /// The seat the companion sits in. A lease held by anyone else is not
-    /// this app's to use or to give back.
-    var isHuman: Bool { holder == "human" }
 }
 
-/// A guest display's size in points. The app needs it only to show the person
-/// what they are driving: every coordinate it sends is a fraction (ADR 0009).
+extension ControlLease {
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        holder = try c.decode(.holder, or: "")
+        since = try c.decode(.since, or: .epoch)
+        expires = try c.decode(.expires, or: .epoch)
+        actions = try c.decode(.actions, or: 0)
+    }
+}
+
+/// The guest display's size, shown to the person only: the app sends fractions.
 struct GuestScreen: Codable, Hashable, Sendable {
     var width: Int
     var height: Int
@@ -416,10 +61,8 @@ struct GuestScreen: Codable, Hashable, Sendable {
     var label: String { "\(width)x\(height)" }
 }
 
-/// One thing to do to the machine's screen. `x` and `y` are **fractions of
-/// the display**, 0 to 1, because the app is looking at a frame scaled to its
-/// window and never learns the guest's resolution. The daemon multiplies them
-/// out.
+/// One thing to do to the machine's screen. `x` and `y` are fractions of the
+/// display (0 to 1); the daemon multiplies them out (ADR 0009).
 struct InputAction: Codable, Hashable, Sendable {
     /// The kinds the daemon's guest helper knows.
     enum Kind: String, Codable, Sendable {
@@ -436,39 +79,15 @@ struct InputAction: Codable, Hashable, Sendable {
     var text: String?
     var key: String?
     var mods: [String]?
-
-    init(
-        type: Kind,
-        x: Double? = nil,
-        y: Double? = nil,
-        button: String? = nil,
-        clicks: Int? = nil,
-        deltaX: Double? = nil,
-        deltaY: Double? = nil,
-        text: String? = nil,
-        key: String? = nil,
-        mods: [String]? = nil
-    ) {
-        self.type = type
-        self.x = x
-        self.y = y
-        self.button = button
-        self.clicks = clicks
-        self.deltaX = deltaX
-        self.deltaY = deltaY
-        self.text = text
-        self.key = key
-        self.mods = mods
-    }
 }
 
-/// The body `POST /api/runs/{id}/control` returns.
+/// `POST /api/runs/{id}/control`.
 struct ControlResponse: Codable, Hashable, Sendable {
     var control: ControlLease?
     var screen: GuestScreen?
 }
 
-/// The body `POST /api/runs/{id}/input` returns.
+/// `POST /api/runs/{id}/input`.
 struct InputResult: Codable, Hashable, Sendable {
     var actions: Int
     var screen: GuestScreen
@@ -481,37 +100,21 @@ struct VerdictState: Codable, Hashable, Sendable {
     var verdict: String?
     var summary: String?
     var evidence: [String]?
-    var status: VerdictStatus
+    var status: VerdictStatus = .none
     var acceptedBy: MessageFrom?
-    var disputes: Int
+    var disputes = 0
+}
 
-    init(
-        seq: Int? = nil,
-        verdict: String? = nil,
-        summary: String? = nil,
-        evidence: [String]? = nil,
-        status: VerdictStatus = .none,
-        acceptedBy: MessageFrom? = nil,
-        disputes: Int = 0
-    ) {
-        self.seq = seq
-        self.verdict = verdict
-        self.summary = summary
-        self.evidence = evidence
-        self.status = status
-        self.acceptedBy = acceptedBy
-        self.disputes = disputes
-    }
-
+extension VerdictState {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         seq = try c.decodeIfPresent(Int.self, forKey: .seq)
         verdict = try c.decodeIfPresent(String.self, forKey: .verdict)
         summary = try c.decodeIfPresent(String.self, forKey: .summary)
         evidence = try c.decodeIfPresent([String].self, forKey: .evidence)
-        status = try c.decodeIfPresent(VerdictStatus.self, forKey: .status) ?? .none
+        status = try c.decode(.status, or: .none)
         acceptedBy = try c.decodeIfPresent(MessageFrom.self, forKey: .acceptedBy)
-        disputes = try c.decodeIfPresent(Int.self, forKey: .disputes) ?? 0
+        disputes = try c.decode(.disputes, or: 0)
     }
 }
 
@@ -527,36 +130,16 @@ struct Message: Codable, Hashable, Sendable, Identifiable {
     var evidence: [String]?
 
     var id: Int { seq }
+}
 
-    init(
-        seq: Int,
-        at: Date,
-        from: MessageFrom,
-        kind: MessageKind,
-        text: String,
-        replyTo: Int? = nil,
-        step: Int? = nil,
-        verdict: String? = nil,
-        evidence: [String]? = nil
-    ) {
-        self.seq = seq
-        self.at = at
-        self.from = from
-        self.kind = kind
-        self.text = text
-        self.replyTo = replyTo
-        self.step = step
-        self.verdict = verdict
-        self.evidence = evidence
-    }
-
+extension Message {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        seq = try c.decodeIfPresent(Int.self, forKey: .seq) ?? 0
-        at = try c.decodeIfPresent(Date.self, forKey: .at) ?? Date(timeIntervalSince1970: 0)
-        from = try c.decodeIfPresent(MessageFrom.self, forKey: .from) ?? .unknown("")
-        kind = try c.decodeIfPresent(MessageKind.self, forKey: .kind) ?? .unknown("")
-        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        seq = try c.decode(.seq, or: 0)
+        at = try c.decode(.at, or: .epoch)
+        from = try c.decode(.from, or: .unknown(""))
+        kind = try c.decode(.kind, or: .unknown(""))
+        text = try c.decode(.text, or: "")
         replyTo = try c.decodeIfPresent(Int.self, forKey: .replyTo)
         step = try c.decodeIfPresent(Int.self, forKey: .step)
         verdict = try c.decodeIfPresent(String.self, forKey: .verdict)
@@ -571,40 +154,11 @@ struct Step: Codable, Hashable, Sendable, Identifiable {
     var input: JSONValue?
     var output: JSONValue?
     var error: String?
-    var durationMs: Int
+    var durationMs = 0
 
     var id: Int { seq }
 
-    init(
-        seq: Int,
-        at: Date,
-        tool: String,
-        input: JSONValue? = nil,
-        output: JSONValue? = nil,
-        error: String? = nil,
-        durationMs: Int = 0
-    ) {
-        self.seq = seq
-        self.at = at
-        self.tool = tool
-        self.input = input
-        self.output = output
-        self.error = error
-        self.durationMs = durationMs
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        seq = try c.decodeIfPresent(Int.self, forKey: .seq) ?? 0
-        at = try c.decodeIfPresent(Date.self, forKey: .at) ?? Date(timeIntervalSince1970: 0)
-        tool = try c.decodeIfPresent(String.self, forKey: .tool) ?? ""
-        input = try c.decodeIfPresent(JSONValue.self, forKey: .input)
-        output = try c.decodeIfPresent(JSONValue.self, forKey: .output)
-        error = try c.decodeIfPresent(String.self, forKey: .error)
-        durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs) ?? 0
-    }
-
-    /// The artifact name of a screenshot step, taken from `output.path`.
+    /// The artifact name of a screenshot step, from `output.path`.
     var screenshotArtifact: String? {
         guard tool == "machine_screenshot", let path = output?["path"]?.stringValue else { return nil }
         let name = (path as NSString).lastPathComponent
@@ -612,31 +166,37 @@ struct Step: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
-/// One frame of a run's recording (ADR 0008): a screenshot the daemon takes
-/// on its own, every `-frame-interval`, from `ready` to `destroyed`. `step`
-/// is the latest step number recorded when the frame was taken, which is
-/// what makes "jump to step 14" possible.
+extension Step {
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        seq = try c.decode(.seq, or: 0)
+        at = try c.decode(.at, or: .epoch)
+        tool = try c.decode(.tool, or: "")
+        input = try c.decodeIfPresent(JSONValue.self, forKey: .input)
+        output = try c.decodeIfPresent(JSONValue.self, forKey: .output)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        durationMs = try c.decode(.durationMs, or: 0)
+    }
+}
+
+/// One frame of a run's recording (ADR 0008). `step` is the latest step
+/// recorded when it was taken, which is what makes "jump to step N" work.
 struct Frame: Codable, Hashable, Sendable, Identifiable {
     var at: Date
     var file: String
     var step: Int
-    var bytes: Int
+    var bytes = 0
 
     var id: String { file }
+}
 
-    init(at: Date, file: String, step: Int, bytes: Int = 0) {
-        self.at = at
-        self.file = file
-        self.step = step
-        self.bytes = bytes
-    }
-
+extension Frame {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        at = try c.decodeIfPresent(Date.self, forKey: .at) ?? Date(timeIntervalSince1970: 0)
-        file = try c.decodeIfPresent(String.self, forKey: .file) ?? ""
-        step = try c.decodeIfPresent(Int.self, forKey: .step) ?? 0
-        bytes = try c.decodeIfPresent(Int.self, forKey: .bytes) ?? 0
+        at = try c.decode(.at, or: .epoch)
+        file = try c.decode(.file, or: "")
+        step = try c.decode(.step, or: 0)
+        bytes = try c.decode(.bytes, or: 0)
     }
 }
 
@@ -648,12 +208,12 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     var status: RunStatus
     var ip: String?
     var vncUrl: String?
+    /// Counts, not sequence numbers: step numbering can have gaps.
     var steps: Int
     var verdict: VerdictState?
     var lastActivity: Date
     var messages: Int
-    /// How many frames the run's recording holds so far (ADR 0008). Optional
-    /// so a daemon built before recording existed still decodes.
+    /// Optional so a daemon from before recording (ADR 0008) still decodes.
     var frames: Int?
 
     var id: String { runId }
@@ -688,113 +248,56 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        runId = try c.decodeIfPresent(String.self, forKey: .runId) ?? ""
-        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSince1970: 0)
+        runId = try c.decode(.runId, or: "")
+        createdAt = try c.decode(.createdAt, or: .epoch)
         destroyedAt = try c.decodeIfPresent(Date.self, forKey: .destroyedAt)
-        image = try c.decodeIfPresent(String.self, forKey: .image) ?? ""
-        status = try c.decodeIfPresent(RunStatus.self, forKey: .status) ?? .unknown("")
+        image = try c.decode(.image, or: "")
+        status = try c.decode(.status, or: .unknown(""))
         ip = try c.decodeIfPresent(String.self, forKey: .ip)
         vncUrl = try c.decodeIfPresent(String.self, forKey: .vncUrl)
-        steps = try c.decodeIfPresent(Int.self, forKey: .steps) ?? 0
+        steps = try c.decode(.steps, or: 0)
         verdict = try c.decodeIfPresent(VerdictState.self, forKey: .verdict)
-        lastActivity = try c.decodeIfPresent(Date.self, forKey: .lastActivity) ?? createdAt
-        messages = try c.decodeIfPresent(Int.self, forKey: .messages) ?? 0
+        lastActivity = try c.decode(.lastActivity, or: createdAt)
+        messages = try c.decode(.messages, or: 0)
         frames = try c.decodeIfPresent(Int.self, forKey: .frames)
-    }
-
-    /// The first segment of the run id, which is enough to tell runs apart.
-    var shortId: String { RunSummary.shorten(runId) }
-
-    static func shorten(_ runId: String) -> String {
-        guard runId.count > 12 else { return runId }
-        var short = String(runId.prefix(12))
-        while let last = short.last, last == "-" || last == "_" { short.removeLast() }
-        return short
     }
 }
 
 struct RunDetail: Codable, Hashable, Sendable, Identifiable {
     var runId: String
-    var image: String
-    var machineName: String
+    var image = ""
+    var machineName = ""
     var ip: String?
-    var createdAt: Date
+    var createdAt = Date.epoch
     var destroyedAt: Date?
-    var steps: Int
+    var steps = 0
     var machine: Machine?
-    var verdict: VerdictState
+    var verdict = VerdictState()
 
     var id: String { runId }
 
-    init(
-        runId: String,
-        image: String = "",
-        machineName: String = "",
-        ip: String? = nil,
-        createdAt: Date = Date(timeIntervalSince1970: 0),
-        destroyedAt: Date? = nil,
-        steps: Int = 0,
-        machine: Machine? = nil,
-        verdict: VerdictState = VerdictState()
-    ) {
-        self.runId = runId
-        self.image = image
-        self.machineName = machineName
-        self.ip = ip
-        self.createdAt = createdAt
-        self.destroyedAt = destroyedAt
-        self.steps = steps
-        self.machine = machine
-        self.verdict = verdict
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        runId = try c.decodeIfPresent(String.self, forKey: .runId) ?? ""
-        image = try c.decodeIfPresent(String.self, forKey: .image) ?? ""
-        machineName = try c.decodeIfPresent(String.self, forKey: .machineName) ?? ""
-        ip = try c.decodeIfPresent(String.self, forKey: .ip)
-        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSince1970: 0)
-        destroyedAt = try c.decodeIfPresent(Date.self, forKey: .destroyedAt)
-        steps = try c.decodeIfPresent(Int.self, forKey: .steps) ?? 0
-        machine = try c.decodeIfPresent(Machine.self, forKey: .machine)
-        verdict = try c.decodeIfPresent(VerdictState.self, forKey: .verdict) ?? VerdictState()
-    }
-
-    /// The address a run is reachable at, from the live machine first.
     var address: String? { machine?.ip ?? ip }
 
-    /// A run with no live machine is finished. The manifest of a run recorded
-    /// before `destroyedAt` was written carries no end time, and reading that
-    /// absence as "unknown" put a lone question mark in the run header while
-    /// the run list beside it said "finished".
+    /// No live machine means finished, even for an old manifest with no
+    /// `destroyedAt`: reading that as unknown contradicted the run list.
     var status: RunStatus {
         guard let machine else { return .finished }
-        switch machine.status {
-        case .booting: return .booting
-        case .ready: return .ready
-        case .failed: return .failed
-        case .unknown(let raw): return .unknown(raw)
-        }
+        return RunStatus(text: machine.status.text)
     }
 }
 
-struct LifecycleEvent: Codable, Hashable, Sendable {
-    var kind: LifecycleKind
-    var runId: String
-    var machine: Machine?
-
-    init(kind: LifecycleKind, runId: String, machine: Machine? = nil) {
-        self.kind = kind
-        self.runId = runId
-        self.machine = machine
-    }
-
+extension RunDetail {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        kind = try c.decodeIfPresent(LifecycleKind.self, forKey: .kind) ?? .unknown("")
-        runId = try c.decodeIfPresent(String.self, forKey: .runId) ?? ""
+        runId = try c.decode(.runId, or: "")
+        image = try c.decode(.image, or: "")
+        machineName = try c.decode(.machineName, or: "")
+        ip = try c.decodeIfPresent(String.self, forKey: .ip)
+        createdAt = try c.decode(.createdAt, or: .epoch)
+        destroyedAt = try c.decodeIfPresent(Date.self, forKey: .destroyedAt)
+        steps = try c.decode(.steps, or: 0)
         machine = try c.decodeIfPresent(Machine.self, forKey: .machine)
+        verdict = try c.decode(.verdict, or: VerdictState())
     }
 }
 
@@ -803,131 +306,13 @@ struct MessagePage: Codable, Hashable, Sendable {
     var messages: [Message]
     var last: Int
     var verdict: VerdictState
+}
 
-    init(messages: [Message] = [], last: Int = 0, verdict: VerdictState = VerdictState()) {
-        self.messages = messages
-        self.last = last
-        self.verdict = verdict
-    }
-
+extension MessagePage {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        messages = try c.decodeIfPresent([Message].self, forKey: .messages) ?? []
-        last = try c.decodeIfPresent(Int.self, forKey: .last) ?? messages.last?.seq ?? 0
-        verdict = try c.decodeIfPresent(VerdictState.self, forKey: .verdict) ?? VerdictState()
-    }
-}
-
-/// The body `POST /api/runs/{id}/messages` returns.
-struct SentMessage: Codable, Hashable, Sendable {
-    var seq: Int
-    var at: Date
-}
-
-/// The body `POST /api/runs/{id}/screenshot` returns.
-struct ScreenshotResult: Codable, Hashable, Sendable {
-    var step: Int
-    var path: String
-    var bytes: Int
-
-    var artifactName: String { (path as NSString).lastPathComponent }
-}
-
-/// One frame off `/api/events`.
-enum ServerEvent: Hashable, Sendable {
-    case run(LifecycleEvent)
-    /// The daemon sends the step's number; `step` is filled in only when a
-    /// stream carries the whole record.
-    case step(runId: String, seq: Int, step: Step?)
-    case message(runId: String, message: Message)
-    /// A new frame was captured for the run's recording (ADR 0008).
-    case frame(runId: String, frame: Frame)
-
-    var runId: String {
-        switch self {
-        case .run(let event): return event.runId
-        case .step(let runId, _, _): return runId
-        case .message(let runId, _): return runId
-        case .frame(let runId, _): return runId
-        }
-    }
-}
-
-/// The envelope a step event arrives in. `step` is a number on the wire today;
-/// a whole Step is accepted too so the app does not care which it gets.
-struct StepEvent: Codable, Hashable, Sendable {
-    var runId: String
-    var seq: Int
-    var step: Step?
-
-    init(runId: String, seq: Int, step: Step? = nil) {
-        self.runId = runId
-        self.seq = seq
-        self.step = step
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case runId, step
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        runId = try c.decodeIfPresent(String.self, forKey: .runId) ?? ""
-        if let number = try? c.decode(Int.self, forKey: .step) {
-            seq = number
-            step = nil
-        } else {
-            let record = try c.decode(Step.self, forKey: .step)
-            seq = record.seq
-            step = record
-        }
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(runId, forKey: .runId)
-        if let step {
-            try c.encode(step, forKey: .step)
-        } else {
-            try c.encode(seq, forKey: .step)
-        }
-    }
-}
-
-struct MessageEvent: Codable, Hashable, Sendable {
-    var runId: String
-    var message: Message
-}
-
-/// The envelope a `frame` event arrives in on `/api/events`: `{ runId, at,
-/// file, step }`, with no `bytes` (that only comes back from `GET .../frames`).
-struct FrameEvent: Codable, Hashable, Sendable {
-    var runId: String
-    var frame: Frame
-
-    init(runId: String, frame: Frame) {
-        self.runId = runId
-        self.frame = frame
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case runId, at, file, step
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        runId = try c.decodeIfPresent(String.self, forKey: .runId) ?? ""
-        let at = try c.decodeIfPresent(Date.self, forKey: .at) ?? Date(timeIntervalSince1970: 0)
-        let file = try c.decodeIfPresent(String.self, forKey: .file) ?? ""
-        let step = try c.decodeIfPresent(Int.self, forKey: .step) ?? 0
-        frame = Frame(at: at, file: file, step: step)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(runId, forKey: .runId)
-        try c.encode(frame.at, forKey: .at)
-        try c.encode(frame.file, forKey: .file)
-        try c.encode(frame.step, forKey: .step)
+        messages = try c.decode(.messages, or: [])
+        last = try c.decode(.last, or: messages.last?.seq ?? 0)
+        verdict = try c.decode(.verdict, or: VerdictState())
     }
 }

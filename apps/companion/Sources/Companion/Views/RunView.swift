@@ -2,16 +2,9 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// One run: what it is, and the three ways of looking at it.
-///
-/// The header is a single strip of facts, the way a session inspector reads:
-/// the run's name and where it stands, then the flat label-and-value row that
-/// answers "what machine, since when, how long, how much". Under it the three
-/// views are named by underlined tabs carrying their own counts, so the size
-/// of the transcript, the recording and the evidence is known before opening
-/// any of them.
+/// One run: a header strip of facts, then Transcript, Screen and Steps tabs.
 struct RunView: View {
-    @Bindable var store: RunStore
+    let store: RunStore
     let runId: String
 
     @State private var tab: Tab = .transcript
@@ -28,8 +21,7 @@ struct RunView: View {
     private var detail: RunDetail? { store.details[runId] }
     private var summary: RunSummary? { store.run(runId) }
 
-    /// The detail arrives a moment after the run list, so until it does the
-    /// header reads the list's own copy rather than showing nothing.
+    /// The detail lands after the run list, so fall back to the list's copy.
     private var status: RunStatus { detail?.status ?? summary?.status ?? .unknown("") }
 
     var body: some View {
@@ -50,7 +42,7 @@ struct RunView: View {
                 } label: {
                     Label("Screenshot", systemImage: "camera")
                 }
-                .disabled(!isReady)
+                .disabled(detail?.status != .ready)
 
                 Button {
                     Task { await saveRecording() }
@@ -88,10 +80,6 @@ struct RunView: View {
         }
     }
 
-    /// Fetches the run's recording and writes it wherever the person picks.
-    /// A 404 (no `ffmpeg` on the daemon host) shows its own text in
-    /// `lastError` rather than a generic failure.
-    @MainActor
     private func saveRecording() async {
         guard let data = await store.recording(runId: runId) else { return }
         let panel = NSSavePanel()
@@ -105,14 +93,8 @@ struct RunView: View {
         }
     }
 
-    private var isReady: Bool {
-        if case .ready = detail?.machine?.status { return true }
-        return false
-    }
-
     // MARK: - Header
 
-    @ViewBuilder
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -127,7 +109,18 @@ struct RunView: View {
                     VerdictBadge(state: verdict)
                 }
             }
-            facts
+            HStack(alignment: .top, spacing: 22) {
+                FieldLabel(label: "Started", value: detail.map { Chrome.stamp($0.createdAt) } ?? "-", monospaced: false)
+                FieldLabel(label: "Duration", value: runDuration)
+                FieldLabel(label: "Image", value: detail?.image ?? "-")
+                if let ip = detail?.address {
+                    FieldLabel(label: "IP", value: ip)
+                }
+                if let boot = detail?.machine?.bootSeconds {
+                    FieldLabel(label: "Boot", value: String(format: "%.1f s", boot))
+                }
+                Spacer(minLength: 0)
+            }
             if let error = detail?.machine?.error, !error.isEmpty {
                 Text(error)
                     .font(.callout)
@@ -139,33 +132,7 @@ struct RunView: View {
         .padding(.vertical, 12)
     }
 
-    /// The label-and-value strip. It wraps rather than truncates, so a narrow
-    /// window loses a line of height instead of the facts at the right.
-    private var facts: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 22) { factFields }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top, spacing: 22) { factFields }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var factFields: some View {
-        FieldLabel(label: "Started", value: detail.map { Chrome.stamp($0.createdAt) } ?? "-", monospaced: false)
-        FieldLabel(label: "Duration", value: runDuration)
-        FieldLabel(label: "Image", value: detail?.image ?? "-")
-        if let ip = detail?.address {
-            FieldLabel(label: "IP", value: ip)
-        }
-        if let boot = detail?.machine?.bootSeconds {
-            FieldLabel(label: "Boot", value: String(format: "%.1f s", boot))
-        }
-        Spacer(minLength: 0)
-    }
-
-    /// How long the run lasted, or has lasted. A finished run stops counting
-    /// at the moment its machine went away.
+    /// A finished run stops counting when its machine went away.
     private var runDuration: String {
         guard let detail else { return "-" }
         let end = detail.destroyedAt ?? summary?.destroyedAt ?? summary?.lastActivity ?? Date()
@@ -177,11 +144,7 @@ struct RunView: View {
     private var tabBar: some View {
         HStack(spacing: 2) {
             ForEach(Tab.allCases) { item in
-                TabButton(
-                    title: item.rawValue,
-                    count: count(for: item),
-                    selected: tab == item
-                ) {
+                TabButton(title: item.rawValue, count: count(for: item), selected: tab == item) {
                     tab = item
                 }
             }
@@ -192,9 +155,9 @@ struct RunView: View {
 
     private func count(for tab: Tab) -> Int? {
         switch tab {
-        case .transcript: return store.messages[runId]?.count
-        case .screen: return store.frames[runId]?.count
-        case .steps: return store.steps[runId]?.count
+        case .transcript: store.messages[runId]?.count
+        case .screen: store.frames[runId]?.count
+        case .steps: store.steps[runId]?.count
         }
     }
 
@@ -202,31 +165,20 @@ struct RunView: View {
     private var content: some View {
         switch tab {
         case .transcript:
-            // Identified by the run, so that changing run rebuilds the tab
-            // rather than handing the next run the last one's state. A
-            // message is identified by its `seq`, and every run starts at 1,
-            // so without this a half-typed dispute or answer stayed in the
-            // box under the next run's message of the same number, and the
-            // composer's own draft stayed in it too: Send would then have put
-            // a note meant for one run into another run's conversation.
-            // `ScreenView` does the same thing for itself, by hand, because
-            // it also has a lease to give back on the way out.
+            // `.id(runId)` rebuilds per run: message seqs restart at 1, so a
+            // half-typed draft or dispute would otherwise post into the next run.
             TranscriptView(store: store, runId: runId)
                 .id(runId)
         case .screen:
+            // Resets itself by hand, since it has a lease to give back first.
             ScreenView(store: store, runId: runId)
         case .steps:
-            // Same reason: a row's expanded state and its loaded thumbnail
-            // belong to the run they were opened in.
             StepsView(store: store, runId: runId)
                 .id(runId)
         }
     }
 }
 
-/// One tab: its name, how much is behind it, and a rule under the one that is
-/// open. A segmented control stretched across the window was the loudest thing
-/// on screen for a choice between three words.
 private struct TabButton: View {
     let title: String
     let count: Int?

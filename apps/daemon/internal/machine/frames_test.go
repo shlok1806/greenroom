@@ -14,8 +14,7 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
-// syncBuffer lets a test read a *slog.Logger's output while the frame
-// recorder and the boot goroutine may both be writing to it.
+// syncBuffer is a bytes.Buffer safe for concurrent log writes.
 type syncBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -33,9 +32,7 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// countFrameEvents subscribes to a manager and reports how many "frame"
-// lifecycle events it has seen so far, safe for a test goroutine to poll
-// while capture keeps running concurrently.
+// countFrameEvents returns a concurrency-safe counter of "frame" events.
 func countFrameEvents(mgr *Manager) func() int {
 	var mu sync.Mutex
 	n := 0
@@ -54,8 +51,7 @@ func countFrameEvents(mgr *Manager) func() int {
 	}
 }
 
-// waitFor polls fn until it returns true or the deadline passes, the way
-// readyMachine's own tests wait on the fake tart's fast but async boot.
+// waitFor polls fn until it returns true or timeout passes.
 func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -70,9 +66,8 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
 	}
 }
 
-// TestFrameRecorderCapturesFrames is ADR 0008's core promise: a ready machine
-// is recorded, every frame.jsonl line cites the step current at that moment,
-// and a "frame" lifecycle event fires for each one.
+// ADR 0008: a ready machine is recorded, each frame cites the current step,
+// and each emits a "frame" event.
 func TestFrameRecorderCapturesFrames(t *testing.T) {
 	mgr, _, control := newTestManager(t, WithFrameInterval(50*time.Millisecond))
 	if err := os.WriteFile(filepath.Join(control, "shot.b64"), []byte(pngBase64(t)), 0o644); err != nil {
@@ -117,9 +112,6 @@ func TestFrameRecorderCapturesFrames(t *testing.T) {
 	}
 }
 
-// TestFrameRecorderStopsAfterDestroy proves Destroy actually cancels the
-// recorder rather than letting it keep writing into a run directory whose
-// machine is gone.
 func TestFrameRecorderStopsAfterDestroy(t *testing.T) {
 	mgr, _, control := newTestManager(t, WithFrameInterval(30*time.Millisecond))
 	if err := os.WriteFile(filepath.Join(control, "shot.b64"), []byte(pngBase64(t)), 0o644); err != nil {
@@ -155,12 +147,7 @@ func TestFrameRecorderStopsAfterDestroy(t *testing.T) {
 	}
 }
 
-// TestFrameRecorderDisabledWhenIntervalIsZero is the "-frame-interval 0"
-// escape hatch: no frames, no frames directory, nothing to clean up.
 func TestFrameRecorderDisabledWhenIntervalIsZero(t *testing.T) {
-	// newTestManager's default is WithFrameInterval(0) precisely so an
-	// ordinary readyMachine test is not also a recorder test; this test
-	// just makes that default an explicit assertion.
 	mgr, _, control := newTestManager(t)
 	if err := os.WriteFile(filepath.Join(control, "shot.b64"), []byte(pngBase64(t)), 0o644); err != nil {
 		t.Fatal(err)
@@ -181,10 +168,8 @@ func TestFrameRecorderDisabledWhenIntervalIsZero(t *testing.T) {
 	}
 }
 
-// TestFrameCaptureFailureDoesNotFailTheRunAndLogsOnce covers the failure path
-// ADR 0008 asks for: with no shot.b64, the guest's base64 output is empty, so
-// decoding it as a PNG fails every interval. That must never fail the run,
-// and it must be logged once for the run rather than once per interval.
+// With no shot.b64 every capture fails; that must not fail the run and is
+// logged once per run (ADR 0008).
 func TestFrameCaptureFailureDoesNotFailTheRunAndLogsOnce(t *testing.T) {
 	bin, _ := testsupport.FakeTart(t)
 	var logBuf syncBuffer

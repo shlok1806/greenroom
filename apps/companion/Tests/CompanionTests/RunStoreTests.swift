@@ -93,22 +93,6 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.details["run-1"]?.status, .ready)
     }
 
-    func testLatestScreenshotIsTheNewestOne() {
-        let store = store()
-        store.steps["run-1"] = [
-            Step(seq: 1, at: Date(), tool: "machine_exec"),
-            Step(seq: 2, at: Date(), tool: "machine_screenshot", output: .object(["path": .string("/runs/run-1/artifacts/002-screenshot.png")])),
-            Step(seq: 3, at: Date(), tool: "machine_screenshot", output: .object(["path": .string("/runs/run-1/artifacts/003-screenshot.png")])),
-            Step(seq: 4, at: Date(), tool: "machine_exec"),
-        ]
-        let latest = store.latestScreenshot("run-1")
-        XCTAssertEqual(latest?.step, 3)
-        XCTAssertEqual(latest?.name, "003-screenshot.png")
-
-        store.steps["run-1"] = []
-        XCTAssertNil(store.latestScreenshot("run-1"))
-    }
-
     func testAwaitingVerifier() {
         func note(_ seq: Int, from: MessageFrom) -> Message { message(seq, kind: .note, from: from) }
 
@@ -148,9 +132,7 @@ final class RunStoreTests: XCTestCase {
         ]))
     }
 
-    /// The whole path a verifier's answer takes: raw SSE bytes, split into
-    /// lines, parsed, merged. It has to land in the transcript and stop the
-    /// "verifier working" row, with nobody sending anything to trigger it.
+    /// Raw SSE bytes through splitter, parser and merge, with no refetch.
     func testAVerifierTurnArrivesStraightFromTheStream() throws {
         let store = store()
         store.messages["run-1"] = [message(1, kind: .note, from: .human)]
@@ -226,10 +208,6 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.verdict("run-1")?.status, .accepted)
     }
 
-    /// A cancelled request is the app changing its mind, not the daemon
-    /// failing, and it must never reach the footer. The Screen tab cancels the
-    /// previous frame's download on every new frame, which used to paint
-    /// "The daemon is not answering: cancelled" under a live connection.
     func testCancellationIsNotAFailure() {
         XCTAssertTrue(RunStore.isCancellation(CancellationError()))
         XCTAssertTrue(RunStore.isCancellation(DaemonError.cancelled))
@@ -240,9 +218,8 @@ final class RunStoreTests: XCTestCase {
         XCTAssertFalse(RunStore.isCancellation(DaemonError.status(code: 404, body: "no ffmpeg")))
     }
 
-    /// The Steps tab asks for the jump before the Screen tab exists, so the
-    /// request has to survive until that view appears — and then be spent, so
-    /// coming back to the tab does not re-run it.
+    /// The request must outlive the Screen tab's creation, and a repeat click
+    /// must be distinguishable by nonce.
     func testASeekRequestIsRaisedOnceAndKeepsItsPlace() {
         let store = store()
         XCTAssertNil(store.seekRequest)
@@ -252,11 +229,8 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(first?.runId, "run-1")
         XCTAssertEqual(first?.step, 4)
 
-        // It stays put: a view that has not been created yet still finds it.
         XCTAssertEqual(store.seekRequest, first)
 
-        // A second click is a different request, so a view that already spent
-        // the first one acts on this one too.
         store.requestSeek(runId: "run-1", step: 9)
         XCTAssertEqual(store.seekRequest?.step, 9)
         XCTAssertNotEqual(store.seekRequest?.nonce, first?.nonce)

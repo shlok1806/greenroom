@@ -19,8 +19,7 @@ func sessionBin(t *testing.T, body string) *Client {
 	return &Client{Bin: path}
 }
 
-// recordKills swaps killGroup for one that records which groups Close
-// signals, and still kills them so nothing is left running.
+// recordKills records which groups Close signals, still killing them.
 func recordKills(t *testing.T) func() []int {
 	t.Helper()
 	var mu sync.Mutex
@@ -51,9 +50,8 @@ func waitSessionEnd(t *testing.T, s *Session) {
 	}
 }
 
-// Once a command has been reaped its pid, which is also its process group id
-// after Setsid, can be handed to an unrelated process. Closing a finished
-// session must therefore signal nothing at all.
+// A reaped pid (and so its process group) may be reused, so closing a
+// finished session must signal nothing.
 func TestClosingAFinishedSessionSignalsNothing(t *testing.T) {
 	kills := recordKills(t)
 	s, err := sessionBin(t, "exit 0").StartSession("vm", "true")
@@ -88,8 +86,7 @@ func TestClosingARunningSessionKillsItsGroup(t *testing.T) {
 	}
 }
 
-// tart failing after a successful start is reported once the session ends,
-// and a command that simply exits non-zero is not.
+// A tart failure is an error; a command exiting non-zero is not.
 func TestAFinishedSessionExplainsATartFailureOnly(t *testing.T) {
 	failed, err := sessionBin(t, `echo "Error: VM is not running" >&2; exit 1`).StartSession("vm", "true")
 	if err != nil {
@@ -112,9 +109,8 @@ func TestAFinishedSessionExplainsATartFailureOnly(t *testing.T) {
 	}
 }
 
-// tart crashing is a tart failure whatever it prints. The Swift trap below is
-// the one `tart exec -t` hits when its stdin is not a terminal; its text
-// matches none of tart's usual error messages, and a trap is a signal.
+// tart dying of a signal is a failure whatever it prints. The Swift trap is
+// what `tart exec -t` hits without a terminal.
 func TestASessionWhoseTartCrashesExplainsWhy(t *testing.T) {
 	for _, c := range []struct{ name, body, want string }{
 		{"swift trap",

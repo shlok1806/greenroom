@@ -6,10 +6,8 @@ import (
 	"strings"
 )
 
-// loadEnvFile reads KEY=VALUE lines from path into the process environment.
-// It never overwrites a variable that is already set, so an explicit export
-// still wins. A missing file is not an error: the daemon runs without a
-// model, it just does not offer machine_verify.
+// loadEnvFile sets KEY=VALUE lines from path into the environment without overriding variables already set.
+// A missing file is fine: the daemon then runs without a model verifier.
 func loadEnvFile(path string) error {
 	f, err := os.Open(path)
 	if err != nil {

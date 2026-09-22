@@ -1,12 +1,7 @@
 #!/bin/bash
-# Build the greenroom base image (issue #12): clone the daemon's default OCI
-# image into a VM, boot it, bake in the compiled input helper and the
-# daemon's ssh key (prepare-image, main.go/prepare.go), and stop it. A clone
-# of the result then skips the swiftc compile and the ssh key install that a
-# fresh Cirrus clone pays on its first control request -- docs/02-spike.md
-# and apps/daemon/CLAUDE.md name that cost at 27.6 s.
-#
-# Re-runnable: -force lets it replace a base image that already exists.
+# Build the greenroom base image (issue #12): clone the default OCI image, boot it, run
+# `greenroom prepare-image` to bake in the input helper and ssh key, and stop it.
+# Clones then skip the ~27 s first-control cost. -force replaces an existing image.
 set -euo pipefail
 
 cd "$(dirname "$0")/.." # apps/daemon
@@ -27,8 +22,7 @@ done
 echo "base image:  $base"
 echo "vm name:     $name"
 
-# tart clones and runs a VM entirely under ~/.tart, on the same volume as
-# /, so refuse early rather than fail confusingly partway through a clone.
+# tart images live under ~/.tart on /; refuse early rather than fail mid-clone.
 free_kb="$(df -k / | awk 'NR==2 {print $4}')"
 free_gb="$((free_kb / 1024 / 1024))"
 need_gb=10

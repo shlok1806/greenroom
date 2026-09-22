@@ -22,9 +22,8 @@ const DefaultMaxDisputes = 2
 // only a human may now close.
 var ErrContested = errors.New("the verdict is contested; only a human can accept or dispute it now")
 
-// Store is one run's conversation. Only Store hands out sequence numbers,
-// for the same reason only the recorder hands out step numbers: two writers
-// must never choose the same one.
+// Store is one run's conversation and the only source of its sequence
+// numbers, so two writers never choose the same one.
 type Store struct {
 	mu          sync.Mutex
 	path        string
@@ -35,8 +34,7 @@ type Store struct {
 	maxDisputes int
 }
 
-// Open loads dir/conversation.jsonl, creating dir if needed, so the daemon
-// picks a conversation back up after a restart.
+// Open loads dir/conversation.jsonl, creating dir if needed.
 func Open(dir string, maxDisputes int) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -102,9 +100,8 @@ func (s *Store) Append(m Message) (Message, error) {
 	return m, nil
 }
 
-// checkReplyLocked enforces the agreement rules of ADR 0006: replies point
-// at the right kind of message, and once a verdict is contested only a human
-// may close it.
+// checkReplyLocked enforces ADR 0006's agreement rules: replies target the
+// right kind, and only a human may close a contested verdict.
 func (s *Store) checkReplyLocked(m Message) error {
 	if m.ReplyTo == 0 {
 		return nil
@@ -129,8 +126,8 @@ func (s *Store) checkReplyLocked(m Message) error {
 		if v.Status == Accepted {
 			return fmt.Errorf("verdict %d is already accepted", v.Seq)
 		}
-		// The coder may agree with a contested verdict but not argue it
-		// further, and may not override a human's rejection.
+		// The coder may accept a contested verdict but not dispute it, and
+		// may not override a human's rejection.
 		if m.From == Coder && (v.Status == Rejected || (m.Kind == Dispute && v.Status != Proposed)) {
 			return ErrContested
 		}
@@ -205,8 +202,7 @@ const (
 	Rejected  Status = "rejected"  // a human disputed it; final unless a human accepts a later one
 )
 
-// VerdictState is what a reviewer wants to know without reading the
-// transcript. It is written into the run manifest.
+// VerdictState summarises the latest verdict for the run manifest.
 type VerdictState struct {
 	Seq        int      `json:"seq,omitempty"`
 	Verdict    string   `json:"verdict,omitempty"` // pass, fail, inconclusive

@@ -61,8 +61,7 @@ func TestTakeControlAndRelease(t *testing.T) {
 		t.Errorf("lease is %+v, want a live human lease", c)
 	}
 
-	// Taking it again is a renewal, not a new handover: the conversation
-	// must not fill with "human took control" on every heartbeat.
+	// Taking it again is a renewal, not a fresh handover.
 	again, fresh, err := mgr.TakeControl(mc.RunID, "human", 0)
 	if err != nil {
 		t.Fatalf("second TakeControl: %v", err)
@@ -84,8 +83,7 @@ func TestTakeControlAndRelease(t *testing.T) {
 	if _, still := mgr.ControlState(mc.RunID); still {
 		t.Error("the lease survived its release")
 	}
-	// Releasing again is not an error: the app releases on quit, on a tab
-	// change and on a timeout, and all three may race.
+	// Releasing again is not an error.
 	if _, held, err := mgr.ReleaseControl(mc.RunID, "human"); err != nil || held {
 		t.Errorf("a second release reported held=%v err=%v", held, err)
 	}
@@ -266,8 +264,7 @@ func TestInputInstallsTheHelperOnce(t *testing.T) {
 			t.Fatalf("Input: %v", err)
 		}
 	}
-	// The install script names swiftc more than once, so the compile command
-	// itself is what is counted.
+	// Count the compile command; the script names swiftc more than once.
 	if n := strings.Count(testsupport.Calls(t, control), "swiftc -O"); n != 1 {
 		t.Errorf("the helper was compiled %d times, want 1", n)
 	}
@@ -309,11 +306,7 @@ func TestInputRefusesAnEmptyBatch(t *testing.T) {
 	}
 }
 
-// TestInputAsTakesPostsAndReleases covers the take-post-release sequence
-// mcpserver's machine_click family and the verifier's own tool loop both
-// used to duplicate (issue #12): InputAs must take the lease for holder,
-// post the batch, and free the screen again before it returns, so a second
-// caller is never left locked out by a call that already finished.
+// InputAs takes the lease, posts, and frees the screen before it returns.
 func TestInputAsTakesPostsAndReleases(t *testing.T) {
 	mgr, _, _ := newTestManager(t)
 	mc := readyMachine(t, mgr)
@@ -331,14 +324,10 @@ func TestInputAsTakesPostsAndReleases(t *testing.T) {
 	if res.Actions != 1 {
 		t.Errorf("InputAs reported %d actions, want 1", res.Actions)
 	}
-	// The lease must be free again the instant the call returns, not held
-	// until the caller's turn ends.
 	if _, held := mgr.ControlState(mc.RunID); held {
 		t.Fatal("InputAs left the lease held after it returned")
 	}
 
-	// A second InputAs call, from a different holder, must succeed too: a
-	// released lease is free for anyone.
 	if _, err := mgr.InputAs(context.Background(), mc.RunID, "human", []InputAction{
 		{Type: "click", X: frac(0.5), Y: frac(0.5)},
 	}); err != nil {
@@ -346,10 +335,7 @@ func TestInputAsTakesPostsAndReleases(t *testing.T) {
 	}
 }
 
-// TestInputAsRefusesWhileSomeoneElseHoldsTheScreen pins the readable error
-// both mcpserver and the verifier depend on: a human already driving the
-// machine must be named, not reported as the sentinel ErrControlHeld, so a
-// coder or a model can read it and simply try again.
+// A held screen yields a readable error naming the holder, not ErrControlHeld.
 func TestInputAsRefusesWhileSomeoneElseHoldsTheScreen(t *testing.T) {
 	mgr, _, _ := newTestManager(t)
 	mc := readyMachine(t, mgr)

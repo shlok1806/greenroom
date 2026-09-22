@@ -10,11 +10,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// The window size has to be readable from the master, because that is exactly
-// what `tart exec -t` does with its own stdin before it will talk to a guest.
-// Handed a pipe it does not fall back, it dies with "failed to get terminal
-// size: Inappropriate ioctl for device" and the session is over before it
-// starts. This is that call, without a VM.
+// This is the TIOCGWINSZ call `tart exec -t` makes on its stdin; without a
+// size it dies with "failed to get terminal size".
 func TestAPtyAnswersTheWindowSizeQuestionThatTartAsks(t *testing.T) {
 	master, slave, err := openPTY()
 	if err != nil {
@@ -33,8 +30,7 @@ func TestAPtyAnswersTheWindowSizeQuestionThatTartAsks(t *testing.T) {
 	}
 }
 
-// A command started on the slave has to see a terminal, or the whole feature
-// is pointless: this is the isatty() that xcodebuild and friends branch on.
+// The isatty() that xcodebuild and friends branch on.
 func TestACommandOnThePtySeesATerminal(t *testing.T) {
 	master, slave, err := openPTY()
 	if err != nil {
@@ -52,8 +48,7 @@ func TestACommandOnThePtySeesATerminal(t *testing.T) {
 	_ = slave.Close()
 	go func() { _ = cmd.Wait() }()
 
-	// Reading to the end also proves the EIO the master answers with when the
-	// command exits is reported as a clean end of stream, not a failure.
+	// Reading to the end also proves the master's EIO on exit becomes EOF.
 	out, err := io.ReadAll(ptyReader{master})
 	if err != nil {
 		t.Fatalf("reading the session to its end reported an error: %v", err)
@@ -70,9 +65,7 @@ func TestACommandOnThePtySeesATerminal(t *testing.T) {
 	}
 }
 
-// A terminal echoes, so a caller sees its own input come back. That is kept
-// on purpose, so it is worth pinning: a change that turned it off would
-// silently alter what every session's output looks like.
+// Echo is deliberate (see Session.Output); pin it.
 func TestThePtyEchoesWhatIsWrittenToIt(t *testing.T) {
 	master, slave, err := openPTY()
 	if err != nil {

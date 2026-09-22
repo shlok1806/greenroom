@@ -20,8 +20,7 @@ type transcriptResult struct {
 	Verdict  session.VerdictState `json:"verdict"`
 }
 
-// store is the run's conversation as the verifier or a human would reach it,
-// which is what lets these tests play the other side without a model.
+// store opens the run's conversation so a test can play the verifier or a human.
 func (h *harness) store(runID string) *session.Store {
 	h.t.Helper()
 	s, err := h.reg.Get(runID)
@@ -53,7 +52,7 @@ func TestAgentSendTaskThenTranscriptThenAnEmptyWait(t *testing.T) {
 		t.Errorf("last = %d, verdict = %+v, want 1 and no verdict", tr.Last, tr.Verdict)
 	}
 
-	// Nothing has answered, so the wait must time out empty rather than fail.
+	// Nothing answers, so the wait times out empty rather than failing.
 	started := time.Now()
 	var waited transcriptResult
 	h.call("agent_wait", map[string]any{"runId": runID, "after": 1, "timeoutSeconds": 1}, &waited)
@@ -92,7 +91,6 @@ func TestAgentWaitUnblocksWhenTheVerifierSpeaks(t *testing.T) {
 		t.Errorf("the wait blocked for %v although a message arrived at once", elapsed)
 	}
 
-	// The answer the question needs goes back the same way.
 	var sent sendResult
 	h.call("agent_send", map[string]any{"runId": runID, "kind": "answer", "text": "The Debug scheme.", "replyTo": got.Messages[0].Seq}, &sent)
 	if sent.Seq != 3 {
@@ -138,8 +136,7 @@ func TestTheThirdDisputeIsRefusedAsContested(t *testing.T) {
 		return m.Seq
 	}
 
-	// Two disputes are the coder's budget; the verifier restates its verdict
-	// after each one.
+	// Two disputes are the coder's budget.
 	for i := 0; i < 2; i++ {
 		seq := propose()
 		h.call("agent_send", map[string]any{"runId": runID, "kind": "dispute", "text": "You built the wrong scheme.", "replyTo": seq}, nil)
@@ -166,9 +163,7 @@ func TestTheThirdDisputeIsRefusedAsContested(t *testing.T) {
 func TestDestroyIsAnnouncedByTheLifecycleBridge(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
-	// The tool itself posts nothing: the daemon announces a destroy from the
-	// manager's own lifecycle, after the machine has really gone away. This
-	// test subscribes the way the daemon's bridge does.
+	// machine_destroy posts nothing itself; subscribe the way main.go's lifecycle bridge does.
 	store := h.store(runID)
 	posted := make(chan struct{})
 	stop := h.mgr.Listen(func(ev machine.LifecycleEvent) {

@@ -2,8 +2,6 @@ import XCTest
 
 @testable import Companion
 
-/// `Chrome.relative` is the one piece of the sidebar's clock that is pure, so it is the
-/// piece worth pinning: every threshold, with an explicit `now`.
 final class ChromeTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
 
@@ -62,8 +60,6 @@ final class ChromeTests: XCTestCase {
 
     // MARK: - Clock
 
-    /// `%02d:%02d` of minutes and seconds turned an eight-hour run into
-    /// "476:12", which is not a time anybody reads.
     func testAClockGrowsAnHoursColumnRatherThanCountingToFourHundred() {
         XCTAssertEqual(Chrome.clock(0), "0:00")
         XCTAssertEqual(Chrome.clock(7), "0:07")
@@ -88,8 +84,6 @@ final class ChromeTests: XCTestCase {
 
     // MARK: - Run names
 
-    /// Twenty ids stacked up differ only in the middle, so the list shows the
-    /// run's own clock time and this much of the hash after it.
     func testARunIdGivesUpItsHash() {
         XCTAssertEqual(Chrome.runHash("20260921-050808-8ecfd5"), "8ecfd5")
     }

@@ -25,8 +25,7 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
-// scriptedModel is a chat endpoint that replays a list of replies. It records
-// every request so a test can assert what the loop sent.
+// scriptedModel is a chat endpoint that replays replies and records requests.
 type scriptedModel struct {
 	mu       sync.Mutex
 	replies  []string // raw JSON bodies, one per call
@@ -34,15 +33,12 @@ type scriptedModel struct {
 	vision   string
 	visions  int
 
-	// failures is how many requests the endpoint answers with a 500 before
-	// it serves anything, the way a hosted model has a bad minute. A failed
-	// request consumes no scripted reply.
+	// failures is how many requests get a 500 first; they consume no reply.
 	failures int
 	failed   int
 
 	// onReasoning runs just before the nth (1-based) reasoning reply is
-	// served. It is the only moment a test can be sure the verifier is
-	// mid-step, which is what a "while you were working" test needs.
+	// served: the one moment a test knows the verifier is mid-step.
 	onReasoning func(n int)
 }
 
@@ -72,8 +68,7 @@ func (s *scriptedModel) start(t *testing.T) string {
 		}
 		n := len(s.requests) - s.visions - 1
 		if n >= len(s.replies) {
-			// Not a 500: running out of replies is the test's own fault and
-			// must not be retried by the client under test.
+			// Not a 500, so the client does not retry the test's own mistake.
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = io.WriteString(w, `{"error":{"message":"the test ran out of scripted replies"}}`)
 			return
@@ -160,8 +155,7 @@ func ready(t *testing.T) (*machine.Manager, string, string) {
 	return mgr, mc.RunID, control
 }
 
-// failed brings up a machine whose boot fails the way a real one does: the
-// tart run process exits before the guest is up.
+// failed brings up a machine whose tart run exits before the guest is up.
 func failed(t *testing.T) (*machine.Manager, string) {
 	t.Helper()
 	bin, control := testsupport.FakeTart(t)
@@ -173,11 +167,8 @@ func failed(t *testing.T) (*machine.Manager, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A failed boot signals ready and only then stops and deletes the VM, so
-	// the tart subprocesses that tidy up are still writing into the fake
-	// tart's control directory when Wait returns. The manager emits "failed"
-	// after that cleanup, so waiting for it is what keeps those writes from
-	// racing t.TempDir's removal.
+	// Wait returns before the failed VM is stopped and deleted; "failed" is
+	// emitted after, so waiting for it keeps that cleanup from racing TempDir.
 	done := make(chan struct{})
 	var once sync.Once
 	stop := mgr.Listen(func(ev machine.LifecycleEvent) {
@@ -351,8 +342,7 @@ func TestTurnClicksAtAFractionAndRecordsOneStep(t *testing.T) {
 		t.Error("the click never reached the guest")
 	}
 
-	// The lease is per call, not per turn: a human must be able to take the
-	// screen back the moment the tool call, and the turn, are done.
+	// The lease is per call: a human can take the screen back right away.
 	if _, held := mgr.ControlState(runID); held {
 		t.Error("the lease is still held after the turn; a human could not take the screen")
 	}
@@ -415,8 +405,7 @@ func TestTurnComposesADragWithMachineInput(t *testing.T) {
 		t.Errorf("progress = %+v, want a machine_input step", prog[0])
 	}
 
-	// One machine_input step no matter how many actions the batch held: a
-	// drag reads as one thing a person did, not three.
+	// One machine_input step however many actions the batch held.
 	steps, err := machine.ReadSteps(mgr.RunDir(runID))
 	if err != nil {
 		t.Fatalf("ReadSteps: %v", err)
@@ -618,8 +607,7 @@ func TestDisputeReopensTheConversation(t *testing.T) {
 	}
 }
 
-// The file is the memory: a daemon that restarts between turns rebuilds the
-// same context from the transcript alone.
+// A daemon restarting between turns rebuilds context from the transcript.
 func TestContextIsRebuiltAfterARestart(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
@@ -660,8 +648,7 @@ func TestANoteSentMidTurnReachesTheModel(t *testing.T) {
 	store := openStore(t, mgr, runID)
 	postTask(t, store, "Launch the app.")
 
-	// The note lands while the verifier is waiting on its first model call,
-	// which is the "while you were working" case the loop exists for.
+	// The note lands while the verifier waits on its first model call.
 	var once sync.Once
 	model.onReasoning = func(n int) {
 		if n != 1 {
@@ -680,8 +667,7 @@ func TestANoteSentMidTurnReachesTheModel(t *testing.T) {
 	}
 }
 
-// Prose is an answer, so it is posted as one. Inventing a verdict out of it
-// would put a judgement in the record that nobody reasoned towards.
+// Prose is posted as a reply, never turned into a verdict.
 func TestProseWithoutAToolCallBecomesAReply(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{prose("It looks fine to me.")}}
@@ -740,8 +726,8 @@ func TestAHumanNoteIsAnsweredWithAReply(t *testing.T) {
 	}
 }
 
-// A run whose machine never booted still has a voice: the actor stays, the
-// turn runs, and the model is told plainly that the machine is dead.
+// A run whose machine never booted still gets turns, and the model is told
+// the machine is dead.
 func TestAFailedMachineStillAnswersAHuman(t *testing.T) {
 	mgr, runID := failed(t)
 	model := &scriptedModel{replies: []string{
@@ -803,9 +789,8 @@ func TestTurnStopsAtTheStepLimit(t *testing.T) {
 	}
 }
 
-// A turn that runs out of wall-clock budget mid-step must say so and end
-// gracefully, the same as one that runs out of steps: a human should not see
-// an error, and the task is still owed a next message to continue from.
+// Running out of wall-clock budget ends the turn with a reply, not an error,
+// like running out of steps.
 func TestTurnStopsWhenTheBudgetRunsOut(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	replies := make([]string, 8)
@@ -858,7 +843,6 @@ func TestTurnReportsAnEndpointFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "401") {
 		t.Errorf("error = %v, want it to carry the status", err)
 	}
-	// A failure nobody can see is a failure nobody can act on.
 	found := false
 	for _, m := range messagesOfKind(store, session.Event) {
 		if m.From == session.System && strings.Contains(m.Text, "verifier turn failed") {

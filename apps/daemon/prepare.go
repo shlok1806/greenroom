@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -11,12 +12,8 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 )
 
-// prepareImage runs the prepare-image CLI: bake the compiled input helper
-// and the daemon's ssh key into a VM that a build script (scripts/build-image.sh,
-// issue #12) started, so that every clone of it skips the ~27 s the guest
-// would otherwise pay on its first control request. It takes no *machine.Manager,
-// on purpose: the VM it prepares belongs to no run and no manager, only to the
-// build.
+// prepareImage bakes the input helper and the daemon's ssh key into a running VM (scripts/build-image.sh, issue #12),
+// so its clones skip that work on first control. The VM belongs to no run, so no Manager is involved.
 func prepareImage(args []string) error {
 	fs := flag.NewFlagSet("prepare-image", flag.ContinueOnError)
 	vm := fs.String("vm", "", "name of the running VM to prepare (required)")
@@ -25,7 +22,7 @@ func prepareImage(args []string) error {
 		return err
 	}
 	if *vm == "" {
-		return fmt.Errorf("-vm is required")
+		return errors.New("-vm is required")
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 

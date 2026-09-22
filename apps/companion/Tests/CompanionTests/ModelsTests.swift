@@ -38,7 +38,6 @@ final class ModelsTests: XCTestCase {
 
         XCTAssertEqual(runs.count, 2)
         XCTAssertEqual(runs[0].status, .ready)
-        XCTAssertEqual(runs[0].shortId, "run-2026-09")
         XCTAssertEqual(runs[0].verdict?.status, .proposed)
         XCTAssertEqual(runs[0].verdict?.evidence, ["003-screenshot.png"])
         XCTAssertEqual(runs[0].messages, 12)

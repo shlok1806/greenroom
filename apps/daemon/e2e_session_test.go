@@ -1,19 +1,8 @@
 //go:build tart
 
-// End-to-end proof that an interactive session really gets a terminal.
-//
-// This is the one claim about sessions that only a real VM can settle. The
-// whole reason greenroom runs a build in a session rather than through
-// machine_exec is that xcodebuild, swift build, git and most test runners
-// branch on isatty(): down a pipe they produce different output, and a
-// product whose claim is that it proves a change works must not quietly run
-// a different build than the developer does. The fake-tart suite can only
-// check that the daemon asks tart for a pty; whether the guest command then
-// sees one is a fact about tart and the guest, not about our code.
-//
-// It also checks the other half of a session, the half machine_exec cannot
-// do: that state survives between calls. Boots exactly one VM; a second may
-// already be running on the host, and Apple allows two. Run with:
+// Proves on a real VM that a session's command sees a real terminal (builds branch on isatty) and that
+// shell state survives between calls. The fake-tart suite can only check what the daemon asks tart for.
+// Boots one VM. Run with:
 //
 //	go test -tags tart -run TestEndToEndSession -v -timeout 12m .
 package main
@@ -59,19 +48,13 @@ func TestEndToEndSession(t *testing.T) {
 	}
 	t.Logf("machine %s booted in %.1fs", runID, mc.BootSeconds)
 
-	// 1. The claim: a command in a session sees a terminal on stdin and on
-	// stdout. `test -t` is the shell's own isatty(), so this is the guest
-	// answering about itself, not us reporting what we asked for.
 	start, err := mgr.SessionStart(ctx, runID, "")
 	if err != nil {
 		t.Fatalf("SessionStart: %v", err)
 	}
 	t.Logf("session %s started", start.SessionID)
 
-	// The markers are split by a quote so that the command line, which the
-	// terminal echoes back into the output, cannot itself satisfy the
-	// assertions below. Without this the test would pass on the echo alone
-	// and prove nothing.
+	// Markers are split by quotes so the echoed command line cannot satisfy the assertions.
 	if _, err := mgr.SessionSend(ctx, runID, start.SessionID,
 		"test -t 0 && echo \"STDIN_IS\"\"_A_TTY\" || echo \"STDIN_IS\"\"_A_PIPE\"\n"); err != nil {
 		t.Fatalf("SessionSend: %v", err)
@@ -80,7 +63,6 @@ func TestEndToEndSession(t *testing.T) {
 		"test -t 1 && echo \"STDOUT_IS\"\"_A_TTY\" || echo \"STDOUT_IS\"\"_A_PIPE\"\n"); err != nil {
 		t.Fatalf("SessionSend: %v", err)
 	}
-	// tty(1) names the pty itself, which is the plainest evidence there is.
 	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "tty\n"); err != nil {
 		t.Fatalf("SessionSend: %v", err)
 	}
@@ -97,8 +79,6 @@ func TestEndToEndSession(t *testing.T) {
 	if !strings.Contains(out, "/dev/ttys") {
 		t.Errorf("tty(1) did not name a pty; output was:\n%s", out)
 	}
-	// The window size the daemon sets has to reach the guest, or build output
-	// wraps at whatever tart defaulted to.
 	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "stty size\n"); err != nil {
 		t.Fatalf("SessionSend: %v", err)
 	}
@@ -107,16 +87,13 @@ func TestEndToEndSession(t *testing.T) {
 		t.Errorf("the guest terminal is not 40x120; output was:\n%s", size)
 	}
 
-	// 2. The other half: state survives between calls, which is what
-	// machine_exec cannot do. Each send here is a separate round trip.
 	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "cd /tmp && export GREENROOM_MARK=kept\n"); err != nil {
 		t.Fatalf("SessionSend: %v", err)
 	}
 	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "echo \"MARK=$GREENROOM_MARK PWD=$PWD \"\"END\"\n"); err != nil {
 		t.Fatalf("SessionSend: %v", err)
 	}
-	// Wait for the split marker, not for "MARK=": the echoed export line
-	// above already contains that, so waiting on it returns too early.
+	// Wait for the split marker: the echoed export line already contains "MARK=".
 	out = collect(ctx, t, mgr, runID, start.SessionID, " END", 60*time.Second)
 	t.Logf("state output:\n%s", out)
 	if !strings.Contains(out, "MARK=kept PWD=") {
@@ -126,7 +103,6 @@ func TestEndToEndSession(t *testing.T) {
 		t.Error("the working directory did not survive to the next call")
 	}
 
-	// 3. A command that fails inside the session is a result, not an error.
 	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "false; echo \"EX\"\"IT=$?\"\n"); err != nil {
 		t.Fatalf("SessionSend: %v", err)
 	}
@@ -138,7 +114,6 @@ func TestEndToEndSession(t *testing.T) {
 	if _, err := mgr.SessionClose(ctx, runID, start.SessionID); err != nil {
 		t.Fatalf("SessionClose: %v", err)
 	}
-	// The handle is gone, and the error says so in terms of the session.
 	if _, err := mgr.SessionRead(ctx, runID, start.SessionID, 0); err == nil {
 		t.Error("reading a closed session succeeded")
 	} else if !strings.Contains(err.Error(), "no session") {
@@ -146,9 +121,7 @@ func TestEndToEndSession(t *testing.T) {
 	}
 }
 
-// collect reads until want shows up or the budget runs out, joining what the
-// separate reads returned. A session's output arrives whenever the guest
-// flushes it, so one read is not enough to prove anything.
+// collect joins session reads until want shows up or the budget runs out.
 func collect(ctx context.Context, t *testing.T, mgr *machine.Manager, runID, sessionID, want string, budget time.Duration) string {
 	t.Helper()
 	deadline := time.Now().Add(budget)

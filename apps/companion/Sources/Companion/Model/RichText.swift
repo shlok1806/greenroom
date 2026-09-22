@@ -1,28 +1,14 @@
 import Foundation
 
-/// The little of Markdown that a transcript has to honour.
-///
-/// The verifier and the coding agent both write Markdown: headings, fenced
-/// code, tables, `**bold**`. Shown raw it reads as a debug dump, and a full
-/// Markdown renderer is a dependency this app will not take (see CLAUDE.md).
-/// The middle is this: cut a message into headings, fenced code and prose, and
-/// let SwiftUI's own inline Markdown handle what is inside a prose line.
-///
-/// Splitting is pure, so the rules are tested rather than eyeballed.
+/// Cuts a message into headings, code and prose; SwiftUI's inline Markdown
+/// renders inside prose. A full Markdown renderer would be a dependency.
 enum RichText {
-    /// Deliberately not `Identifiable`. A block's only candidate for an id is
-    /// its own text, and a message that says the same thing twice ("done." on
-    /// either side of a heading, the same fenced command run again) then hands
-    /// a list two rows with one id, which makes SwiftUI draw the first one's
-    /// content for both. Blocks are positional: a view iterates them by
-    /// position and nothing else.
+    /// Not `Identifiable`: text repeats within a message, so views must
+    /// iterate blocks by position.
     enum Block: Equatable, Sendable {
-        /// A `#`-prefixed line, with the hashes counted and removed.
         case heading(String, level: Int)
-        /// The inside of a fenced block, or a run of lines that all look like
-        /// a table. Shown monospaced and never reflowed.
+        /// A fenced block or a run of table rows, shown monospaced.
         case code(String)
-        /// Everything else, kept as written so paragraph breaks survive.
         case prose(String)
     }
 
@@ -48,15 +34,9 @@ enum RichText {
 
         for line in text.components(separatedBy: "\n") {
             if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                if fenced {
-                    flushCode()
-                } else {
-                    // A table that runs straight into a fence is its own
-                    // block. Without this its rows stayed pending and came
-                    // back out glued to the front of the fenced code.
-                    flushCode()
-                    flushProse()
-                }
+                // Also closes a table that runs straight into a fence.
+                flushCode()
+                if !fenced { flushProse() }
                 fenced.toggle()
                 continue
             }
@@ -82,9 +62,6 @@ enum RichText {
         return out
     }
 
-    /// A Markdown table is the one block this cannot reflow without destroying
-    /// it: its columns are spaces. It goes through as code so the pipes line
-    /// up, which is the whole point of writing one.
     private static func isTableRow(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasPrefix("|"), trimmed.count > 1 else { return false }

@@ -1,13 +1,6 @@
 import SwiftUI
 
-/// Every run the daemon knows about, newest first.
-///
-/// The list is the thing a person reads most and changes least, so it is built
-/// to be read: one dense row per run, grouped by the day it started, with the
-/// clock time carrying the identity and the shape of the run (steps, frames,
-/// messages) on the line under it. Status is a dot rather than the word
-/// "finished" twenty times down the column; colour is spent only where it
-/// means something.
+/// Every run, newest first, grouped by day: one dense row each.
 struct SidebarView: View {
     @Bindable var store: RunStore
 
@@ -21,13 +14,9 @@ struct SidebarView: View {
     }
 
     private var list: some View {
-        // One timer for the whole list: without it the relative times in the
-        // rows are formatted once and then sit there, so "13 s ago" is still
-        // "13 s ago" minutes later. The rows are cheap and nothing in the
-        // store changes, so re-running body every 30 s costs only the labels
-        // it exists to refresh.
+        // One shared clock keeps the relative ages fresh.
         TimelineView(.periodic(from: .now, by: 30)) { tick in
-            List(selection: selection) {
+            List(selection: $store.selectedRunId) {
                 ForEach(groups(now: tick.date), id: \.day) { group in
                     Section {
                         ForEach(group.runs) { run in
@@ -57,16 +46,6 @@ struct SidebarView: View {
         .navigationTitle("Runs")
     }
 
-    private var selection: Binding<String?> {
-        Binding(
-            get: { store.selectedRunId },
-            set: { newValue in
-                store.selectedRunId = newValue
-                if let newValue { Task { await store.select(newValue) } }
-            }
-        )
-    }
-
     private var matches: [RunSummary] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !needle.isEmpty else { return store.runs }
@@ -82,9 +61,7 @@ struct SidebarView: View {
         var runs: [RunSummary]
     }
 
-    /// Runs in the order the daemon sent them, cut into days. The daemon
-    /// already sorts newest first, so this only has to notice where one day
-    /// ends rather than sort anything itself.
+    /// The daemon already sorts newest first, so this only cuts at day changes.
     private func groups(now: Date) -> [Group] {
         var out: [Group] = []
         for run in matches {
@@ -101,7 +78,6 @@ struct SidebarView: View {
 
 private struct RunRow: View {
     let run: RunSummary
-    /// The list's shared clock, so every row reads the same "now".
     let now: Date
 
     private var hash: String { Chrome.runHash(run.runId) }
@@ -118,9 +94,7 @@ private struct RunRow: View {
                         .foregroundStyle(.tertiary)
                 }
                 Spacer(minLength: 4)
-                // The age never gives way: it is the shortest thing in the
-                // row and the one a reader scans down. What gives way is the
-                // verdict word beneath it.
+                // The age never truncates; the row below gives way instead.
                 Text(Chrome.relative(run.lastActivity, now: now))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -128,14 +102,10 @@ private struct RunRow: View {
                     .fixedSize()
             }
             HStack(spacing: 6) {
-                // The verdict comes first and keeps its width: it is the one
-                // thing on the row worth a colour, and squeezing it behind
-                // the counts truncated it to "2…".
+                // The verdict keeps its width; the counts drop terms to fit.
                 if let verdict = run.verdict {
                     VerdictBadge(state: verdict, style: .compact)
                 }
-                // Beside a badge there is less room, so the shape drops its
-                // least useful term rather than cutting one off mid-word.
                 ViewThatFits(in: .horizontal) {
                     ForEach(shapes, id: \.self) { shape in
                         Text(shape).lineLimit(1)
@@ -180,8 +150,6 @@ private struct ConnectionFooter: View {
             }
         }
         .padding(.bottom, 8)
-        // Without a background of its own the footer is a transparent strip
-        // and the last row of the list reads through it.
         .background(.bar)
     }
 }

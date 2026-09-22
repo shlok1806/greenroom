@@ -1,11 +1,7 @@
 //go:build tart
 
-// End-to-end test that ADR 0009's computer use actually works against a real
-// Tart VM: a control lease, a mouse move whose result the OS itself reports
-// (not our helper's say-so), and a keystroke that reaches a real app in the
-// guest's login session (proven by a file on disk, not by Input returning no
-// error). Boots exactly one VM; a second may already be running on the host,
-// and Apple allows two. Run with:
+// Proves computer use (ADR 0009) on a real VM: the lease, a pointer move the guest OS reports, and keystrokes
+// that reach a real app. Boots one VM. Run with:
 //
 //	go test -tags tart -run TestEndToEndInput -v -timeout 12m .
 package main
@@ -42,8 +38,6 @@ func TestEndToEndInput(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	// 1. Boot one real VM, and make sure it is destroyed even if the rest of
-	// the test fails.
 	created, err := mgr.Create(ctx, defaultImage, false)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -64,9 +58,7 @@ func TestEndToEndInput(t *testing.T) {
 	}
 	t.Logf("machine %s at %s booted in %.1fs", runID, mc.IP, mc.BootSeconds)
 
-	// 2. ScreenOf reports a plausible resolution. This first call also
-	// compiles the guest helper, so it is slow -- the number matters for
-	// issue #12.
+	// The first ScreenOf compiles the guest helper; its latency is issue #12's baseline.
 	started := time.Now()
 	screen, err := mgr.ScreenOf(ctx, runID)
 	firstInputLatency := time.Since(started)
@@ -78,8 +70,6 @@ func TestEndToEndInput(t *testing.T) {
 		t.Fatalf("implausible screen size: %+v", screen)
 	}
 
-	// 3. Take the lease. A second holder must be refused while it is held,
-	// and ControlState must name the holder.
 	control, fresh, err := mgr.TakeControl(runID, "e2e", 0)
 	if err != nil {
 		t.Fatalf("TakeControl: %v", err)
@@ -94,10 +84,7 @@ func TestEndToEndInput(t *testing.T) {
 		t.Fatalf("ControlState is %+v held=%v, want e2e holding it", state, held)
 	}
 
-	// 4. Pointer proof: post one move to a known fraction, then ask the OS
-	// itself -- from a separate guest process, not our helper -- where the
-	// pointer is. This is independent of whether our code thinks it moved
-	// the mouse.
+	// Pointer proof: move, then ask the guest OS from a separate process where the pointer is.
 	const fx, fy = 0.25, 0.75
 	if _, err := mgr.Input(ctx, runID, "e2e", []machine.InputAction{
 		{Type: "move", X: floatPtr(fx), Y: floatPtr(fy)},
@@ -105,9 +92,6 @@ func TestEndToEndInput(t *testing.T) {
 		t.Fatalf("Input(move): %v", err)
 	}
 
-	// swift -e runs a single expression as a script without a project; it is
-	// available on every image that ships swiftc, which installInputHelper
-	// already requires.
 	pointerCmd := `swift -e 'import CoreGraphics; let p = CGEvent(source: nil)!.location; print(Int(p.x), Int(p.y))'`
 	pos, err := mgr.Exec(ctx, runID, pointerCmd, "", 90*time.Second)
 	if err != nil {
@@ -128,9 +112,7 @@ func TestEndToEndInput(t *testing.T) {
 		t.Fatalf("OS reports the pointer at (%d,%d), want within 2px of (%d,%d)", gotX, gotY, wantX, wantY)
 	}
 
-	// 5. Keyboard proof: give a real app focus, then post one batch that
-	// types a command and presses Return. The file can only exist if real
-	// keystrokes reached a real app in the guest's login session.
+	// Keyboard proof: the file exists only if the keystrokes reached Terminal in the login session.
 	if _, err := mgr.Exec(ctx, runID, "open -a Terminal", "", 30*time.Second); err != nil {
 		t.Fatalf("open -a Terminal: %v", err)
 	}
@@ -161,8 +143,7 @@ func TestEndToEndInput(t *testing.T) {
 	}
 	t.Logf("keyboard proof: %s contains %q", proofFile, strings.TrimSpace(proof.Stdout))
 
-	// 6. Evidence proof: one machine_input step per batch posted above (the
-	// move, and the type+return), whatever a batch's length (ADR 0009).
+	// One machine_input step per batch, whatever its length (ADR 0009).
 	steps, err := machine.ReadSteps(mgr.RunDir(runID))
 	if err != nil {
 		t.Fatalf("ReadSteps: %v", err)
@@ -177,7 +158,6 @@ func TestEndToEndInput(t *testing.T) {
 		t.Fatalf("recorded %d machine_input steps, want 2 (one move batch, one type+key batch)", inputSteps)
 	}
 
-	// 7. Release the lease; the screen is free and Input is refused.
 	released, held, err := mgr.ReleaseControl(runID, "e2e")
 	if err != nil || !held || released.Holder != "e2e" {
 		t.Fatalf("ReleaseControl: released=%+v held=%v err=%v", released, held, err)

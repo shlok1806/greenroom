@@ -32,12 +32,8 @@ type harness struct {
 	control string
 }
 
-// newHarness serves the real API over HTTP with a fake tart behind it, the
-// way the daemon does. No VM is involved.
-//
-// The frame recorder is off by default (extra can turn it back on): a test
-// of the routes around it should not also, incidentally, be a test of it,
-// racing frame capture subprocesses against every other test's assertions.
+// newHarness serves the real API over HTTP with a fake tart behind it. The frame
+// recorder is off unless extra turns it on, so its captures do not race other assertions.
 func newHarness(t *testing.T, extra ...machine.Option) *harness {
 	t.Helper()
 	bin, control := testsupport.FakeTart(t)
@@ -216,8 +212,6 @@ func TestRunsListFollowsTheMachineFromBootingToReady(t *testing.T) {
 	if runs[0].IP == "" {
 		t.Errorf("a ready machine has no ip: %+v", runs[0])
 	}
-	// Nothing has been said in the conversation, but the run has recorded
-	// its boot, and that is activity: lastActivity follows the evidence.
 	if runs[0].LastActivity.Before(runs[0].CreatedAt) {
 		t.Errorf("lastActivity = %v, before the run was created at %v", runs[0].LastActivity, runs[0].CreatedAt)
 	}
@@ -259,13 +253,7 @@ func TestStepsAreTheRunsEvidence(t *testing.T) {
 	}
 }
 
-// The list's step count is read from steps.jsonl, never from the manifest.
-// A run was found reporting steps: 0 in the list while /steps answered with
-// six records for the same run: the manifest's Steps is the highest number
-// handed out, not a count, so a daemon stopped between begin and complete,
-// or an older daemon that wiped the manifest on reattach, leaves the two
-// apart for the life of the run. The evidence on disk is what the product
-// sells, so the summary counts it.
+// manifest.Steps is a high-water mark, not a count; list and detail must agree with /steps.
 func TestTheRunListCountsTheStepsOnDiskNotTheManifest(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -295,17 +283,11 @@ func TestTheRunListCountsTheStepsOnDiskNotTheManifest(t *testing.T) {
 	}
 }
 
-// A run that nobody talks to is still working. lastActivity used to follow
-// the conversation alone, so a run driven entirely by an agent was dated
-// from its creation while its steps piled up, and the list read it as
-// abandoned.
 func TestLastActivityFollowsTheStepsAndNotJustTheConversation(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
 
-	// A step taken after the machine was ready: the create and boot steps are
-	// both dated from the moment the run began, so neither of them can tell a
-	// lastActivity that follows the steps from one that does not.
+	// Create and boot steps are dated at run start, so take a later step.
 	h.putShot()
 	if _, _, err := h.mgr.Screenshot(context.Background(), runID); err != nil {
 		t.Fatalf("screenshot: %v", err)
@@ -325,10 +307,7 @@ func TestLastActivityFollowsTheStepsAndNotJustTheConversation(t *testing.T) {
 	}
 }
 
-// A run whose conversation has reached no verdict answers with no verdict,
-// in the list and in the detail alike. RunDetail.Verdict shadows the
-// manifest's field of the same name, so the detail used to answer with an
-// empty verdict object where the list answered null.
+// RunDetail.Verdict shadows the manifest's field; both routes must answer null, not an empty object.
 func TestARunWithNoVerdictSaysSoTheSameWayEverywhere(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -381,8 +360,7 @@ func TestAHumanNoteReachesSomeoneAlreadyWaiting(t *testing.T) {
 	runID := h.ready()
 	store := h.store(runID)
 
-	// This is agent_wait's side of the same store: the coder is blocked when
-	// the human speaks from the app.
+	// agent_wait's side of the same store.
 	got := make(chan []session.Message, 1)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -424,8 +402,7 @@ func TestAHumanClosesAContestedVerdict(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
 	store := h.store(runID)
-	// Two coder disputes exhaust the budget; the third verdict is contested
-	// and only the human can close it (ADR 0006).
+	// Two coder disputes exhaust the budget; only a human can close the third verdict (ADR 0006).
 	for i := 0; i < 2; i++ {
 		v, err := store.Append(session.Message{From: session.Verifier, Kind: session.Verdict, Verdict: "fail", Text: "the build broke"})
 		if err != nil {

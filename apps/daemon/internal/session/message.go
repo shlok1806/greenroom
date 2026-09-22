@@ -1,11 +1,9 @@
-// Package session is the conversation a run owns (ADR 0006). It is an
-// append-only file, conversation.jsonl, in the run directory, and it is the
-// only way the coding agent, a human and greenroom's verifier reach each
-// other. Nothing here knows about models, MCP or machines.
+// Package session is a run's append-only conversation.jsonl (ADR 0006).
 package session
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -54,9 +52,8 @@ func (m Message) StartsTurn() bool {
 	case Task, Answer, Dispute:
 		return m.From != Verifier
 	case Note:
-		// A human is always answered (ADR 0006): the verifier is the voice
-		// of the run. The coder's note stays context, because the coder's
-		// own reply channel is its next agent_wait.
+		// A human is always answered; a coder's note is context, since its
+		// reply channel is its next agent_wait.
 		return m.From == Human
 	}
 	return false
@@ -67,7 +64,7 @@ func (m Message) EndsTurn() bool {
 	return m.From == Verifier && (m.Kind == Reply || m.Kind == Question || m.Kind == Verdict)
 }
 
-// allowed says who may send each kind. It is the one place the table lives.
+// allowed says who may send each kind.
 var allowed = map[Kind][]From{
 	Task:     {Coder, Human},
 	Note:     {Coder, Human},
@@ -86,13 +83,7 @@ func validate(m Message) error {
 	if !ok {
 		return fmt.Errorf("no message kind %q", m.Kind)
 	}
-	permitted := false
-	for _, f := range froms {
-		if f == m.From {
-			permitted = true
-		}
-	}
-	if !permitted {
+	if !slices.Contains(froms, m.From) {
 		return fmt.Errorf("%s may not send a %s", m.From, m.Kind)
 	}
 	switch m.Kind {

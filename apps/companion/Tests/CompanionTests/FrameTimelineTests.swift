@@ -2,10 +2,6 @@ import XCTest
 
 @testable import Companion
 
-/// The timeline is arithmetic over a recording that can be two thousand frames
-/// long and a track that is a few hundred points wide. Every one of these is a
-/// rounding decision a screenshot cannot show, which is why they are pinned
-/// here rather than tried in the window.
 final class FrameTimelineTests: XCTestCase {
     private let epoch = Date(timeIntervalSince1970: 1_700_000_000)
 
@@ -55,8 +51,6 @@ final class FrameTimelineTests: XCTestCase {
         XCTAssertEqual(timeline.index(atX: 400), 100)
     }
 
-    /// A drag that leaves the track still has to land somewhere: the end it
-    /// left by.
     func testAPointOffTheTrackClampsToTheEnds() {
         let timeline = FrameTimeline(count: 101, width: 400)
         XCTAssertEqual(timeline.index(atX: -80), 0)
@@ -97,9 +91,6 @@ final class FrameTimelineTests: XCTestCase {
         XCTAssertEqual(ticks.map(\.index), [10, 20, 30, 40])
     }
 
-    /// Drawn naively, a few hundred steps across a few hundred points are a
-    /// grey smear. Ticks closer than the gap are dropped so what is left is
-    /// still a map.
     func testTicksTooCloseTogetherAreDropped() {
         let list = frames(400, stepEvery: 1)
         let timeline = FrameTimeline(count: list.count, width: 200)

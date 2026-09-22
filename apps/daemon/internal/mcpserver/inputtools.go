@@ -8,24 +8,20 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 )
 
-// verifierHolder is the seat every computer-use tool (machine_click,
-// machine_type, machine_key, machine_scroll, machine_input) takes the
-// screen lease under. The verifier holds the lease per call, not for the
-// whole turn (apps/daemon/CLAUDE.md, issue #11): each of these tools takes
-// the lease, posts its batch, and releases it before returning, so a person
-// watching the run from the companion can take the screen back between
-// calls rather than only between turns. The take-post-release sequence
-// itself lives once, in machine.Manager.InputAs (issue #12); this package
-// and internal/verifier both call it rather than each keeping a copy,
-// because internal/verifier cannot import this package.
+// verifierHolder is the lease seat for every input tool. Manager.InputAs takes, posts and releases per call,
+// so a human can take the screen back between calls (apps/daemon/CLAUDE.md, issue #11).
 const verifierHolder = "verifier"
 
-// addInputTools exposes the verifier's mouse and keyboard (ADR 0009, issue
-// #11): machine_click, machine_type, machine_key and machine_scroll are
-// conveniences over machine_input, which posts an arbitrary ordered batch of
-// actions in one step. Coordinates are fractions of the screen, 0 to 1, the
-// same contract the companion uses (see machine.InputAction).
+const humanDriving = " If a human is driving the machine, this returns an error naming them and the machine is untouched."
+
+// addInputTools exposes mouse and keyboard (ADR 0009). machine_click, _type, _key and _scroll are single-action
+// conveniences over machine_input. Coordinates are screen fractions, 0 to 1 (see machine.InputAction).
 func addInputTools(s *mcp.Server, mgr *machine.Manager) {
+	post := func(ctx context.Context, runID string, actions ...machine.InputAction) (*mcp.CallToolResult, machine.InputResult, error) {
+		res, err := mgr.InputAs(ctx, runID, verifierHolder, actions)
+		return nil, res, err
+	}
+
 	type clickIn struct {
 		RunID  string  `json:"runId" jsonschema:"runId from machine_create"`
 		X      float64 `json:"x" jsonschema:"Horizontal position as a fraction of the screen, 0 (left) to 1 (right). Look at a screenshot first: this is a fraction of the picture you were shown, not a guest pixel."`
@@ -36,13 +32,9 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_click",
 		Description: "Click the machine's screen at a position. x and y are fractions of the screen (0 to 1), not " +
-			"pixels: look at a machine_screenshot first and reason in that picture. A human may be driving the " +
-			"machine; if so this comes back as an error naming them, and the machine is unharmed.",
+			"pixels: look at a machine_screenshot first and reason in that picture." + humanDriving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in clickIn) (*mcp.CallToolResult, machine.InputResult, error) {
-		res, err := mgr.InputAs(ctx, in.RunID, verifierHolder, []machine.InputAction{{
-			Type: "click", X: &in.X, Y: &in.Y, Button: in.Button, Clicks: in.Clicks,
-		}})
-		return nil, res, err
+		return post(ctx, in.RunID, machine.InputAction{Type: "click", X: &in.X, Y: &in.Y, Button: in.Button, Clicks: in.Clicks})
 	})
 
 	type typeIn struct {
@@ -50,12 +42,10 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 		Text  string `json:"text" jsonschema:"The text to type, one character event at a time, into whatever has focus. Click into a field first if nothing does."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "machine_type",
-		Description: "Type text into the machine, into whatever currently has keyboard focus. A human may be " +
-			"driving the machine; if so this comes back as an error naming them, and the machine is unharmed.",
+		Name:        "machine_type",
+		Description: "Type text into the machine, into whatever currently has keyboard focus." + humanDriving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in typeIn) (*mcp.CallToolResult, machine.InputResult, error) {
-		res, err := mgr.InputAs(ctx, in.RunID, verifierHolder, []machine.InputAction{{Type: "type", Text: in.Text}})
-		return nil, res, err
+		return post(ctx, in.RunID, machine.InputAction{Type: "type", Text: in.Text})
 	})
 
 	type keyIn struct {
@@ -65,12 +55,10 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_key",
-		Description: "Press one key, optionally with modifiers held down, for example key f, mods [cmd] for " +
-			"command-F. A human may be driving the machine; if so this comes back as an error naming them, and " +
-			"the machine is unharmed.",
+		Description: "Press one key, optionally with modifiers held, for example key f with mods [cmd] for " +
+			"command-F." + humanDriving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in keyIn) (*mcp.CallToolResult, machine.InputResult, error) {
-		res, err := mgr.InputAs(ctx, in.RunID, verifierHolder, []machine.InputAction{{Type: "key", Key: in.Key, Mods: in.Mods}})
-		return nil, res, err
+		return post(ctx, in.RunID, machine.InputAction{Type: "key", Key: in.Key, Mods: in.Mods})
 	})
 
 	type scrollIn struct {
@@ -81,17 +69,13 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 		DeltaY float64  `json:"deltaY,omitempty" jsonschema:"Vertical scroll amount, in points. Positive scrolls down, negative scrolls up."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "machine_scroll",
-		Description: "Scroll the machine's screen under the pointer's current position, or under x,y if given. A " +
-			"human may be driving the machine; if so this comes back as an error naming them, and the machine is " +
-			"unharmed.",
+		Name:        "machine_scroll",
+		Description: "Scroll the machine's screen under the pointer's current position, or under x,y if given." + humanDriving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in scrollIn) (*mcp.CallToolResult, machine.InputResult, error) {
-		res, err := mgr.InputAs(ctx, in.RunID, verifierHolder, []machine.InputAction{{
-			Type: "scroll", X: in.X, Y: in.Y, DeltaX: in.DeltaX, DeltaY: in.DeltaY,
-		}})
-		return nil, res, err
+		return post(ctx, in.RunID, machine.InputAction{Type: "scroll", X: in.X, Y: in.Y, DeltaX: in.DeltaX, DeltaY: in.DeltaY})
 	})
 
+	// actionIn is machine.InputAction plus schema descriptions; the conversion below keeps the two in step.
 	type actionIn struct {
 		Type   string   `json:"type" jsonschema:"One of: move, click, down, up, scroll, type, key, sleep."`
 		X      *float64 `json:"x,omitempty" jsonschema:"Fraction of the screen, 0 to 1. For move, click, down and up."`
@@ -112,18 +96,13 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_input",
 		Description: "Post an ordered batch of actions (move, click, down, up, scroll, type, key, sleep) in one " +
-			"round trip: compose a drag out of down, move and up. machine_click, machine_type, machine_key and " +
-			"machine_scroll are conveniences over this for the common single-action case. A human may be driving " +
-			"the machine; if so this comes back as an error naming them, and the machine is unharmed.",
+			"round trip; compose a drag from down, move and up. machine_click, machine_type, machine_key and " +
+			"machine_scroll are shortcuts for a single action." + humanDriving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in inputIn) (*mcp.CallToolResult, machine.InputResult, error) {
 		actions := make([]machine.InputAction, len(in.Actions))
 		for i, a := range in.Actions {
-			actions[i] = machine.InputAction{
-				Type: a.Type, X: a.X, Y: a.Y, Button: a.Button, Clicks: a.Clicks,
-				DeltaX: a.DeltaX, DeltaY: a.DeltaY, Text: a.Text, Key: a.Key, Mods: a.Mods, MS: a.MS,
-			}
+			actions[i] = machine.InputAction(a)
 		}
-		res, err := mgr.InputAs(ctx, in.RunID, verifierHolder, actions)
-		return nil, res, err
+		return post(ctx, in.RunID, actions...)
 	})
 }

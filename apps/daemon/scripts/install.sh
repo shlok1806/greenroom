@@ -4,9 +4,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."     # apps/daemon
-repo="$(cd ../.. && pwd)"   # the checkout, which is where .env lives
-# A git worktree has no .env of its own (it is git-ignored), so fall back
-# to the main checkout's copy. GREENROOM_ENV overrides both.
+repo="$(cd ../.. && pwd)"
+# .env is git-ignored, so a worktree falls back to the main checkout's. GREENROOM_ENV overrides both.
 env_file="${GREENROOM_ENV:-$repo/.env}"
 if [ ! -f "$env_file" ]; then
   main="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')"
@@ -15,9 +14,7 @@ fi
 echo "env file: $env_file"
 echo "verifier: ${GREENROOM_VERIFIER:-nim}"
 
-# Prefer the prepared image when it exists: a clone of it answers the first
-# control request in milliseconds instead of compiling the input helper for
-# half a minute (issue #12). GREENROOM_IMAGE overrides.
+# Prefer the prepared image (issue #12) when it exists. GREENROOM_IMAGE overrides.
 image="${GREENROOM_IMAGE:-}"
 if [ -z "$image" ]; then
   if tart list --source local 2>/dev/null | grep -q '^local[[:space:]]\{1,\}greenroom-base[[:space:]]'; then
@@ -81,9 +78,7 @@ cat >"$plist" <<PLIST
 PLIST
 echo "wrote $plist"
 
-# launchd still owns the old job for a moment after we ask it to go away, and it
-# answers a bootstrap in that window with "Bootstrap failed: 5: Input/output error".
-# Unload first and wait for the label to actually disappear.
+# Bootstrapping while the old job lingers fails with "5: Input/output error", so unload and wait for it.
 if launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
   echo "unloading the $label job that is already running"
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
@@ -97,15 +92,13 @@ if launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
   fi
 fi
 
-# Port 7777 must be ours before launchd claims it. Our own daemon is replaced;
-# anything else is the user's and is left alone.
+# Replace a greenroom daemon holding 7777; refuse if anything else holds it.
 killed=""
 while read -r pid; do
   [ -n "$pid" ] || continue
   cmd="$(ps -o command= -p "$pid" 2>/dev/null || true)"
   echo "port 7777 is held by pid $pid: $cmd"
-  # Match the binary by name, not by path: a dev build may be called
-  # greenroom-w or live in /tmp and it is still ours.
+  # Match by name, not path: dev builds live elsewhere.
   case "$cmd" in
     *greenroom*" serve "*)
       echo "stopping the greenroom daemon already on 7777"
@@ -120,8 +113,7 @@ while read -r pid; do
   esac
 done < <(lsof -nP -iTCP:7777 -sTCP:LISTEN -t 2>/dev/null || true)
 
-# A killed process keeps the listening socket for a moment; the new daemon would
-# then fail to bind and launchd would flap it.
+# Wait for the socket to close, or the new daemon fails to bind and launchd flaps it.
 if [ -n "$killed" ]; then
   for _ in $(seq 1 100); do
     [ -z "$(lsof -nP -iTCP:7777 -sTCP:LISTEN -t 2>/dev/null || true)" ] && break

@@ -3,11 +3,8 @@ package machine
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"image"
-	"image/color"
 	"image/png"
 	"io"
 	"log/slog"
@@ -33,12 +30,7 @@ func newTestManager(t *testing.T, extra ...Option) (*Manager, string, string) {
 	t.Helper()
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
-	// The frame recorder is off by default here: a test that does not exercise
-	// it should not also be a test of it, racing frame capture subprocesses
-	// and frames.jsonl writes against assertions and t.TempDir cleanup that
-	// have nothing to do with recording. Tests of the recorder itself turn it
-	// back on with an extra WithFrameInterval, which (being later in this
-	// slice) wins.
+	// Frames are off unless a test passes its own WithFrameInterval, which wins.
 	opts := append([]Option{WithTartBin(bin), WithReadyTimeout(10 * time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0)}, extra...)
 	mgr, err := NewManager(root, slog.New(slog.NewTextHandler(io.Discard, nil)), opts...)
 	if err != nil {
@@ -48,18 +40,10 @@ func newTestManager(t *testing.T, extra ...Option) (*Manager, string, string) {
 	return mgr, root, control
 }
 
-// settleOnCleanup registers a cleanup that waits for every boot to finish and
-// then destroys the machines, so that nothing is writing into the run
-// directories when t.TempDir removes them. Every test that builds a Manager
-// on a t.TempDir root and boots a machine needs it.
+// settleOnCleanup waits for every boot to finish, then destroys the machines,
+// so nothing writes into the run directories while t.TempDir removes them.
 func settleOnCleanup(t *testing.T, mgr *Manager) {
 	t.Helper()
-	// A test is over as soon as Wait returns, but the boot goroutine records
-	// the boot step after that and the fake `tart run` keeps writing vm.log
-	// into the run directory. t.TempDir's own cleanup would race them, which
-	// surfaces as "TempDir RemoveAll cleanup: directory not empty". The
-	// lifecycle event is emitted after the last of those writes, so waiting
-	// for it and then destroying the machines leaves nobody writing.
 	var mu sync.Mutex
 	booting := map[string]bool{}
 	mgr.Listen(func(ev LifecycleEvent) {
@@ -108,16 +92,7 @@ func readyMachine(t *testing.T, mgr *Manager) *Machine {
 	return got
 }
 
-func pngBase64(t *testing.T) string {
-	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, 4, 3))
-	img.Set(1, 1, color.RGBA{R: 255, A: 255})
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		t.Fatal(err)
-	}
-	return base64.StdEncoding.EncodeToString(buf.Bytes())
-}
+func pngBase64(t *testing.T) string { return shotBase64(t, 4, 3) }
 
 func TestNewManagerPreparesTheRoot(t *testing.T) {
 	mgr, root, _ := newTestManager(t)
@@ -161,9 +136,7 @@ func TestCreateAndWaitReachReady(t *testing.T) {
 	if mc.IP != "192.168.64.9" {
 		t.Errorf("ip = %q, want 192.168.64.9", mc.IP)
 	}
-	// A fake machine boots in milliseconds and bootSeconds is rounded to one
-	// decimal, so 0 is correct here. TestMachineIsNotReadyUntilSSHAnswers
-	// checks that the number covers a real wait.
+	// Rounded to 0.1 s, a fake boot is 0; TestMachineIsNotReadyUntilSSHAnswers covers a real wait.
 	if mc.BootSeconds < 0 {
 		t.Errorf("bootSeconds = %v, want zero or more", mc.BootSeconds)
 	}
@@ -340,11 +313,7 @@ func TestSyncBuildsTheRsyncCommand(t *testing.T) {
 			t.Errorf("rsync arguments have no %q\nargs: %s", want, args)
 		}
 	}
-	// Compression is off on purpose and has to stay off. The guest is on a
-	// virtual NIC, so "-z" has no transfer time to save and costs real host
-	// CPU: 25.5 s against 6.7 s on a 714 MiB tree
-	// (docs/10-build-transport.md). Without this assertion someone restores
-	// it as an obvious improvement and every sync gets four times slower.
+	// -z makes a local sync ~4x slower (docs/10-build-transport.md).
 	if strings.Contains(args, "-az") || strings.Contains(args, "-z") {
 		t.Errorf("rsync must not compress to a local VM\nargs: %s", args)
 	}
@@ -371,10 +340,7 @@ func TestSyncPutsAProjectAtThePinnedGuestPath(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 
-	// A SwiftPM build cache is keyed to the absolute path it was built at,
-	// and syncing it somewhere else fails the build outright with "missing
-	// required module 'SwiftShims'" rather than just rebuilding. So the
-	// destination is part of the contract, not an implementation detail.
+	// SwiftPM caches break when moved, so the default dest is a contract.
 	want := GuestWorkDir + "/myapp"
 	if res.Dest != want {
 		t.Fatalf("dest = %q, want %q", res.Dest, want)
@@ -398,8 +364,6 @@ func TestCheckTartWarnsWhenTheHostTartIsNotThePinnedVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The fake claims the pinned version unless told otherwise, so the
-	// ordinary case stays quiet.
 	mgr.CheckTart(context.Background())
 	if strings.Contains(buf.String(), "WARN") {
 		t.Fatalf("the pinned version must not warn: %s", buf.String())
@@ -417,8 +381,6 @@ func TestCheckTartWarnsWhenTheHostTartIsNotThePinnedVersion(t *testing.T) {
 }
 
 func TestWithTartBinIgnoresAnEmptyPath(t *testing.T) {
-	// main passes the -tart flag straight through, so an unset flag must
-	// leave the resolution tart.New already made rather than blanking it.
 	m := &Manager{tart: &tart.Client{Bin: "resolved-tart"}}
 	WithTartBin("")(m)
 	if m.tart.Bin != "resolved-tart" {
@@ -601,10 +563,7 @@ func TestLoadStateDropsAMachineThatNoLongerRuns(t *testing.T) {
 	}
 }
 
-// Reattaching must not rewrite the run's manifest from scratch. It used to,
-// which put Steps back to 0 and dropped the verdict: the next tool call then
-// reused a step number the run had already spent, steps.jsonl held the same
-// seq twice, and the companion drew one row's contents for two rows.
+// Reattaching must carry the manifest forward, not reset Steps or drop the verdict.
 func TestLoadStateKeepsTheStepCountAndVerdict(t *testing.T) {
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
@@ -682,8 +641,7 @@ func TestFinishBootFailsWhenTheIPNeverArrives(t *testing.T) {
 	if got.Error == "" {
 		t.Error("a failed machine carries no error text")
 	}
-	// The VM must be cleaned up, not left behind. Cleanup runs after the
-	// caller is released, so poll for it rather than reading once.
+	// Cleanup runs after Wait returns, so poll for it.
 	var log string
 	for i := 0; i < 50; i++ {
 		log = testsupport.Calls(t, control)
@@ -735,10 +693,7 @@ func TestInstallSSHKeyFailureFailsTheBoot(t *testing.T) {
 	}
 }
 
-// Two screenshots at the same time must not pick the same file name. Before
-// the recorder handed out numbers under its own lock, six concurrent
-// screenshots shared one file and the race detector flagged the read of
-// manifest.Steps.
+// Concurrent screenshots must not pick the same file name.
 func TestConcurrentScreenshotsGetDistinctFiles(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
@@ -773,16 +728,13 @@ func TestConcurrentScreenshotsGetDistinctFiles(t *testing.T) {
 	}
 }
 
-// Issue #3: a machine is usable only when ssh answers, because rsync is the
-// first thing a caller reaches for after `ready`.
+// Issue #3: a machine is ready only once ssh answers.
 func TestMachineIsNotReadyUntilSSHAnswers(t *testing.T) {
 	bin, _ := testsupport.FakeTart(t)
 	var probes atomic.Int32
 	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
 		WithTartBin(bin), WithReadyTimeout(20*time.Second), WithFrameInterval(0),
 		WithSSHProbe(func(context.Context, string, string) error {
-			// Refuse the first two attempts, the way a guest does while
-			// sshd is still starting.
 			if probes.Add(1) <= 2 {
 				return errors.New("connection refused")
 			}
@@ -828,9 +780,7 @@ func TestBootFailsWhenSSHNeverAnswers(t *testing.T) {
 	}
 }
 
-// The default probe, with no WithSSHProbe in the way. macOS gates local-network
-// access per binary identity, so the daemon must ask the guest about its own
-// sshd over vsock instead of dialing 192.168.64.x itself.
+// The default probe asks the guest over vsock; the daemon never dials a guest.
 func TestDefaultSSHProbeAsksTheGuestOverVsock(t *testing.T) {
 	bin, control := testsupport.FakeTart(t)
 	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -848,8 +798,7 @@ func TestDefaultSSHProbeAsksTheGuestOverVsock(t *testing.T) {
 	}
 }
 
-// A boot that times out at the ssh phase must name the cause. Before this the
-// dial error was dropped and every failure read "context deadline exceeded".
+// A boot that times out at the ssh phase must name the last probe error.
 func TestSSHTimeoutNamesTheLastProbeError(t *testing.T) {
 	bin, control := testsupport.FakeTart(t)
 	testsupport.Flag(t, control, "ssh-down")
@@ -878,10 +827,8 @@ func TestSSHTimeoutNamesTheLastProbeError(t *testing.T) {
 	}
 }
 
-// Review finding 1: the capacity check must not be a check-then-act race.
-// Several creates that arrive together must not all pass a limit with room
-// for one more. The fake host already runs one unrelated VM, so a limit of
-// two leaves exactly one free slot.
+// Concurrent creates must not all pass the capacity check. The fake host runs
+// one foreign VM, so a limit of two leaves one slot.
 func TestConcurrentCreatesRespectTheHostLimit(t *testing.T) {
 	bin, _ := testsupport.FakeTart(t)
 	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -916,9 +863,7 @@ func TestConcurrentCreatesRespectTheHostLimit(t *testing.T) {
 		t.Errorf("the manager holds %d machines, want 1", got)
 	}
 
-	// The machine that won the slot is still booting, and its boot writes
-	// into the test's temporary directory. Take it down before the test ends,
-	// or those writes race the directory's removal and the cleanup fails.
+	// Settle the winner's boot before TempDir cleanup.
 	for _, mc := range mgr.List() {
 		if _, err := mgr.Wait(context.Background(), mc.RunID, 20*time.Second); err != nil {
 			t.Fatalf("Wait: %v", err)
@@ -929,9 +874,7 @@ func TestConcurrentCreatesRespectTheHostLimit(t *testing.T) {
 	}
 }
 
-// The fake tart must never outlive the test that started it. A process that
-// waits forever for a control file inside a deleted temporary directory is a
-// leak, and enough of them will overload the host.
+// The fake tart must exit when its control directory is removed, or it leaks.
 func TestFakeTartExitsWhenItsControlDirectoryGoesAway(t *testing.T) {
 	bin, control := testsupport.FakeTart(t)
 	logPath := filepath.Join(t.TempDir(), "vm.log")
@@ -956,11 +899,7 @@ func TestFakeTartExitsWhenItsControlDirectoryGoesAway(t *testing.T) {
 	t.Fatal("the fake tart kept running after its control directory was removed")
 }
 
-// The steps on disk outrank the manifest when the two disagree about how far
-// the numbering got. A manifest that lost writes, or that an older daemon
-// wiped on reattach, would otherwise hand out a number the run has already
-// spent and the second step of that number would overwrite the first one's
-// artifact.
+// steps.jsonl outranks a manifest that is behind it, so no number is reused.
 func TestLoadStateCarriesTheRecordedStepsForwardOverABehindManifest(t *testing.T) {
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
@@ -1014,9 +953,7 @@ func TestLoadStateCarriesTheRecordedStepsForwardOverABehindManifest(t *testing.T
 	}
 }
 
-// A machine tart no longer lists is gone, and the reattach is when the daemon
-// learns it. The run's record has to say so, or the companion shows a run
-// that never ends.
+// A reattach that finds the VM gone stamps the run's end from its evidence.
 func TestLoadStateRecordsTheEndOfADroppedRun(t *testing.T) {
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
@@ -1043,21 +980,15 @@ func TestLoadStateRecordsTheEndOfADroppedRun(t *testing.T) {
 	if man.DestroyedAt == nil {
 		t.Fatal("a dropped machine left the run with no end")
 	}
-	// Dated from the run's own evidence, not from whenever the daemon
-	// happened to come back.
 	if want := log2.Last; !man.DestroyedAt.Equal(want) {
 		t.Errorf("the run ends at %v, want the end of its last step at %v", man.DestroyedAt, want)
 	}
 }
 
-// A boot that fails stops and deletes the VM, so the run is over even though
-// nobody destroyed it.
 func TestAFailedBootEndsTheRun(t *testing.T) {
 	mgr, root, control := newTestManager(t)
 	testsupport.Flag(t, control, "fail-ip")
-	// The end is recorded after the VM has been stopped and deleted, which
-	// is after Wait returns: stopping a VM is the slow part of a failed boot
-	// and the caller is told it failed before it happens.
+	// The end is stamped after Wait returns, so wait for the failed event.
 	failed := make(chan struct{})
 	var once sync.Once
 	stop := mgr.Listen(func(ev LifecycleEvent) {
@@ -1088,10 +1019,7 @@ func TestAFailedBootEndsTheRun(t *testing.T) {
 	}
 }
 
-// tart stays in the foreground for the life of a VM, so a process that exits
-// after boot means the same thing it means during boot: the machine is gone.
-// Until the daemon notices, every read of the run says ready about a VM that
-// stopped hours ago.
+// A tart process that exits after boot means the machine is gone.
 func TestAMachineWhoseProcessExitsIsFailed(t *testing.T) {
 	mgr, root, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
@@ -1104,7 +1032,6 @@ func TestAMachineWhoseProcessExitsIsFailed(t *testing.T) {
 	})
 	defer stop()
 
-	// What the fake tart's `run` watches for: the VM went away underneath it.
 	testsupport.Flag(t, control, "stopped")
 
 	select {
@@ -1115,7 +1042,6 @@ func TestAMachineWhoseProcessExitsIsFailed(t *testing.T) {
 	if len(mgr.List()) > 0 {
 		t.Error("the daemon still lists a machine whose tart process exited")
 	}
-	// The machine is disposable and goes; the evidence is not and stays.
 	if log := testsupport.Calls(t, control); !strings.Contains(log, "delete "+mc.Name) {
 		t.Errorf("a machine that stopped on its own left its VM behind\ncalls:\n%s", log)
 	}

@@ -16,9 +16,7 @@ import (
 
 func testLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-// execExitSeq queues exit codes for the fake tart's exec-codes control file:
-// the first "run" instruction in a turn gets the first code, the second gets
-// the second, and so on.
+// execExitSeq queues one exit code per "run" via the fake tart's exec-codes.
 func execExitSeq(t *testing.T, control string, codes string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(control, "exec-codes"), []byte(codes), 0o644); err != nil {
@@ -261,8 +259,7 @@ func TestManualUnrecognisedInstructionAlsoGetsHelp(t *testing.T) {
 	}
 }
 
-// Each turn reads only the last turn-starting message: nothing from an
-// earlier turn leaks into the next one.
+// Each turn reads only the last turn-starting message.
 func TestManualTurnsAreIndependent(t *testing.T) {
 	mgr, runID, control := ready(t)
 	execExitSeq(t, control, "0")

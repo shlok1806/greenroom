@@ -11,58 +11,48 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
 
-// inputHelper is the guest-side program that posts the events (guest/input.swift).
-// It is compiled inside the machine on first use, never on the host: the
-// events have to come from a process in the guest's own login session or
-// nothing sees them.
+// inputHelper posts CGEvents from inside the guest's login session. It is
+// compiled in the guest on first use, never on the host.
 //
 //go:embed guest/input.swift
 var inputHelper string
 
-// inputHelperVersion names the compiled helper, so a daemon that ships a new
-// helper recompiles rather than calling the old binary a running machine
-// already has. Bump it whenever guest/input.swift changes.
+// inputHelperVersion names the compiled helper. Bump it whenever
+// guest/input.swift changes, or running machines and prepared images keep
+// the old binary.
 const inputHelperVersion = 2
 
-// ControlTTL is how long a screen-control lease lives without being used.
-// The holder is an app that can crash or lose its network, and a lease that
-// outlived it would lock everyone else out of the screen forever, so every
-// input call renews it and silence ends it.
+// ControlTTL is how long an unused screen-control lease lives. Every input
+// renews it, so a crashed holder cannot lock the screen forever.
 const ControlTTL = 60 * time.Second
 
-// Errors the control lease answers with. The API turns each into its own
-// status code, so a caller can tell "someone else is driving" from "you are
-// not driving".
+// Control lease errors. The API maps each to its own status code.
 var (
 	ErrNoControl   = errors.New("nobody holds control of this screen")
 	ErrControlHeld = errors.New("someone else holds control of this screen")
 )
 
-// Control is one screen-control lease: who may move the mouse and press the
-// keys of a machine, and until when (ADR 0009). It is a value, replaced
-// rather than edited, so a snapshot of a machine can carry it safely.
+// Control is one screen-control lease (ADR 0009). It is a value, replaced
+// rather than edited, so a machine snapshot can carry it safely.
 type Control struct {
-	Holder  string    `json:"holder"` // "human" today; the seat, not the person
+	Holder  string    `json:"holder"` // the seat, e.g. "human", not the person
 	Since   time.Time `json:"since"`
 	Expires time.Time `json:"expires"`
-	Actions int       `json:"actions"` // how many events this lease has posted
+	Actions int       `json:"actions"` // events posted under this lease
 }
 
-// Screen is a guest display's size in points, which is the coordinate space
-// every input action is in once the daemon has scaled it.
+// Screen is a guest display's size in points, the space input is posted in.
 type Screen struct {
 	Width  int `json:"width"`
 	Height int `json:"height"`
 }
 
-// InputAction is one thing to do to the machine's screen. Coordinates are
-// **fractions of the display**, 0 to 1, never pixels: the companion shows a
-// frame scaled to whatever the window happens to be, and a fraction is the
-// only coordinate it can compute without knowing the guest's resolution. The
-// manager multiplies them out (see pixels) because it is the side that knows
-// the resolution.
+// InputAction is one thing to do to the screen. X and Y are fractions of the
+// display (0 to 1), never pixels; only the manager knows the resolution.
 type InputAction struct {
 	Type   string   `json:"type"` // move, click, down, up, scroll, type, key, sleep
 	X      *float64 `json:"x,omitempty"`
@@ -85,17 +75,15 @@ type InputResult struct {
 	Step    int     `json:"step"`
 }
 
-// inputState is a machine's guest-side input helper: installed once, then
-// reused. It has its own lock because installing takes seconds (a Swift
-// compile in the guest) and must not be done twice or hold up the manager.
+// inputState is a machine's installed helper. It has its own lock because the
+// install is a Swift compile that must not hold Manager.mu.
 type inputState struct {
 	mu        sync.Mutex
 	installed bool
 	screen    Screen
 }
 
-// helperName is the path of the compiled helper inside the guest, relative
-// to the guest user's home.
+// helperName is the compiled helper's path relative to the guest home.
 func helperName() string {
 	return fmt.Sprintf(".greenroom/bin/greenroom-input-%d", inputHelperVersion)
 }
@@ -104,16 +92,10 @@ func helperSourceDir() string {
 	return fmt.Sprintf(".greenroom/src/greenroom-input-%d", inputHelperVersion)
 }
 
-// --- the control lease ---
-
-// TakeControl gives holder the machine's mouse and keyboard, or renews the
-// lease it already has. A second holder is refused rather than queued: two
-// hands on one mouse is not a state anything can recover from.
-//
-// The second return value says whether this is a fresh take rather than a
-// renewal, so the caller announces the handover in the conversation once and
-// not on every heartbeat.
-func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (Control, bool, error) {
+// TakeControl gives holder the machine's mouse and keyboard, or renews its
+// lease. A second holder is refused, not queued. fresh is false for a
+// renewal, so the caller announces a handover only once.
+func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Control, fresh bool, err error) {
 	if ttl <= 0 {
 		ttl = ControlTTL
 	}
@@ -123,64 +105,54 @@ func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (Control,
 	}
 	now := time.Now().UTC()
 
-	next, fresh, err := func() (Control, bool, error) {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		current := mc.Control
-		if current != nil && current.Holder != holder && now.Before(current.Expires) {
-			return *current, false, fmt.Errorf("%w: %s has it until %s",
-				ErrControlHeld, current.Holder, current.Expires.Format(time.RFC3339))
-		}
-		next := Control{Holder: holder, Since: now, Expires: now.Add(ttl)}
-		fresh := true
-		if current != nil && current.Holder == holder && now.Before(current.Expires) {
-			next.Since, next.Actions, fresh = current.Since, current.Actions, false
-		}
-		mc.Control = &next
-		return next, fresh, nil
-	}()
-	if err != nil {
-		return next, false, err
+	m.mu.Lock()
+	current := mc.Control
+	live := current != nil && now.Before(current.Expires)
+	if live && current.Holder != holder {
+		m.mu.Unlock()
+		return *current, false, fmt.Errorf("%w: %s has it until %s",
+			ErrControlHeld, current.Holder, current.Expires.Format(time.RFC3339))
 	}
+	lease = Control{Holder: holder, Since: now, Expires: now.Add(ttl)}
+	fresh = !live
+	if live {
+		lease.Since, lease.Actions = current.Since, current.Actions
+	}
+	mc.Control = &lease
+	m.mu.Unlock()
+
 	if fresh {
 		m.emit(LifecycleEvent{Kind: "control", RunID: runID, Machine: m.snapshot(mc)})
 	}
-	return next, fresh, nil
+	return lease, fresh, nil
 }
 
 // ReleaseControl hands the screen back. Releasing a lease nobody holds is not
-// an error: the app releases on quit, on a tab change and on a timeout, and
-// all three may race.
+// an error, since quit, tab change and timeout may all race to release. An
+// empty holder releases whoever holds it.
 func (m *Manager) ReleaseControl(runID, holder string) (Control, bool, error) {
 	mc, err := m.get(runID)
 	if err != nil {
 		return Control{}, false, err
 	}
-	released, held, err := func() (Control, bool, error) {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		current := mc.Control
-		if current == nil {
-			return Control{}, false, nil
-		}
-		if holder != "" && current.Holder != holder && time.Now().UTC().Before(current.Expires) {
-			return *current, false, fmt.Errorf("%w: %s has it", ErrControlHeld, current.Holder)
-		}
-		mc.Control = nil
-		return *current, true, nil
-	}()
-	if err != nil {
-		return released, false, err
+	m.mu.Lock()
+	current := mc.Control
+	if current == nil {
+		m.mu.Unlock()
+		return Control{}, false, nil
 	}
-	if held {
-		m.emit(LifecycleEvent{Kind: "control", RunID: runID, Machine: m.snapshot(mc)})
+	if holder != "" && current.Holder != holder && time.Now().UTC().Before(current.Expires) {
+		m.mu.Unlock()
+		return *current, false, fmt.Errorf("%w: %s has it", ErrControlHeld, current.Holder)
 	}
-	return released, held, nil
+	mc.Control = nil
+	m.mu.Unlock()
+
+	m.emit(LifecycleEvent{Kind: "control", RunID: runID, Machine: m.snapshot(mc)})
+	return *current, true, nil
 }
 
-// ControlState reports the live lease, if there is one. An expired lease is
-// reported as no lease: expiry is read at the moment it is asked about,
-// because nothing else would notice a holder that went away.
+// ControlState reports the live lease, if any. Expiry is evaluated lazily here.
 func (m *Manager) ControlState(runID string) (Control, bool) {
 	mc, err := m.get(runID)
 	if err != nil {
@@ -194,32 +166,27 @@ func (m *Manager) ControlState(runID string) (Control, bool) {
 	return *mc.Control, true
 }
 
-// claimActions checks the lease before an input batch and renews it. It
-// returns the lease as it now stands so the caller can report it.
-func (m *Manager) claimActions(mc *Machine, holder string, n int) (Control, error) {
+// claimActions checks holder has the lease, renews it and counts n actions.
+func (m *Manager) claimActions(mc *Machine, holder string, n int) error {
 	now := time.Now().UTC()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	current := mc.Control
 	if current == nil || !now.Before(current.Expires) {
-		return Control{}, fmt.Errorf("%w: take control of run %s first", ErrNoControl, mc.RunID)
+		return fmt.Errorf("%w: take control of run %s first", ErrNoControl, mc.RunID)
 	}
 	if current.Holder != holder {
-		return *current, fmt.Errorf("%w: %s has it", ErrControlHeld, current.Holder)
+		return fmt.Errorf("%w: %s has it", ErrControlHeld, current.Holder)
 	}
 	next := *current
 	next.Actions += n
 	next.Expires = now.Add(ControlTTL)
 	mc.Control = &next
-	return next, nil
+	return nil
 }
 
-// --- input ---
-
-// ScreenOf returns the guest's display size, installing the input helper if
-// this is the first call for the machine. Taking control goes through it, so
-// that the seconds the compile costs are spent before the person's first
-// click rather than during it.
+// ScreenOf returns the guest's display size, installing the input helper on
+// first use. Taking control calls it so the compile happens before the first click.
 func (m *Manager) ScreenOf(ctx context.Context, runID string) (Screen, error) {
 	mc, err := m.get(runID)
 	if err != nil {
@@ -231,13 +198,8 @@ func (m *Manager) ScreenOf(ctx context.Context, runID string) (Screen, error) {
 	return m.ensureInput(ctx, mc)
 }
 
-// Input posts actions into the guest, in order, in one round trip. holder
-// must be the one that holds the control lease (ADR 0009): an input with no
-// lease behind it is a hidden second operator, which is the thing the lease
-// exists to prevent.
-//
-// The whole batch is one step in the run's evidence, so a drag or a typed
-// word reads as the one thing the person did rather than as twenty.
+// Input posts actions into the guest in one round trip, recorded as one step.
+// holder must hold the control lease (ADR 0009).
 func (m *Manager) Input(ctx context.Context, runID, holder string, actions []InputAction) (InputResult, error) {
 	mc, err := m.get(runID)
 	if err != nil {
@@ -249,7 +211,7 @@ func (m *Manager) Input(ctx context.Context, runID, holder string, actions []Inp
 	if len(actions) == 0 {
 		return InputResult{}, errors.New("no actions to post")
 	}
-	if _, err := m.claimActions(mc, holder, len(actions)); err != nil {
+	if err := m.claimActions(mc, holder, len(actions)); err != nil {
 		return InputResult{}, err
 	}
 	screen, err := m.ensureInput(ctx, mc)
@@ -264,37 +226,26 @@ func (m *Manager) Input(ctx context.Context, runID, holder string, actions []Inp
 	out.Step = mc.rec.step("machine_input", map[string]any{"holder": holder, "actions": actions},
 		map[string]any{"actions": out.Actions, "screen": screen}, err, started)
 	m.emitStep(mc.RunID, out.Step)
-	if err != nil {
-		return out, err
-	}
-	return out, nil
+	return out, err
 }
 
-// InputAs takes the screen lease for holder, posts actions, and releases the
-// lease again whether or not the batch succeeded. It is the one place the
-// take-post-release sequence lives: internal/mcpserver's machine_click
-// family and internal/verifier's own tool loop both call this rather than
-// each keeping its own copy, because internal/verifier cannot import
-// internal/mcpserver and the two used to duplicate the same three lines
-// (issue #12). A human already holding the lease comes back as a readable
-// error naming them, not the sentinel ErrControlHeld, so either caller can
-// read it and simply try again in a moment instead of treating it as a
-// broken run.
+// InputAs takes the lease for holder, posts actions, and releases the lease
+// whatever the outcome. mcpserver and verifier both use it (issue #12). A lease
+// held by someone else becomes a readable error naming them, not ErrControlHeld.
 func (m *Manager) InputAs(ctx context.Context, runID, holder string, actions []InputAction) (InputResult, error) {
 	current, _, err := m.TakeControl(runID, holder, 0)
+	if errors.Is(err, ErrControlHeld) {
+		return InputResult{}, fmt.Errorf("a %s is driving this machine; try again in a moment", current.Holder)
+	}
 	if err != nil {
-		if errors.Is(err, ErrControlHeld) {
-			return InputResult{}, fmt.Errorf("a %s is driving this machine; try again in a moment", current.Holder)
-		}
 		return InputResult{}, err
 	}
 	defer func() { _, _, _ = m.ReleaseControl(runID, holder) }()
 	return m.Input(ctx, runID, holder, actions)
 }
 
-// pixels turns one action's fractional coordinates into guest pixels. A
-// fraction outside 0..1 is clamped rather than refused: a drag that leaves
-// the picture is a person's hand sliding off the edge, not a bad request.
+// pixels scales an action's fractions to guest points. Out-of-range fractions
+// are clamped: a drag off the edge is a hand, not a bad request.
 func pixels(a InputAction, s Screen) InputAction {
 	if a.X != nil {
 		x := math.Round(clamp01(*a.X) * float64(s.Width))
@@ -314,7 +265,6 @@ func clamp01(v float64) float64 {
 	return math.Min(math.Max(v, 0), 1)
 }
 
-// postInput runs one batch through the guest helper.
 func (m *Manager) postInput(ctx context.Context, mc *Machine, screen Screen, actions []InputAction) error {
 	scaled := make([]InputAction, len(actions))
 	for i, a := range actions {
@@ -326,19 +276,27 @@ func (m *Manager) postInput(ctx context.Context, mc *Machine, screen Screen, act
 	if err != nil {
 		return err
 	}
-	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c",
-		fmt.Sprintf(`exec "$HOME/%s" --json-base64 %s`, helperName(), base64.StdEncoding.EncodeToString(payload)))
-	if err != nil {
-		return err
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("input failed: exit %d: %s", res.ExitCode, helperError(res.Stderr))
+	if _, err := runHelper(ctx, m.tart, mc.Name, "--json-base64", base64.StdEncoding.EncodeToString(payload)); err != nil {
+		return fmt.Errorf("input failed: %w", err)
 	}
 	return nil
 }
 
-// helperError pulls the message out of the helper's `{"error": "..."}` so a
-// window shows the reason rather than a JSON object.
+// runHelper runs the installed helper with args. Arguments go through a
+// shell, so they must be shell-safe (base64 or fixed flags).
+func runHelper(ctx context.Context, c *tart.Client, vm string, args ...string) (tart.ExecResult, error) {
+	res, err := c.Exec(ctx, vm, "/bin/sh", "-c",
+		fmt.Sprintf(`exec "$HOME/%s" %s`, helperName(), strings.Join(args, " ")))
+	if err != nil {
+		return res, err
+	}
+	if res.ExitCode != 0 {
+		return res, fmt.Errorf("exit %d: %s", res.ExitCode, helperError(res.Stderr))
+	}
+	return res, nil
+}
+
+// helperError extracts the message from the helper's `{"error": "..."}`.
 func helperError(stderr string) string {
 	var out struct {
 		Error string `json:"error"`
@@ -350,22 +308,21 @@ func helperError(stderr string) string {
 	return trimmed
 }
 
-// ensureInput compiles the helper in the guest once per machine and reads
-// the display size back from it. Everything after the first call is one exec.
+// ensureInput installs the helper once per machine and caches the screen size.
 func (m *Manager) ensureInput(ctx context.Context, mc *Machine) (Screen, error) {
 	st := mc.input
-	if st == nil {
-		return Screen{}, fmt.Errorf("machine %s has no input state", mc.RunID)
-	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if st.installed {
 		return st.screen, nil
 	}
-	if err := m.installInputHelper(ctx, mc); err != nil {
-		return Screen{}, err
+	installCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	_, err := execChecked(installCtx, m.tart, mc.Name, "/bin/sh", "-c", installHelperScript())
+	cancel()
+	if err != nil {
+		return Screen{}, fmt.Errorf("install the input helper: %w", err)
 	}
-	screen, err := m.readScreen(ctx, mc)
+	screen, err := readScreen(ctx, m.tart, mc.Name)
 	if err != nil {
 		return Screen{}, err
 	}
@@ -373,24 +330,10 @@ func (m *Manager) ensureInput(ctx context.Context, mc *Machine) (Screen, error) 
 	return screen, nil
 }
 
-// installHelperScript is the /bin/sh -c script that writes the embedded
-// Swift source into the guest and compiles it, at the exact path and
-// version `helperName` and `inputHelperVersion` name. It is the one place
-// that combination is spelled out, so `installInputHelper` (a machine's own
-// first control request, issue #9) and `PrepareGuest` (baking the helper
-// into the greenroom base image ahead of time, issue #12) can never drift
-// apart on where the binary lives or what version it claims to be.
-//
-// The source travels as base64 in one argument, so no part of it is read by
-// a shell, and the compile is skipped when the machine already has this
-// version of the binary: `if [ -x "$bin" ] && "$bin" --version` is the whole
-// contract between this script and the image build that wants to make it a
-// no-op.
-//
-// It is main.swift and it is built at language version 5 on purpose: a
-// single file of top-level code is only a program under those two
-// conditions, and the guest's toolchain is whichever one the image happens
-// to carry.
+// installHelperScript writes the embedded source into the guest and compiles
+// it, unless this version already answers --version. It is the single
+// definition of the helper's path, shared with PrepareGuest. main.swift and
+// -swift-version 5 are both required for top-level code to build.
 func installHelperScript() string {
 	return fmt.Sprintf(`set -e
 bin="$HOME/%s"
@@ -405,32 +348,11 @@ swiftc -O -swift-version 5 "$src/main.swift" -o "$bin"
 `, helperName(), helperSourceDir(), base64.StdEncoding.EncodeToString([]byte(inputHelper)))
 }
 
-// installInputHelper runs installHelperScript against a machine this
-// Manager owns.
-func (m *Manager) installInputHelper(ctx context.Context, mc *Machine) error {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-	defer cancel()
-
-	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", installHelperScript())
+// readScreen asks the helper for the display size by posting no actions.
+func readScreen(ctx context.Context, c *tart.Client, vm string) (Screen, error) {
+	res, err := runHelper(ctx, c, vm, "--json-base64", base64.StdEncoding.EncodeToString([]byte(`{"actions":[]}`)))
 	if err != nil {
-		return fmt.Errorf("install the input helper: %w", err)
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("install the input helper: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
-	}
-	return nil
-}
-
-// readScreen asks the helper for the display size by giving it nothing to do.
-func (m *Manager) readScreen(ctx context.Context, mc *Machine) (Screen, error) {
-	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c",
-		fmt.Sprintf(`exec "$HOME/%s" --json-base64 %s`, helperName(),
-			base64.StdEncoding.EncodeToString([]byte(`{"actions":[]}`))))
-	if err != nil {
-		return Screen{}, err
-	}
-	if res.ExitCode != 0 {
-		return Screen{}, fmt.Errorf("read the screen size: exit %d: %s", res.ExitCode, helperError(res.Stderr))
+		return Screen{}, fmt.Errorf("read the screen size: %w", err)
 	}
 	var out struct {
 		Screen Screen `json:"screen"`

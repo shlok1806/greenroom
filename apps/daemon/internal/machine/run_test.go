@@ -36,33 +36,18 @@ func newTestRecorder(t *testing.T) (*recorder, string) {
 
 func readManifest(t *testing.T, dir string) Manifest {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	m, err := ReadManifest(dir)
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
-	}
-	var m Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		t.Fatalf("decode manifest: %v", err)
 	}
 	return m
 }
 
 func readSteps(t *testing.T, dir string) []Step {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, "steps.jsonl"))
+	steps, err := ReadSteps(dir)
 	if err != nil {
 		t.Fatalf("read steps: %v", err)
-	}
-	var steps []Step
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		if line == "" {
-			continue
-		}
-		var s Step
-		if err := json.Unmarshal([]byte(line), &s); err != nil {
-			t.Fatalf("decode step %q: %v", line, err)
-		}
-		steps = append(steps, s)
 	}
 	return steps
 }

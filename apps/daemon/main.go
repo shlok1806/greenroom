@@ -26,29 +26,26 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/verifier"
 )
 
-const defaultImage = "ghcr.io/cirruslabs/macos-tahoe-base:latest"
+const defaultImage = "ghcr.io/cirruslabs/macos-tahoe-base:latest" // scripts/build-image.sh and install.sh repeat this
 
 func main() {
 	if len(os.Args) < 2 {
 		usage()
-		os.Exit(2)
 	}
+	var err error
 	switch os.Args[1] {
 	case "serve":
-		if err := serve(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "greenroom:", err)
-			os.Exit(1)
-		}
+		err = serve(os.Args[2:])
 	case "prepare-image":
-		if err := prepareImage(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "greenroom:", err)
-			os.Exit(1)
-		}
+		err = prepareImage(os.Args[2:])
 	case "version":
 		fmt.Println("greenroom", mcpserver.Version)
 	default:
 		usage()
-		os.Exit(2)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "greenroom:", err)
+		os.Exit(1)
 	}
 }
 
@@ -56,6 +53,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: greenroom serve [-addr 127.0.0.1:7777] [-root ~/.greenroom] [-image <oci image>] [-max-machines 2] [-max-disputes 2] [-frame-interval 2s] [-verifier nim|manual] [-verifier-max-steps 40] [-verifier-budget 10m]")
 	fmt.Fprintln(os.Stderr, "       greenroom prepare-image -vm <name> [-root ~/.greenroom]")
 	fmt.Fprintln(os.Stderr, "       greenroom version")
+	os.Exit(2)
 }
 
 func serve(args []string) error {
@@ -83,10 +81,7 @@ func serve(args []string) error {
 	opts := []machine.Option{
 		machine.WithMaxMachines(*maxMachines),
 		machine.WithFrameInterval(*frameInterval),
-		// Empty when the flag is unset, which leaves the resolution
-		// internal/tart already made: GREENROOM_TART, then the pinned
-		// install, then PATH.
-		machine.WithTartBin(*tartBin),
+		machine.WithTartBin(*tartBin), // empty keeps internal/tart's own resolution
 	}
 	if *openViewer {
 		opts = append(opts, machine.WithWatchHandler(func(vncURL string) {
@@ -100,67 +95,52 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
-	// Say which tart this daemon drives before it drives it. A mismatch is
-	// logged, never fatal: a daemon already serving machines must keep
-	// working on the tart it started with.
-	mgr.CheckTart(context.Background())
+	mgr.CheckTart(context.Background()) // logs a version mismatch, never fatal
 
-	// Every run owns one conversation (ADR 0006). It is the only way to
-	// reach the verifier, and the manifest follows whatever it decides.
 	reg := session.NewRegistry(*root, *maxDisputes)
 	reg.OnVerdict = func(runID string, v session.VerdictState) { _ = mgr.RecordVerdict(runID, v) }
 
-	// greenroom's own agent is optional, and comes in two brains. "manual" is
-	// the model brain with a person for a model: it needs no key, and it
-	// answers the conversation itself, one instruction per line. "nim" is
-	// the model-driven brain and needs NVIDIA_API_KEY. Without either, the
-	// daemon still serves every machine tool; the conversation simply has
-	// nobody answering on the verifier's side.
-	verifierKindVal := strings.ToLower(strings.TrimSpace(*verifierKind))
-	if verifierKindVal == "" {
-		verifierKindVal = strings.ToLower(strings.TrimSpace(os.Getenv("GREENROOM_VERIFIER")))
+	kind := strings.ToLower(strings.TrimSpace(*verifierKind))
+	if kind == "" {
+		kind = strings.ToLower(strings.TrimSpace(os.Getenv("GREENROOM_VERIFIER")))
 	}
-	if verifierKindVal == "" {
-		verifierKindVal = "nim"
-	}
-	switch verifierKindVal {
+	switch kind {
 	case "manual":
 		bridgeLifecycle(mgr, reg, true)
 		_ = verifier.NewActors(verifier.NewManual(mgr, log), mgr, reg, verifier.WithLogger(log))
 		log.Info("verifier enabled", "brain", "manual")
-	case "nim":
+	case "", "nim":
+		// Without a key the daemon still serves every machine tool; nobody answers the conversation.
 		key := os.Getenv("NVIDIA_API_KEY")
-		verifierEnabled := key != ""
-		bridgeLifecycle(mgr, reg, verifierEnabled)
-		if verifierEnabled {
-			v, err := verifier.New(mgr, verifier.Config{
-				BaseURL:     os.Getenv("NVIDIA_BASE_URL"),
-				APIKey:      key,
-				Model:       os.Getenv("GREENROOM_VERIFIER_MODEL"),
-				VisionModel: os.Getenv("GREENROOM_VISION_MODEL"),
-				MaxSteps:    *verifierMaxSteps,
-				Budget:      *verifierBudget,
-			}, log)
-			if err != nil {
-				return err
-			}
-			_ = verifier.NewActors(v, mgr, reg, verifier.WithLogger(log))
-			log.Info("verifier enabled", "brain", "nim", "model", os.Getenv("GREENROOM_VERIFIER_MODEL"), "vision", os.Getenv("GREENROOM_VISION_MODEL"))
-		} else {
+		bridgeLifecycle(mgr, reg, key != "")
+		if key == "" {
 			log.Info("verifier disabled", "reason", "no NVIDIA_API_KEY in environment or "+*envFile)
+			break
 		}
+		model, vision := os.Getenv("GREENROOM_VERIFIER_MODEL"), os.Getenv("GREENROOM_VISION_MODEL")
+		v, err := verifier.New(mgr, verifier.Config{
+			BaseURL:     os.Getenv("NVIDIA_BASE_URL"),
+			APIKey:      key,
+			Model:       model,
+			VisionModel: vision,
+			MaxSteps:    *verifierMaxSteps,
+			Budget:      *verifierBudget,
+		}, log)
+		if err != nil {
+			return err
+		}
+		_ = verifier.NewActors(v, mgr, reg, verifier.WithLogger(log))
+		log.Info("verifier enabled", "brain", "nim", "model", model, "vision", vision)
 	default:
-		return fmt.Errorf("unknown -verifier %q: want nim or manual", verifierKindVal)
+		return fmt.Errorf("unknown -verifier %q: want nim or manual", kind)
 	}
-	server := mcpserver.New(mgr, *image, reg)
 
+	server := mcpserver.New(mgr, *image, reg)
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprintf(w, "ok %d machines\n", len(mgr.List()))
 	})
-	// The companion app's surface (ADR 0007), over the same manager and the
-	// same conversation store the MCP tools use.
 	mux.Handle("/api/", api.New(mgr, reg, log))
 	httpServer := &http.Server{Addr: *addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
@@ -185,13 +165,8 @@ func serve(args []string) error {
 	}
 }
 
-// bridgeLifecycle turns the manager's own lifecycle into conversation
-// events, so that a machine becoming ready, failing to boot or going away is
-// announced once, from the one place that knows it really happened. Nothing
-// else posts those three.
-//
-// Without a verifier there is nobody to answer a task, so the daemon says so
-// rather than leaving the coder to poll agent_wait forever.
+// bridgeLifecycle posts the manager's lifecycle into each run's conversation. It is the only poster of
+// ready/failed/stopped/destroyed. Without a verifier it also tells the coder nobody will answer a task.
 func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnabled bool) {
 	post := func(runID, text string) {
 		store, err := reg.Get(runID)
@@ -200,38 +175,31 @@ func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnable
 		}
 		_, _ = store.Append(session.Message{From: session.System, Kind: session.Event, Text: text})
 	}
+	withError := func(text string, mc *machine.Machine) string {
+		if mc != nil && mc.Error != "" {
+			return text + ": " + mc.Error
+		}
+		return text
+	}
 	mgr.Listen(func(ev machine.LifecycleEvent) {
 		var text string
 		switch ev.Kind {
 		case "created":
-			// Open the store now. reg.Listen only fans out from stores the
-			// registry has opened, so a run must be known from its first
-			// second or the event stream misses its earliest messages.
+			// reg.Listen only fans out from opened stores, so open this one before its first message.
 			go func() { _, _ = reg.Get(ev.RunID) }()
 			return
 		case "ready":
 			text = "machine is ready"
 		case "failed":
-			text = "machine failed to boot"
-			if ev.Machine != nil && ev.Machine.Error != "" {
-				text += ": " + ev.Machine.Error
-			}
+			text = withError("machine failed to boot", ev.Machine)
 		case "stopped":
-			// Not a boot failure: this machine worked and then its VM went
-			// away under the daemon, so the transcript must not blame boot.
-			text = "machine stopped"
-			if ev.Machine != nil && ev.Machine.Error != "" {
-				text += ": " + ev.Machine.Error
-			}
+			text = withError("machine stopped", ev.Machine) // a ready machine's VM went away, not a boot failure
 		case "destroyed":
 			text = "machine destroyed"
 		default:
 			return
 		}
-		// Posted synchronously on purpose: an append is one local write, and
-		// a lifecycle event must land in the transcript before anything a
-		// caller does in reaction to it (a task sent after machine_wait
-		// reported failed, for instance) or the record reads out of order.
+		// Synchronous so the event lands before anything a caller does in reaction to it.
 		post(ev.RunID, text)
 	})
 	if verifierEnabled {
@@ -241,8 +209,7 @@ func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnable
 		if m.Kind != session.Task || m.From == session.Verifier {
 			return
 		}
-		// This runs under the store's lock, so the append has to happen
-		// somewhere else.
+		// Listeners run under the store's lock, so append elsewhere.
 		go post(runID, "no verifier is configured on this daemon (set NVIDIA_API_KEY in .env); nobody will answer this task")
 	})
 }

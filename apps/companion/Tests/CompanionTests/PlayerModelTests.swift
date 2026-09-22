@@ -55,8 +55,6 @@ final class PlayerModelTests: XCTestCase {
         XCTAssertEqual(player.index, 1, "4x speed turns 1 wall second into 4 recorded seconds")
     }
 
-    /// A finished run's recording stops playing at the last frame; a live
-    /// run keeps `playing` on so a frame that arrives later is picked up.
     func testReachingTheEndStopsPlayingOnlyWhenNotLive() {
         var finished = PlayerModel()
         finished.frames = [frame(1, secondsFromStart: 0), frame(2, secondsFromStart: 1)]
@@ -111,16 +109,13 @@ final class PlayerModelTests: XCTestCase {
         XCTAssertEqual(scrubbedBack.frames.count, 3)
         XCTAssertEqual(scrubbedBack.current?.step, 1, "scrubbed back and not live, a new frame must not move the scrubber")
     }
+
     private func named(_ file: String) -> Frame {
         Frame(at: Date(timeIntervalSince1970: 0), file: file, step: 1)
     }
 
     // MARK: - What a finished load may paint
 
-    /// A frame's image is fetched asynchronously and the fetch outlives the
-    /// request for it. Switching runs leaves the old load suspended, and when
-    /// it resumes it must not paint the previous run's screen under the new
-    /// run's name.
     func testAFrameThatIsNoLongerCurrentIsNotShown() {
         var player = PlayerModel()
         player.frames = [named("a.jpg"), named("b.jpg")]
@@ -131,16 +126,12 @@ final class PlayerModelTests: XCTestCase {
         XCTAssertFalse(player.shows("a.jpg"))
     }
 
-    /// The run was switched: the player was reset and holds nothing, so a
-    /// load that comes back has nothing to paint onto.
     func testAResetPlayerShowsNothing() {
         let player = PlayerModel()
         XCTAssertFalse(player.shows("a.jpg"))
         XCTAssertNil(player.current)
     }
 
-    /// Switching to a run that has frames of its own: the load still in
-    /// flight for the old run's frame is refused.
     func testAPlayerSwitchedToAnotherRunRefusesTheOldRunsFrame() {
         var player = PlayerModel()
         player.frames = [named("old.jpg")]

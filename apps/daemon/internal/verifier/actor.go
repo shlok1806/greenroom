@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -11,20 +12,12 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
-// TurnRetryDelays is the wait before each retry of a turn that failed. Its
-// length is the number of retries, so a turn is attempted
-// len(TurnRetryDelays)+1 times. The model is hosted and the transport is the
-// internet: a turn that died on a bad minute must be taken again, because
-// whoever spoke is otherwise never answered. Tests zero it.
+// TurnRetryDelays is the wait before each retry of a failed turn, so a turn
+// is attempted len(TurnRetryDelays)+1 times. Tests zero it.
 var TurnRetryDelays = []time.Duration{30 * time.Second, 60 * time.Second, 120 * time.Second}
 
-// Actors keeps one verifier goroutine alive per run. Each one waits on the
-// run's conversation, takes a turn when a message needs one, and exits when
-// the machine is destroyed. One turn runs at a time per run.
-//
-// The turn always runs. Whether the machine is booting, ready or dead is the
-// verifier's to say, not the actor's: a human asking "how is the boot going"
-// or "what happened" is owed an answer either way (ADR 0006).
+// Actors keeps one verifier goroutine per run, taking one turn at a time
+// whatever state the machine is in (ADR 0006), until the machine is destroyed.
 type Actors struct {
 	brain Brain
 	mgr   *machine.Manager
@@ -39,20 +32,14 @@ type Actors struct {
 // ActorOption configures Actors beyond its required arguments.
 type ActorOption func(*Actors)
 
-// WithLogger gives Actors its own logger. Without it, Actors logs to
-// slog.Default(), which is enough for a test but not for the daemon, which
-// passes its own logger so a run's actor logs land next to everything else.
+// WithLogger sets the logger; the default is slog.Default().
 func WithLogger(log *slog.Logger) ActorOption {
 	return func(a *Actors) { a.log = log }
 }
 
-// NewActors wires a Brain, the model-driven Verifier or the human-driven
-// Manual, to the manager's lifecycle: a created machine gets an actor, a
-// destroyed one loses it, and runs the daemon reattached on start get theirs
-// back.
-//
-// A boot failure does not end the actor. The run is still a conversation a
-// human can join to ask what happened, and only the brain can answer.
+// NewActors wires b to the manager's lifecycle: created machines gain an
+// actor, destroyed ones lose it, and every undestroyed run gets one at start.
+// A failed boot keeps its actor so a human can still ask what happened.
 func NewActors(b Brain, mgr *machine.Manager, reg *session.Registry, opts ...ActorOption) *Actors {
 	a := &Actors{brain: b, mgr: mgr, reg: reg, log: slog.Default(),
 		cancel: map[string]context.CancelFunc{}, done: map[string]chan struct{}{}}
@@ -70,9 +57,8 @@ func NewActors(b Brain, mgr *machine.Manager, reg *session.Registry, opts ...Act
 	for _, mc := range mgr.List() {
 		a.Start(mc.RunID)
 	}
-	// After a restart the manager holds only the machines tart still lists,
-	// so a run whose boot failed would lose its voice. Every run directory
-	// that was never destroyed keeps one; a finished run gets none.
+	// The manager forgets machines tart no longer lists, so also start one
+	// for every run directory that was never destroyed.
 	ids, err := reg.RunIDs()
 	if err != nil {
 		a.log.Error("verifier cannot list runs", "err", err)
@@ -128,60 +114,41 @@ func (a *Actors) Running(runID string) bool {
 	return ok
 }
 
-// loop is the actor. It resumes from wherever the transcript left off: if
-// the last turn-starting message has no reply yet, that turn runs now, which
-// is how a daemon restart mid-conversation picks the work back up.
+// loop is the actor. If the last turn-starting message is unanswered, as
+// after a daemon restart mid-conversation, that turn runs first.
 func (a *Actors) loop(ctx context.Context, runID string, store *session.Store, done chan struct{}) {
 	defer close(done)
-	seen := 0
+	seen := store.Len()
 	if pending := lastUnanswered(store.After(0)); pending > 0 {
 		seen = pending - 1
-	} else {
-		seen = store.Len()
 	}
 	for {
 		msgs := store.Wait(ctx, seen)
 		if ctx.Err() != nil {
 			return
 		}
-		start := false
-		for _, m := range msgs {
-			if m.StartsTurn() {
-				start = true
-			}
-		}
 		seen = store.Len()
-		if !start {
-			continue
+		if slices.ContainsFunc(msgs, session.Message.StartsTurn) {
+			a.runTurn(ctx, runID, store, &seen)
 		}
-		a.runTurn(ctx, runID, store, &seen)
 	}
 }
 
-// runTurn takes the turn the messages after seen have earned, and takes it
-// again if it fails. A failed turn is the whole conversation stuck: the
-// actor would otherwise sit waiting for a message nobody knows is needed. It
-// gives up when a newer turn-starting message makes the old turn moot (that
-// message's own turn runs next), or after TurnRetryDelays is spent, which it
-// says in the transcript so a human knows the turn is theirs to restart.
-//
-// seen is advanced past the turn's own posts, which are not new work.
+// runTurn takes a turn, retrying on failure until it succeeds, a newer
+// turn-starting message makes it moot, or TurnRetryDelays is spent (which it
+// announces, so the conversation is never silently stuck). It advances seen
+// past the turn's own posts.
 func (a *Actors) runTurn(ctx context.Context, runID string, store *session.Store, seen *int) {
 	attempts := len(TurnRetryDelays) + 1
 	for attempt := 1; ; attempt++ {
 		_, err := a.brain.Turn(ctx, runID, store)
-		if ctx.Err() != nil {
-			*seen = store.Len()
-			return
-		}
-		if err == nil {
+		if err == nil || ctx.Err() != nil {
 			*seen = store.Len()
 			return
 		}
 		a.log.Warn("verifier turn failed", "runId", runID, "attempt", attempt, "err", err)
 		if newer := firstStarterAfter(store, *seen); newer > 0 {
-			// Someone has spoken since. Their message starts the turn that
-			// matters now, so leave it unseen for the loop to pick up.
+			// Leave the newer message unseen; its turn runs next.
 			*seen = newer - 1
 			return
 		}
@@ -201,9 +168,7 @@ func (a *Actors) runTurn(ctx context.Context, runID string, store *session.Store
 	}
 }
 
-// awaitRetry waits d before the next attempt, and returns early when a new
-// turn-starting message lands, because that turn is worth more than this
-// retry and nobody should wait two minutes to be heard.
+// awaitRetry waits d, returning early if a new turn-starting message lands.
 func awaitRetry(ctx context.Context, store *session.Store, seen int, d time.Duration) {
 	wctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()

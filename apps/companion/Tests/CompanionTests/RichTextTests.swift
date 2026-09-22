@@ -2,8 +2,6 @@ import XCTest
 
 @testable import Companion
 
-/// The transcript is where agents write Markdown, and where the app decides
-/// how much of it to honour. These are that line.
 final class RichTextTests: XCTestCase {
     func testPlainTextIsOneBlock() {
         XCTAssertEqual(RichText.blocks("just a sentence"), [.prose("just a sentence")])
@@ -47,8 +45,6 @@ final class RichTextTests: XCTestCase {
         XCTAssertEqual(RichText.blocks("```sh\nls -la\n```"), [.code("ls -la")])
     }
 
-    /// A Markdown table's columns are spaces, so reflowing it destroys the one
-    /// thing it was written for.
     func testATableIsKeptMonospaced() {
         let table = "| Tool | Required |\n|------|----------|\n| Go | 1.27.1 |"
         XCTAssertEqual(RichText.blocks(table), [.code(table)])
@@ -72,10 +68,7 @@ final class RichTextTests: XCTestCase {
         XCTAssertTrue(RichText.blocks("\n\n").isEmpty)
     }
 
-    /// The input that made `Block`'s content-derived id collide. `Block` is
-    /// no longer `Identifiable`, so a list can no longer be keyed on it and
-    /// the compiler is what keeps this from coming back; these two cases
-    /// record the shape of message that used to lose a row.
+    /// Repeated text must yield repeated blocks (views key them by position).
     func testAMessageThatSaysTheSameThingTwiceKeepsBothBlocks() {
         let blocks = RichText.blocks("done.\n\n# Result\ndone.")
         XCTAssertEqual(blocks, [
@@ -94,8 +87,7 @@ final class RichTextTests: XCTestCase {
         ])
     }
 
-    /// A table whose last row runs straight into a fence used to come back
-    /// glued to the front of the fenced code as one block.
+    /// A table running straight into a fence stays its own block.
     func testATableThatRunsIntoAFenceStaysItsOwnBlock() {
         let blocks = RichText.blocks("| Tool | Version |\n|---|---|\n```\ngo build ./...\n```")
         XCTAssertEqual(blocks, [
@@ -104,8 +96,7 @@ final class RichTextTests: XCTestCase {
         ])
     }
 
-    /// Nothing here may grow with the square of the input: a verifier can
-    /// write a very long message and the transcript parses it on every draw.
+    /// Parsed on every draw, so it must stay linear.
     func testAVeryLongMessageIsSplitInReasonableTime() {
         let text = (0..<4000).map { "line \($0) with some **bold** words in it" }.joined(separator: "\n")
         let started = Date()

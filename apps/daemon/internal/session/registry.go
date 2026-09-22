@@ -8,9 +8,8 @@ import (
 	"sync"
 )
 
-// Registry hands out one Store per run, opening each lazily from
-// root/runs/<runId>/, and fans every append out to daemon-wide listeners
-// such as the event stream and the manifest writer.
+// Registry lazily opens one Store per run under root/runs/<runId>/ and fans
+// every append out to daemon-wide listeners.
 type Registry struct {
 	Root        string
 	MaxDisputes int
@@ -28,8 +27,7 @@ func NewRegistry(root string, maxDisputes int) *Registry {
 }
 
 // Get opens or returns the store for runID. The run directory must already
-// exist: the machine manager creates it, and a read must not manufacture a
-// run out of a typo.
+// exist (the manager creates it), so a typo cannot manufacture a run.
 func (r *Registry) Get(runID string) (*Store, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

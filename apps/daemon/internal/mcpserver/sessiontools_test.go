@@ -27,9 +27,7 @@ func (h *harness) startSession(runID, command string) string {
 	return out.SessionID
 }
 
-// readSession reads until something comes back or the attempts run out. The
-// fake session is a real subprocess, so its output arrives through a pipe and
-// a pump goroutine rather than instantly.
+// readSession reads until output arrives or the attempts run out; the fake session is a real subprocess.
 func (h *harness) readSession(runID, sessionID string) machine.SessionReadResult {
 	h.t.Helper()
 	var out machine.SessionReadResult
@@ -44,8 +42,6 @@ func (h *harness) readSession(runID, sessionID string) machine.SessionReadResult
 	return out
 }
 
-// A session is the one thing machine_exec cannot do: state that outlives a
-// single call. This drives the whole path the way a coder would.
 func TestASessionCarriesStateBetweenToolCalls(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -72,17 +68,13 @@ func TestASessionCarriesStateBetweenToolCalls(t *testing.T) {
 	if closed.SessionID != id {
 		t.Errorf("close answered for %q, want %q", closed.SessionID, id)
 	}
-	// The handle is gone, so the next call must say so rather than hang.
 	if res := h.raw("machine_session_read", map[string]any{"runId": runID, "sessionId": id}); !res.IsError {
 		t.Error("reading a closed session succeeded")
 	}
 }
 
-// drainSession reads until a read comes back with nothing, and returns
-// everything it saw along with the last result. Draining fully is what makes
-// the offset assertions below deterministic: a terminal echoes, so a send
-// produces output twice, and a test that read only once could see the halves
-// land in different reads.
+// drainSession reads until a read is empty, checking each starts where the last stopped. Draining fully keeps
+// assertions deterministic: the pty echoes, so one send's output can span reads.
 func (h *harness) drainSession(runID, sessionID string) (string, machine.SessionReadResult) {
 	h.t.Helper()
 	var all strings.Builder
@@ -105,8 +97,6 @@ func (h *harness) drainSession(runID, sessionID string) (string, machine.Session
 	return all.String(), last
 }
 
-// Output is read by position and never drained twice: each read continues
-// where the last stopped, so nothing is returned again and nothing is skipped.
 func TestASessionReadNeverReturnsTheSameOutputTwice(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -123,8 +113,6 @@ func TestASessionReadNeverReturnsTheSameOutputTwice(t *testing.T) {
 		t.Errorf("%d bytes still pending after draining", afterFirst.Pending)
 	}
 
-	// Everything sent so far has been read, so anything the next reads return
-	// can only be new.
 	h.call("machine_session_send", map[string]any{
 		"runId": runID, "sessionId": id, "data": "MARKERTWO\n",
 	}, nil)
@@ -137,9 +125,7 @@ func TestASessionReadNeverReturnsTheSameOutputTwice(t *testing.T) {
 	}
 }
 
-// A terminal echoes what is typed at it, which is deliberate: it is what a
-// real terminal does, and it puts the command next to its output in the run
-// record, which matters because the send itself records only a byte count.
+// Echo is deliberate: it puts the command next to its output, and the send step records only a byte count.
 func TestASessionEchoesWhatIsTypedAtIt(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -148,24 +134,19 @@ func TestASessionEchoesWhatIsTypedAtIt(t *testing.T) {
 		"runId": runID, "sessionId": id, "data": "ECHOCHECK\n",
 	}, nil)
 	out, _ := h.drainSession(runID, id)
-	// The fake session gives back what it is sent, so the echo shows up as a
-	// second copy: one from the terminal, one from the command.
+	// One copy from the terminal's echo, one from cat.
 	if strings.Count(out, "ECHOCHECK") < 2 {
 		t.Errorf("the terminal did not echo the input; output was %q", out)
 	}
 }
 
-// The pty is the reason this feature exists: xcodebuild and friends branch on
-// isatty(), so a session that is not given a terminal is a different build.
-// The flags have to come before the VM name or tart reads them as part of the
-// command.
+// Builds branch on isatty(), so the session must get a real terminal; -i -t must precede the VM name.
 func TestASessionAsksTartForATerminal(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
 	h.startSession(runID, "swift build")
 
-	// Starting a session only forks the child, so the call it makes reaches
-	// the log a moment later.
+	// The forked child logs its call a moment after start returns.
 	var line string
 	for i := 0; i < 50 && line == ""; i++ {
 		for _, c := range strings.Split(testsupport.Calls(t, h.control), "\n") {
@@ -183,17 +164,12 @@ func TestASessionAsksTartForATerminal(t *testing.T) {
 	if !strings.Contains(line, "swift build") {
 		t.Errorf("the session did not carry the command: %q", line)
 	}
-	// The VM name must follow the flags, not precede them.
 	rest := strings.TrimPrefix(line, "exec -i -t ")
 	if !strings.HasPrefix(rest, "greenroom-") {
 		t.Errorf("the VM name does not follow the flags: %q", line)
 	}
 
-	// Asking for -t is not enough. Real tart reads the window size from its
-	// own stdin to forward to the guest and dies when that is a pipe, so the
-	// daemon has to hand it a host pty with a size already set. Driving it
-	// through pipes made every session dead on arrival once; this is the
-	// assertion that keeps it fixed without booting a VM.
+	// Real `tart exec -t` dies when its stdin is a pipe, so the daemon must hand it a sized host pty.
 	var stdin string
 	for i := 0; i < 50 && stdin == ""; i++ {
 		if b, err := os.ReadFile(filepath.Join(h.control, "session-stdin")); err == nil {
@@ -210,9 +186,7 @@ func TestASessionAsksTartForATerminal(t *testing.T) {
 	}
 }
 
-// A destroyed machine takes its sessions with it, and says so in those terms.
-// A handle that answered with something about a missing process would send a
-// caller looking for a fault that is not there.
+// A destroyed machine's sessions answer "no machine for run", not a process error.
 func TestSessionsDieWithTheirMachine(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -248,8 +222,6 @@ func TestUnknownSessionIsAReadableError(t *testing.T) {
 	}
 }
 
-// A command that has finished is not waited on, and its output is still there
-// to collect.
 func TestAFinishedSessionStopsReportingItselfRunning(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -271,9 +243,7 @@ func TestAFinishedSessionStopsReportingItselfRunning(t *testing.T) {
 	}
 }
 
-// A session tart refuses must not look healthy. tart reports this by exiting
-// straight away rather than by failing the spawn, so what the caller has to
-// see is a session that is not running.
+// tart refuses a session by exiting at once, so the caller must see it not running, with tart's reason.
 func TestASessionTartRefusesDoesNotLookHealthy(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -297,13 +267,11 @@ func TestASessionTartRefusesDoesNotLookHealthy(t *testing.T) {
 	if got.Running {
 		t.Error("a session tart refused still reports itself running")
 	}
-	// It must also say why, or it reads as a command that printed nothing.
 	if !strings.Contains(got.Error, "VM is not running") {
 		t.Errorf("a session tart refused gave error %q, want tart's own reason", got.Error)
 	}
 }
 
-// Every session call is evidence, like every other tool call.
 func TestSessionCallsAreRecordedAsSteps(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -332,8 +300,7 @@ func TestSessionCallsAreRecordedAsSteps(t *testing.T) {
 	}
 }
 
-// What a caller types into a session can be a password. The record keeps the
-// shape of what happened without keeping the secret.
+// Session input can be a password, so the record keeps its size only.
 func TestSessionSendRecordsItsSizeButNotItsContent(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()

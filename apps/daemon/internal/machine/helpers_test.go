@@ -56,8 +56,6 @@ func TestRsyncSummary(t *testing.T) {
 				"Total file size: 190,164 bytes\n" +
 				"Total transferred file size: 190,164 bytes\n" +
 				"sent 50,000 bytes  received 900 bytes\n",
-			// "Number of created files" is dropped on purpose: it does not
-			// have any of the three prefixes that rsyncSummary keeps.
 			want: "Number of files: 64 (reg: 48, dir: 16); " +
 				"Number of regular files transferred: 48; Total transferred file size: 190,164 bytes",
 		},
@@ -124,9 +122,7 @@ func TestNewRunID(t *testing.T) {
 			t.Fatalf("runId %q has a non-hex suffix", id)
 		}
 	}
-	// The random half exists so two runs made in the same second are still
-	// different, so ask for far more than one second's worth. At three bytes
-	// this failed about once in 135 attempts; at eight it will not.
+	// Many ids in the same second must still be distinct.
 	seen := map[string]bool{}
 	for i := 0; i < 20000; i++ {
 		got := newRunID()

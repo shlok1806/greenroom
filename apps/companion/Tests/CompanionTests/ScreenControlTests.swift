@@ -2,9 +2,6 @@ import XCTest
 
 @testable import Companion
 
-/// The arithmetic and the key mapping behind "take control" (ADR 0009). Every
-/// rule here is a pure function on purpose: a wrong fraction is a click in the
-/// wrong place on someone's machine, which is not a thing to find out by hand.
 final class ScreenControlTests: XCTestCase {
 
     // MARK: - Where a click lands
@@ -53,8 +50,6 @@ final class ScreenControlTests: XCTestCase {
         XCTAssertNil(fraction)
     }
 
-    /// A release that the guest never hears leaves its mouse button held down
-    /// for the rest of the run, so a drag off the edge is pulled back on.
     func testADragOffTheEdgeIsPulledOntoTheEdge() {
         let at = ScreenGeometry.clampedFraction(
             at: CGPoint(x: -50, y: 900),
@@ -122,8 +117,6 @@ final class ScreenControlTests: XCTestCase {
         XCTAssertEqual(action?.text, "é")
     }
 
-    /// A shortcut has to arrive as a named key: nothing in the guest reads
-    /// "\u{01}" as Select All.
     func testACommandShortcutIsAKeyWithModifiers() {
         let action = KeyTranslator.action(for: stroke("\u{01}", ignoring: "a", command: true))
         XCTAssertEqual(action?.type, .key)
@@ -226,7 +219,7 @@ final class ScreenControlTests: XCTestCase {
         {"holder":"human","since":"2026-09-20T10:00:00Z","expires":"2026-09-20T10:01:00Z","actions":7}
         """
         let lease = try JSONDecoder.daemon().decode(ControlLease.self, from: Data(json.utf8))
-        XCTAssertTrue(lease.isHuman)
+        XCTAssertEqual(lease.holder, "human")
         XCTAssertEqual(lease.actions, 7)
         XCTAssertEqual(lease.expires.timeIntervalSince(lease.since), 60)
     }
@@ -251,11 +244,7 @@ final class ScreenControlTests: XCTestCase {
 
     // MARK: - Retina guests
 
-    /// The frames are 1024x768 and a `machine_screenshot` off a Retina guest
-    /// comes back 2048x1536. Only the aspect ratio reaches the arithmetic, so
-    /// the same click has to mean the same place on the guest's screen either
-    /// way; if it ever stops doing so, a person clicks in the wrong place on
-    /// somebody else's machine.
+    /// Frames are 1024x768, a Retina screenshot 2048x1536: only aspect matters.
     func testTheGuestsBackingScaleDoesNotMoveAClick() {
         let view = CGSize(width: 1000, height: 640)
         let point = CGPoint(x: 431, y: 288)

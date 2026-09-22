@@ -3,17 +3,14 @@ import Foundation
 import Observation
 
 /// What the store must fetch after applying an event. Returned rather than
-/// performed so the merge itself stays testable without a daemon.
+/// performed so `apply` stays testable without a daemon.
 enum Followup: Hashable, Sendable {
     case nothing
     case steps(String)
     case run(String)
 }
 
-/// One thing the store must fetch to resync with the daemon: the run list,
-/// or one piece of the currently selected run. A plan is data, not action, so
-/// the decision of what to fetch (`RunStore.resyncPlan`) can be tested
-/// without a daemon.
+/// One fetch needed to resync with the daemon.
 enum Fetch: Hashable, Sendable {
     case runs
     case detail(String)
@@ -22,18 +19,15 @@ enum Fetch: Hashable, Sendable {
     case frames(String)
 }
 
-/// A click on a step or a `progress` row: jump the Screen tab to the first
-/// frame at or after that step (ADR 0008). `nonce` increments on every
-/// request so clicking the same row twice still re-triggers the seek.
+/// Jump the Screen tab to the first frame at or after `step` (ADR 0008).
+/// `nonce` makes a repeated click on the same row seek again.
 struct SeekRequest: Hashable, Sendable {
     var runId: String
     var step: Int
     var nonce: Int
 }
 
-/// A small LRU of decoded frame images, so scrubbing back and forth does not
-/// refetch and redecode a frame the player has already shown. Owned by the
-/// store, never touched by a view directly.
+/// An LRU of decoded frame images, so scrubbing never refetches a frame.
 @MainActor
 final class FrameCache {
     private let capacity: Int
@@ -68,8 +62,7 @@ final class FrameCache {
     private static func key(_ runId: String, _ file: String) -> String { "\(runId)/\(file)" }
 }
 
-/// Everything the windows read. It owns one `DaemonClient`, one event stream
-/// and the last state each run was seen in. Views never fetch for themselves.
+/// The single source of truth the views read. Views never fetch for themselves.
 @Observable
 @MainActor
 final class RunStore {
@@ -84,10 +77,9 @@ final class RunStore {
     var seekRequest: SeekRequest?
 
     let client: DaemonClient
-    let frameCache = FrameCache()
 
+    private let frameCache = FrameCache()
     private var streamTask: Task<Void, Never>?
-    private var started = false
     private var seekNonce = 0
     private var pilots: [String: ControlPilot] = [:]
 
@@ -97,12 +89,10 @@ final class RunStore {
 
     // MARK: - Lifecycle
 
-    /// Loads the run list and keeps a live event stream open, reconnecting with
-    /// a backoff and re-syncing from the API after every drop. The files on
-    /// disk are the truth; the stream is only a hint (ADR 0007).
+    /// Keeps the event stream open, resyncing from the API after every drop:
+    /// the stream is only a hint (ADR 0007).
     func start() {
-        guard !started else { return }
-        started = true
+        guard streamTask == nil else { return }
         streamTask = Task { [weak self] in
             await self?.runStream()
         }
@@ -111,17 +101,16 @@ final class RunStore {
     func stop() {
         streamTask?.cancel()
         streamTask = nil
-        started = false
         connected = false
     }
 
     private func runStream() async {
-        var backoff: UInt64 = 1
+        var backoff = 1
         while !Task.isCancelled {
             await resync()
             do {
                 connected = true
-                for try await event in client.events(runId: nil) {
+                for try await event in client.events() {
                     await handle(event)
                 }
                 connected = false
@@ -131,34 +120,21 @@ final class RunStore {
                 report(error)
             }
             if Task.isCancelled { return }
-            try? await Task.sleep(for: .seconds(Double(backoff)))
+            try? await Task.sleep(for: .seconds(backoff))
             backoff = min(backoff * 2, 10)
         }
     }
 
     // MARK: - Fetching
 
-    /// Reloads the run list.
-    func refresh() async {
-        await perform(.runs)
-    }
-
-    /// What must be re-fetched to resync with the daemon: the run list
-    /// always, plus every piece of the selected run, if one is open. A pure
-    /// function so the decision is testable without a daemon; used after an
-    /// SSE reconnect and when the app comes back to the foreground, so a
-    /// daemon that restarted while the window was elsewhere is never left
-    /// showing stale data.
+    /// The run list always, plus every piece of the selected run. Run after
+    /// each reconnect and on foregrounding, since a socket can look alive
+    /// across sleep while the daemon restarted.
     nonisolated static func resyncPlan(selected: String?) -> [Fetch] {
-        var plan: [Fetch] = [.runs]
-        if let selected {
-            plan += [.detail(selected), .messages(selected), .steps(selected), .frames(selected)]
-        }
-        return plan
+        guard let selected else { return [.runs] }
+        return [.runs, .detail(selected), .messages(selected), .steps(selected), .frames(selected)]
     }
 
-    /// Runs `resyncPlan`, unconditionally. Called after every SSE reconnect
-    /// and on `NSApplication.didBecomeActiveNotification`.
     func resync() async {
         for fetch in RunStore.resyncPlan(selected: selectedRunId) {
             await perform(fetch)
@@ -168,35 +144,29 @@ final class RunStore {
     private func perform(_ fetch: Fetch) async {
         do {
             switch fetch {
-            case .runs:
-                runs = try await client.runs()
-            case .detail(let runId):
-                details[runId] = try await client.run(runId)
-            case .messages(let runId):
-                messages[runId] = try await client.messages(runId, after: 0).messages
-            case .steps(let runId):
-                steps[runId] = try await client.steps(runId)
-            case .frames(let runId):
-                frames[runId] = try await client.frames(runId)
+            case .runs: runs = try await client.runs()
+            case .detail(let runId): details[runId] = try await client.run(runId)
+            case .messages(let runId): messages[runId] = try await client.messages(runId)
+            case .steps(let runId): steps[runId] = try await client.steps(runId)
+            case .frames(let runId): frames[runId] = try await client.frames(runId)
             }
-            if lastError != nil { lastError = nil }
+            clearError()
         } catch {
             report(error)
         }
     }
 
-    /// Loads the detail, the transcript, the steps and the frames of one run.
     func select(_ runId: String) async {
         async let detail = client.run(runId)
-        async let page = client.messages(runId, after: 0)
+        async let messageList = client.messages(runId)
         async let stepList = client.steps(runId)
         async let frameList = client.frames(runId)
         do {
             details[runId] = try await detail
-            messages[runId] = try await page.messages
+            messages[runId] = try await messageList
             steps[runId] = try await stepList
             frames[runId] = try await frameList
-            if lastError != nil { lastError = nil }
+            clearError()
         } catch {
             report(error)
         }
@@ -209,25 +179,17 @@ final class RunStore {
         case .nothing:
             break
         case .steps(let runId):
-            do {
-                steps[runId] = try await client.steps(runId)
-            } catch {
-                report(error)
-            }
+            await perform(.steps(runId))
         case .run(let runId):
-            await refresh()
+            await perform(.runs)
             if details[runId] != nil || selectedRunId == runId {
-                do {
-                    details[runId] = try await client.run(runId)
-                } catch {
-                    report(error)
-                }
+                await perform(.detail(runId))
             }
         }
     }
 
     /// Merges one event into what is held and says what still has to be
-    /// fetched. No networking happens here on purpose.
+    /// fetched. No I/O.
     @discardableResult
     func apply(_ event: ServerEvent) -> Followup {
         switch event {
@@ -237,21 +199,16 @@ final class RunStore {
             held.append(message)
             messages[runId] = held
             if let index = runs.firstIndex(where: { $0.runId == runId }) {
-                // `messages` in the run list is a count (the daemon sends
-                // len(msgs)), not a sequence number. Appending one message
-                // adds one.
                 runs[index].messages += 1
                 runs[index].lastActivity = max(runs[index].lastActivity, message.at)
             }
-            // A verdict or its closing changes the badge, so re-read the run.
+            // A verdict or its closing changes the badge.
             switch message.kind {
             case .verdict, .accept, .dispute: return .run(runId)
             default: return .nothing
             }
         case .step(let runId, let seq, let step):
             if let index = runs.firstIndex(where: { $0.runId == runId }) {
-                // `steps` in the run list is a count of steps.jsonl, not the
-                // highest seq: numbering can have gaps. One new step adds one.
                 if steps[runId]?.contains(where: { $0.seq == seq }) != true {
                     runs[index].steps += 1
                 }
@@ -259,19 +216,17 @@ final class RunStore {
                     runs[index].lastActivity = max(runs[index].lastActivity, at)
                 }
             }
-            guard steps[runId] != nil else { return .nothing }
-            return .steps(runId)
+            return steps[runId] == nil ? .nothing : .steps(runId)
         case .run(let lifecycle):
-            if let machine = lifecycle.machine, var detail = details[lifecycle.runId] {
-                detail.machine = machine
-                details[lifecycle.runId] = detail
+            if let machine = lifecycle.machine, details[lifecycle.runId] != nil {
+                details[lifecycle.runId]?.machine = machine
             }
             return .run(lifecycle.runId)
         case .frame(let runId, let frame):
-            // A run whose frames are not loaded needs no merge; `select`
-            // will fetch the whole list once it is opened.
-            guard var held = frames[runId] else { return .nothing }
-            guard !held.contains(where: { $0.file == frame.file }) else { return .nothing }
+            // Unloaded runs fetch the whole list when opened.
+            guard var held = frames[runId], !held.contains(where: { $0.file == frame.file }) else {
+                return .nothing
+            }
             held.append(frame)
             frames[runId] = held
             if let index = runs.firstIndex(where: { $0.runId == runId }) {
@@ -287,10 +242,10 @@ final class RunStore {
     /// The human seat in the conversation (ADR 0006).
     func send(runId: String, kind: MessageKind, text: String, replyTo: Int? = nil) async {
         do {
-            _ = try await client.send(runId: runId, kind: kind, text: text, replyTo: replyTo)
-            await reloadMessages(runId)
-            await refresh()
-            if lastError != nil { lastError = nil }
+            try await client.send(runId: runId, kind: kind, text: text, replyTo: replyTo)
+            await reloadTranscript(runId)
+            await perform(.runs)
+            clearError()
         } catch {
             report(error)
         }
@@ -298,14 +253,12 @@ final class RunStore {
 
     func screenshot(runId: String) async {
         do {
-            _ = try await client.screenshot(runId: runId)
+            try await client.screenshot(runId: runId)
             steps[runId] = try await client.steps(runId)
-            // The daemon writes the capture into the run's conversation, so
-            // the transcript is stale until it is re-read. Waiting for the
-            // event stream to say so would leave the app wrong whenever the
-            // stream is the thing that is broken.
-            await reloadMessages(runId)
-            if lastError != nil { lastError = nil }
+            // The daemon writes the capture into the conversation. Re-read it
+            // rather than trust the stream, which may be what is broken.
+            await reloadTranscript(runId)
+            clearError()
         } catch {
             report(error)
         }
@@ -314,42 +267,29 @@ final class RunStore {
     func destroy(runId: String) async {
         do {
             try await client.destroy(runId: runId)
-            await refresh()
+            await perform(.runs)
             details[runId] = try await client.run(runId)
-            await reloadMessages(runId)
-            if lastError != nil { lastError = nil }
+            await reloadTranscript(runId)
+            clearError()
         } catch {
             report(error)
         }
     }
 
-    func artifact(runId: String, name: String) async -> Data? {
+    /// A screenshot artifact, decoded like a frame.
+    func artifactImage(runId: String, name: String) async -> NSImage? {
         do {
-            return try await client.artifact(runId: runId, name: name)
+            return await Self.decode(try await client.artifact(runId: runId, name: name))
         } catch {
             report(error)
             return nil
         }
     }
 
-    /// One artifact as a drawn image. A screenshot artifact is the guest's
-    /// full display and much bigger than a frame, so it goes through the same
-    /// detached decode: a view must not turn bytes into pixels on the main
-    /// actor, and a view must not be the thing that knows they are bytes.
-    func artifactImage(runId: String, name: String) async -> NSImage? {
-        guard let data = await artifact(runId: runId, name: name) else { return nil }
-        return await Self.decode(data)
-    }
-
-    /// One frame's decoded image, from the cache if it is already there. The
-    /// Screen tab calls this while scrubbing, so a frame it has shown before
-    /// never crosses the network or a decoder twice.
     func frameImage(runId: String, file: String) async -> NSImage? {
         if let cached = frameCache.image(runId: runId, file: file) { return cached }
         do {
             let data = try await client.frame(runId: runId, file: file)
-            // Only the header is parsed off the main actor; see `decode` for
-            // why the pixels are not.
             guard let image = await Self.decode(data) else { return nil }
             frameCache.store(image, runId: runId, file: file)
             return image
@@ -359,14 +299,10 @@ final class RunStore {
         }
     }
 
-    /// Wraps JPEG bytes in an image, parsing only the header off the main
-    /// actor. `NSBitmapImageRep(data:)` defers decompression, so the real
-    /// decode (about 1.7ms, against 0.2ms for the header) still happens on the
-    /// main thread at first draw. This is a known, deliberately unfixed cost:
-    /// forcing the decode here would hold about 3.1MB of pixels per cached
-    /// frame, roughly 189MB at the cache's capacity of 60, so the cache would
-    /// have to be re-bounded in bytes at the same time, and that trade has
-    /// not been chosen yet.
+    /// Parses only the JPEG header off the main actor; the pixels still decode
+    /// on first draw. Deliberate: forcing it would hold ~3.1MB per cached
+    /// frame (~189MB at capacity 60), so the cache must be bounded in bytes in
+    /// the same change.
     private nonisolated static func decode(_ data: Data) async -> NSImage? {
         await Task.detached(priority: .userInitiated) { () -> NSImage? in
             guard let rep = NSBitmapImageRep(data: data) else { return nil }
@@ -376,8 +312,7 @@ final class RunStore {
         }.value
     }
 
-    /// The run's recording, built from its frames. `nil` on failure, with the
-    /// server's own text (e.g. "ffmpeg not found") left in `lastError`.
+    /// `nil` on failure, with the daemon's text (e.g. "ffmpeg not found") in `lastError`.
     func recording(runId: String) async -> Data? {
         do {
             return try await client.recording(runId: runId)
@@ -389,10 +324,8 @@ final class RunStore {
 
     // MARK: - Driving the screen (ADR 0009)
 
-    /// The one holder of a run's control lease. There is one per run and not
-    /// one per view, because the lease is the run's, not the window's: a tab
-    /// that is redrawn must not lose the screen, and two views of one run
-    /// must not each ask for it.
+    /// One pilot per run, not per view: the lease belongs to the run, so a
+    /// redrawn tab keeps it and two views never both ask for it.
     func pilot(for runId: String) -> ControlPilot {
         if let held = pilots[runId] { return held }
         let pilot = ControlPilot(runId: runId, store: self)
@@ -400,27 +333,16 @@ final class RunStore {
         return pilot
     }
 
-    /// Gives back every screen this app is holding. Called when the window
-    /// goes away, so a machine is never left believing a person is at its
-    /// keyboard.
     func releaseAllControl() async {
         for pilot in pilots.values {
             await pilot.release()
         }
     }
 
-    /// Reloads one run's conversation. The control routes write into it on
-    /// the daemon side, so the transcript has to be re-read after each one.
     func reloadTranscript(_ runId: String) async {
-        await reloadMessages(runId)
+        await perform(.messages(runId))
     }
 
-    func clearError() {
-        if lastError != nil { lastError = nil }
-    }
-
-    /// A step or a `progress` row was clicked: jump the Screen tab to the
-    /// first frame at or after that step (ADR 0008).
     func requestSeek(runId: String, step: Int) {
         seekNonce += 1
         seekRequest = SeekRequest(runId: runId, step: step, nonce: seekNonce)
@@ -432,25 +354,12 @@ final class RunStore {
         runs.first { $0.runId == runId }
     }
 
-    /// The verdict state of a run, from its detail when that is loaded.
     func verdict(_ runId: String) -> VerdictState? {
         details[runId]?.verdict ?? run(runId)?.verdict
     }
 
-    /// The newest screenshot artifact of a run, if any step took one.
-    func latestScreenshot(_ runId: String) -> (step: Int, name: String)? {
-        guard let list = steps[runId] else { return nil }
-        for step in list.reversed() {
-            if let name = step.screenshotArtifact { return (step.seq, name) }
-        }
-        return nil
-    }
-
-    /// True while the verifier owes the transcript an answer: the newest thing
-    /// said by a human or the coder starts a turn (ADR 0006, "A human is always
-    /// answered") and nothing from the verifier has closed it yet. Progress is
-    /// the verifier working, not its answer, and a system event is not an
-    /// answer either, so neither ends the wait.
+    /// True while the verifier owes an answer (ADR 0006, "A human is always
+    /// answered"). Verifier progress and system events do not end the wait.
     nonisolated static func awaitingVerifier(_ messages: [Message]) -> Bool {
         for message in messages.reversed() {
             switch message.from {
@@ -466,8 +375,7 @@ final class RunStore {
         return false
     }
 
-    /// Which messages hand the turn to the verifier. A coder `note` is context
-    /// it reads at its next turn; a human `note` is a question to answer.
+    /// A coder `note` is context for the next turn; a human `note` is a question.
     nonisolated static func startsTurn(_ message: Message) -> Bool {
         switch message.kind {
         case .task, .answer, .dispute: return true
@@ -476,29 +384,19 @@ final class RunStore {
         }
     }
 
-    private func reloadMessages(_ runId: String) async {
-        do {
-            messages[runId] = try await client.messages(runId, after: 0).messages
-        } catch {
-            report(error)
-        }
+    // MARK: - Errors
+
+    /// Guarded so an already-clear error does not notify observers.
+    func clearError() {
+        if lastError != nil { lastError = nil }
     }
 
-    /// Shows what went wrong, unless nothing did. A cancelled request is the
-    /// app changing its mind (a `.task(id:)` whose id moved on, a sibling of an
-    /// `async let` that already failed), so it is not news for the window: left
-    /// in, it painted "The daemon is not answering: cancelled" under a footer
-    /// that said "Live", every time the Screen tab followed a new frame.
-    ///
-    /// Not `private`: `ControlPilot` reports the same way when a lease or an
-    /// input batch is refused, so driving the screen never grows a second way
-    /// to surface an error.
+    /// Cancellations are the app changing its mind, never shown.
     func report(_ error: Error) {
         guard !RunStore.isCancellation(error) else { return }
         lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
-    /// True for every shape a cancelled request reaches us in.
     nonisolated static func isCancellation(_ error: Error) -> Bool {
         if error is CancellationError { return true }
         if case DaemonError.cancelled = error { return true }

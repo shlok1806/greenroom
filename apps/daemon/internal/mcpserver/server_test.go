@@ -50,20 +50,15 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	// A machine left running keeps the fake tart writing into the control
-	// directory, which races t.TempDir's cleanup and fails an unrelated test
-	// with "directory not empty". The frame recorder is off for the same
-	// reason: its captures are tart calls too. Boot is let to settle first:
-	// Destroy does not stop the boot goroutine, which would otherwise write
-	// its machine_boot step into the run directory during the cleanup.
+	// A live machine keeps the fake tart writing into its control directory, racing t.TempDir's
+	// cleanup (so frames are off too). Boot settles first because Destroy does not stop it.
 	t.Cleanup(func() {
 		for _, mc := range mgr.List() {
 			_, _ = mgr.Wait(context.Background(), mc.RunID, 15*time.Second)
 			_ = mgr.Destroy(context.Background(), mc.RunID)
 		}
 	})
-	// No live verifier is needed: the agent_* tools only reach the store, so
-	// a test can play the verifier by appending to it directly.
+	// Tests play the verifier by appending to the store directly.
 	reg := session.NewRegistry(mgr.Root, 2)
 	server := New(mgr, defaultImage, reg)
 	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(
@@ -206,24 +201,13 @@ func TestRequiredArgumentsAreEnforced(t *testing.T) {
 
 func TestUnknownRunIdIsAReadableToolError(t *testing.T) {
 	h := newHarness(t)
-	for _, name := range []string{
-		"machine_wait", "machine_exec", "machine_screenshot", "machine_destroy", "machine_sync",
-		"machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input",
-	} {
-		args := map[string]any{"runId": "no-such-run"}
+	for _, name := range append([]string{"machine_wait", "machine_exec", "machine_screenshot", "machine_destroy", "machine_sync"}, inputTools...) {
+		args := inputArgs(name, "no-such-run")
 		switch name {
 		case "machine_exec":
 			args["command"] = "echo hi"
 		case "machine_sync":
 			args["source"] = t.TempDir()
-		case "machine_click":
-			args["x"], args["y"] = 0.5, 0.5
-		case "machine_type":
-			args["text"] = "hi"
-		case "machine_key":
-			args["key"] = "a"
-		case "machine_input":
-			args["actions"] = []map[string]any{{"type": "key", "key": "a"}}
 		}
 		res := h.raw(name, args)
 		if !res.IsError {
@@ -236,10 +220,41 @@ func TestUnknownRunIdIsAReadableToolError(t *testing.T) {
 	}
 }
 
-// TestComputerUseOnAFailedMachineIsAReadableError matches the pattern every
-// other guest-touching tool follows: a machine that never came up answers
-// with a readable error naming its status, not a transport failure, and
-// leaves nothing posted to the guest.
+var inputTools = []string{"machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input"}
+
+// inputArgs returns valid arguments for a tool in inputTools, or just the runId for any other.
+func inputArgs(tool, runID string) map[string]any {
+	args := map[string]any{"runId": runID}
+	switch tool {
+	case "machine_click":
+		args["x"], args["y"] = 0.5, 0.5
+	case "machine_type":
+		args["text"] = "hi"
+	case "machine_key":
+		args["key"] = "a"
+	case "machine_input":
+		args["actions"] = []map[string]any{{"type": "key", "key": "a"}}
+	}
+	return args
+}
+
+// inputSteps counts the run's recorded machine_input steps.
+func (h *harness) inputSteps(runID string) int {
+	h.t.Helper()
+	steps, err := machine.ReadSteps(h.mgr.RunDir(runID))
+	if err != nil {
+		h.t.Fatalf("ReadSteps: %v", err)
+	}
+	n := 0
+	for _, s := range steps {
+		if s.Tool == "machine_input" {
+			n++
+		}
+	}
+	return n
+}
+
+// A machine that never came up answers input with a readable error and posts nothing.
 func TestComputerUseOnAFailedMachineIsAReadableError(t *testing.T) {
 	h := newHarness(t)
 	testsupport.Flag(t, h.control, "fail-run")
@@ -252,19 +267,8 @@ func TestComputerUseOnAFailedMachineIsAReadableError(t *testing.T) {
 		t.Fatalf("machine is %s, want failed (error %q)", mc.Status, mc.Error)
 	}
 
-	for _, name := range []string{"machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input"} {
-		args := map[string]any{"runId": mc.RunID}
-		switch name {
-		case "machine_click":
-			args["x"], args["y"] = 0.5, 0.5
-		case "machine_type":
-			args["text"] = "hi"
-		case "machine_key":
-			args["key"] = "a"
-		case "machine_input":
-			args["actions"] = []map[string]any{{"type": "key", "key": "a"}}
-		}
-		res := h.raw(name, args)
+	for _, name := range inputTools {
+		res := h.raw(name, inputArgs(name, mc.RunID))
 		if !res.IsError {
 			t.Errorf("%s accepted a call on a failed machine", name)
 			continue
@@ -326,9 +330,7 @@ func TestWaitReachesReadyAndReportsBootSeconds(t *testing.T) {
 	runID := h.ready()
 	var mc machine.Machine
 	h.call("machine_wait", map[string]any{"runId": runID}, &mc)
-	// bootSeconds is rounded to one decimal, and a fake machine boots in
-	// milliseconds, so only require that it is not negative here. The manager
-	// suite checks that it covers the real wait.
+	// A fake boot rounds to 0s; the manager suite checks the real value.
 	if mc.Status != machine.Ready || mc.IP == "" || mc.BootSeconds < 0 {
 		t.Errorf("ready machine is missing fields: %+v", mc)
 	}
@@ -337,8 +339,6 @@ func TestWaitReachesReadyAndReportsBootSeconds(t *testing.T) {
 func TestWaitCapsTheTimeout(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
-	// A timeout far above the cap must still return promptly for a ready
-	// machine, and must not be rejected.
 	started := time.Now()
 	var mc machine.Machine
 	h.call("machine_wait", map[string]any{"runId": runID, "timeoutSeconds": 9999}, &mc)
@@ -555,8 +555,7 @@ func TestRound(t *testing.T) {
 	}
 }
 
-// Issue #1: a machine whose `tart run` process dies must fail in seconds with
-// the reason tart printed, not after the three minute readiness timeout.
+// Issue #1: a dead `tart run` fails the machine in seconds with tart's reason, not after the readiness timeout.
 func TestCreateFailsFastWhenTheVMProcessDies(t *testing.T) {
 	h := newHarness(t)
 	testsupport.Flag(t, h.control, "fail-run")
@@ -580,8 +579,7 @@ func TestCreateFailsFastWhenTheVMProcessDies(t *testing.T) {
 	}
 }
 
-// Issue #2: the host allows a fixed number of macOS VMs. A create above that
-// number must be refused, not started and then lost.
+// Issue #2: a create above the host's macOS VM limit is refused before cloning.
 func TestCreateRefusesAboveTheHostLimit(t *testing.T) {
 	h := newHarness(t)
 	if err := os.WriteFile(filepath.Join(h.control, "vmnames"), []byte("other-one\nother-two\n"), 0o644); err != nil {
@@ -603,8 +601,7 @@ func TestCreateRefusesAboveTheHostLimit(t *testing.T) {
 	}
 }
 
-// Issue #5: machine_sync promises a dest relative to the guest home and an
-// absolute source. It must enforce both.
+// Issue #5: machine_sync requires an absolute source and a dest inside the guest home.
 func TestSyncKeepsTheCallerInsideTheGuestHome(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -631,29 +628,9 @@ func TestSyncKeepsTheCallerInsideTheGuestHome(t *testing.T) {
 	}
 }
 
-// machine_verify is retired (ADR 0006): the verifier is reached through the
-// conversation, never through a tool of its own.
-func TestVerifyToolIsGone(t *testing.T) {
-	h := newHarness(t)
-	res, err := h.session.ListTools(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tool := range res.Tools {
-		if tool.Name == "machine_verify" {
-			t.Fatal("machine_verify is still offered")
-		}
-	}
-}
+// --- computer use (ADR 0009) ---
 
-// --- computer use (ADR 0009, issue #11): machine_click, machine_type,
-// machine_key, machine_scroll and machine_input, the verifier's mouse and
-// keyboard. ---
-
-// postedActions decodes what the daemon actually sent the guest helper, the
-// same way internal/machine/input_test.go does: the fake tart logs the whole
-// command, and the payload rides in it as base64. It returns the last
-// non-empty batch, so a test that posts several calls sees the most recent.
+// postedActions decodes the most recent non-empty batch sent to the guest helper, from the fake tart's call log.
 func postedActions(t *testing.T, control string) []map[string]any {
 	t.Helper()
 	calls := testsupport.Calls(t, control)
@@ -695,18 +672,8 @@ func TestClickPostsOneActionAndRecordsOneStep(t *testing.T) {
 		t.Errorf("x,y = %v,%v, want 256,384", posted[0]["x"], posted[0]["y"])
 	}
 
-	steps, err := machine.ReadSteps(h.mgr.RunDir(runID))
-	if err != nil {
-		t.Fatalf("ReadSteps: %v", err)
-	}
-	var found int
-	for _, s := range steps {
-		if s.Tool == "machine_input" {
-			found++
-		}
-	}
-	if found != 1 {
-		t.Fatalf("machine_input steps = %d, want 1", found)
+	if n := h.inputSteps(runID); n != 1 {
+		t.Fatalf("machine_input steps = %d, want 1", n)
 	}
 }
 
@@ -744,8 +711,6 @@ func TestScrollPostsADelta(t *testing.T) {
 	}
 }
 
-// A drag has no tool of its own: it is a batch through machine_input, the
-// same way the companion composes one out of down, move and up.
 func TestInputBatchComposesADragInOneStep(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -764,24 +729,12 @@ func TestInputBatchComposesADragInOneStep(t *testing.T) {
 		t.Errorf("actions = %+v, want down, move, up in order", posted)
 	}
 
-	steps, err := machine.ReadSteps(h.mgr.RunDir(runID))
-	if err != nil {
-		t.Fatalf("ReadSteps: %v", err)
-	}
-	var found int
-	for _, s := range steps {
-		if s.Tool == "machine_input" {
-			found++
-		}
-	}
-	if found != 1 {
-		t.Fatalf("machine_input steps = %d, want 1: a batch is one step, not one per action", found)
+	if n := h.inputSteps(runID); n != 1 {
+		t.Fatalf("machine_input steps = %d, want 1: a batch is one step, not one per action", n)
 	}
 }
 
-// A human at the companion always wins. The verifier's call comes back as a
-// readable tool error naming them, not a transport failure, and the machine
-// is unharmed: no action reaches the guest.
+// A human holding the screen wins: the call is a readable tool error and nothing reaches the guest.
 func TestClickIsRefusedWhileAHumanHoldsTheScreen(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -803,17 +756,13 @@ func TestClickIsRefusedWhileAHumanHoldsTheScreen(t *testing.T) {
 		t.Error("a refused click still reached the guest input helper")
 	}
 
-	// The human is still holding the screen: the refused call did not
-	// consume or disturb their lease.
 	c, held := h.mgr.ControlState(runID)
 	if !held || c.Holder != "human" {
 		t.Errorf("control state = %+v held=%v, want the human still holding it", c, held)
 	}
 }
 
-// The verifier holds the lease per call, not for the whole turn: once a
-// machine_click has returned, a human can take the screen back immediately,
-// proving the verifier gave it up rather than holding it across calls.
+// The verifier holds the lease per call, so a human can take it right after one returns.
 func TestAHumanCanTakeTheScreenBackBetweenVerifierCalls(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -843,17 +792,7 @@ func TestTypeSendsOneBatchOneStep(t *testing.T) {
 		t.Errorf("action = %+v, want a type of \"hello\"", posted[0])
 	}
 
-	steps, err := machine.ReadSteps(h.mgr.RunDir(runID))
-	if err != nil {
-		t.Fatalf("ReadSteps: %v", err)
-	}
-	var found int
-	for _, s := range steps {
-		if s.Tool == "machine_input" {
-			found++
-		}
-	}
-	if found != 1 {
-		t.Fatalf("machine_input steps = %d, want 1", found)
+	if n := h.inputSteps(runID); n != 1 {
+		t.Fatalf("machine_input steps = %d, want 1", n)
 	}
 }

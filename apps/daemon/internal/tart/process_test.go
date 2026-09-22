@@ -151,8 +151,6 @@ func TestStartRejectsAnUnwritableLogPath(t *testing.T) {
 	}
 }
 
-// A watched machine runs its screen over VNC and tart prints the address.
-// The address is what lets a person look at the work as it happens.
 func TestWatchedProcessReportsItsScreenAddress(t *testing.T) {
 	c := fakeBin(t, "echo 'Opening vnc://:word-word@127.0.0.1:60592...'; sleep 5")
 	logPath := filepath.Join(t.TempDir(), "vm.log")

@@ -1,466 +1,198 @@
-# greenroom daemon
+# daemon
 
-One Go binary (`greenroom`) on the developer's own Mac. An agent (Claude Code) talks to it
-over MCP; it drives Tart VMs as subprocesses and records every call to disk.
-
-```
-Claude Code --MCP/Streamable HTTP--> daemon --subprocess--> tart --> macOS VM
-                                       |
-                                       +--> ~/.greenroom/runs/<runId>/
-```
+One Go binary, `greenroom`. MCP on `/mcp`, companion API on `/api/`, `/healthz`. Drives
+Tart as a subprocess. State and evidence under `~/.greenroom/` (`state.json`,
+`runs/<runId>/`).
 
 ## Commands
 
 ```sh
 go build ./...
-go test ./...                                          # no VM needed; the e2e test is build-tagged
-go test ./... -race                                    # run this before any change to boot or the recorder
-go test ./... -coverpkg=./... -coverprofile=/tmp/c.out && go tool cover -func=/tmp/c.out | tail -1
-go test ./internal/machine -run TestFoo                # single test
-go test -tags tart -run TestEndToEnd -v -timeout 10m . # real Tart VM, needs tart on PATH and a pulled image
-go test -tags tart -run TestEndToEndSession -v -timeout 12m . # proves a session's command really gets a tty
+go test ./...                                   # no VM; fake tart
+go test -race ./...                             # before touching boot, recorder or sessions
+go test ./internal/machine -run TestFoo
+go test -tags tart -run TestEndToEnd -v -timeout 10m .         # real VM
+go test -tags tart -run TestEndToEndSession -v -timeout 12m .  # real pty in a real VM
+go test -tags tart -timeout 20m ./...           # whole VM suite, as CI runs it
 golangci-lint run ./...
-go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7778/mcp  # drive a running daemon over MCP like a coder would
-go run . serve                                         # MCP on http://127.0.0.1:7777/mcp, API on http://127.0.0.1:7777/api/
-go run . serve -addr 127.0.0.1:7777 -root ~/.greenroom -image <oci image>
-go run . serve -tart ~/.local/tart-2.37.0/tart.app/Contents/MacOS/tart  # drive a specific tart; GREENROOM_TART does the same
-go run . serve -verifier manual                        # a person answers the conversation instead of a model, no API key needed
-go run . serve -verifier-max-steps 40 -verifier-budget 10m  # tool calls and wall-clock cap for a single verifier turn
+
+go run . serve                                  # 127.0.0.1:7777, root ~/.greenroom
+go run . serve -verifier manual                 # no model; a person types instructions
+go run . serve -image greenroom-base -max-machines 2 -frame-interval 2s
+go run . serve -tart <path>                     # or GREENROOM_TART
+go run . prepare-image -vm <running vm>
+go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir> [-watch]]
+
+scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
+scripts/uninstall.sh    # keeps the binary and ~/.greenroom
+scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-force]
 ```
 
-`-verifier` picks the brain: `nim` (default, model-driven, needs `NVIDIA_API_KEY`) or `manual`, which reads the
-last task, note, answer or dispute in the conversation and runs it as one instruction per line: `run <shell
-command>`, `screenshot`, `verdict pass|fail|inconclusive <summary>`, `ask <question>`, or `help` for the full
-grammar. `GREENROOM_VERIFIER` sets the default when the flag is not given.
+`serve` flags not in `usage()`: `-env-file` (default `.env`), `-tart`, `-open-viewer`.
+`-verifier` defaults to `GREENROOM_VERIFIER`, then `nim`. `nim` without `NVIDIA_API_KEY`
+runs with no verifier and says so in each run's transcript.
 
-The e2e test boots a real VM and costs minutes plus tens of GB of disk. It is the only test
-that exercises the whole path, so run it after changes to `machine` or `tart`.
-
-## Install
-
-```sh
-pnpm run install:daemon     # scripts/install.sh
-pnpm run uninstall:daemon   # scripts/uninstall.sh
-```
-
-`install.sh` builds `~/.greenroom/bin/greenroom`, writes the launchd user agent
-`~/Library/LaunchAgents/com.greenroom.daemon.plist` and starts it on `127.0.0.1:7777` with the
-repo's `.env`. The agent has `KeepAlive`, so launchd restarts the daemon when it crashes, and
-`RunAtLoad`, so it comes back at login: no terminal holds it open. Everything it writes to
-stdout and stderr goes to `~/.greenroom/daemon.log`. The script refuses to take port 7777 from
-anything that is not a greenroom daemon. `uninstall.sh` boots the agent out and removes the
-plist; the binary and `~/.greenroom`, which holds the run record, stay.
-
-On the first start macOS may ask to allow greenroom on the local network. Nothing in the boot
-path needs it any more: the daemon reaches a guest only through `tart exec` over vsock and
-through Apple-signed subprocesses (ssh, rsync), none of which the gate applies to. Granting it
-is harmless, and refusing it must stay harmless: see the local-network invariant below.
+The smoke client's own `-url` default is `:7778`; always pass `-url`.
 
 ## Layering
 
-Each layer depends only on the one below it. Keep it that way.
+Each layer depends only on the ones below. Keep it that way.
 
-- `main.go` - CLI (`serve`, `version`), flags, HTTP mux. `/mcp` serves MCP stateless at the
-  protocol layer; `/api/` serves the companion; `/healthz` reports live machine count. It also
-  owns the lifecycle bridge that turns manager events into conversation events.
-- `internal/mcpserver` - the only agent-facing surface: tool definitions, input structs,
-  defaults, PNG-to-JPEG, rounding. It holds no VM logic; anything stateful belongs below it.
-- `internal/api` - the companion's read and control surface (ADR 0007), a sibling of
-  `mcpserver` over the same manager and the same store: JSON routes, the SSE stream, and
-  nothing stateful. Neither sibling may hold logic the other needs.
-- `internal/machine` - lifecycle and the source of truth. `Manager` guards the machine map
-  with a mutex and persists it; `recorder` owns run evidence on disk: `manifest.json`,
-  `steps.jsonl`, and, while frame capture is enabled, `frames/<unix-ms>.jpg` and `frames.jsonl`
-  (ADR 0008). `input.go` owns computer use (ADR 0009): the control lease and the guest-side
-  helper, whose Swift source is embedded from `internal/machine/guest/input.swift`.
-  `ptysession.go` owns interactive sessions: guest commands that stay alive between tool
-  calls, behind a real terminal. Note the name: `internal/session` one line below is the
-  *conversation*, an unrelated thing, so the type here is `PTYSession` and never `Session`.
-- `internal/session` - the conversation a run owns (`conversation.jsonl`), beside `machine` and
-  below `mcpserver` and the HTTP API. `Registry` hands out one append-only `Store` per run, and
-  every participant, coder, human, verifier and the daemon itself, writes through it.
-- `internal/verifier` - greenroom's own agent, an actor per run. It waits on the conversation,
-  takes a turn when a message needs one, and drives the machine through `Manager`.
-- `internal/tart` - subprocess wrapper over the `tart` CLI, and the only place that knows
-  tart's argument shapes or parses its output.
+- `main.go` - flags, HTTP mux, and the lifecycle bridge (manager events to transcript
+  events: ready, failed, stopped, destroyed).
+- `internal/mcpserver` - the only agent-facing surface. Tool schemas, defaults, PNG to
+  JPEG. No VM logic.
+- `internal/api` - the companion's routes and SSE stream (ADR 0007). Sibling of
+  `mcpserver`. Neither holds logic the other needs.
+- `internal/verifier` - greenroom's agent, one actor per run. `Verifier` (NIM) and
+  `Manual` share one turn shape.
+- `internal/session` - a run's conversation (`conversation.jsonl`). Not the same thing as
+  `machine.PTYSession`; never name that type `Session`.
+- `internal/machine` - lifecycle and source of truth. `Manager`, the recorder
+  (`manifest.json`, `steps.jsonl`, `frames/`, `frames.jsonl`), computer use (`input.go`,
+  guest helper in `guest/input.swift`), pty sessions (`ptysession.go`).
+- `internal/nim` - OpenAI-compatible client for NVIDIA NIM.
+- `internal/tart` - the only package that knows tart's arguments and output.
 
 ## Invariants
 
-These are the rules a future change is most likely to break.
+Boot and lifecycle
 
-**Create is serialized.** `createMu` is held for the whole of `Create`. The capacity check reads
-the host and the create then acts on it, so two overlapping creates would both pass a limit with
-room for one. A local clone takes about 0.1 s, so serializing costs little next to a boot.
+- `runId` is the one handle: map key, VM name (`greenroom-<runId>`), run directory.
+- `Create` holds `createMu` for its whole length, so the host-capacity check and the clone
+  cannot interleave. Default limit 2 (Apple's), `-max-machines` changes it.
+- `machine_create` returns `booting` at once; callers poll `machine_wait` (capped at 50 s,
+  under Claude Code's 60 s first-byte timeout). `agent_wait` has the same cap.
+- Ready means usable: guest agent answers, IP known, ssh key installed, sshd accepts on
+  guest 127.0.0.1:22 (probed via `tart exec`). The waiting phases each get their own
+  `readyTimeout` (3 min). A timeout names the last probe error.
+- `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`, `sshSeconds`.
+- `finishBoot` writes the step before closing `ready`. `manifest.json` is written by
+  temp file and rename.
+- `waitReady` watches `tart run`'s process; if it exits, fail at once with the tail of
+  `vm.log`. `watchProcess` does the same after ready.
+- Every way a run ends stamps `destroyedAt`: destroy, failed boot, VM exit, and a reattach
+  that finds the VM gone (dated from the run's last evidence).
+- SIGINT stops HTTP only. Machines keep running; `loadState` reattaches on next start.
+- Every guest-touching call goes through `awaitReady` and fails with "call machine_wait
+  and try again" rather than blocking.
+- The daemon never dials a guest over TCP in-process. macOS gates local-network access
+  per binary and each `go build` is a new identity. Use `tart exec` (vsock) or Apple-signed
+  subprocesses (ssh, rsync, nc).
 
-**Create is asynchronous and must stay that way.** Boot takes 30 to 120 s while Claude Code
-gives an HTTP tool call 60 s to first byte, so `machine_create` returns immediately in
-`booting` and the agent polls `machine_wait` (capped at 50 s per call).
+Evidence
 
-**Ready means usable, not merely booted.** Readiness is four phases in order: the guest agent
-answers over vsock, tart reports an IP, the ssh key goes in, and sshd inside the guest accepts a
-connection on 127.0.0.1:22, probed over vsock with `tart exec`. Without the last one the first
-`machine_sync` after `ready` can fail with "No route to host", because sshd starts later than the
-guest agent. A phase that times out carries the last probe error, so a failed boot names its
-cause instead of only reporting a deadline.
+- Only the recorder hands out step numbers (`begin` then `complete`). Claim the number
+  before naming a file.
+- `manifest.Steps` is a high-water mark, not a count. Anything that reports a count reads
+  `machine.ReadStepLog`.
+- Every tool call records itself (input, output, error, duration). A new tool does too.
+- Frames: every `-frame-interval` (default 2 s, 0.5 s while a control lease is held,
+  0 disables) into `frames/<unix-ms>.jpg` plus a line in `frames.jsonl`. A frame cites the
+  current step; it never claims a number. Capture failures are logged once, never fatal.
+- A guest command's non-zero exit is `ExitCode`, not an `error`. `error` means tart failed.
 
-**The daemon never opens a TCP connection to a guest itself.** macOS gates local-network access
-per binary identity and every `go build` is a new identity, so an in-process dial to
-192.168.64.x fails with "no route to host" while Apple-signed subprocesses (ssh, rsync, nc) and
-`tart exec` over vsock are unaffected. Anything that must reach the guest goes through one of
-those.
+Conversation and verifier
 
-The two waiting phases each get their own budget of `readyTimeout`. They must not share one,
-because a slow guest agent would then consume the time the ssh phase needs and the machine would
-fail with an error that blames ssh. Measured on a loaded host: the agent phase alone took 112.6 s
-of a 180 s budget while the ssh phase took 0.0 s.
+- Only `session.Store.Append` assigns message `seq`.
+- The verifier is reached only through the conversation. Nothing but the actor calls
+  `Turn`. There is no `machine_verify` tool.
+- A verdict is a proposal. After `-max-disputes` (default 2) disputes it is contested and
+  only a human can close it.
+- Every human message starts a turn and gets a `reply`, `question` or `verdict`, even
+  while the machine boots or is dead. A coder `note` does not start a turn.
+- `Manual` answers exactly like `Verifier`, through the same `Manager` calls. Anything
+  that works under `-verifier manual` works under `nim`.
+- Model failures retry: `nim.RetryBackoff` (1, 2, 4, 8 s on 429/5xx/transport, honours
+  `Retry-After`), then `verifier.TurnRetryDelays` (30, 60, 120 s). After the last, the
+  actor posts that it gave up. Both are package vars so tests can zero them.
+- Every action that changes a machine lands in the transcript. Lifecycle events come only
+  from the bridge in `main.go`.
 
-**Every boot records its phase timings.** `machine_boot` carries `agentSeconds`, `ipSeconds`,
-`keySeconds` and `sshSeconds`. Boot time varies a lot with host load, from 32 s to 121 s on the
-same Mac, so "which phase was slow" is a question only the recording can answer.
+Computer use (ADR 0009)
 
-**The record is on disk before Wait returns.** `finishBoot` writes the `machine_boot` step and
-only then closes `ready`, so a caller that reads the run directory the moment `machine_wait`
-answers sees what `machine_wait` said. `manifest.json` is replaced atomically (temp file and
-rename) for the same reason: the API and the companion read it while the recorder writes it.
-The slow part of a failed boot, stopping the VM, still happens after the signal.
+- At most one control lease per machine; `Manager.Input` refuses input without it. Lease
+  expires after `ControlTTL` (60 s) of silence; each batch renews it. A human taking
+  or releasing it posts to the transcript (`internal/api`); each batch is one
+  `machine_input` step.
+- The verifier takes the lease per call, not per turn, via `Manager.InputAs`. A human
+  holding it is a readable error, not a failure.
+- Coordinates are fractions 0 to 1. Only the manager converts to points (`ScreenOf`);
+  out-of-range is clamped. `machine.Shot` carries `width`, `height`, `scale`; never
+  hardcode Retina 2.
+- The input helper is compiled in the guest with `swiftc` to
+  `~/.greenroom/bin/greenroom-input-<inputHelperVersion>`. Bump `inputHelperVersion`
+  when `guest/input.swift` changes, and rebuild `greenroom-base`. Nothing detects a stale
+  image except a slow first control request. Source and input travel base64, never
+  through a shell.
 
-**A machine whose `tart run` process exits has failed.** tart stays in the foreground for the
-life of a VM, so an exit during boot means the VM is gone. `waitReady` watches
-`tart.Process.Exited` and returns `Err`, which prefers the tail of `vm.log` because that is where
-tart writes the real cause, for example the host VM limit. Never wait out the readiness timeout
-for a process that has already gone.
+Sync
 
-**`machine_create` refuses to go above the host machine limit.** Apple permits two macOS guests
-for each host, and `checkHostCapacity` counts running VMs before anything is cloned. The default
-is 2 and `-max-machines` changes it. The error names the machines that hold the slots.
+- `source` must be absolute; `dest` must stay inside the guest home.
+- Default `dest` is `~/work/<basename>` (`GuestWorkDir`). This is pinned: SwiftPM caches
+  are keyed to their absolute path and fail hard elsewhere. `images/scripts/firstboot.sh`
+  uses the same path; change both together.
+- rsync uses `-a`, not `-az`. Compression makes a local VM sync ~4x slower
+  (`docs/10-build-transport.md`). `TestSyncBuildsTheRsyncCommand` asserts it.
 
-**Only the recorder hands out step numbers.** `begin` claims a number under the recorder lock and
-`complete` records that step. Any tool that names a file claims its number first, because two
-callers that compute `manifest.Steps + 1` themselves choose the same name and overwrite each
-other's evidence.
+Interactive sessions (`machine_session_*`)
 
-**`manifest.Steps` is a high-water mark, and nothing reports it as a count.** `begin` claims a
-number before the work runs, so a daemon stopped between `begin` and `complete` leaves a number
-claimed that no line in steps.jsonl ever uses. It stays a high-water mark on purpose: handing out
-a number the run has already spent would overwrite that step's artifact, and reattaching takes
-`max(manifest.Steps, highest seq in steps.jsonl)` so a manifest that lost writes cannot walk the
-numbering backwards. Anything that reports what a run did counts the record instead, through
-`machine.ReadStepLog`, which is why `/api/runs` agrees with `/api/runs/{id}/steps`. A run was
-found reporting `steps: 0` in the list with six steps on disk, from an older daemon that rebuilt
-the manifest on reattach.
+- A session is a host `tart exec -i -t` child keyed by `(runId, sessionId)`, never a guest
+  pid. Not in `state.json`; a restart drops them.
+- `tart exec -t` must get a host pty (`internal/tart/pty.go`), never a pipe, or tart
+  crashes on `TIOCGWINSZ`. Set the window size before start; close the slave after
+  start; `EIO` on the master is clean EOF.
+- Output buffer is the last 1 MiB, read by absolute offset; reads cap at 256 KiB and
+  report `dropped` and `pending`. `cleanTTY` strips escapes on the way out.
+- `forgetLocked` is the only way a machine leaves the map, and it detaches its sessions so
+  no `tart exec` child outlives the machine.
+- A pty echoes. Tests must not be satisfiable by the echoed command line.
 
-**Every way a run can end is recorded.** `destroyedAt` is not only written by `Destroy`: a boot
-that fails stops and deletes the VM and stamps it, a `tart run` process that exits after the
-machine was ready is watched by `watchProcess`, which fails the machine, deletes its VM and
-stamps it while leaving the run directory untouched, and a reattach that finds tart no longer
-listing a machine stamps it from the run's own evidence, dated at the end of the last step or
-frame rather than at the restart. A run with no end reads
-as a machine still running days later, and every duration computed from it is wrong.
+## Tart
 
-**Only the session store hands out message sequence numbers.** `Store.Append` numbers a message
-under its own lock, for the same reason only the recorder hands out step numbers: two writers
-that each compute `len(msgs) + 1` choose the same `seq` and one of them is lost.
+The daemon resolves tart in this order: `-tart`, `GREENROOM_TART`, the pinned install at
+`~/.local/tart-<PinnedVersion>/tart.app/Contents/MacOS/tart`, then `PATH`.
+`tart.PinnedVersion` (2.37.0) is the single source of truth. `CheckTart` logs a mismatch
+and never refuses to start.
 
-**The verifier is reached only through the conversation.** Nothing calls `Verifier.Turn` except
-the actor in `internal/verifier`, which reacts to what lands in the store. There is no
-`machine_verify` tool any more: the coder posts a task with `agent_send` and reads the reply with
-`agent_wait`. A verdict is a proposal, open to `accept` or `dispute`, and after `-max-disputes`
-rounds it is contested and only a human can close it.
-
-**The manual brain is the model brain with a person for a model.** `verifier.Manual` answers the same
-conversation, in the same message kinds, and drives the same machine through the same `Manager` calls as
-`verifier.Verifier`; it only replaces the model's tool calls with a person's typed instructions. Anything that
-works with `-verifier manual` works with `-verifier nim`, and a test written against one brain's `Turn` is
-proof about the shape of a turn, not about a model.
-
-**A human is always answered.** Every message a human sends starts a verifier turn, a `note`
-included, and the verifier answers it in the transcript with a `reply`, a `question` or a
-`verdict`. It can talk while the machine is booting or dead: the turn runs whatever the machine
-is doing, the machine's status goes in front of the model at the start of the turn and again
-when it changes, and a tool call on a machine that is not ready comes back as a readable error.
-A coder `note` is context, not a turn, because the coder's own reply channel is its next
-`agent_wait`.
-
-**Only one hand on the mouse, and the conversation is told whose.** A machine has at most
-one control lease (`Manager.TakeControl`, ADR 0009) and `Manager.Input` refuses a batch
-that is not backed by it, so the verifier and a person can never post events at the same
-time. The lease expires after `ControlTTL` of silence and every batch renews it: a
-companion that crashes holding the screen must not lock it for good. Taking it and giving
-it back each write one message into the conversation, and each batch is one
-`machine_input` step, whatever its length, so a drag reads as one thing a person did.
-
-**The verifier holds the screen lease per call, not per turn.** `machine_click`,
-`machine_type`, `machine_key`, `machine_scroll` and `machine_input`, in `internal/mcpserver`
-for a coder and natively in `internal/verifier` for the model and manual brains, all take
-the lease as holder `verifier`, post one batch, and release it before the call returns. The
-take-post-release sequence lives once, in `machine.Manager.InputAs` (issue #12): both
-packages call it rather than each keeping its own copy, because `internal/verifier` cannot
-import `internal/mcpserver` and the two used to duplicate the same three lines. A lease held
-for a whole turn would let one long turn lock a watching human out of a machine they are
-meant to be able to take back at any moment; a lease held only for the one batch a call
-posts means a human can take the screen the instant a call returns, which issue #11
-requires and `TestAHumanCanTakeTheScreenBackBetweenVerifierCalls` and
-`TestTurnClicksAtAFractionAndRecordsOneStep` both check for. A human already holding the
-lease is not a transport failure: `InputAs` turns it into a readable error naming them, the
-machine untouched, so the caller can simply try again in a moment.
-
-**Input coordinates are fractions of the screen, and the manager is the only place that
-knows otherwise.** The caller sends 0 to 1 because it is looking at a scaled frame; the
-manager reads the guest's real resolution once per machine (`ScreenOf`) and multiplies.
-A coordinate outside the picture is clamped, not refused: a drag off the edge is a hand,
-not a bad request. Never move this arithmetic up into `api` or `mcpserver`: both would
-then need a resolution neither of them owns.
-
-This is also why the guest's Retina display is not a coordinate bug. `screencapture`
-returns physical pixels (2048x1536) while `CGDisplayBounds`, which is what `Screen`
-carries and what `CGEventPost` takes, is in points (1024x768), so the image is exactly
-twice the coordinate space. A fraction of the image is the same number as a fraction of
-the desktop, whatever the factor, so a caller that divides by the picture it was handed
-is already aiming correctly and needs no second convention. What was actually missing was
-that the picture did not describe itself: `machine.Shot` now carries `width`, `height` and
-a computed `scale`, and `machine_screenshot` and the verifier's tool result both say them
-out loud. Never hardcode 2 - `geometryOf` divides the image width by the point width, and
-a machine pinned to a plain display reports 1. `scale` is absent until something has asked
-the guest its point size, because a screenshot must not pay for the input helper's compile.
-
-**The guest input helper is compiled in the guest, once, and never on the host.** Posting
-a real event needs `CGEvent` from a process in the guest's own login session, so
-`installInputHelper` writes `guest/input.swift` into the machine as base64 and builds it
-with `swiftc -swift-version 5` at `~/.greenroom/bin/greenroom-input-<version>`. Change the
-Swift and bump `inputHelperVersion`, or a machine that is already running keeps calling
-the old binary. Nothing a person types is ever read by a shell: both the source and every
-batch travel as one base64 argument.
-
-**Every human or coder action that changes a machine lands in the conversation.** A destroy is
-announced by the lifecycle bridge in `main.go`, which subscribes to `Manager.Listen` and posts
-"machine is ready", "machine failed to boot", "machine stopped" and "machine destroyed" from the
-one place that knows they really happened, whoever asked for them. The companion's own controls post what the
-manager cannot know: the app's screenshot says a human took it, and its destroy says a human
-asked. A control that leaves no message is a second, hidden source of truth.
-
-**A transient model failure is retried, not reported.** The model is hosted and the transport is
-the internet, so a 500 that a curl a minute later does not reproduce must not end a turn. Two
-schedules cover it. `nim.RetryBackoff` retries one HTTP request after 1 s, 2 s, 4 s and 8 s (five
-attempts) on 429, 500, 502, 503 and 504 and on a transport failure, honouring `Retry-After`
-seconds on 429 and 503; every other 4xx is the request's own fault and is returned at once. The
-final error names the attempt count ("returned 500 after 5 attempts"). Above it,
-`verifier.TurnRetryDelays` takes the same turn again after 30 s, 60 s and 120 s (four attempts),
-announcing each with "verifier retrying the turn (attempt N of 4)", and stops early if a new
-turn-starting message makes the old turn moot. After the last failure the actor posts "verifier
-gave up on this turn after 4 attempts; send another message to try again", because an actor that
-silently waits for the next message leaves the task that started the turn unanswered forever.
-Both schedules are package vars so tests can zero them.
-
-**`machine_sync` stays inside the guest home.** `source` must be an absolute host path and
-`guestDest` refuses a `dest` that is absolute or that climbs above the home.
-
-**A project always lands at `/Users/admin/work/<project>` in the guest.**
-`machine.GuestWorkDir` is that path and it is pinned, not incidental. A SwiftPM build
-cache is keyed to the absolute path it was built at, and syncing it to a different path
-is not a cache miss that costs a rebuild, it is a hard failure: `error: missing required
-module 'SwiftShims'`, reproduced through every transport measured in
-`docs/10-build-transport.md`. Warm caches are the whole reason greenroom syncs a tree, so
-the path has to be the same on every machine and every run. `images/scripts/firstboot.sh`
-clones a repo to the same place; change one and you must change the other. This does not
-fight the rule above it, it is the default `dest` that rule then validates.
-
-**Sync does not compress.** The rsync flags are `-a`, deliberately not `-az`. The guest is
-on this host's virtual NIC at about 0.1 ms, so compression has no transfer time to save
-and costs real host CPU: 25.5 s and 20 s of CPU against 6.7 s on a 714 MiB, 7,144 file
-tree (`docs/10-build-transport.md`). `TestSyncBuildsTheRsyncCommand` asserts `-z` is
-absent, because restoring it looks like an obvious improvement and makes every sync about
-four times slower. It is a fact about a local VM, not about rsync: if greenroom ever syncs
-across a real network, to a Mac mini on a LAN for example, `-z` earns its keep again and
-should come back conditionally on the transport.
-
-**The daemon drives a pinned tart, not whatever is on PATH.** `tart.PinnedVersion` is the
-single source of truth and `internal/tart` is the only package that may know any of this.
-`tart.Resolve` picks, in order: the `-tart` flag, then `GREENROOM_TART`, then the pinned
-install at `~/.local/tart-<version>/tart.app/Contents/MacOS/tart` (note the app bundle:
-the binary is inside `tart.app/Contents/MacOS`, not at the top of that directory), then
-`tart` on PATH. `Manager.CheckTart` runs `--version` at startup and logs it, warning and
-naming both versions on a mismatch. It never refuses to start: a daemon that has been up
-for hours on an older tart must keep working, and everything except stacked clones does.
-
-Two measured reasons this is pinned rather than left to the host. `brew upgrade tart` no
-longer works at all: the cirruslabs tap is abandoned at 2.32.1, its formula does not
-evaluate against current Homebrew, and tart moved to `github.com/openai/tart` (ADR 0010),
-so a host's PATH tart is whatever was installed before the tap died and nothing will
-update it. And the versions are not interchangeable: a VM created by 2.37.0 with
-`clone --stacked` has an `overlay.asif` and no `disk.img`, and 2.32.1 cannot read it,
-reporting `VM is missing some of its files`.
-
-Install the pinned version from the signed release tarball, since Homebrew cannot:
+Homebrew cannot install current tart (tap stuck at 2.32.1, formula broken, project moved
+to `openai/tart`, ADR 0010). Install from the signed release:
 
 ```sh
 V=2.37.0
 curl -sLO "https://github.com/openai/tart/releases/download/$V/tart.tar.gz"
 curl -sL  "https://github.com/openai/tart/releases/download/$V/tart_${V}_checksums.txt" \
-  | grep tart.tar.gz | shasum -a 256 -c -      # verify before extracting
+  | grep tart.tar.gz | shasum -a 256 -c -
 mkdir -p ~/.local/tart-$V && tar xzf tart.tar.gz -C ~/.local/tart-$V
 ~/.local/tart-$V/tart.app/Contents/MacOS/tart --version
 ```
 
-It is still signed by `Developer ID Application: Cirrus Labs, Inc. (9M2P8L4D89)`. Leaving
-`/opt/homebrew/bin/tart` alone is deliberate: swapping the binary under a running daemon
-that is holding a VM is not something to do casually, and the resolver means it does not
-have to be swapped at all.
-
-**Every guest-touching operation calls `awaitReady` first**, and fails with a "call
-machine_wait and try again" message rather than blocking on a booting machine.
-
-**Every tool call records itself** via `rec.step(...)` with input, output, error and duration.
-The run directory is the product's evidence, not a debug log: a new tool that touches a
-machine records itself the same way.
-
-**Every ready machine is recorded.** From the moment a machine becomes ready until it is
-destroyed, the daemon captures its screen every `-frame-interval` (default 2s, ADR 0008) into
-`runs/<runId>/frames/<unix-ms>.jpg`, with one line per frame appended to
-`runs/<runId>/frames.jsonl` (`at`, `file`, `step`, `bytes`). A frame is evidence alongside
-steps.jsonl, not a step itself: it never claims a number of its own, it only cites whichever
-step was current when it was taken. A capture failure is logged once for the run and then
-retried silently every interval after that; it never fails the run. `-frame-interval 0` turns
-the recorder off entirely, for a run with no frames at all.
-
-**A guest command that exits non-zero is not an error.** `tart.Exec` reports it as
-`ExitCode`; an `error` means tart itself failed (VM gone, agent unreachable, cancelled).
-Collapsing the two would make every failing build look like an infrastructure fault. The
-same holds for a session: a command that fails inside one produces output, read back by
-`machine_session_read` like any other, and never an error.
-
-**An interactive session is a host process, keyed by `(runId, sessionId)`, and never a
-guest pid.** `machine_session_start` runs `tart exec -i -t`, which gives the guest command
-a real pty, and keeps that child alive between tool calls; the flags go *before* the VM
-name or tart reads them as part of the command. The pty is the point: xcodebuild, swift
-build, git and most test runners branch on `isatty()`, and a product that claims to prove
-a change works must not run a different build than the developer does. The handle is the
-daemon's own id over a child process it owns, so a destroyed machine answers "no machine
-for run" rather than some stale pid's ENOENT, and teardown is a kill the daemon can
-actually perform.
-
-**`tart exec -t` must be driven through a host pty, never through pipes.** It reads the
-window size from its *own stdin* with `TIOCGWINSZ` to forward to the guest, and it does not
-degrade when it cannot: given a pipe it dies with `failed to get terminal size:
-Inappropriate ioctl for device` (a `try!` in tart's `Exec.swift`), so every session is dead
-on arrival. A daemon's stdin is never a terminal, so `openPTY` in `internal/tart/pty.go`
-allocates a pty pair with `x/sys/unix` (`/dev/ptmx`, then `TIOCPTYGRANT`, `TIOCPTYUNLK`,
-`TIOCPTYGNAME`; macOS has no `grantpt`/`ptsname`), sets `sessionWinsize` on it *before*
-starting tart, and hands tart the slave. `creack/pty` was not added: `x/sys` was already a
-dependency and this is four ioctls. The parent closes its slave right after start or the
-stream never ends, and the master answers `EIO` when the command exits, which `ptyReader`
-reports as clean EOF rather than a failed build. The fake-tart seam records whether it was
-handed a terminal (`session-stdin`), so the non-VM suite catches this regression;
-`internal/tart/pty_test.go` makes the same `TIOCGWINSZ` call that kills tart. A pty echoes,
-deliberately: it is what a real terminal does, it puts the command next to its output in the
-record (the send itself stores only a byte count), and a password prompt turns echo off
-itself as it would anywhere. Tests that assert on session output must not be satisfiable by
-the echoed command line. `forgetLocked` is the only way a machine leaves the map, and it detaches
-the machine's sessions for `closeSessions` to end, so whatever ends a machine (`Destroy`,
-`watchProcess`) no `tart exec` child outlives it; `reserveSession` refuses a machine that has
-already left the map. `Session.Close` never signals a process group once its tart has been
-reaped, because that pid may by then belong to someone else. Sessions are deliberately absent from `state.json`:
-a restarted daemon cannot prove a guest process is the one an old id named, so a restart
-drops the handles rather than reattaching to something it cannot identify.
-
-**A session's output is read by position, not drained, and the window is bounded.**
-`stream` keeps the last `sessionBufferLimit` (1 MiB) of output and reads take from an
-absolute offset, so no read returns bytes another already did, and a runaway build never
-lands in the daemon's memory. A caller that falls behind the window is told how many bytes
-were `dropped` rather than handed a gap it cannot see. One read is capped at
-`sessionReadLimit` and reports `pending`. Terminal escape codes are stripped by `cleanTTY`
-on the way out, never in the guest, so the command still sees a real terminal.
-
-**`runId` is the single handle**: machine map key, VM name (`greenroom-<runId>`), and run
-directory name.
-
-**The daemon outlives its own process.** SIGINT shuts down HTTP but leaves machines running;
-`loadState` reattaches on next boot, drops machines tart no longer lists, and records the end of
-each run it drops.
-
-## Test seams
-
-The suite drives the real code with no VM. Three options make that possible, and they are the
-only way to reach the failure paths:
-
-- `WithTartBin` points the manager at `internal/testsupport`, a fake `tart` script that answers
-  every subcommand, records each argument list, and turns on failures through control files
-  (`fail-clone`, `fail-run`, `fail-ip`, `fail-exec`, `fail-keyinstall`, `fail-stop`,
-  `fail-delete`, `exec-exit-<n>`, `exec-codes`, `agent-down`, `ssh-down`, `list-empty`, `vmnames`,
-  for computer use `fail-input-install`, `input-down` and `screen`, and for sessions
-  `fail-session`, `session-exits` and `session-output`, and `tart-version` to make the
-  fake claim a version other than the pinned one, which is how the version warning is
-  tested without a real tart). A session arrives as
-  `tart exec -i -t`, which the fake answers with `cat`: it stays alive, gives back what is
-  sent, and ends when it is killed, which is enough to drive start, send, read and close.
-  It also writes `session-stdin` with `tty <rows> <cols>` or `pipe`, which is how the suite
-  proves the daemon handed tart a real terminal without booting a VM.
-  `exec-codes` is a queue: one exit code per line, consumed on each `tart exec` call, for a test
-  where a single turn runs several commands and needs their exit codes to differ.
-- `WithSSHProbe` replaces the in-guest port 22 check. The fake tart answers the real probe too,
-  so the default path is covered as well: `ssh-down` makes it refuse.
-- `WithReadyTimeout` shortens the three minute budget so a failure test takes seconds.
-
-`Sync` needs no option: a fake `rsync` earlier on `PATH` records its arguments.
-
-Test at the highest seam that can observe the behavior. The MCP seam in
-`internal/mcpserver/server_test.go` runs a real MCP client against a real HTTP server, and it
-covers every tool: the sixteen `machine_*` tools there (create, wait, list, sync, exec,
-screenshot, destroy, the five computer-use tools click, type, key, scroll and input, and the
-four session tools start, send, read and close, in `sessiontools_test.go`), and
-the three `agent_*` tools in `agenttools_test.go`, which play the verifier by appending to the
-store directly. The companion
-seam is the same idea one package over: `internal/api/api_test.go` drives the real routes over
-`httptest`, including the SSE stream, which it cancels to prove the handler lets go.
-
-## Guest conventions
-
-Commands run as `admin` through `zsh -lc`. Sync is rsync over ssh with an ed25519 key
-generated into the state root and installed during boot. A machine is not reported ready until
-that ssh path works. Screenshots are `screencapture`
-inside the guest, base64 back over `tart exec`.
+2.32.1 cannot read a VM made by `clone --stacked` in 2.37.0.
 
 ## Image
 
-A fresh clone of the daemon's default OCI image pays two one-time costs on its first control
-request: `swiftc` compiles the guest input helper (issue #9), and the ssh key gets installed.
-Both are idempotent scripts, so paying them once per machine is correct but slow: the compile
-alone measures in the tens of seconds. `scripts/build-image.sh` bakes both into a `greenroom-base`
-VM ahead of time, so every later clone of it skips both:
+`scripts/build-image.sh` clones the default image, boots it, runs `prepare-image`
+(`machine.PrepareGuest`: compile the input helper, install the ssh key) and stops it.
+Clones of `greenroom-base` skip the ~28 s first-control compile.
 
-```sh
-scripts/build-image.sh                                    # clones defaultImage, prepares, stops
-scripts/build-image.sh -base <oci image> -name my-base     # a different source or name
-scripts/build-image.sh -force                              # replace an existing stopped VM of that name
-```
+- `PrepareGuest` ends with `sync` in the guest. `tart stop` does not flush guest pages;
+  without `sync` the helper is gone on next boot. `TestPrepareGuestSyncsBeforeReturning`
+  pins it.
+- This is a different `greenroom-base` from the Packer build in `images/`. See the
+  inconsistency note there.
 
-It clones the base image, boots it with `--no-graphics`, waits for the guest agent, runs
-`go run . prepare-image -vm <name>` (`prepare.go`, `machine.PrepareGuest`), then stops the VM.
-`prepare-image` can also be run by hand against any already-running VM:
+## Test seams
 
-```sh
-greenroom prepare-image -vm <name> [-root ~/.greenroom]
-```
+- `WithTartBin` points at the fake tart in `internal/testsupport/faketart.go`. It records
+  every call; control files turn on failures. The list is in that file's header comment, plus
+  `fail-keyinstall` and `tart-version` (fake a version mismatch). It writes
+  `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session got a pty.
+- `WithSSHProbe`, `WithReadyTimeout` shorten or replace boot waits.
+- A fake `rsync` earlier on `PATH` covers `Sync`.
+- Test at the highest seam that sees the behaviour: `internal/mcpserver/*_test.go` runs a
+  real MCP client over HTTP against every tool; `internal/api/api_test.go` drives the real
+  routes and SSE over `httptest`.
 
-`inputHelperVersion` (`internal/machine/input.go`) is the contract between a prepared image and
-the daemon: the helper is baked in at the exact path that version names
-(`.greenroom/bin/greenroom-input-<version>`), and `installHelperScript`'s own short-circuit is
-what makes a clone's first control request a no-op instead of a second compile. Bump the version
-when `guest/input.swift` changes, and a `greenroom-base` built before the bump goes back to
-paying the compile on every machine, silently, until it is rebuilt: nothing checks a running
-image's baked-in version against the daemon's own. Run the daemon against the prepared image with
-`greenroom serve -image greenroom-base`.
+## Known divergence from ADRs
 
-**`PrepareGuest` ends with `sync` in the guest, and that is load-bearing.** A real run against a
-real VM found that `tart stop` right after preparing does not by itself flush the guest's dirty
-filesystem pages: the compiled helper answered `--version` while the VM was still running
-(`verifyHelper` proved it), the script then stopped the VM, and the very next boot of that image
-had an empty `.greenroom/bin/` -- the whole image was rebuilt for nothing, silently, and only a
-stop/reboot cycle by hand caught it because the automated proof test's own first `ScreenOf` was
-still fast enough (a partial recompile) to slip under the no-compile ceiling once by accident.
-`sync` is the fix and `TestPrepareGuestSyncsBeforeReturning` pins that PrepareGuest still runs it.
-Do not remove it to save a round trip.
-
-## Known divergence from ADR
-
-`docs/adr/0004-go-daemon-official-mcp-sdk.md` specifies a SQLite store for daemon state; the
-implementation uses a JSON file (`state.json`). The ADR is the intended destination.
+- ADR 0004 specifies a SQLite store; the code uses `state.json`.

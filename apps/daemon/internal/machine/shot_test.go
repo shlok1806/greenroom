@@ -9,7 +9,10 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
 // shotBase64 gives the fake tart a PNG of an exact size to hand back.
@@ -24,11 +27,7 @@ func shotBase64(t *testing.T, w, h int) string {
 	return base64.StdEncoding.EncodeToString(buf.Bytes())
 }
 
-// A guest draws on a Retina display, so screencapture hands back an image
-// twice the size of the desktop it shows. A screenshot whose resolution
-// cannot be reconstructed is not evidence, so the shot carries its own
-// pixels and the factor that relates them to the coordinate space clicks
-// land in. The factor is measured, never assumed to be 2.
+// A shot carries its pixel size and the measured pixels-per-point scale.
 func TestAScreenshotReportsItsOwnSizeAndScale(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
@@ -38,8 +37,7 @@ func TestAScreenshotReportsItsOwnSizeAndScale(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(control, "shot.b64"), []byte(shotBase64(t, 800, 600)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Something has to have asked the guest its point size before the scale
-	// can be known; taking control is what does that in a real run.
+	// The scale needs the point size, which ScreenOf reads.
 	if _, err := mgr.ScreenOf(context.Background(), mc.RunID); err != nil {
 		t.Fatalf("ScreenOf: %v", err)
 	}
@@ -56,8 +54,7 @@ func TestAScreenshotReportsItsOwnSizeAndScale(t *testing.T) {
 	}
 }
 
-// The factor is not always 2: a machine pinned to a plain display reports 1,
-// which is why it is computed rather than written down.
+// A non-Retina display reports 1, so the scale is never hardcoded.
 func TestScreenshotScaleIsMeasuredNotAssumed(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
@@ -79,11 +76,8 @@ func TestScreenshotScaleIsMeasuredNotAssumed(t *testing.T) {
 	}
 }
 
-// A screenshot must not pay for the guest input helper's compile, which costs
-// tens of seconds on an image that was not prepared. Until something else has
-// asked the guest its point size the scale is simply not known, and saying so
-// is better than guessing or going slow: the image's own size, which is what
-// a caller needs to aim a click, is always there.
+// A screenshot never compiles the input helper; scale stays absent until the
+// point size is known.
 func TestAScreenshotDoesNotInstallTheInputHelperToLearnItsScale(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
@@ -101,16 +95,7 @@ func TestAScreenshotDoesNotInstallTheInputHelperToLearnItsScale(t *testing.T) {
 	if shot.Scale != 0 {
 		t.Errorf("scale is %v, want it absent until the point size is known", shot.Scale)
 	}
-	if calls := readCalls(t, control); bytes.Contains(calls, []byte("swiftc")) {
+	if strings.Contains(testsupport.Calls(t, control), "swiftc") {
 		t.Error("taking a screenshot compiled the guest input helper")
 	}
-}
-
-func readCalls(t *testing.T, control string) []byte {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(control, "calls.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return data
 }
