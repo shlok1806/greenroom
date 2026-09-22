@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -49,22 +50,33 @@ func saveManifest(dir string, m Manifest) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".manifest-*.json")
+	return writeFileAtomic(filepath.Join(dir, "manifest.json"), data)
+}
+
+// writeFileAtomic replaces path with data through a synced temp file in the
+// same directory, so a crash leaves the old file or the new one, never a torn one.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
 	if err != nil {
 		return err
 	}
 	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Sync()
+	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}
 	if err == nil {
 		err = os.Chmod(tmp.Name(), 0o644)
 	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
 	if err != nil {
 		_ = os.Remove(tmp.Name())
-		return err
 	}
-	return os.Rename(tmp.Name(), filepath.Join(dir, "manifest.json"))
+	return err
 }
 
 // ReadSteps loads a run's step log. A run with no steps yet has none.
@@ -173,15 +185,16 @@ type Step struct {
 type recorder struct {
 	mu             sync.Mutex
 	dir            string
+	log            *slog.Logger
 	manifest       Manifest
 	frameErrLogged bool
 }
 
-func newRecorder(dir string, m Manifest) (*recorder, error) {
+func newRecorder(dir string, m Manifest, log *slog.Logger) (*recorder, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	r := &recorder{dir: dir, manifest: m}
+	r := &recorder{dir: dir, log: log, manifest: m}
 	return r, r.writeManifest()
 }
 
@@ -197,16 +210,21 @@ func (r *recorder) update(fn func(*Manifest)) error {
 // markEnded stamps destroyedAt with the current time.
 func (r *recorder) markEnded() {
 	now := time.Now().UTC()
-	_ = r.update(func(man *Manifest) { man.DestroyedAt = &now })
+	if err := r.update(func(man *Manifest) { man.DestroyedAt = &now }); err != nil {
+		r.log.Warn("cannot record the end of the run", "dir", r.dir, "err", err)
+	}
 }
 
 // begin claims the next step number. A tool that names an artifact claims
-// its number first so concurrent callers never pick the same file.
+// its number first so concurrent callers never pick the same file. This is
+// the step's only manifest write: complete leaves Steps unchanged.
 func (r *recorder) begin() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.manifest.Steps++
-	_ = r.writeManifest()
+	if err := r.writeManifest(); err != nil {
+		r.log.Warn("cannot write the run manifest", "dir", r.dir, "step", r.manifest.Steps, "err", err)
+	}
 	return r.manifest.Steps
 }
 
@@ -223,12 +241,17 @@ func (r *recorder) complete(seq int, tool string, input, output any, err error, 
 	if err != nil {
 		s.Error = err.Error()
 	}
-	line, _ := json.Marshal(s)
+	line, err := json.Marshal(s)
+	if err != nil {
+		r.log.Warn("cannot encode a step; it is not recorded", "dir", r.dir, "step", seq, "tool", tool, "err", err)
+		return
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_ = appendLine(filepath.Join(r.dir, "steps.jsonl"), line)
-	_ = r.writeManifest()
+	if err := appendLine(filepath.Join(r.dir, "steps.jsonl"), line); err != nil {
+		r.log.Warn("cannot record a step", "dir", r.dir, "step", seq, "tool", tool, "err", err)
+	}
 }
 
 // step claims a number and records the step in one call.

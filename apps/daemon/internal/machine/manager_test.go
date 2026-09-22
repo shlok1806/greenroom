@@ -52,7 +52,7 @@ func settleOnCleanup(t *testing.T, mgr *Manager) {
 		switch ev.Kind {
 		case "created":
 			booting[ev.RunID] = true
-		case "ready", "failed":
+		case "ready", "failed", "destroyed":
 			delete(booting, ev.RunID)
 		}
 	})
@@ -188,6 +188,9 @@ func TestCreateFailsWhenCloneFails(t *testing.T) {
 	steps := readSteps(t, filepath.Join(root, "runs", entries[0].Name()))
 	if len(steps) != 1 || steps[0].Error == "" {
 		t.Errorf("the failed create was not recorded: %+v", steps)
+	}
+	if man := readManifest(t, filepath.Join(root, "runs", entries[0].Name())); man.DestroyedAt == nil {
+		t.Error("a failed clone left the run with no end")
 	}
 }
 
@@ -608,18 +611,25 @@ func TestLoadStateKeepsTheStepCountAndVerdict(t *testing.T) {
 	}
 }
 
-func TestLoadStateRejectsCorruptState(t *testing.T) {
+func TestLoadStateMovesCorruptStateAside(t *testing.T) {
 	bin, _ := testsupport.FakeTart(t)
 	root := t.TempDir()
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(root, "state.json"), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := NewManager(root, slog.New(slog.NewTextHandler(io.Discard, nil)), WithTartBin(bin), WithSSHProbe(sshAnswers))
-	if err == nil {
-		t.Fatal("NewManager accepted a corrupt state.json")
+	mgr, err := NewManager(root, slog.New(slog.NewTextHandler(io.Discard, nil)), WithTartBin(bin), WithSSHProbe(sshAnswers))
+	if err != nil {
+		t.Fatalf("a corrupt state.json stopped the daemon: %v", err)
+	}
+	if n := len(mgr.List()); n != 0 {
+		t.Errorf("started with %d machines, want 0", n)
+	}
+	aside, _ := filepath.Glob(filepath.Join(root, "state.json.corrupt-*"))
+	if len(aside) != 1 {
+		t.Fatalf("found %d moved-aside state files, want 1", len(aside))
+	}
+	if data, _ := os.ReadFile(aside[0]); string(data) != "{not json" {
+		t.Errorf("the moved-aside file holds %q, want the corrupt original", data)
 	}
 }
 
