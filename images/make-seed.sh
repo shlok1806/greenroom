@@ -19,7 +19,9 @@ OUT="${1:-}"
 [ -n "${OUT}" ] || { echo "usage: $0 <out.dmg> [options]" >&2; exit 1; }
 shift
 
-HOSTNAME=""
+# Not named HOSTNAME: bash sets that itself, and shadowing it makes the value look
+# right here while anything that reads the environment disagrees.
+HOST=""
 REPO=""
 BRANCH=""
 KEYS=""
@@ -27,12 +29,30 @@ ENVFILE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --hostname)        HOSTNAME="$2"; shift 2 ;;
-    --repo)            REPO="$2";     shift 2 ;;
-    --branch)          BRANCH="$2";   shift 2 ;;
-    --authorized-keys) KEYS="$2";     shift 2 ;;
-    --env)             ENVFILE="$2";  shift 2 ;;
+    --hostname)        HOST="$2";    shift 2 ;;
+    --repo)            REPO="$2";    shift 2 ;;
+    --branch)          BRANCH="$2";  shift 2 ;;
+    --authorized-keys) KEYS="$2";    shift 2 ;;
+    --env)             ENVFILE="$2"; shift 2 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+# Fail here rather than in the guest. A seed that names a file which does not exist
+# produces a VM that boots, looks fine, and is missing the key you meant to install,
+# and the only sign is a line in a log inside the guest.
+for f in "${KEYS}" "${ENVFILE}"; do
+  if [ -n "${f}" ] && [ ! -f "${f}" ]; then
+    echo "no such file: ${f}" >&2; exit 1
+  fi
+done
+
+# The guest reads these with plutil out of a JSON file, so a literal quote or
+# backslash would produce a file plutil cannot parse and personalization would be
+# skipped with only a log line to say so.
+for v in "${HOST}" "${REPO}" "${BRANCH}"; do
+  case "${v}" in
+    *\"*|*\\*) echo "quotes and backslashes are not allowed in seed values: ${v}" >&2; exit 1 ;;
   esac
 done
 
@@ -42,14 +62,20 @@ trap 'rm -rf "${STAGE}"' EXIT
 # plutil reads this in the guest; no jq dependency inside the image.
 cat >"${STAGE}/personalize.json" <<EOF
 {
-  "hostname": "${HOSTNAME}",
+  "hostname": "${HOST}",
   "repo": "${REPO}",
   "branch": "${BRANCH}"
 }
 EOF
 
-[ -n "${KEYS}" ]    && cp "${KEYS}"    "${STAGE}/authorized_keys"
-[ -n "${ENVFILE}" ] && cp "${ENVFILE}" "${STAGE}/run.env"
+# Plain ifs, not `[ -n x ] && cp`. Under `set -e` that idiom is safe only because of
+# an exception in the shell's own rules, which is not a thing to rely on.
+if [ -n "${KEYS}" ]; then
+  cp "${KEYS}" "${STAGE}/authorized_keys"
+fi
+if [ -n "${ENVFILE}" ]; then
+  cp "${ENVFILE}" "${STAGE}/run.env"
+fi
 
 rm -f "${OUT}"
 hdiutil create \
