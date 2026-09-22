@@ -354,8 +354,11 @@ handed a terminal (`session-stdin`), so the non-VM suite catches this regression
 deliberately: it is what a real terminal does, it puts the command next to its output in the
 record (the send itself stores only a byte count), and a password prompt turns echo off
 itself as it would anywhere. Tests that assert on session output must not be satisfiable by
-the echoed command line. `Manager.Destroy` calls `closeSessions` before anything else, so no
-`tart exec` child outlives its machine. Sessions are deliberately absent from `state.json`:
+the echoed command line. `forgetLocked` is the only way a machine leaves the map, and it detaches
+the machine's sessions for `closeSessions` to end, so whatever ends a machine (`Destroy`,
+`watchProcess`) no `tart exec` child outlives it; `reserveSession` refuses a machine that has
+already left the map. `Session.Close` never signals a process group once its tart has been
+reaped, because that pid may by then belong to someone else. Sessions are deliberately absent from `state.json`:
 a restarted daemon cannot prove a guest process is the one an old id named, so a restart
 drops the handles rather than reattaching to something it cannot identify.
 
