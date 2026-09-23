@@ -112,6 +112,7 @@ type Manager struct {
 	sshProbe         func(ctx context.Context, vmName, addr string) error
 	onWatch          func(vncURL string)
 	screenIdle       time.Duration
+	hostTimeZone     func() string // the zone boot puts the guest in; "" skips it
 	screenBuffer     int
 	screenInputSlack time.Duration
 	messageActivity  func(runID string) time.Time // guarded by mu; see SetMessageActivity
@@ -163,6 +164,11 @@ func WithVMPollInterval(d time.Duration) Option {
 }
 
 // WithScreenIdle sets how long a live screen runs with nobody watching.
+// WithHostTimeZone replaces how boot learns the host's time zone (HostTimeZone).
+func WithHostTimeZone(fn func() string) Option {
+	return func(m *Manager) { m.hostTimeZone = fn }
+}
+
 func WithScreenIdle(d time.Duration) Option {
 	return func(m *Manager) { m.screenIdle = d }
 }
@@ -189,7 +195,7 @@ func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error)
 	m := &Manager{
 		Root: root, Log: log, tart: tart.New(), machines: map[string]*Machine{},
 		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout, frameInterval: defaultFrameInterval,
-		vmPoll: defaultVMPollInterval, screenIdle: defaultScreenIdle, screenBuffer: defaultScreenBuffer,
+		vmPoll: defaultVMPollInterval, screenIdle: defaultScreenIdle, hostTimeZone: HostTimeZone, screenBuffer: defaultScreenBuffer,
 		screenInputSlack: screenInputSlack,
 	}
 	m.sshProbe = m.probeSSHInGuest
