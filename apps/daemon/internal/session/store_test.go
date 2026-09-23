@@ -175,6 +175,25 @@ func TestRepliesMustPointAtTheRightKind(t *testing.T) {
 	must(t, s, Message{From: Coder, Kind: Answer, ReplyTo: 2, Text: "Release"})
 }
 
+// Issue #50: checkReplyLocked only skipped replyTo 0, so a negative one indexed msgs[-n].
+func TestANegativeReplyToIsRefusedForEveryKind(t *testing.T) {
+	s, _ := open(t)
+	must(t, s, Message{From: Coder, Kind: Task, Text: "build it"})
+	for _, m := range []Message{
+		{From: Coder, Kind: Note, Text: "x", ReplyTo: -5},
+		{From: Human, Kind: Task, Text: "x", ReplyTo: -1},
+		{From: Coder, Kind: Accept, ReplyTo: -1},
+		{From: Verifier, Kind: Progress, ReplyTo: -2},
+	} {
+		if _, err := s.Append(m); err == nil || !strings.Contains(err.Error(), "replyTo") {
+			t.Errorf("append %s from %s with replyTo %d = %v, want an error naming replyTo", m.Kind, m.From, m.ReplyTo, err)
+		}
+	}
+	if s.Len() != 1 {
+		t.Fatalf("len = %d, want only the task", s.Len())
+	}
+}
+
 func TestTurnBoundaries(t *testing.T) {
 	// A human is always answered, a note included; the coder's note is
 	// context, because its reply channel is its next agent_wait.

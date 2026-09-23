@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -105,6 +106,19 @@ func serve(args []string) error {
 		return err
 	}
 
+	// Claim the root and the address before anything reads state or starts a verifier: a daemon
+	// that is about to fail must not reattach machines or answer runs on the way (issue #63).
+	release, err := lockRoot(o.root)
+	if err != nil {
+		return err
+	}
+	defer release()
+	ln, err := net.Listen("tcp", o.addr)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = ln.Close() }()
+
 	opts := []machine.Option{
 		machine.WithMaxMachines(o.maxMachines),
 		machine.WithFrameInterval(o.frameInterval),
@@ -167,8 +181,9 @@ func serve(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	errCh := make(chan error, 1)
-	go func() { errCh <- httpServer.ListenAndServe() }()
-	log.Info("greenroom listening", "mcp", "http://"+o.addr+"/mcp", "api", "http://"+o.addr+"/api/", "root", o.root, "image", o.image,
+	go func() { errCh <- httpServer.Serve(ln) }()
+	addr := ln.Addr().String()
+	log.Info("greenroom listening", "mcp", "http://"+addr+"/mcp", "api", "http://"+addr+"/api/", "root", o.root, "image", o.image,
 		"maxMachines", o.maxMachines, "machines", len(mgr.List()))
 
 	select {

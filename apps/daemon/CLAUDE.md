@@ -44,7 +44,9 @@ Each layer depends only on the ones below. Keep it that way.
 - `main.go` - flags, HTTP mux, and the lifecycle bridge (manager events to transcript
   events: ready, failed, stopped, destroyed).
 - `internal/mcpserver` - the only agent-facing surface. Tool schemas, defaults, PNG to
-  JPEG. No VM logic.
+  JPEG. No VM logic. `recoverPanics` turns a handler panic into that call's error: the SDK
+  runs handlers on its own goroutines, beyond net/http's recovery, so a panic there ends the
+  whole daemon (issue #50).
 - `internal/api` - the companion's routes and SSE stream (ADR 0007). Sibling of
   `mcpserver`. Neither holds logic the other needs.
 - `internal/verifier` - greenroom's agent, one actor per run. `Verifier` (NIM) and
@@ -115,6 +117,10 @@ Boot and lifecycle
 - Every way a run ends stamps `destroyedAt`: destroy, failed boot, VM exit, and a reattach
   that finds the VM gone (dated from the run's last evidence).
 - SIGINT stops HTTP only. Machines keep running; `loadState` reattaches on next start.
+- `serve` takes an exclusive `flock` on `<root>/daemon.lock` (holding its pid) and binds
+  `-addr` before it reads `state.json` or starts a verifier. A second daemon on the same root
+  or address exits without touching either: one that got as far as its actors answered live
+  runs and duplicated their seqs (issue #63). The kernel drops the lock on any exit.
 - Every guest-touching call goes through `awaitReady` and fails with "call machine_wait
   and try again" rather than blocking.
 - The daemon never dials a guest over TCP in-process. macOS gates local-network access
@@ -132,6 +138,10 @@ Evidence
   read, and record nothing.
 - A result's `step` is claimed before its output is recorded, so `output.step` equals
   `seq` (issue #47). `recorder.step` is only for outputs that carry no step.
+- A JSONL record's last line with no newline is torn (a crash mid-append) or still being
+  written: every reader skips it, and `newRecorder` cuts it off before its first append so
+  the next line is not glued onto it (issue #67). A bad line that ends in a newline is damage
+  and stays an error.
 - Frames: every `-frame-interval` (default 2 s, 0.5 s while a control lease is held,
   0 disables) into `frames/<unix-ms>.jpg` plus a line in `frames.jsonl`. A frame cites the
   current step; it never claims a number. The first capture failure and the first recovery

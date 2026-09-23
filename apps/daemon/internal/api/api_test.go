@@ -256,6 +256,37 @@ func TestStepsAreTheRunsEvidence(t *testing.T) {
 	}
 }
 
+// Issue #67: a crash mid-append leaves an unterminated last line. /steps answered 500 for that run
+// from then on, while the list still counted its steps.
+func TestATornLastStepLineDoesNotHideTheRunsSteps(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	var before []machine.Step
+	h.get("/api/runs/"+runID+"/steps", &before)
+	if len(before) == 0 {
+		t.Fatal("the run recorded no steps, so this test cannot see the regression")
+	}
+	f, err := os.OpenFile(filepath.Join(h.mgr.RunDir(runID), "steps.jsonl"), os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"seq":999,"at":"2026`); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	var after []machine.Step
+	h.get("/api/runs/"+runID+"/steps", &after)
+	if len(after) != len(before) {
+		t.Fatalf("/steps with a torn last line = %d steps, want the %d complete ones", len(after), len(before))
+	}
+	var d RunDetail
+	h.get("/api/runs/"+runID, &d)
+	if d.Steps != len(before) {
+		t.Errorf("the detail says %d steps, want %d", d.Steps, len(before))
+	}
+}
+
 // manifest.Steps is a high-water mark, not a count; list and detail must agree with /steps.
 func TestTheRunListCountsTheStepsOnDiskNotTheManifest(t *testing.T) {
 	h := newHarness(t)
@@ -481,6 +512,20 @@ func TestAnAnswerWithoutAReplyToIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(body, "error") {
 		t.Errorf("body = %s, want an error object", body)
+	}
+}
+
+// Issue #50: a negative replyTo on a kind that takes none indexed the transcript at -1 and
+// panicked the request; it is a 400 like any other bad reply.
+func TestANegativeReplyToIsABadRequest(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	for _, kind := range []string{"note", "task"} {
+		code, body := h.status(http.MethodPost, "/api/runs/"+runID+"/messages",
+			map[string]any{"kind": kind, "text": "x", "replyTo": -1})
+		if code != http.StatusBadRequest || !strings.Contains(body, "replyTo") {
+			t.Fatalf("%s with replyTo -1: status %d: %s, want 400 naming replyTo", kind, code, body)
+		}
 	}
 }
 

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"image/jpeg"
 	"image/png"
+	"log/slog"
 	"math"
+	"runtime/debug"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -223,7 +225,23 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	addAgentTools(s, reg)
 	addInputTools(s, mgr)
 	addSessionTools(s, mgr)
+	s.AddReceivingMiddleware(recoverPanics)
 	return s
+}
+
+// recoverPanics turns a panic in any handler into that one call's error. The SDK runs handlers
+// on its own goroutines, where net/http's recovery never reaches, so without this one bad
+// argument ends the daemon for every run and watcher (issue #50).
+func recoverPanics(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (res mcp.Result, err error) {
+		defer func() {
+			if p := recover(); p != nil {
+				slog.Error("mcp handler panicked", "method", method, "panic", p, "stack", string(debug.Stack()))
+				res, err = nil, fmt.Errorf("greenroom hit an internal error handling %s: %v", method, p)
+			}
+		}()
+		return next(ctx, method, req)
+	}
 }
 
 // wrap adapts a (machine, error) pair to a tool handler's three results.
