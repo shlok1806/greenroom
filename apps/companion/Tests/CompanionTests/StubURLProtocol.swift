@@ -11,10 +11,19 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         var headers: [String: String]?
         /// Delivers the body in pieces of this many bytes, as a network would.
         var chunkSize: Int?
+        /// Never finishes the body, as an event stream stays open.
+        var holdsOpen = false
+        /// Fails the request the way a closed port does, with no answer at all.
+        var failure: URLError.Code?
 
         static func json(_ text: String, status: Int = 200) -> Reply {
             Reply(status: status, body: Data(text.utf8))
         }
+
+        /// An open event stream that has sent one ping.
+        static let openStream = Reply(body: Data(": ping\n\n".utf8), headers: ["Content-Type": "text/event-stream"], holdsOpen: true)
+
+        static let unreachable = Reply(failure: .cannotConnectToHost)
     }
 
     typealias Handler = @Sendable (URLRequest) -> Reply
@@ -40,13 +49,17 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         let id = request.value(forHTTPHeaderField: Self.header) ?? ""
         let handler = Self.lock.withLock { Self.handlers[id] }
         let reply = handler?(request) ?? Reply(status: 599)
+        if let failure = reply.failure {
+            client?.urlProtocol(self, didFailWithError: URLError(failure))
+            return
+        }
         let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: reply.headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         let size = max(reply.chunkSize ?? reply.body.count, 1)
         for start in stride(from: reply.body.startIndex, to: reply.body.endIndex, by: size) {
             client?.urlProtocol(self, didLoad: reply.body[start ..< min(start + size, reply.body.endIndex)])
         }
-        client?.urlProtocolDidFinishLoading(self)
+        if !reply.holdsOpen { client?.urlProtocolDidFinishLoading(self) }
     }
 
     override func stopLoading() {}

@@ -8,6 +8,7 @@ import SwiftUI
 /// SwiftPM executable, so it runs in the same appearance mode as the app, which Xcode's
 /// test host does not.
 /// `GREENROOM_SNAPSHOTS_EMPTY_URL` points at a daemon with no runs, for the welcome state.
+/// `GREENROOM_SNAPSHOTS_REFUSED_URL` points at a daemon that refuses (HTTP 403), for that state.
 /// `GREENROOM_SNAPSHOTS_ONLY` limits the run to scenario names containing it.
 ///
 /// States the copied runs do not contain (live, booting, proposed, contested) are made
@@ -142,6 +143,10 @@ final class SnapshotHarness {
             Scenario(name: "17-offline-nothing-loaded", sizes: [Self.medium], unreachable: true),
             Scenario(name: "18-welcome", sizes: [Self.medium],
                      baseURL: environment["GREENROOM_SNAPSHOTS_EMPTY_URL"].flatMap(URL.init(string:))),
+            // A daemon that answers with an error, e.g. `http://localhost.:<port>`, whose
+            // Host is not a loopback name.
+            Scenario(name: "18b-daemon-refused", sizes: [Self.medium],
+                     baseURL: environment["GREENROOM_SNAPSHOTS_REFUSED_URL"].flatMap(URL.init(string:))),
             // A daemon from before `RunSummary.task`, with a legacy run whose steps restart at 1.
             Scenario(name: "19-older-daemon-legacy-run", sizes: [Self.medium], runId: "20260919-170059-65804c",
                      baseURL: environment["GREENROOM_SNAPSHOTS_LEGACY_URL"].flatMap(URL.init(string:))),

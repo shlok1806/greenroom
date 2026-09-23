@@ -5,17 +5,38 @@ private func isBlank(_ text: String) -> Bool {
 }
 
 private extension View {
-    /// Return and Cmd-Return send; Shift-Return is the field's own newline.
-    /// Caught with `.onKeyPress` because a vertical `TextField` would insert
-    /// the newline itself. A blank draft swallows Return without a newline.
-    func sendOnReturn(enabled: Bool, _ action: @escaping () -> Void) -> some View {
+    /// Return and Cmd-Return send; Shift-Return (and Option-Return) start a new line
+    /// through `newline`, when the field has one. Caught with `.onKeyPress` because a
+    /// vertical `TextField` would insert the newline itself. A blank draft swallows Return
+    /// without a newline. Left to itself, the field treats Shift-Return as Return: it ends
+    /// editing and selects the whole draft, so the next key replaces it.
+    func sendOnReturn(enabled: Bool, _ action: @escaping () -> Void, newline: (() -> Void)? = nil) -> some View {
         onKeyPress(phases: .down) { press in
             guard press.key == .return else { return .ignored }
+            if press.modifiers == .shift || press.modifiers == .option {
+                guard let newline else { return .ignored }
+                newline()
+                return .handled
+            }
             guard press.modifiers.isEmpty || press.modifiers == .command else { return .ignored }
             if enabled { action() }
             return .handled
         }
     }
+}
+
+/// The draft with a line break where the cursor is (replacing any selected text), and
+/// the cursor after it. At the end when the field reports no cursor.
+func insertingNewline(into text: String, at selection: TextSelection?) -> (text: String, selection: TextSelection) {
+    var range = text.endIndex..<text.endIndex
+    if case .selection(let selected)? = selection?.indices,
+       selected.lowerBound >= text.startIndex, selected.upperBound <= text.endIndex {
+        range = selected
+    }
+    let offset = text.distance(from: text.startIndex, to: range.lowerBound) + 1
+    var out = text
+    out.replaceSubrange(range, with: "\n")
+    return (out, TextSelection(insertionPoint: out.index(out.startIndex, offsetBy: offset)))
 }
 
 /// The run's conversation and the human's seat in it (ADR 0006): the verdict pinned on
@@ -54,7 +75,8 @@ struct ConversationView: View {
             Composer(store: store, runId: runId) { atBottom = true }
         }
         .onGeometryChange(for: Double.self) { $0.size.height } action: { columnHeight = $0 }
-        .navigationTitle("Conversation")
+        // No navigation title: the column's header names it, and a title here would name
+        // the whole window "Conversation" (the run view names it after the run).
     }
 
     /// Names the column and holds its one filter: the verifier's tool calls, which a
@@ -520,14 +542,11 @@ private struct ToolCallLine: View {
         ToolCatalog.entry(for: step?.tool ?? ToolCatalog.tool(ofProgress: message.text) ?? "")
     }
 
-    /// The step's own summary when the record is held; else the first line of the
-    /// message after the tool name, which is raw JSON.
+    /// The step's own summary when the record is held; else the same rules applied to
+    /// the tool call the message carries.
     private var detail: String {
         if let step { return StepSummary.line(for: step) }
-        let first = message.text.split(separator: "\n").first.map(String.init) ?? ""
-        let rest = first.split(separator: " ", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
-        let flat = StepSummary.oneLine(rest)
-        return flat == "{}" ? "" : flat
+        return StepSummary.line(ofProgress: message.text)
     }
 
     var body: some View {
@@ -670,6 +689,8 @@ private struct Composer: View {
     let didSend: () -> Void
 
     @State private var draft = ""
+    /// Where the cursor is, so Shift-Return breaks the line there.
+    @State private var selection: TextSelection?
     @State private var kind: MessageKind = .note
     @State private var sending = false
     @FocusState private var focused: Bool
@@ -697,13 +718,15 @@ private struct Composer: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(alignment: .bottom, spacing: Space.s) {
-                TextField(placeholder, text: $draft, axis: .vertical)
+                TextField(placeholder, text: $draft, selection: $selection, axis: .vertical)
                     .disabled(offline)
                     .textFieldStyle(.plain)
                     .font(.body)
                     .lineLimit(1...6)
                     .focused($focused)
-                    .sendOnReturn(enabled: canSend, send)
+                    .sendOnReturn(enabled: canSend, send) {
+                        (draft, selection) = insertingNewline(into: draft, at: selection)
+                    }
                     .padding(.vertical, 3)
 
                 Button(action: send) {

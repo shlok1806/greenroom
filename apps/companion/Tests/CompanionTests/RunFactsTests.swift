@@ -205,6 +205,35 @@ final class VerdictReviewTests: XCTestCase {
         XCTAssertFalse(review.closed)
     }
 
+    /// #58: the verifier stops with a destroyed machine, so Reject cannot promise a
+    /// second look there.
+    func testOnADestroyedRunRejectPromisesNoSecondLook() {
+        let proposed = VerdictState(seq: 4, verdict: "fail", status: .proposed)
+        let listening = VerdictReview.explanation(proposed, unreviewed: false, verifierListens: true, alive: true)
+        XCTAssertTrue(listening.contains("looks again"), listening)
+
+        let stopped = VerdictReview.explanation(proposed, unreviewed: false, verifierListens: false, alive: false)
+        XCTAssertFalse(stopped.contains("looks again"), stopped)
+        XCTAssertTrue(stopped.contains("nothing will look again"), stopped)
+
+        let contested = VerdictState(seq: 4, verdict: "fail", status: .contested)
+        let contestedStopped = VerdictReview.explanation(contested, unreviewed: false, verifierListens: false, alive: false)
+        XCTAssertFalse(contestedStopped.contains("the verifier read"), contestedStopped)
+    }
+
+    func testARejectionOnADestroyedRunSaysNobodyWasAskedToLookAgain() {
+        let rejected = VerdictState(seq: 4, verdict: "pass", status: .rejected)
+        let dispute = Message(seq: 5, at: at, from: .human, kind: .dispute, text: "wrong", replyTo: 4)
+        XCTAssertEqual(VerdictReview.of(rejected, messages: [dispute], verifierListens: true, timeOfDay: clock).note,
+                       "The verifier was asked to look again.")
+        XCTAssertEqual(VerdictReview.of(rejected, messages: [dispute], verifierListens: false, timeOfDay: clock).note,
+                       "The verifier stopped with the machine, so nothing will look again.")
+        // Rejected while it still listened, and it answered: that look happened.
+        let answer = Message(seq: 6, at: at, from: .verifier, kind: .reply, text: "Looked again.")
+        XCTAssertEqual(VerdictReview.of(rejected, messages: [dispute, answer], verifierListens: false, timeOfDay: clock).note,
+                       "The verifier was asked to look again.")
+    }
+
     func testChecksComeFromTheRecord() {
         let steps = [Step(seq: 9, at: at, tool: "machine_screenshot"), Step(seq: 16, at: at, tool: "machine_exec", error: "boom")]
         let verdict = VerdictState(seq: 4, verdict: "pass", evidence: ["step 9", "step 16", "step 40"], status: .proposed)

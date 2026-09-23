@@ -101,7 +101,8 @@ struct StepsView: View {
             }
             .onChange(of: allSteps.count) {
                 guard following, facts.isAlive, let last = steps.last else { return }
-                withAnimation { proxy.scrollTo(last.seq, anchor: .bottom) }
+                // The row's identity in the lazy stack is the `Step`, not its seq.
+                withAnimation { proxy.scrollTo(last, anchor: .bottom) }
             }
         }
         .focusable()
@@ -114,6 +115,10 @@ struct StepsView: View {
         if errorsOnly, !step.outcome.isFailure { errorsOnly = false }
         expanded.insert(step)
         following = false
+        // A lazy stack knows a row it has not built only by its `ForEach` identity (the
+        // `Step`), so the seq id on the row's summary line cannot be found until the row
+        // exists: bring the row in first, then place its summary line.
+        proxy.scrollTo(step, anchor: .top)
         Task {
             // After the row has laid out, so the anchor is right.
             try? await Task.sleep(for: .milliseconds(60))

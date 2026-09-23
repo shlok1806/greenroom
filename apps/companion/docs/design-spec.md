@@ -105,6 +105,8 @@ name, kind, time), `ToolCallGroup`, `EventLine`, `QuestionCard`, `Composer`,
 | Connecting (first load) | Sidebar shows a small progress row; detail says "Connecting to greenroom" |
 | Daemon offline, nothing loaded | Detail: "Greenroom is not running" with the URL, the command to start it, Retry |
 | Daemon offline, runs loaded | Everything stays readable; a banner above the detail says offline and retrying |
+| Daemon answers with an error | Not "not running": the daemon's words (status and text), advice when they need it (a non-loopback Host), Try Again; with runs loaded, the banner carries the words |
+| Open run gone from the daemon | Selection clears; "No run open" says the run is no longer on the daemon, and nothing of it stays actionable |
 | No runs | Welcome: what a run is and how an agent starts one |
 | No selection | "Select a run" with the count of runs today |
 | Run loading | Header from the list's copy, stage shows progress, never a blank |

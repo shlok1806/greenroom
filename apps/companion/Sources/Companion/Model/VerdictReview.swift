@@ -15,7 +15,8 @@ struct VerdictReview: Equatable, Sendable {
     /// Whether this verdict is the final word.
     var closed: Bool
 
-    static func of(_ verdict: VerdictState, messages: [Message], timeOfDay: (Date) -> String = Chrome.shortTime) -> VerdictReview {
+    static func of(_ verdict: VerdictState, messages: [Message], verifierListens: Bool = true,
+                   timeOfDay: (Date) -> String = Chrome.shortTime) -> VerdictReview {
         let closing = messages.last { ($0.kind == .accept || $0.kind == .dispute) && $0.replyTo == verdict.seq }
         let when = closing.map { " at \(timeOfDay($0.at))" } ?? ""
         let disputes = verdict.disputes == 1 ? "once" : "\(verdict.disputes) times"
@@ -46,16 +47,51 @@ struct VerdictReview: Equatable, Sendable {
                 closed: false
             )
         case .rejected:
+            // The verifier stops with a destroyed machine; unless it answered the
+            // rejection before that, nothing is looking again.
+            let answered = closing.map { dispute in
+                messages.contains { $0.from == .verifier && $0.kind != .progress && $0.seq > dispute.seq }
+            } ?? false
             return VerdictReview(
                 state: "You rejected",
                 decision: when.isEmpty ? "" : String(when.dropFirst()),
                 humanReviewed: true,
-                note: "The verifier was asked to look again.",
+                note: verifierListens || answered
+                    ? "The verifier was asked to look again."
+                    : "The verifier stopped with the machine, so nothing will look again.",
                 closed: true
             )
         case .none, .unknown:
             return VerdictReview(state: "No verdict", decision: "", humanReviewed: false, note: nil, closed: false)
         }
+    }
+
+    /// What each action does, in the daemon's own terms (session rules, ADR 0006).
+    static func explanation(_ verdict: VerdictState, unreviewed: Bool, verifierListens: Bool, alive: Bool) -> String {
+        let outcome = Chrome.outcomeTitle(verdict.verdict)
+        if unreviewed {
+            let rule = "The daemon does not let a person reopen a verdict the coding agent accepted. "
+            if !verifierListens {
+                return rule + "The verifier stopped when this run's machine was destroyed, so nothing can answer a re-check."
+            }
+            if !alive {
+                return rule + "This run has ended, so the verifier answers a re-check from the record: "
+                    + "the steps, pictures and conversation it already has."
+            }
+            return rule
+                + "A re-check asks the verifier to look again with your reason; you can accept or reject what it proposes next."
+        }
+        let accept = "Accept closes it with this \(outcome.lowercased()) verdict. "
+        if !verifierListens {
+            return accept + "Reject closes it as rejected with your reason. The verifier stopped when this run's machine "
+                + "was destroyed, so nothing will look again. The coding agent sees your decision in the conversation."
+        }
+        if verdict.status == .contested {
+            return accept + "Reject closes it as rejected. "
+                + "Either way the coding agent and the verifier read your decision in the conversation."
+        }
+        return accept + "Reject sends your reason to the verifier, which looks again; "
+            + "after that only a person can close its verdicts. The coding agent sees both in the conversation."
     }
 
     private static func name(_ from: MessageFrom?) -> String {
