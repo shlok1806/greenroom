@@ -94,7 +94,7 @@ pnpm test        # go test ./..., swift test
 - `docs/` - notes (`00`-`10`) and ADRs.
 
 Tests need no VM: a fake `tart` drives the whole lifecycle. The real-VM suite is
-build-tagged: `cd apps/daemon && go test -tags tart -timeout 20m ./...`.
+build-tagged: `cd apps/daemon && go test -tags tart -count=1 -timeout 20m ./...`.
 
 ## CI
 
@@ -104,6 +104,8 @@ build-tagged: `cd apps/daemon && go test -tags tart -timeout 20m ./...`.
 - **VM suite (self-hosted Mac)** (`vm-suite.yml`): the `-tags tart` suite, on PRs that
   touch `internal/machine`, `internal/tart`, `internal/testsupport` or `e2e*_test.go`, or
   by hand. Needs `greenroom-base` on the runner. Hosted runners cannot boot macOS guests.
+  The runner keeps Go's test cache between runs, so every `go test` in CI passes a
+  `-count` flag (`-count=1` here, `-count=2` in the checks), which bypasses it.
 - **CI (hosted)** (`ci.yml`): manual clean-room run on `macos-15`
   (`gh workflow run "CI (hosted)"`, add `-f soak=true` for a race soak of
   `internal/machine`). Manual because hosted macOS minutes cost 10x.
