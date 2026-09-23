@@ -1,6 +1,6 @@
 #!/bin/bash
 # Grant greenroom's guest binaries the privacy rights they need, and stop the
-# screen-recording reminder that macOS 15 and later show, which TCC does not cover.
+# screen-capture alert that macOS 15 and later show, which TCC does not cover.
 #
 # Runs INSIDE the guest at image-build time. Requires SIP off, which the Cirrus base
 # image already provides. With SIP off, no csreq blob is needed.
@@ -107,20 +107,49 @@ if command -v automationmodetool >/dev/null 2>&1; then
   ' || echo "warn: automationmodetool step did not complete"
 fi
 
-# The screen-recording reminder on macOS 15 and later is not TCC. It lives in a
-# replayd group container keyed by responsible executable path, fires monthly, takes
-# focus and lands in screenshots. A far-future date stops it. GitHub's runner images
-# do the same.
+# The screen-capture alert on macOS 15 and later ("... is requesting to bypass the
+# system private window picker and directly access your screen and audio") is not
+# TCC. replayd keeps a per-user record keyed by the capturing client's resolved
+# executable path. The alert is decided by kScreenCaptureApprovalLastUsed alone
+# (missing or over 30 days old alerts), and kScreenCapturePrivacyHintDate schedules
+# the monthly banner, so all three dates go in 3024. replayd caches the file and
+# writes its copy back, so it is stopped across the write and killed afterwards;
+# launchd restarts it on demand. The daemon rewrites the same records at every boot
+# and before captures (apps/daemon/internal/machine/capturealert.go), because an
+# image's LastUsed ages; keep the two in step.
 APPROVALS="${HOME}/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist"
+FAR="3024-01-01 00:00:00 +0000"
 mkdir -p "$(dirname "${APPROVALS}")"
-for binary in "${GREENROOM_BINARIES[@]}" /opt/homebrew/bin/tart-guest-agent; do
-  realpath_bin="$(realpath "${binary}" 2>/dev/null || echo "${binary}")"
-  /usr/libexec/PlistBuddy -c "Add :'${realpath_bin}' date 3024-01-01T00:00:00Z" \
-    "${APPROVALS}" 2>/dev/null \
-    || /usr/libexec/PlistBuddy -c "Set :'${realpath_bin}' 3024-01-01T00:00:00Z" \
-    "${APPROVALS}" 2>/dev/null \
-    || true
+REPLAYD="$(pgrep -x -u "$(id -u)" replayd || true)"
+if [[ -n "${REPLAYD}" ]]; then
+  # Killed on every exit, so a failed write cannot leave replayd stopped.
+  trap 'kill -9 ${REPLAYD} 2>/dev/null || true' EXIT
+  kill -STOP ${REPLAYD}
+fi
+for binary in "${GREENROOM_BINARIES[@]}" /opt/homebrew/bin/tart-guest-agent /usr/libexec/sshd-keygen-wrapper; do
+  c="$(realpath "${binary}" 2>/dev/null || echo "${binary}")"
+  defaults write "${APPROVALS}" "${c}" -dict \
+    kScreenCaptureApprovalLastAlerted -date "${FAR}" \
+    kScreenCaptureApprovalLastUsed -date "${FAR}" \
+    kScreenCapturePrivacyHintDate -date "${FAR}"
+  defaults read "${APPROVALS}" "${c}" | grep -q "kScreenCaptureApprovalLastUsed = \"${FAR}\""
 done
-sudo killall -HUP replayd 2>/dev/null || true
+if [[ -n "${REPLAYD}" ]]; then
+  kill -9 ${REPLAYD} 2>/dev/null || true
+  trap - EXIT
+fi
+
+# Desktop preferences for an agent that clicks by coordinates. "Click wallpaper to
+# reveal desktop" hides every window when a click misses; window restore reopens
+# whatever was open when the image was shut down. The daemon sets the same keys at
+# every boot (apps/daemon/internal/machine/desktopprefs.go); keep the two in step.
+defaults write com.apple.WindowManager EnableStandardClickToShowDesktop -bool false
+defaults write NSGlobalDomain NSQuitAlwaysKeepsWindows -bool false
+defaults write com.apple.loginwindow TALLogoutSavesState -bool false
+# A guest display that sleeps turns every frame black with no error; the
+# screensaver and the lock cover the app under test.
+sudo -n pmset -a displaysleep 0 sleep 0
+defaults -currentHost write com.apple.screensaver idleTime -int 0
+sysadminctl -screenLock status 2>&1 | grep -q "screenLock is off" || sysadminctl -screenLock off -password admin
 
 echo "greenroom-tcc: done"

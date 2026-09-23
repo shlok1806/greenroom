@@ -87,7 +87,7 @@ func serveFakeScreen(control string, in io.Reader, out io.Writer) int {
 	}
 
 	hello, _ := json.Marshal(map[string]any{
-		"version": "greenroom-input 3",
+		"version": "greenroom-input 5",
 		"screen":  map[string]int{"width": w, "height": h},
 		"pixels":  map[string]int{"width": 2 * w, "height": 2 * h},
 	})

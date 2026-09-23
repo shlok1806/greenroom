@@ -49,6 +49,16 @@ func PrepareGuest(ctx context.Context, tartBin, vmName, pubKey string, log *slog
 		return fmt.Errorf("install the ssh key in %s: %w", vmName, err)
 	}
 
+	log.Info("pre-approving screen capture", "vm", vmName)
+	if err := approveScreenCapture(ctx, c, vmName); err != nil {
+		return fmt.Errorf("in %s: %w", vmName, err)
+	}
+
+	log.Info("setting the desktop preferences", "vm", vmName)
+	if err := applyDesktopPrefs(ctx, c, vmName); err != nil {
+		return fmt.Errorf("in %s: %w", vmName, err)
+	}
+
 	log.Info("verifying the input helper answers", "vm", vmName)
 	screen, err := verifyHelper(ctx, c, vmName)
 	if err != nil {

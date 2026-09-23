@@ -52,7 +52,7 @@ Each layer depends only on the ones below. Keep it that way.
   `machine.PTYSession`; never name that type `Session`.
 - `internal/machine` - lifecycle and source of truth. `Manager`, the recorder
   (`manifest.json`, `steps.jsonl`, `frames/`, `frames.jsonl`), computer use (`input.go`,
-  guest helper in `guest/input.swift`), the live screen (`screen.go`), pty sessions
+  `ui.go`, guest helper in `guest/input.swift`), the live screen (`screen.go`), pty sessions
   (`ptysession.go`).
 - `internal/nim` - OpenAI-compatible client for NVIDIA NIM.
 - `internal/tart` - the only package that knows tart's arguments and output.
@@ -69,12 +69,32 @@ Boot and lifecycle
 - Ready means usable: guest agent answers, IP known, ssh key installed, sshd accepts on
   guest 127.0.0.1:22 (probed via `tart exec`). The waiting phases each get their own
   `readyTimeout` (3 min). A timeout names the last probe error.
-- `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`, `sshSeconds`.
-- Before ready, boot writes the guest agent's `ScreenCaptureApprovals.plist` record
-  (`quietCaptureAlertScript`). Without it the first capture (`screencapture` or the live
-  helper) raises a "bypass the system private window picker" alert that stays on the
-  guest screen. On macOS 26 replayd ignores a record missing any of the five keys, and it
-  caches the file, so the script stops and restarts it. Best effort: failure only logs.
+- `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`,
+  `captureAlertSeconds`, `desktopPrefsSeconds`, `sshSeconds`.
+- Boot writes replayd's screen-capture approvals (`capturealert.go`, ADR 0013) before ready, so
+  before the frame recorder's first capture and the live helper. Without them macOS 15+
+  shows "tart-guest-agent is requesting to bypass the system private window picker" over
+  the screen. The alert is decided by `kScreenCaptureApprovalLastUsed` alone, which
+  replayd sets to now on every capture and resets after 30 idle days or a clock jump, so
+  boot writes LastUsed, LastAlerted and the hint date in 3024 unconditionally (a baked
+  record is as old as the image), for tart-guest-agent and sshd-keygen-wrapper, paths
+  resolved each boot. replayd caches the file, so it is stopped across the write and
+  killed after, then kickstarted and waited for (until it is back every capture fails
+  with "could not create image from display"). `ensureCaptureApproval` runs before each
+  screenshot and frame and when a live stream starts, never during one, at most once a
+  minute by the wall clock (the monotonic clock stops while the host sleeps). Its check
+  only reads; a reset or aged record is rewritten. Killing replayd stops every
+  ScreenCaptureKit session, so a rewrite, and `machine_approve_capture` (a record for an
+  app under test, keyed by its bundle URL), end a running live stream first with a
+  reason; viewers reconnect. Both hold `input.approval.mu`, so writes never overlap. A failure is logged and recorded as
+  `captureAlertError`, never fatal: the machine works under the alert. In `PrepareGuest`
+  it is fatal.
+- Boot also sets desktop preferences (`desktopprefs.go`, step key `desktopPrefsSeconds`,
+  `desktopPrefsError`): "Click wallpaper to reveal desktop" off, so a missed click cannot
+  hide every window, window restore at login off, and display sleep, screensaver and
+  screen lock off (a sleeping guest display makes every capture black, with no error).
+  Also never fatal. `prepare-image`
+  bakes both; `images/scripts/greenroom-tcc.sh` repeats them for the Packer image.
 - `finishBoot` writes the step before closing `ready`. `manifest.json` is written by
   temp file and rename.
 - `waitReady` watches `tart run`'s process; if it exits, fail at once with the tail of
@@ -104,8 +124,33 @@ Evidence
 - Every tool call records itself (input, output, error, duration). A new tool does too.
 - Frames: every `-frame-interval` (default 2 s, 0.5 s while a control lease is held,
   0 disables) into `frames/<unix-ms>.jpg` plus a line in `frames.jsonl`. A frame cites the
-  current step; it never claims a number. Capture failures are logged once, never fatal.
+  current step; it never claims a number. The first capture failure and the first recovery
+  after it are logged, never fatal. A host that sleeps (lid closed) suspends the VM: frames
+  stop for the whole sleep, and the first capture after wake can fail once with "could not
+  create image from display".
 - A guest command's non-zero exit is `ExitCode`, not an `error`. `error` means tart failed.
+- Last activity (`Manager.LastActivity`, `/api/runs` `lastActivity`, `machine_list`
+  `idleSeconds`, the host-limit error) is the newest step end or message, never a frame:
+  the recorder captures an idle machine too. Messages reach the manager through
+  `SetMessageActivity`, wired in `main.go`. greenroom reports idle time and never destroys
+  a machine on its own; reaping is the user's call.
+
+Exec
+
+- `machine_exec` runs `/bin/sh -c execWrapper greenroom-exec <script>`: the login zsh
+  writes to temp files that are printed after it exits. `tart exec` returns only when
+  every holder of the guest's stdout/stderr pipes closes them, so without the wrapper
+  `./App &` (or `(cd x && ./App) &`) holds the call until its timeout. `cmd.WaitDelay`
+  on the host does not help: tart itself stays up. Output a background child writes
+  after the shell exits is lost. zsh `-c` runs `a && b &` with `a` in the foreground;
+  that is zsh, not us.
+- The timeout is enforced in the guest (ADR 0014, issue #28): the wrapper puts zsh in its
+  own process group (`set -m`) and a watchdog TERMs it at the timeout, KILLs it 5 s later.
+  The result keeps the output so far, exit 124, `timedOut`. The host waits the timeout
+  plus `execHostGrace`. The wrapper's stderr is `/dev/null` (job notices); the command's
+  goes out through fd 3, which children must not inherit (`3>&-`).
+- A `cwd` or sync `dest` of `~` or `~/x` means the guest home (`homeRelative`). Both are
+  otherwise shell-quoted, so a tilde would never expand and rsync would make a dir `~`.
 
 Conversation and verifier
 
@@ -121,6 +166,11 @@ Conversation and verifier
 - Model failures retry: `nim.RetryBackoff` (1, 2, 4, 8 s on 429/5xx/transport, honours
   `Retry-After`; a timeout is never retried), then `verifier.TurnRetryDelays` (30, 60, 120 s). After the last, the
   actor posts that it gave up. Both are package vars so tests can zero them.
+- `project` rebuilds the verifier's own past messages (progress, reply, ask, verdict) as
+  the assistant tool calls that made them, with results; never as assistant prose. A
+  model imitates its history: projected as "[I reported verdict ...]" text, it answered a
+  later task with a prose verdict, stored as a reply, so an accepted fail stood. Prose
+  that still looks like a verdict (`proseVerdict`) is sent back once per turn to call the tool.
 - Every action that changes a machine lands in the transcript. Lifecycle events come only
   from the bridge in `main.go`.
 
@@ -132,15 +182,34 @@ Computer use (ADR 0009)
   `machine_input` step.
 - The verifier takes the lease per call, not per turn, via `Manager.InputAs`. A human
   holding it is a readable error, not a failure.
-- Coordinates are fractions 0 to 1. Only the manager converts to points (`ScreenOf`);
-  out-of-range is clamped. `machine.Shot` carries `width`, `height`, `scale`; never
-  hardcode Retina 2.
+- Coordinates are fractions 0 to 1. Only the manager converts to points (`ScreenOf`), and
+  back for the UI tree; out-of-range is clamped. `machine.Shot` carries `width`, `height`,
+  `scale`; never hardcode Retina 2 (the tahoe guest is 1024x768 at scale 1).
 - The input helper is compiled in the guest with `swiftc` to
   `~/.greenroom/bin/greenroom-input-<inputHelperVersion>`. Bump `inputHelperVersion`
   when `guest/input.swift` changes, and rebuild `greenroom-base`. Locally nothing detects a
   stale image except a slow first control request. The VM suite workflow bakes and tests
   `greenroom-base-v<inputHelperVersion>` itself, so a bump rebuilds its image once. Source and input travel base64, never
   through a shell.
+- A shortcut posts real modifier key downs and ups around the key (`press` in
+  `input.swift`). A flag on the key event alone leaves the window server thinking the
+  modifier is held, and the next typed text arrives as command-1, command-2.
+
+UI tree (ADR 0012)
+
+- `machine_ui` (both the verifier and MCP) is `greenroom-input --ui-base64`: the frontmost
+  or named app's on-screen AX elements, frames clipped to window and scroll areas, menu
+  bar and bare layout skipped, capped at `limit` (default 250, verifier 200, max 1000).
+  It needs Accessibility, which the image grants to tart-guest-agent; the helper inherits
+  it. No lease. Every read is a `machine_ui` step with the whole tree.
+- `Manager.UI` keeps the last good tree per machine and reader (`HolderCoder`,
+  `HolderVerifier`); `machine_click {element}` aims at the caller's own tree via
+  `ElementCenter` without re-reading, so a verifier read never retargets a coder's ids
+  (issue #35). An optional `uiStep` refuses a click whose ids are not from the caller's
+  latest read. Nothing checks that the app is still frontmost. `UITree.Outline` is the text both
+  surfaces show a model; keep it one element a line with its id and center.
+- The verifier's prompt makes the tree the way to aim and a coder's constraints hard rules
+  (`verifier.go`). `TestSystemPromptBindsConstraintsAndAimsFromTheTree` pins the phrases.
 
 Live screen (ADR 0011)
 
@@ -220,7 +289,8 @@ mkdir -p ~/.local/tart-$V && tar xzf tart.tar.gz -C ~/.local/tart-$V
 ## Image
 
 `scripts/build-image.sh` clones the default image, boots it, runs `prepare-image`
-(`machine.PrepareGuest`: compile the input helper, install the ssh key) and stops it.
+(`machine.PrepareGuest`: compile the input helper, install the ssh key, pre-approve
+screen capture, set the desktop preferences) and stops it.
 Clones of `greenroom-base` skip the ~28 s first-control compile.
 
 - `PrepareGuest` ends with `sync` in the guest. `tart stop` does not flush guest pages;
@@ -233,7 +303,8 @@ Clones of `greenroom-base` skip the ~28 s first-control compile.
 
 - `WithTartBin` points at the fake tart in `internal/testsupport/faketart.go`. It records
   every call; control files turn on failures. The list is in that file's header comment, plus
-  `fail-keyinstall` and `tart-version` (fake a version mismatch). It writes
+  `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `ui.json` (what `--ui-base64`
+  prints) and `tart-version` (fake a version mismatch). It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session got a pty.
 - The fake tart runs `exec -i ... --serve` as the fake live screen helper by re-executing
   the test binary (`testsupport/fakescreen.go`, gated by an env var in its `init`). Its control

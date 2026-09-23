@@ -31,7 +31,8 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	s := mcp.NewServer(&mcp.Implementation{Name: "greenroom", Version: Version}, &mcp.ServerOptions{
 		Instructions: "greenroom gives you a disposable macOS machine. Call machine_create once and keep its runId, " +
 			"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_exec to build " +
-			"and run, machine_screenshot to look at the screen, and machine_destroy when done. " +
+			"and run, machine_screenshot to look at the screen, machine_ui to find controls and their centers before " +
+			"machine_click, and machine_destroy when done. " +
 			"Every run also owns one conversation: agent_send posts into it, agent_wait blocks for what comes " +
 			"back, and agent_transcript reads it. That is how you reach greenroom's verifier and how a watching " +
 			"human reaches you. " +
@@ -67,25 +68,41 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 		return wrap(mgr.Wait(ctx, in.RunID, waitTimeout(in.TimeoutSeconds)))
 	})
 
+	type listedMachine struct {
+		*machine.Machine
+		LastActivity time.Time `json:"lastActivity" jsonschema:"When a step or message last happened on this run. Screen frames do not count."`
+		IdleSeconds  int       `json:"idleSeconds" jsonschema:"Seconds since lastActivity"`
+	}
 	type listOut struct {
-		Machines []*machine.Machine `json:"machines"`
+		Machines []listedMachine `json:"machines"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "machine_list",
-		Description: "List live machines with their runIds and status, for example to pick up a machine from an earlier session.",
+		Name: "machine_list",
+		Description: "List live machines with their runIds, status and how long each has been idle (idleSeconds: no " +
+			"tool step or message since lastActivity), for example to pick up a machine from an earlier session or " +
+			"to tell a stale run from a busy one when the host is at its machine limit.",
 	}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, listOut, error) {
-		return nil, listOut{Machines: mgr.List()}, nil
+		out := listOut{Machines: []listedMachine{}}
+		for _, mc := range mgr.List() {
+			steps, _ := machine.ReadStepLog(mc.Dir) // unreadable counts as no steps, as in /api/runs
+			last := mgr.ActivityFrom(mc.RunID, mc.CreatedAt, steps)
+			out.Machines = append(out.Machines, listedMachine{Machine: mc, LastActivity: last,
+				IdleSeconds: int(max(0, time.Since(last)).Seconds())})
+		}
+		return nil, out, nil
 	})
 
 	type syncIn struct {
 		RunID   string   `json:"runId" jsonschema:"runId from machine_create"`
 		Source  string   `json:"source" jsonschema:"Absolute path of a directory on the host to copy into the machine"`
-		Dest    string   `json:"dest,omitempty" jsonschema:"Destination path in the guest, relative to the admin home. Defaults to work/<basename of source>."`
+		Dest    string   `json:"dest,omitempty" jsonschema:"Guest directory, relative to the guest home: work/myapp and ~/work/myapp are the same place. Must stay inside the home: no absolute path, no .., not ~ itself. Defaults to work/<basename of source>."`
 		Exclude []string `json:"exclude,omitempty" jsonschema:"rsync exclude patterns, e.g. node_modules, .git, build"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "machine_sync",
-		Description: "Copy a host directory into the machine with rsync. Fast on repeat calls; only changed files move.",
+		Name: "machine_sync",
+		Description: "Copy a host directory into the machine with rsync. Fast on repeat calls; only changed files move. " +
+			"dest is relative to the guest home, and a leading ~/ is accepted (it means the same). The result's dest is " +
+			"the path relative to the home, which machine_exec's cwd takes as is.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in syncIn) (*mcp.CallToolResult, machine.SyncResult, error) {
 		res, err := mgr.Sync(ctx, in.RunID, in.Source, in.Dest, in.Exclude)
 		res.Seconds = round(res.Seconds)
@@ -95,12 +112,14 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	type execIn struct {
 		RunID          string `json:"runId" jsonschema:"runId from machine_create"`
 		Command        string `json:"command" jsonschema:"Shell command, run with zsh -lc in the guest"`
-		Cwd            string `json:"cwd,omitempty" jsonschema:"Working directory in the guest, e.g. work/myapp"`
-		TimeoutSeconds int    `json:"timeoutSeconds,omitempty" jsonschema:"Kill the command after this many seconds. Default 600."`
+		Cwd            string `json:"cwd,omitempty" jsonschema:"Working directory in the guest: relative to the home, absolute, or starting with ~/, e.g. work/myapp"`
+		TimeoutSeconds int    `json:"timeoutSeconds,omitempty" jsonschema:"Kill the command and its children in the guest after this many seconds. Default 600. The result then has timedOut true, exit code 124, and the output printed until then."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "machine_exec",
-		Description: "Run a shell command inside the machine and return stdout, stderr and the exit code.",
+		Name: "machine_exec",
+		Description: "Run a shell command inside the machine and return stdout, stderr and the exit code. It returns " +
+			"when the shell exits: a command may leave a process running in the background (./App &), whose later " +
+			"output is not returned.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in execIn) (*mcp.CallToolResult, machine.ExecResult, error) {
 		timeout := 10 * time.Minute
 		if in.TimeoutSeconds > 0 {
@@ -114,6 +133,27 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	type runIn struct {
 		RunID string `json:"runId" jsonschema:"runId from machine_create"`
 	}
+
+	type approveIn struct {
+		RunID string `json:"runId" jsonschema:"runId from machine_create"`
+		App   string `json:"app" jsonschema:"Guest path of the .app bundle to approve, absolute or relative to the guest home (~/ accepted), e.g. work/MyApp/MyApp.app"`
+	}
+	type approveOut struct {
+		Client string `json:"client" jsonschema:"The bundle URL macOS keys the approval by"`
+		Step   int    `json:"step"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "machine_approve_capture",
+		Description: "Pre-approve an app under test that captures the screen itself (ScreenCaptureKit, a screen " +
+			"recorder), so macOS does not cover the screen with \"<App> is requesting to bypass the system private " +
+			"window picker\" when it starts capturing. Call it after the app is built and before it first captures. " +
+			"Not needed for machine_screenshot or the live screen: greenroom approves its own capture. The approval " +
+			"is by bundle path; a bare executable outside an .app cannot be approved this way. It restarts macOS's " +
+			"capture service, which ends a running live screen stream; viewers reconnect to a fresh one.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in approveIn) (*mcp.CallToolResult, approveOut, error) {
+		client, step, err := mgr.ApproveCapture(ctx, in.RunID, in.App)
+		return nil, approveOut{Client: client, Step: step}, err
+	})
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_screenshot",
 		Description: "Capture the machine's screen. Returns a JPEG to look at, the path of the lossless PNG saved in " +

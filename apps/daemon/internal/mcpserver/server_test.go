@@ -60,6 +60,7 @@ func newHarness(t *testing.T) *harness {
 	})
 	// Tests play the verifier by appending to the store directly.
 	reg := session.NewRegistry(mgr.Root, 2)
+	mgr.SetMessageActivity(reg.LastMessageAt) // as main wires it
 	server := New(mgr, defaultImage, reg)
 	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
@@ -153,10 +154,10 @@ func TestServerExposesExactlyItsTools(t *testing.T) {
 	want := map[string]bool{
 		"machine_create": false, "machine_wait": false, "machine_list": false,
 		"machine_sync": false, "machine_exec": false, "machine_screenshot": false,
-		"machine_destroy": false,
-		"agent_send":      false, "agent_wait": false, "agent_transcript": false,
+		"machine_destroy": false, "machine_approve_capture": false,
+		"agent_send": false, "agent_wait": false, "agent_transcript": false,
 		"machine_click": false, "machine_type": false, "machine_key": false,
-		"machine_scroll": false, "machine_input": false,
+		"machine_scroll": false, "machine_input": false, "machine_ui": false,
 		"machine_session_start": false, "machine_session_send": false,
 		"machine_session_read": false, "machine_session_close": false,
 	}
@@ -371,6 +372,38 @@ func TestListIsEmptyThenHoldsTheMachine(t *testing.T) {
 	}
 }
 
+// An agent at the host limit reads machine_list to tell a stale run from a busy one.
+func TestListSaysHowLongEachMachineHasBeenIdle(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	type row struct {
+		RunID        string    `json:"runId"`
+		LastActivity time.Time `json:"lastActivity"`
+		IdleSeconds  *int      `json:"idleSeconds"`
+	}
+	var out struct {
+		Machines []row `json:"machines"`
+	}
+	h.call("machine_list", nil, &out)
+	if len(out.Machines) != 1 || out.Machines[0].IdleSeconds == nil || out.Machines[0].LastActivity.IsZero() {
+		t.Fatalf("machine_list does not report idle time: %+v", out.Machines)
+	}
+	boot := out.Machines[0].LastActivity
+
+	store, err := h.reg.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := store.Append(session.Message{From: session.Coder, Kind: session.Note, Text: "rebuilding"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.call("machine_list", nil, &out)
+	if got := out.Machines[0].LastActivity; !got.Equal(m.At) || !got.After(boot) {
+		t.Errorf("lastActivity = %v after a message at %v, want the message", got, m.At)
+	}
+}
+
 // --- machine_exec ---
 
 func TestExecReturnsStreamsAndExitCode(t *testing.T) {
@@ -403,6 +436,15 @@ func TestExecPassesTheWorkingDirectory(t *testing.T) {
 	h.call("machine_exec", map[string]any{"runId": runID, "command": "pwd", "cwd": "work/app"}, nil)
 	if !strings.Contains(testsupport.Calls(t, h.control), "cd 'work/app'") {
 		t.Error("the cwd never reached the guest command")
+	}
+}
+
+func TestExecReadsATildeCwdAsTheGuestHome(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.call("machine_exec", map[string]any{"runId": runID, "command": "pwd", "cwd": "~/work/app"}, nil)
+	if !strings.Contains(testsupport.Calls(t, h.control), `cd "$HOME"/'work/app'`) {
+		t.Errorf("a ~ cwd was not entered from the guest home\ncalls:\n%s", testsupport.Calls(t, h.control))
 	}
 }
 
@@ -441,6 +483,59 @@ func TestSyncReportsDestAndSummary(t *testing.T) {
 	}
 	if res.Seconds != round(res.Seconds) {
 		t.Errorf("seconds = %v, which is not rounded", res.Seconds)
+	}
+}
+
+// The description is what an agent reads; it must match what guestDest accepts.
+func TestSyncDescriptionMatchesTheTildeBehaviour(t *testing.T) {
+	h := newHarness(t)
+	tools, err := h.session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var desc, dest string
+	for _, tool := range tools.Tools {
+		if tool.Name == "machine_sync" {
+			desc = tool.Description
+			raw, _ := json.Marshal(tool.InputSchema)
+			dest = string(raw)
+		}
+	}
+	for _, want := range []string{"relative to the guest home", "~/ is accepted"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("machine_sync description %q does not say %q", desc, want)
+		}
+	}
+	if !strings.Contains(dest, "~/work/myapp are the same place") {
+		t.Errorf("the dest schema does not say ~/ is the same as a home-relative path: %s", dest)
+	}
+
+	runID := h.ready()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "rsync"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var res machine.SyncResult
+	h.call("machine_sync", map[string]any{"runId": runID, "source": t.TempDir(), "dest": "~/work/myapp"}, &res)
+	if res.Dest != "work/myapp" {
+		t.Errorf("dest ~/work/myapp synced to %q, want work/myapp as the description promises", res.Dest)
+	}
+}
+
+func TestApproveCaptureTakesAGuestAppPath(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	var out struct {
+		Client string `json:"client"`
+		Step   int    `json:"step"`
+	}
+	h.call("machine_approve_capture", map[string]any{"runId": runID, "app": "~/work/Shot/Shot.app"}, &out)
+	if out.Client != "file:///Users/admin/work/Shot/Shot.app/" || out.Step == 0 {
+		t.Errorf("result = %+v, want the bundle URL and the step", out)
+	}
+	if res := h.raw("machine_approve_capture", map[string]any{"runId": runID, "app": "work/Shot/shot"}); !res.IsError {
+		t.Error("a path that is not an .app bundle was accepted")
 	}
 }
 
@@ -794,5 +889,113 @@ func TestTypeSendsOneBatchOneStep(t *testing.T) {
 
 	if n := h.inputSteps(runID); n != 1 {
 		t.Fatalf("machine_input steps = %d, want 1", n)
+	}
+}
+
+// --- machine_ui (ADR 0012) ---
+
+const tipSplitUI = `{"app":{"name":"TipSplit","pid":7},"apps":["Finder","TipSplit"],"screen":{"width":1024,"height":768},
+"truncated":false,"elements":[
+{"role":"AXRadioGroup","depth":0,"frame":{"x":438,"y":347,"w":196,"h":24}},
+{"role":"AXRadioButton","subrole":"AXSegment","label":"25%","depth":1,"frame":{"x":586,"y":347,"w":48,"h":24}}]}`
+
+const textEditUI = `{"app":{"name":"TextEdit","pid":9},"apps":["Finder","TextEdit"],"screen":{"width":1024,"height":768},
+"truncated":false,"elements":[
+{"role":"AXWindow","title":"Untitled","depth":0,"frame":{"x":100,"y":100,"w":600,"h":437}},
+{"role":"AXScrollArea","depth":1,"frame":{"x":80,"y":50,"w":602,"h":437}},
+{"role":"AXTextArea","depth":2,"frame":{"x":80,"y":50,"w":602,"h":437}}]}`
+
+// Issue #35: the verifier's machine_ui must not replace the coder's tree. A coder
+// click by element id resolves against the coder's own last read, and a click
+// pinned to a uiStep that is not the caller's latest read is refused.
+func TestAnElementClickUsesTheCallersOwnTree(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.putUI(tipSplitUI)
+	var coder machine.UITree
+	h.call("machine_ui", map[string]any{"runId": runID}, &coder)
+
+	// A verifier turn aims at another app in between.
+	h.putUI(textEditUI)
+	if _, err := h.mgr.UI(context.Background(), runID, machine.HolderVerifier, "TextEdit", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	var out struct {
+		Element *machine.UIElement `json:"element"`
+		UIStep  int                `json:"uiStep"`
+		App     string             `json:"app"`
+	}
+	h.call("machine_click", map[string]any{"runId": runID, "element": 2}, &out)
+	if out.Element == nil || out.Element.Label != "25%" || out.App != "TipSplit" || out.UIStep != coder.Step {
+		t.Fatalf("clicked %+v in %q (tree step %d), want TipSplit's 25%% segment from the coder's step %d", out.Element, out.App, out.UIStep, coder.Step)
+	}
+	if posted := postedActions(t, h.control); len(posted) != 1 || posted[0]["x"] != 610.0 || posted[0]["y"] != 359.0 {
+		t.Errorf("posted %+v, want one click at TipSplit's 25%% segment (610,359)", posted)
+	}
+
+	// Element 3 exists only in the verifier's tree.
+	if res := h.raw("machine_click", map[string]any{"runId": runID, "element": 3}); !res.IsError || strings.Contains(text(res), "TextEdit") {
+		t.Errorf("element 3 resolved outside the coder's tree: %s", text(res))
+	}
+
+	// A click pinned to an older read is refused, not aimed at the newer tree.
+	h.putUI(tipSplitUI)
+	h.call("machine_ui", map[string]any{"runId": runID}, nil)
+	res := h.raw("machine_click", map[string]any{"runId": runID, "element": 2, "uiStep": coder.Step})
+	if !res.IsError || !strings.Contains(text(res), "machine_ui") {
+		t.Errorf("a click pinned to a stale read: %s, want an error that says to read machine_ui again", text(res))
+	}
+}
+
+func (h *harness) putUI(body string) {
+	h.t.Helper()
+	if err := os.WriteFile(filepath.Join(h.control, "ui.json"), []byte(body), 0o644); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func TestUIReturnsAnOutlineAndTheStructuredTree(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.putUI(tipSplitUI)
+
+	var tree machine.UITree
+	res := h.call("machine_ui", map[string]any{"runId": runID, "app": "TipSplit"}, &tree)
+	if len(tree.Elements) != 2 || tree.Elements[1].X != 0.596 || tree.Elements[1].Y != 0.467 {
+		t.Fatalf("structured tree = %+v, want the 25%% segment at (0.596, 0.467)", tree)
+	}
+	if out := text(res); !strings.Contains(out, `[2] RadioButton/Segment label="25%" center (0.596, 0.467)`) {
+		t.Errorf("the outline does not give the segment's center:\n%s", out)
+	}
+}
+
+// A click by element lands on the element's center, in the same points a
+// click by fraction would.
+func TestClickAnElementFromTheLatestUIRead(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	if res := h.raw("machine_click", map[string]any{"runId": runID, "element": 2}); !res.IsError || !strings.Contains(text(res), "machine_ui") {
+		t.Errorf("a click by element before any read: %s, want an error naming machine_ui", text(res))
+	}
+	h.putUI(tipSplitUI)
+	h.call("machine_ui", map[string]any{"runId": runID}, nil)
+
+	var out struct {
+		Step    int                `json:"step"`
+		Element *machine.UIElement `json:"element"`
+	}
+	h.call("machine_click", map[string]any{"runId": runID, "element": 2}, &out)
+	if out.Element == nil || out.Element.Label != "25%" || out.Step == 0 {
+		t.Errorf("result = %+v, want the clicked element and its step", out)
+	}
+	posted := postedActions(t, h.control)
+	// 0.596 x 1024 and 0.467 x 768, rounded to points: the segment's middle.
+	if len(posted) != 1 || posted[0]["x"] != 610.0 || posted[0]["y"] != 359.0 {
+		t.Errorf("posted %+v, want one click at 610,359", posted)
+	}
+	if res := h.raw("machine_click", map[string]any{"runId": runID}); !res.IsError {
+		t.Error("a click with neither an element nor x and y was accepted")
 	}
 }

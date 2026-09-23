@@ -109,6 +109,7 @@ type Manager struct {
 	screenIdle       time.Duration
 	screenBuffer     int
 	screenInputSlack time.Duration
+	messageActivity  func(runID string) time.Time // guarded by mu; see SetMessageActivity
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)
@@ -437,7 +438,9 @@ func (m *Manager) checkHostCapacity(ctx context.Context) error {
 	var ours, foreign []string
 	for name, runID := range held {
 		if runID != "" {
-			ours = append(ours, "runId "+runID)
+			// Idle time lets the caller tell a stale run from a busy one. Choosing is theirs:
+			// greenroom never destroys a machine it was not asked to.
+			ours = append(ours, fmt.Sprintf("runId %s (%s)", runID, describeIdle(m.IdleFor(runID))))
 		} else {
 			foreign = append(foreign, name)
 		}

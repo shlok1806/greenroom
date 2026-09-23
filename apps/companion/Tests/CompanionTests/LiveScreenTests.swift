@@ -47,8 +47,12 @@ final class LiveScreenTests: XCTestCase {
         XCTAssertEqual(live.output.layer.videoGravity, .resizeAspect)
     }
 
+    /// The layer only displays frames inside an ordered window. Tests run in the
+    /// developer's (or the self-hosted CI runner's) login session, so the window
+    /// sits far off every display and xctest never becomes a Dock app.
     private func hostedWindow(_ live: LiveScreen) -> NSWindow {
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.borderless], backing: .buffered, defer: false)
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        let window = NSWindow(contentRect: CGRect(x: -20_000, y: -20_000, width: 640, height: 480), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let view = LiveScreenHostView(displayLayer: live.output.layer)
         view.pixelSize = CGSize(width: 1280, height: 960)

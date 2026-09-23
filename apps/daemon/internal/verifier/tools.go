@@ -48,15 +48,26 @@ var tools = []nim.Tool{
 		Schema:      object(map[string]any{}),
 	},
 	{
-		Name: "machine_click",
-		Description: "Click the machine's screen at a position. x and y are fractions of the screen (0 to 1), not " +
-			"pixels: call machine_screenshot first and reason in that picture. " + humanDriving,
+		Name: "machine_ui",
+		Description: "List the frontmost application's on-screen controls and text from its accessibility tree: " +
+			"for each an id, role, title, label, value, state (selected, focused, disabled), and its center and " +
+			"size as fractions of the screen. Call it before every click and after every action: it is exact, " +
+			"where a screenshot description is not.",
 		Schema: object(map[string]any{
-			"x":      num("Horizontal position as a fraction of the screen, 0 (left) to 1 (right)."),
-			"y":      num("Vertical position as a fraction of the screen, 0 (top) to 1 (bottom)."),
-			"button": str("left (default), right, or middle."),
-			"clicks": integer("2 for a double click. Default 1."),
-		}, "x", "y"),
+			"app": str("Optional application name or bundle id to read instead of the frontmost one."),
+		}),
+	},
+	{
+		Name: "machine_click",
+		Description: "Click the machine's screen. Pass element, an id from your latest machine_ui, to click that " +
+			"element's center. Otherwise pass x and y, fractions of the screen (0 to 1), not pixels. " + humanDriving,
+		Schema: object(map[string]any{
+			"element": integer("An element id from the latest machine_ui. Clicks its center; x and y are then ignored."),
+			"x":       num("Horizontal position as a fraction of the screen, 0 (left) to 1 (right)."),
+			"y":       num("Vertical position as a fraction of the screen, 0 (top) to 1 (bottom)."),
+			"button":  str("left (default), right, or middle."),
+			"clicks":  integer("2 for a double click. Default 1."),
+		}),
 	},
 	{
 		Name: "machine_type",
@@ -132,7 +143,7 @@ var tools = []nim.Tool{
 				"description": "pass if the task succeeded, fail if the thing under test is broken, inconclusive if you could not tell.",
 			},
 			"summary":  str("What happened and what the evidence shows, in a few sentences."),
-			"evidence": strList("Step numbers (as 'step 4') and screenshot paths the verdict rests on."),
+			"evidence": strList("Step numbers (as 'step 4') and screenshot paths the verdict rests on. When the task is about the screen, include the full path of your latest machine_screenshot."),
 		}, "verdict", "summary"),
 	},
 }
@@ -141,7 +152,7 @@ var tools = []nim.Tool{
 // see, plus the step it recorded (0 if none).
 func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall) (result string, step int) {
 	switch call.Name {
-	case "machine_exec", "machine_screenshot",
+	case "machine_exec", "machine_screenshot", "machine_ui",
 		"machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input":
 		// Still costs a step, so a model retrying a booting machine cannot spin.
 		if why := unusable(ctx, v.mgr, runID); why != "" {
@@ -174,21 +185,28 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 			// A blind verifier is still useful.
 			return fmt.Sprintf("step %d\nThe screenshot was saved to %s but it could not be described: %v", shot.Step, shot.Path, err), shot.Step
 		}
-		return fmt.Sprintf("step %d\n%s\nThe screen shows:\n%s\n\nThe image is saved at %s",
+		return fmt.Sprintf("step %d\n%s\nThe screen shows:\n%s\n\nThe image is saved at %s (cite this path in a verdict's evidence)",
 			shot.Step, shotGeometry(shot), desc, shot.Path), shot.Step
+
+	case "machine_ui":
+		var in struct {
+			App string `json:"app"`
+		}
+		_ = json.Unmarshal(args, &in)
+		return uiResult(ctx, v.mgr, runID, in.App)
 
 	case "machine_click":
 		var in struct {
-			X      float64 `json:"x"`
-			Y      float64 `json:"y"`
-			Button string  `json:"button"`
-			Clicks int     `json:"clicks"`
+			Element int      `json:"element"`
+			X       *float64 `json:"x"`
+			Y       *float64 `json:"y"`
+			Button  string   `json:"button"`
+			Clicks  int      `json:"clicks"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
-			return "error: machine_click needs x and y", 0
+			return "error: machine_click needs an element id or x and y", 0
 		}
-		return postInput(ctx, v.mgr, runID, fmt.Sprintf("clicked (%.2f, %.2f)", in.X, in.Y),
-			machine.InputAction{Type: "click", X: &in.X, Y: &in.Y, Button: in.Button, Clicks: in.Clicks})
+		return click(ctx, v.mgr, runID, in.Element, in.X, in.Y, in.Button, in.Clicks)
 
 	case "machine_type":
 		var in struct {
@@ -247,7 +265,18 @@ func (v *Verifier) describe(ctx context.Context, png []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return v.llm.Describe(ctx, v.cfg.VisionModel, jpeg, visionPrompt)
+	// The vision model sometimes answers with nothing but <unk> tokens; one
+	// more try has been enough. A second garbage answer is an error, so the
+	// reasoning model is told it could not see rather than handed noise.
+	for attempt := 0; ; attempt++ {
+		text, err := v.llm.Describe(ctx, v.cfg.VisionModel, jpeg, visionPrompt)
+		if err != nil || !strings.Contains(text, "<unk>") {
+			return text, err
+		}
+		if attempt == 1 {
+			return "", errors.New("the vision model answered with unreadable tokens twice")
+		}
+	}
 }
 
 // postInput posts one batch as the verifier and returns the tool result text,
@@ -259,6 +288,50 @@ func postInput(ctx context.Context, mgr *machine.Manager, runID, done string, ac
 		return "error: " + err.Error(), res.Step
 	}
 	return fmt.Sprintf("step %d\n%s", res.Step, done), res.Step
+}
+
+// maxUIOutput caps the outline fed back to the model. It is larger than
+// maxToolOutput because an outline cut in the middle loses the controls, so
+// it is cut at the end, on a line.
+const maxUIOutput = 16000
+
+// verifierUILimit is how many elements one read lists for the model.
+const verifierUILimit = 200
+
+// uiResult reads the UI tree and returns its outline, both brains' text.
+func uiResult(ctx context.Context, mgr *machine.Manager, runID, app string) (string, int) {
+	tree, err := mgr.UI(ctx, runID, machine.HolderVerifier, app, verifierUILimit)
+	if err != nil {
+		return "error: " + err.Error() + ". Take a machine_screenshot and use the positions it describes instead.", tree.Step
+	}
+	out := tree.Outline()
+	if len(out) > maxUIOutput {
+		cut := strings.LastIndexByte(out[:maxUIOutput], '\n')
+		out = out[:cut+1] + "(cut here: call machine_ui with app to read one application)\n"
+	}
+	return fmt.Sprintf("step %d\n%s", tree.Step, out), tree.Step
+}
+
+// click aims at element, from the latest UI read, or at x,y. It is both
+// brains' machine_click.
+func click(ctx context.Context, mgr *machine.Manager, runID string, element int, x, y *float64, button string, clicks int) (string, int) {
+	done := ""
+	if element != 0 {
+		e, err := mgr.ElementCenter(runID, machine.HolderVerifier, element, 0)
+		if err != nil {
+			return "error: " + err.Error(), 0
+		}
+		x, y = &e.X, &e.Y
+		done = fmt.Sprintf("clicked [%d] %s in %s at (%.3f, %.3f)", e.ID, e.Name(), e.App, e.X, e.Y)
+	}
+	if x == nil || y == nil {
+		return "error: machine_click needs an element id from machine_ui, or both x and y", 0
+	}
+	if done == "" {
+		done = fmt.Sprintf("clicked (%.3f, %.3f)", *x, *y)
+	}
+	return postInput(ctx, mgr, runID, done,
+		machine.InputAction{Type: "click", X: x, Y: y, Button: button, Clicks: clicks})
 }
 
 func keyLabel(key string, mods []string) string {

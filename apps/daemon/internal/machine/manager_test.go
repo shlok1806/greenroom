@@ -703,34 +703,6 @@ func TestInstallSSHKeyFailureFailsTheBoot(t *testing.T) {
 	}
 }
 
-// The capture-alert record goes in before ready, so it precedes every screenshot and frame.
-func TestBootPreApprovesScreenCaptureBeforeReady(t *testing.T) {
-	mgr, _, control := newTestManager(t)
-	readyMachine(t, mgr)
-	calls := testsupport.Calls(t, control)
-	if !strings.Contains(calls, "ScreenCaptureApprovals.plist") {
-		t.Fatalf("the boot never wrote the screen-capture approval record; calls:\n%s", calls)
-	}
-}
-
-// Without the record the guest only shows an alert, so the machine must still boot.
-func TestCaptureApprovalFailureDoesNotFailTheBoot(t *testing.T) {
-	mgr, _, control := newTestManager(t)
-	testsupport.Flag(t, control, "fail-capture-approval")
-
-	mc, err := mgr.Create(context.Background(), testImage, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := mgr.Wait(context.Background(), mc.RunID, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Status != Ready {
-		t.Errorf("status = %q (%s), want ready when the approval record cannot be written", got.Status, got.Error)
-	}
-}
-
 // Concurrent screenshots must not pick the same file name.
 func TestConcurrentScreenshotsGetDistinctFiles(t *testing.T) {
 	mgr, _, control := newTestManager(t)

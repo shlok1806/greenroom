@@ -207,3 +207,46 @@ func TestFrameCaptureFailureDoesNotFailTheRunAndLogsOnce(t *testing.T) {
 		t.Errorf("\"frame capture failed\" was logged %d times, want exactly 1\nlog:\n%s", n, got)
 	}
 }
+
+// A capture that fails for a while and then works again (a host waking from
+// sleep) logs the failure once and the recovery once, so the log does not say
+// the recorder stopped when it did not.
+func TestFrameCaptureRecoveryIsLoggedOnce(t *testing.T) {
+	bin, control := testsupport.FakeTart(t)
+	var logBuf syncBuffer
+	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(&logBuf, nil)),
+		WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers),
+		WithFrameInterval(20*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	settleOnCleanup(t, mgr)
+	mc := readyMachine(t, mgr)
+	shot := filepath.Join(control, "shot.b64")
+
+	waitFor(t, 2*time.Second, func() bool { return strings.Contains(logBuf.String(), "frame capture failed") })
+	for round := 0; round < 2; round++ {
+		if err := os.WriteFile(shot, []byte(pngBase64(t)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, 2*time.Second, func() bool { frames, _ := ReadFrames(mc.Dir); return len(frames) > round })
+		if err := os.Remove(shot); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err := mgr.Destroy(context.Background(), mc.RunID); err != nil {
+		t.Fatal(err)
+	}
+
+	got := logBuf.String()
+	if n := strings.Count(got, "frame capture failed"); n != 1 {
+		t.Errorf("failure logged %d times, want 1\n%s", n, got)
+	}
+	if n := strings.Count(got, "frame capture recovered"); n != 1 {
+		t.Errorf("recovery logged %d times, want 1\n%s", n, got)
+	}
+	if !strings.Contains(got, "failedCaptures=") {
+		t.Errorf("the recovery does not say how many captures failed\n%s", got)
+	}
+}

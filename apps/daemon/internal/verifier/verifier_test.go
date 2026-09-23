@@ -32,6 +32,8 @@ type scriptedModel struct {
 	requests []map[string]any
 	vision   string
 	visions  int
+	// visionReplies, when set, answer the vision calls in order before vision does.
+	visionReplies []string
 
 	// failures is how many requests get a 500 first; they consume no reply.
 	failures int
@@ -61,9 +63,13 @@ func (s *scriptedModel) start(t *testing.T) string {
 
 		// An image request is the vision model.
 		if isVisionRequest(body) {
+			answer := s.vision
+			if s.visions < len(s.visionReplies) {
+				answer = s.visionReplies[s.visions]
+			}
 			s.visions++
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":`+quote(s.vision)+`}}],"usage":{}}`)
+			_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":`+quote(answer)+`}}],"usage":{}}`)
 			return
 		}
 		n := len(s.requests) - s.visions - 1
@@ -495,6 +501,47 @@ func TestTurnDescribesAScreenshotForABlindModel(t *testing.T) {
 	}
 }
 
+// The vision model once answered with a page of <unk> tokens. That is retried
+// once, and a second one reaches the reasoning model as an error, not as noise.
+func TestDescribeRetriesAnUnreadableAnswerOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		replies []string
+		want    string
+	}{
+		{"then readable", []string{"<unk><unk><unk>", "3. Window text:\nEach pays: $48.00"}, "Each pays: $48.00"},
+		{"twice", []string{"<unk><unk>", "<unk><unk>"}, "unreadable tokens twice"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, runID, control := ready(t)
+			writeShot(t, control)
+			model := &scriptedModel{
+				visionReplies: tc.replies,
+				replies: []string{
+					toolCall("machine_screenshot", map[string]any{}),
+					toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "done"}),
+				},
+			}
+			v := newVerifier(t, mgr, model.start(t))
+			store := openStore(t, mgr, runID)
+			postTask(t, store, "Look at the screen.")
+			if _, err := v.Turn(context.Background(), runID, store); err != nil {
+				t.Fatalf("Turn: %v", err)
+			}
+			if model.visions != 2 {
+				t.Errorf("the vision model was called %d times, want 2", model.visions)
+			}
+			last := model.request(t, model.calls())
+			if !strings.Contains(last, tc.want) {
+				t.Errorf("the reasoning model never saw %q", tc.want)
+			}
+			if strings.Contains(last, "<unk>") {
+				t.Error("unreadable tokens reached the reasoning model")
+			}
+		})
+	}
+}
+
 func TestTurnKeepsGoingWhenTheEyesFail(t *testing.T) {
 	mgr, runID, control := ready(t)
 	writeShot(t, control)
@@ -559,7 +606,7 @@ func TestTurnEndsWhenTheVerifierAsksAQuestion(t *testing.T) {
 		t.Fatalf("second Turn: %v", err)
 	}
 	req := model.request(t, 2)
-	for _, want := range []string{"Build the app.", "[I asked] Which scheme?", "answers your question: Use the Debug scheme."} {
+	for _, want := range []string{"Build the app.", "Which scheme?", "answers your question: Use the Debug scheme."} {
 		if !strings.Contains(req, want) {
 			t.Errorf("the rebuilt context is missing %q", want)
 		}
@@ -631,7 +678,7 @@ func TestContextIsRebuiltAfterARestart(t *testing.T) {
 		t.Fatalf("second Turn: %v", err)
 	}
 	req := model.request(t, 2)
-	for _, want := range []string{"Build the app.", "[I asked] Which scheme?", "answers your question: Use the Debug scheme."} {
+	for _, want := range []string{"Build the app.", "Which scheme?", "answers your question: Use the Debug scheme."} {
 		if !strings.Contains(req, want) {
 			t.Errorf("the rebuilt context is missing %q", want)
 		}
@@ -1012,4 +1059,233 @@ func truncateFor(s string) string {
 		return s
 	}
 	return s[:300]
+}
+
+const segmentUI = `{"app":{"name":"TipSplit","pid":7},"apps":["TipSplit"],"screen":{"width":1024,"height":768},
+"truncated":false,"elements":[
+{"role":"AXRadioButton","subrole":"AXSegment","label":"25%","depth":0,"frame":{"x":586,"y":347,"w":48,"h":24}}]}`
+
+func putUI(t *testing.T, control, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(control, "ui.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// ADR 0012: a text-only model aims from the UI tree. It reads the tree, sees
+// the element's center, and clicks it by id; the click lands on that center.
+func TestTurnReadsTheUITreeAndClicksAnElement(t *testing.T) {
+	mgr, runID, control := ready(t)
+	putUI(t, control, segmentUI)
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_ui", map[string]any{"app": "TipSplit"}),
+		toolCall("machine_click", map[string]any{"element": 1}),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Clicked 25%."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Click 25%.")
+
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	// The second model request carries the tree the first asked for.
+	if req := model.request(t, 2); !strings.Contains(req, `[1] RadioButton/Segment label=\"25%\" center (0.596, 0.467)`) {
+		t.Errorf("the model never saw the element's center:\n%s", req)
+	}
+	prog := messagesOfKind(store, session.Progress)
+	if len(prog) != 2 || !strings.Contains(prog[1].Text, `clicked [1] RadioButton/Segment "25%" in TipSplit at (0.596, 0.467)`) {
+		t.Fatalf("progress = %+v, want the click to name the element it hit", prog)
+	}
+	if !strings.Contains(testsupport.Calls(t, control), "--ui-base64") {
+		t.Error("the tree was never read from the guest")
+	}
+}
+
+func TestTurnClickByElementNeedsATree(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_click", map[string]any{"element": 3}),
+		toolCall("reply", map[string]any{"text": "I need to read the UI first."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Click it.")
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if req := model.request(t, 2); !strings.Contains(req, "call machine_ui first") {
+		t.Errorf("the model was not told to read the tree first:\n%s", req)
+	}
+}
+
+// The model is told to obey a coder's constraints and to aim from the tree;
+// both were missing when a demo verifier read the source and clicked blind.
+func TestSystemPromptBindsConstraintsAndAimsFromTheTree(t *testing.T) {
+	for _, want := range []string{"hard rules", "do not rebuild or relaunch", "Before any click, call machine_ui", "wallpaper"} {
+		if !strings.Contains(systemPrompt, want) {
+			t.Errorf("the system prompt lacks %q", want)
+		}
+	}
+	if !strings.Contains(visionPrompt, "approximate center as fractions") {
+		t.Error("the vision prompt does not ask for positions")
+	}
+}
+
+// A describer that named the window and "no error" but no values made the
+// verifier retake the shot. The prompt must ask for every visible string.
+func TestVisionPromptAsksForEveryVisibleString(t *testing.T) {
+	for _, want := range []string{
+		"quote every piece of text visible in the frontmost window",
+		"the contents of every field",
+		"values, results, totals",
+		"Never skip text",
+	} {
+		if !strings.Contains(visionPrompt, want) {
+			t.Errorf("the vision prompt lacks %q", want)
+		}
+	}
+}
+
+// assistantProse returns the text of every assistant message in the nth
+// request that has content, i.e. that the model could imitate as prose.
+func assistantProse(t *testing.T, model *scriptedModel, n int) []string {
+	t.Helper()
+	var req struct {
+		Messages []struct {
+			Role      string `json:"role"`
+			Content   any    `json:"content"`
+			ToolCalls []struct {
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(model.request(t, n)), &req); err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, m := range req.Messages {
+		if s, _ := m.Content.(string); m.Role == "assistant" && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// Regression (demo run 20260923-005718): a fail was accepted, the coder fixed
+// the code and sent a new task, and the model answered "[I reported verdict
+// pass] ..." in prose, imitating how its past verdict was projected. That was
+// posted as a reply, so the run kept the accepted fail. A past verdict is now
+// a report_verdict call in the context, and the new pass supersedes the fail.
+func TestANewTaskAfterAnAcceptedVerdictGetsARealVerdict(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("report_verdict", map[string]any{"verdict": "fail", "summary": "Each pays shows $0.00.", "evidence": []string{"step 3"}}),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Each pays shows $48.00 now."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check the total.")
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatal(err)
+	}
+	fail := store.Verdict()
+	post(t, store, session.Message{From: session.Coder, Kind: session.Accept, ReplyTo: fail.Seq})
+	post(t, store, session.Message{From: session.Coder, Kind: session.Note, Text: "Fixed the rounding."})
+	postTask(t, store, "Check the total again.")
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, prose := range assistantProse(t, model, 2) {
+		if strings.Contains(prose, "verdict") {
+			t.Errorf("the past verdict reached the model as prose it can imitate: %q", prose)
+		}
+	}
+	if req := model.request(t, 2); !strings.Contains(req, `\"verdict\":\"fail\"`) || !strings.Contains(req, `"name":"report_verdict"`) {
+		t.Errorf("the past verdict is not a report_verdict call in the context:\n%s", truncateFor(req))
+	}
+	got := store.Verdict()
+	if got.Verdict != "pass" || got.Status != session.Proposed || got.Seq == fail.Seq {
+		t.Fatalf("verdict = %+v, want a new proposed pass", got)
+	}
+	post(t, store, session.Message{From: session.Coder, Kind: session.Accept, ReplyTo: got.Seq})
+	if store.Verdict().Status != session.Accepted {
+		t.Errorf("the coder could not accept the new pass: %+v", store.Verdict())
+	}
+}
+
+// A model that still writes a verdict as prose is told to call the tool, once.
+func TestAProseVerdictIsSentBackForTheTool(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		prose("[I reported verdict pass] Each pays is $48.00."),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Each pays is $48.00."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check the total.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Ended != session.Verdict || store.Verdict().Verdict != "pass" {
+		t.Errorf("ended %q with verdict %+v, want a recorded pass", res.Ended, store.Verdict())
+	}
+	if !strings.Contains(model.request(t, 2), "Call report_verdict") {
+		t.Error("the model was not told to call report_verdict")
+	}
+	for _, m := range store.After(0) {
+		if m.Kind == session.Reply {
+			t.Errorf("the prose verdict was posted as a reply: %q", m.Text)
+		}
+	}
+}
+
+// On the last step there is no step left to answer a nudge, so the prose is
+// posted as a reply rather than thrown away with the cap message in its place.
+func TestAProseVerdictOnTheLastStepIsPostedAsAReply(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	var replies []string
+	for i := 0; i < 5; i++ {
+		replies = append(replies, toolCall("machine_exec", map[string]any{"command": "true"}))
+	}
+	replies = append(replies, prose("Verdict: pass. Each pays is $48.00."))
+	model := &scriptedModel{replies: replies}
+	v := newVerifier(t, mgr, model.start(t)) // MaxSteps 6
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check the total.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range store.After(0) {
+		if m.Kind == session.Reply {
+			got = append(got, m.Text)
+		}
+	}
+	if res.Ended != session.Reply || len(got) != 1 || !strings.Contains(got[0], "Each pays is $48.00") {
+		t.Errorf("ended %q with replies %q, want the model's prose as the one reply", res.Ended, got)
+	}
+}
+
+func TestProseVerdictMatchesOnlyVerdictShapes(t *testing.T) {
+	for text, want := range map[string]bool{
+		"[I reported verdict pass] ok":   true,
+		"  [I report a verdict fail] no": true,
+		"[I asked] Which scheme?":        true,
+		"Verdict: pass. It works.":       true,
+		"**Verdict:** fail":              true,
+		"The build is still running.":    false,
+		"I will report a verdict soon.":  false,
+		"The verdict depends on the OS.": false,
+	} {
+		if got := proseVerdict.MatchString(text); got != want {
+			t.Errorf("proseVerdict(%q) = %v, want %v", text, got, want)
+		}
+	}
 }
