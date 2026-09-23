@@ -69,6 +69,24 @@ final class LiveScreenTests: XCTestCase {
         try await eventually { source.hungUp }
     }
 
+    func testAReportOnItsWayWhenStoppingChangesNothing() async throws {
+        let all = try messages()
+        let firstVideo = try XCTUnwrap(all.firstIndex { if case .video = $0 { true } else { false } })
+        let source = ManualScreenSource()
+        let live = LiveScreen(runId: "r", source: source)
+        live.start()
+        try await eventually { source.isOpen }
+        source.send(all[..<firstVideo])
+        try await eventually { live.pixelSize != nil }
+
+        // The first frame's report waits for the main actor, which stops first.
+        source.send(all[firstVideo...])
+        usleep(300_000)
+        live.stop()
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(live.phase, .connecting)
+    }
+
     func testARefusalFallsBackWithTheDaemonsWords() async throws {
         let client = StubURLProtocol.client { _ in .json(#"{"error": "machine is not ready"}"#, status: 409) }
         let live = LiveScreen(runId: "r", source: client)
@@ -116,6 +134,27 @@ final class FakeScreenSource: ScreenSource, @unchecked Sendable {
                 continuation.yield(message)
             }
             if endFirst, call == 1 { continuation.finish() }
+        }
+    }
+}
+
+/// One connection that yields only what the test sends.
+final class ManualScreenSource: ScreenSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: AsyncThrowingStream<ScreenMessage, Error>.Continuation?
+
+    var isOpen: Bool { lock.withLock { continuation != nil } }
+
+    func send(_ messages: some Sequence<ScreenMessage>) {
+        let continuation = lock.withLock { self.continuation }
+        for message in messages {
+            continuation?.yield(message)
+        }
+    }
+
+    func liveScreen(runId: String) -> AsyncThrowingStream<ScreenMessage, Error> {
+        AsyncThrowingStream { continuation in
+            lock.withLock { self.continuation = continuation }
         }
     }
 }

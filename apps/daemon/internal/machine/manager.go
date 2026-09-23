@@ -93,21 +93,22 @@ type Manager struct {
 	Root string
 	Log  *slog.Logger
 
-	tart          *tart.Client
-	createMu      sync.Mutex // serializes Create so the capacity check cannot be raced
-	stateMu       sync.Mutex // serializes state.json writes; taken before mu, never under it
-	mu            sync.Mutex
-	machines      map[string]*Machine
-	sshKey        string
-	pubKey        string
-	maxMachines   int
-	readyTimeout  time.Duration
-	frameInterval time.Duration
-	vmPoll        time.Duration
-	sshProbe      func(ctx context.Context, vmName, addr string) error
-	onWatch       func(vncURL string)
-	screenIdle    time.Duration
-	screenBuffer  int
+	tart             *tart.Client
+	createMu         sync.Mutex // serializes Create so the capacity check cannot be raced
+	stateMu          sync.Mutex // serializes state.json writes; taken before mu, never under it
+	mu               sync.Mutex
+	machines         map[string]*Machine
+	sshKey           string
+	pubKey           string
+	maxMachines      int
+	readyTimeout     time.Duration
+	frameInterval    time.Duration
+	vmPoll           time.Duration
+	sshProbe         func(ctx context.Context, vmName, addr string) error
+	onWatch          func(vncURL string)
+	screenIdle       time.Duration
+	screenBuffer     int
+	screenInputSlack time.Duration
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)
@@ -160,6 +161,12 @@ func WithScreenIdle(d time.Duration) Option {
 	return func(m *Manager) { m.screenIdle = d }
 }
 
+// WithScreenInputSlack sets how long a live screen may take to ACK an input
+// beyond the time its actions and those queued before it take to post.
+func WithScreenInputSlack(d time.Duration) Option {
+	return func(m *Manager) { m.screenInputSlack = d }
+}
+
 // WithWatchHandler is called with the screen address of each watched machine.
 func WithWatchHandler(fn func(vncURL string)) Option {
 	return func(m *Manager) { m.onWatch = fn }
@@ -177,6 +184,7 @@ func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error)
 		Root: root, Log: log, tart: tart.New(), machines: map[string]*Machine{},
 		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout, frameInterval: defaultFrameInterval,
 		vmPoll: defaultVMPollInterval, screenIdle: defaultScreenIdle, screenBuffer: defaultScreenBuffer,
+		screenInputSlack: screenInputSlack,
 	}
 	m.sshProbe = m.probeSSHInGuest
 	for _, opt := range opts {

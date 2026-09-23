@@ -17,8 +17,9 @@ are in the root `CONTEXT-MAP.md`.
   the daemon. Accept and Dispute show only for `proposed` and `contested`.
 - **Frame**: one captured screen image (ADR 0008), `{at, file, step, bytes}`, listed at
   `GET /api/runs/{id}/frames` and fetched at `.../frames/{file}`.
-- **Live screen**: the Screen tab following the newest frame the daemon pushes
-  (`event: frame`).
+- **Live screen**: the Screen tab following live: the machine's H.264 stream
+  (`GET /api/runs/{id}/screen/live`, ADR 0011) while it plays, else the newest frame the
+  daemon pushes (`event: frame`).
 - **Recording**: a run's frames as one mp4 (`GET /api/runs/{id}/recording.mp4`). Needs
   `ffmpeg` on the daemon host.
 - **Artifact**: a run-directory file fetched by name

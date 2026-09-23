@@ -72,9 +72,14 @@ Boot and lifecycle
 - `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`,
   `captureAlertSeconds`, `desktopPrefsSeconds`, `sshSeconds`.
 - Boot writes replayd's screen-capture approvals (`capturealert.go`) before ready, so
-  before the frame recorder's first capture. Without them macOS 15+ shows "tart-guest-agent
-  is requesting to bypass the system private window picker" over the screen. A failure is
-  logged and recorded as `captureAlertError`, never fatal: the machine works under the alert.
+  before the frame recorder's first capture and the live helper. Without them macOS 15+
+  shows "tart-guest-agent is requesting to bypass the system private window picker" over
+  the screen. On macOS 26 replayd ignores a record missing any of the five keys, and it
+  caches the file, so the script holds it with SIGSTOP across the write and then kills it.
+  A complete record exits early without touching replayd. Records for tart-guest-agent
+  and sshd-keygen-wrapper, paths resolved each boot. A failure is logged and recorded as
+  `captureAlertError`, never fatal: the machine works under the alert. In `PrepareGuest`
+  it is fatal.
 - Boot also sets desktop preferences (`desktopprefs.go`, step key `desktopPrefsSeconds`,
   `desktopPrefsError`): "Click wallpaper to reveal desktop" off, so a missed click cannot
   hide every window, and window restore at login off. Also never fatal. `prepare-image`
@@ -158,8 +163,9 @@ Computer use (ADR 0009)
   `scale`; never hardcode Retina 2 (the tahoe guest is 1024x768 at scale 1).
 - The input helper is compiled in the guest with `swiftc` to
   `~/.greenroom/bin/greenroom-input-<inputHelperVersion>`. Bump `inputHelperVersion`
-  when `guest/input.swift` changes, and rebuild `greenroom-base`. Nothing detects a stale
-  image except a slow first control request. Source and input travel base64, never
+  when `guest/input.swift` changes, and rebuild `greenroom-base`. Locally nothing detects a
+  stale image except a slow first control request. The VM suite workflow bakes and tests
+  `greenroom-base-v<inputHelperVersion>` itself, so a bump rebuilds its image once. Source and input travel base64, never
   through a shell.
 - A shortcut posts real modifier key downs and ups around the key (`press` in
   `input.swift`). A flag on the key event alone leaves the window server thinking the
@@ -188,9 +194,11 @@ Live screen (ADR 0011)
   the cached FORMAT, and resumes at the next keyframe. Every new viewer and every drop sends
   KEYFRAME: a still screen sends nothing on its own.
 - LOG goes to the daemon log, never to viewers.
-- `Manager.Input` uses the stream (INPUT, then its ACK within 10 s) while it runs, else the
-  one-shot exec. It falls back only if nothing was sent, so a batch is never posted twice.
-  Lease, step and scaling are the same on both paths.
+- `Manager.Input` uses the stream (INPUT, then its ACK) while it runs, else the one-shot
+  exec. The ACK deadline is what the queued batches take to post (`inputCost`: sleeps and
+  typed keys) plus 10 s, never a fixed limit: long sleeps and `type` are valid batches. It
+  falls back only if nothing was sent, so a batch is never posted twice. Lease, step and
+  scaling are the same on both paths.
 - `/screen/live` answers 409 at once for a machine that is not ready; it never waits in
   `awaitReady`.
 

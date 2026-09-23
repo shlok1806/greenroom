@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -74,11 +75,11 @@ func TestPrepareGuestApprovesScreenCapture(t *testing.T) {
 	}
 }
 
-// The script runs for real against a throwaway home, with a fake agent and a
-// killall stub so the host's own replayd is left alone.
-func TestCaptureApprovalsScriptWritesTheNestedFormAndIsIdempotent(t *testing.T) {
+// The script runs for real against a throwaway home. pgrep is stubbed to name a
+// sleep process standing in for replayd, so the host's own replayd is left alone.
+func TestCaptureApprovalsScriptWritesFiveKeysHoldsReplaydAndIsIdempotent(t *testing.T) {
 	if runtime.GOOS != "darwin" {
-		t.Skip("needs defaults(1) and plutil(1)")
+		t.Skip("needs PlistBuddy and plutil")
 	}
 	home := t.TempDir()
 	bin := t.TempDir()
@@ -87,10 +88,8 @@ func TestCaptureApprovalsScriptWritesTheNestedFormAndIsIdempotent(t *testing.T) 
 		t.Fatal(err)
 	}
 	agent := filepath.Join(cellar, "tart-guest-agent")
-	for path, body := range map[string]string{agent: "#!/bin/sh\n", filepath.Join(bin, "killall"): "#!/bin/sh\necho \"$@\" >> \"$HOME/killall.log\"\n"} {
-		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(agent, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
 	// replayd keys the record by the resolved path, not the Homebrew symlink.
 	if err := os.Symlink(agent, filepath.Join(bin, "tart-guest-agent")); err != nil {
@@ -100,16 +99,53 @@ func TestCaptureApprovalsScriptWritesTheNestedFormAndIsIdempotent(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	plist := filepath.Join(home, "Library", "Group Containers", "group.com.apple.replayd", "ScreenCaptureApprovals.plist")
 
-	for i := 0; i < 2; i++ {
+	run := func() (pgrepCalls int, replaydKilled bool) {
+		t.Helper()
+		replayd := exec.Command("/bin/sleep", "60")
+		if err := replayd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		exited := make(chan error, 1)
+		go func() { exited <- replayd.Wait() }()
+		defer func() { _ = replayd.Process.Kill() }()
+		pgrepLog := filepath.Join(home, "pgrep.log")
+		_ = os.Remove(pgrepLog)
+		stub := "#!/bin/sh\necho \"$@\" >> " + pgrepLog + "\necho " + strconv.Itoa(replayd.Process.Pid) + "\n"
+		if err := os.WriteFile(filepath.Join(bin, "pgrep"), []byte(stub), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		cmd := exec.Command("/bin/sh", "-c", captureApprovalsScript)
 		cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+":/bin:/usr/bin:/usr/sbin")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("run %d: %v\n%s", i+1, err, out)
+			t.Fatalf("script: %v\n%s", err, out)
 		}
+		calls, _ := os.ReadFile(pgrepLog)
+		if len(calls) > 0 && !strings.Contains(string(calls), "-x -u") {
+			t.Errorf("pgrep %q would also match other users' replayd", calls)
+		}
+		select {
+		case err := <-exited:
+			replaydKilled = err != nil && strings.Contains(err.Error(), "killed")
+		case <-time.After(2 * time.Second):
+		}
+		return strings.Count(string(calls), "\n"), replaydKilled
 	}
 
-	plist := filepath.Join(home, "Library", "Group Containers", "group.com.apple.replayd", "ScreenCaptureApprovals.plist")
+	// A record in the old three-key form, which macOS 26 ignores, must be replaced.
+	if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("/usr/libexec/PlistBuddy",
+		"-c", "Add :"+resolved+" dict",
+		"-c", "Add :"+resolved+":kScreenCapturePrivacyHintDate date Thu Jan 01 00:00:00 UTC 3024", plist).CombinedOutput(); err != nil {
+		t.Fatalf("seed: %v\n%s", err, out)
+	}
+
+	if calls, killed := run(); calls != 1 || !killed {
+		t.Errorf("first run: pgrep calls %d, replayd killed %v; want replayd found and killed so it drops its cached copy", calls, killed)
+	}
 	out, err := exec.Command("plutil", "-p", plist).CombinedOutput()
 	if err != nil {
 		t.Fatalf("plutil: %v\n%s", err, out)
@@ -117,16 +153,23 @@ func TestCaptureApprovalsScriptWritesTheNestedFormAndIsIdempotent(t *testing.T) 
 	text := string(out)
 	for _, client := range []string{resolved, "/usr/libexec/sshd-keygen-wrapper"} {
 		if strings.Count(text, `"`+client+`" => {`) != 1 {
-			t.Errorf("want one dictionary for %s (macOS 15.1+ ignores a bare date)\n%s", client, text)
+			t.Errorf("want one dictionary for %s\n%s", client, text)
 		}
 	}
-	for _, key := range []string{"kScreenCaptureApprovalLastAlerted", "kScreenCaptureApprovalLastUsed", "kScreenCapturePrivacyHintDate"} {
-		if got := strings.Count(text, `"`+key+`" => 3024-01-01`); got != 2 {
-			t.Errorf("%s is dated 3024 for %d clients, want 2\n%s", key, got, text)
+	for key, want := range map[string]string{
+		"kScreenCaptureAlertableUsageCount": `=> 1`,
+		"kScreenCaptureApprovalLastAlerted": `=> `,
+		"kScreenCaptureApprovalLastUsed":    `=> `,
+		"kScreenCapturePrivacyHintDate":     `=> 3024-01-01`,
+		"kScreenCapturePrivacyHintPolicy":   `=> 2592000`,
+	} {
+		if got := strings.Count(text, `"`+key+`" `+want); got != 2 {
+			t.Errorf("%s %s appears for %d clients, want 2 (macOS 26 drops a record missing any of the five)\n%s", key, want, got, text)
 		}
 	}
-	killed, _ := os.ReadFile(filepath.Join(home, "killall.log"))
-	if !strings.Contains(string(killed), "replayd") {
-		t.Errorf("the script never restarted replayd, which would write its cached copy back over the approvals")
+
+	// Already approved: the second run reads and leaves replayd alone.
+	if calls, killed := run(); calls != 0 || killed {
+		t.Errorf("second run: pgrep calls %d, replayd killed %v; want an early exit that restarts nothing", calls, killed)
 	}
 }

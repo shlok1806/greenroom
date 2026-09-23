@@ -13,8 +13,10 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
@@ -34,7 +36,9 @@ const (
 	defaultScreenIdle   = 30 * time.Second
 	defaultScreenBuffer = 120 // messages per viewer, about 2 s of video
 	screenHelloTimeout  = 30 * time.Second
-	screenInputTimeout  = 10 * time.Second
+	screenInputSlack    = 10 * time.Second // on top of what the queued batches take to post
+	screenTypeCost      = 2 * time.Millisecond
+	screenMaxSleep      = 5000     // ms, the helper's cap on one sleep action
 	maxScreenMessage    = 32 << 20 // a garbled length must not allocate the host away
 )
 
@@ -133,6 +137,7 @@ type screenStream struct {
 	log       *slog.Logger
 	idleAfter time.Duration
 	buffer    int
+	slack     time.Duration
 
 	hello    chan struct{} // closed when HELLO arrives
 	done     chan struct{} // closed when the stream ends
@@ -145,15 +150,16 @@ type screenStream struct {
 	watches  map[*ScreenWatch]struct{}
 	acks     map[int64]chan string // INPUT id to its ACK's error ("" for success)
 	nextID   int64
-	lastLog  string // the helper's last LOG, which names a fatal capture error
-	idleGen  int    // invalidates an idle timer that fired after a viewer came back
+	backlog  time.Duration // what the INPUTs awaiting an ACK take to post; the helper runs them in order
+	lastLog  string        // the helper's last LOG, which names a fatal capture error
+	idleGen  int           // invalidates an idle timer that fired after a viewer came back
 	ended    bool
 	err      error
 }
 
-func newScreenStream(pipe *tart.Pipe, log *slog.Logger, idleAfter time.Duration, buffer int) *screenStream {
+func newScreenStream(pipe *tart.Pipe, log *slog.Logger, idleAfter time.Duration, buffer int, slack time.Duration) *screenStream {
 	s := &screenStream{
-		pipe: pipe, log: log, idleAfter: idleAfter, buffer: max(buffer, 3),
+		pipe: pipe, log: log, idleAfter: idleAfter, buffer: max(buffer, 3), slack: slack,
 		hello: make(chan struct{}), done: make(chan struct{}),
 		writes: make(chan []byte), keyframe: make(chan struct{}, 1),
 		watches: map[*ScreenWatch]struct{}{}, acks: map[int64]chan string{},
@@ -378,10 +384,14 @@ func (s *screenStream) input(ctx context.Context, actions []InputAction) error {
 	id := s.nextID
 	ack := make(chan string, 1)
 	s.acks[id] = ack
+	cost := inputCost(actions)
+	s.backlog += cost
+	wait := s.backlog + s.slack
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
 		delete(s.acks, id)
+		s.backlog -= cost
 		s.mu.Unlock()
 	}()
 
@@ -392,15 +402,23 @@ func (s *screenStream) input(ctx context.Context, actions []InputAction) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, screenInputTimeout)
-	defer cancel()
+	sendCtx, cancelSend := context.WithTimeout(ctx, wait)
+	defer cancelSend()
 	select {
 	case s.writes <- frameScreenMsg(screenInput, payload):
 	case <-s.done:
 		return errScreenEnded
-	case <-ctx.Done():
-		return fmt.Errorf("send input to the live screen: %w", ctx.Err())
+	case <-sendCtx.Done():
+		return fmt.Errorf("send input to the live screen: %w", sendCtx.Err())
 	}
+	// Concurrent batches can reach the helper in another order than they
+	// registered, so the ACK deadline counts the backlog as of the send: every
+	// batch sent ahead of this one is still in it.
+	s.mu.Lock()
+	wait = s.backlog + s.slack
+	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
 	select {
 	case msg := <-ack:
 		if msg != "" {
@@ -412,6 +430,21 @@ func (s *screenStream) input(ctx context.Context, actions []InputAction) error {
 	case <-ctx.Done():
 		return fmt.Errorf("the machine did not acknowledge the input: %w", ctx.Err())
 	}
+}
+
+// inputCost is about how long the helper takes to post actions: its sleeps
+// and the pause after each typed key.
+func inputCost(actions []InputAction) time.Duration {
+	var d time.Duration
+	for _, a := range actions {
+		switch strings.ToLower(a.Type) {
+		case "sleep":
+			d += time.Duration(min(max(a.MS, 0), screenMaxSleep)) * time.Millisecond
+		case "type":
+			d += time.Duration(utf8.RuneCountInString(a.Text)) * screenTypeCost
+		}
+	}
+	return d
 }
 
 // WatchScreen starts the machine's live screen if it is not running and adds
@@ -467,7 +500,7 @@ func (m *Manager) screenStream(ctx context.Context, mc *Machine) (*screenStream,
 	if err != nil {
 		return nil, fmt.Errorf("start the live screen: %w", err)
 	}
-	s = newScreenStream(pipe, m.Log.With("runId", mc.RunID), m.screenIdle, m.screenBuffer)
+	s = newScreenStream(pipe, m.Log.With("runId", mc.RunID), m.screenIdle, m.screenBuffer, m.screenInputSlack)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.liveLocked(mc) {
