@@ -357,7 +357,9 @@ func TestSlowInputBatchesGetTimeForTheirActions(t *testing.T) {
 }
 
 func TestInputUsesExecOnceTheScreenStops(t *testing.T) {
-	mgr, _, control := newTestManager(t, WithScreenIdle(50*time.Millisecond))
+	// Long enough that the first viewer always subscribes before the idle stop the stream
+	// arms at start: at 50 ms a loaded CI host stopped it first ("nobody is watching").
+	mgr, _, control := newTestManager(t, WithScreenIdle(time.Second))
 	mc := readyMachine(t, mgr)
 	w := watchScreen(t, mgr, mc.RunID)
 	s := streamOf(mgr, mc.RunID)
