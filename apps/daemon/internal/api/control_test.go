@@ -132,6 +132,25 @@ func TestALapsedLeaseIsRecordedWithItsActions(t *testing.T) {
 	}
 }
 
+// Only a human lease is announced: the human letting go after the verifier's lease lapsed must not
+// say a human lost control.
+func TestReleasingAnotherSeatsLapsedLeaseSaysNothing(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	if _, _, err := h.mgr.TakeControl(runID, machine.HolderVerifier, time.Second); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if code, body := h.status(http.MethodDelete, "/api/runs/"+runID+"/control", nil); code != http.StatusOK {
+		t.Fatalf("release: status %d: %s", code, body)
+	}
+	for _, m := range h.store(runID).After(0) {
+		if strings.HasPrefix(m.Text, "human") && (strings.Contains(m.Text, "control of the screen") || strings.Contains(m.Text, "gave the screen back")) {
+			t.Errorf("posted %q for the verifier's lease", m.Text)
+		}
+	}
+}
+
 func TestInputWithoutControlIsRefused(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()

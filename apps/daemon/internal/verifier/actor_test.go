@@ -115,6 +115,47 @@ func TestAMessageOnADestroyedRunIsToldNothingWillAnswer(t *testing.T) {
 	}
 }
 
+// blockedBrain takes a turn that only ends when the actor is stopped.
+type blockedBrain struct{ started chan struct{} }
+
+func (b blockedBrain) Turn(ctx context.Context, _ string, _ *session.Store) (TurnResult, error) {
+	close(b.started)
+	<-ctx.Done()
+	return TurnResult{}, ctx.Err()
+}
+
+// Issue #33 again: a turn cut short by the destroy posted nothing, so agent_wait looped forever.
+func TestATurnCutShortByDestroyIsToldNothingWillAnswer(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	brain := blockedBrain{started: make(chan struct{})}
+	reg := session.NewRegistry(mgr.Root, 2)
+	NewActors(brain, mgr, reg)
+	store, err := reg.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	postTask(t, store, "run echo hi")
+	select {
+	case <-brain.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the turn never started")
+	}
+	if err := mgr.Destroy(context.Background(), runID); err != nil {
+		t.Fatalf("Destroy: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	var notices []string
+	for _, m := range messagesOfKind(store, session.Event) {
+		if m.From == session.System && strings.Contains(m.Text, "nothing will answer") {
+			notices = append(notices, m.Text)
+		}
+	}
+	want := "this run's machine was destroyed, so the verifier has stopped and nothing will answer this task"
+	if len(notices) != 1 || notices[0] != want {
+		t.Errorf("notices = %q, want one %q; transcript: %+v", notices, want, store.After(0))
+	}
+}
+
 // A coder note is context and must not cost a model call.
 func TestACoderNoteDoesNotStartATurn(t *testing.T) {
 	mgr, runID, _ := ready(t)

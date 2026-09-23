@@ -64,9 +64,10 @@ func (a *api) releaseControl(w http.ResponseWriter, _ *http.Request, id string) 
 		return
 	}
 	switch {
-	case held && c.Lapsed(time.Now()):
+	case !held || c.Holder != humanSeat:
+	case c.Lapsed(time.Now()):
 		a.event(id, lapsedText(c))
-	case held:
+	default:
 		a.event(id, "human gave the screen back after "+actionCount(c.Actions))
 	}
 	writeJSON(w, http.StatusOK, controlOut{})
