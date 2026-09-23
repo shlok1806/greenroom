@@ -91,8 +91,9 @@ type InputResult struct {
 type inputState struct {
 	mu     sync.Mutex             // held across the install
 	screen atomic.Pointer[Screen] // set once installed; screenshots read it without mu
-	ui     atomic.Pointer[UITree] // the last machine_ui read, which a click may aim at
-	asMu   sync.Mutex             // serializes InputAs so one call's release cannot end another's lease
+	uiMu   sync.Mutex
+	ui     map[string]*UITree // each reader's last machine_ui read, which its clicks aim at (issue #35)
+	asMu   sync.Mutex         // serializes InputAs so one call's release cannot end another's lease
 
 	screenMu sync.Mutex // serializes starting the live screen
 

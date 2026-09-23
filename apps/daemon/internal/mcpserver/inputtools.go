@@ -34,7 +34,7 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 			"centers (or pass machine_click an element id) instead of estimating from a screenshot. Read it again " +
 			"after the UI changes. It only reads; it needs no control of the screen.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in uiIn) (*mcp.CallToolResult, machine.UITree, error) {
-		tree, err := mgr.UI(ctx, in.RunID, in.App, in.Limit)
+		tree, err := mgr.UI(ctx, in.RunID, machine.HolderCoder, in.App, in.Limit)
 		if err != nil {
 			return nil, machine.UITree{}, err
 		}
@@ -44,7 +44,8 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 
 	type clickIn struct {
 		RunID   string   `json:"runId" jsonschema:"runId from machine_create"`
-		Element int      `json:"element,omitempty" jsonschema:"An element id from the most recent machine_ui: clicks that element's center, and x and y are ignored."`
+		Element int      `json:"element,omitempty" jsonschema:"An element id from your most recent machine_ui: clicks that element's center, and x and y are ignored."`
+		UIStep  int      `json:"uiStep,omitempty" jsonschema:"Optional: the step of the machine_ui read the element id comes from. The click is refused if that is not your latest read, so an id never lands on a newer tree."`
 		X       *float64 `json:"x,omitempty" jsonschema:"Horizontal position as a fraction of the screen, 0 (left) to 1 (right): an element's center from machine_ui, or a fraction of a screenshot, never a guest pixel."`
 		Y       *float64 `json:"y,omitempty" jsonschema:"Vertical position as a fraction of the screen, 0 (top) to 1 (bottom)."`
 		Button  string   `json:"button,omitempty" jsonschema:"left (default), right, or middle."`
@@ -53,20 +54,24 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	type clickOut struct {
 		machine.InputResult
 		Element *machine.UIElement `json:"element,omitempty"`
+		App     string             `json:"app,omitempty" jsonschema:"The application the element's tree was read from"`
+		UIStep  int                `json:"uiStep,omitempty" jsonschema:"The machine_ui step the element came from"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_click",
-		Description: "Click the machine's screen. Pass element, an id from the latest machine_ui, to click that " +
-			"element's center; or x and y as fractions of the screen (0 to 1), never pixels." + humanDriving,
+		Description: "Click the machine's screen. Pass element, an id from your latest machine_ui, to click that " +
+			"element's center (add uiStep, that read's step, to be refused rather than aimed at a newer read); or x " +
+			"and y as fractions of the screen (0 to 1), never pixels. Ids are yours alone: greenroom's verifier " +
+			"reading the UI never changes what they point at." + humanDriving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in clickIn) (*mcp.CallToolResult, clickOut, error) {
 		var out clickOut
 		x, y := in.X, in.Y
 		if in.Element != 0 {
-			e, err := mgr.ElementCenter(in.RunID, in.Element)
+			e, err := mgr.ElementCenter(in.RunID, machine.HolderCoder, in.Element, in.UIStep)
 			if err != nil {
 				return nil, out, err
 			}
-			x, y, out.Element = &e.X, &e.Y, &e
+			x, y, out.Element, out.App, out.UIStep = &e.X, &e.Y, &e.UIElement, e.App, e.UIStep
 		}
 		if x == nil || y == nil {
 			return nil, out, errors.New("machine_click needs an element id from machine_ui, or both x and y")

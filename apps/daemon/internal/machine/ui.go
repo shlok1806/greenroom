@@ -90,8 +90,10 @@ type rawUITree struct {
 
 // UI reads the accessibility tree of the frontmost application, or of app
 // (a name or bundle id) if given. It needs no control lease: it only reads.
-// The result is remembered so ElementCenter can aim a click at an element.
-func (m *Manager) UI(ctx context.Context, runID, app string, limit int) (UITree, error) {
+// The result is remembered for reader (HolderCoder, HolderVerifier) alone, so
+// ElementCenter aims that reader's clicks at the tree it read and never at one
+// another reader fetched in between (issue #35).
+func (m *Manager) UI(ctx context.Context, runID, reader, app string, limit int) (UITree, error) {
 	mc, err := m.get(runID)
 	if err != nil {
 		return UITree{}, err
@@ -106,14 +108,20 @@ func (m *Manager) UI(ctx context.Context, runID, app string, limit int) (UITree,
 	started := time.Now()
 	tree, err := m.readUI(ctx, mc, app, limit)
 	tree.Seconds = time.Since(started).Seconds()
-	if err == nil {
-		mc.input.ui.Store(&tree)
-	}
-	input := map[string]any{"limit": limit}
+	input := map[string]any{"limit": limit, "reader": reader}
 	if app != "" {
 		input["app"] = app
 	}
 	tree.Step = mc.rec.step("machine_ui", input, tree, err, started)
+	if err == nil {
+		kept := tree // a copy, with its step: the caller may change what it was handed
+		mc.input.uiMu.Lock()
+		if mc.input.ui == nil {
+			mc.input.ui = map[string]*UITree{}
+		}
+		mc.input.ui[reader] = &kept
+		mc.input.uiMu.Unlock()
+	}
 	m.emitStep(mc.RunID, tree.Step)
 	return tree, err
 }
@@ -163,25 +171,41 @@ func uiFractions(raw rawUITree) (UITree, error) {
 func round3(v float64) float64 { return math.Round(v*1000) / 1000 }
 
 // ErrNoUITree means a click named an element before any machine_ui read.
-var ErrNoUITree = errors.New("no UI tree has been read on this machine; call machine_ui first")
+var ErrNoUITree = errors.New("you have not read a UI tree on this machine; call machine_ui first")
 
-// ElementCenter finds element id in the machine's most recent UI read. The
-// tree is not re-read: a window that moved since needs a fresh machine_ui.
-func (m *Manager) ElementCenter(runID string, id int) (UIElement, error) {
+// ElementTarget is an element a click aims at, and the read it came from.
+type ElementTarget struct {
+	UIElement
+	App    string // the application the tree was read from
+	UIStep int    // the machine_ui step of that read
+}
+
+// ElementCenter finds element id in reader's most recent UI read, never another
+// reader's (issue #35). uiStep, if not 0, is the machine_ui step the caller took
+// the id from; a click is refused when that is not the reader's latest read, so
+// ids cannot silently resolve against a newer tree. The tree is not re-read: a
+// window that moved since needs a fresh machine_ui.
+func (m *Manager) ElementCenter(runID, reader string, id, uiStep int) (ElementTarget, error) {
 	mc, err := m.get(runID)
 	if err != nil {
-		return UIElement{}, err
+		return ElementTarget{}, err
 	}
-	tree := mc.input.ui.Load()
+	mc.input.uiMu.Lock()
+	tree := mc.input.ui[reader]
+	mc.input.uiMu.Unlock()
 	if tree == nil {
-		return UIElement{}, ErrNoUITree
+		return ElementTarget{}, ErrNoUITree
+	}
+	if uiStep != 0 && uiStep != tree.Step {
+		return ElementTarget{}, fmt.Errorf("element %d is from the machine_ui read at step %d, but your latest read is step %d (%s); use an id from step %d or call machine_ui again",
+			id, uiStep, tree.Step, tree.App, tree.Step)
 	}
 	for _, e := range tree.Elements {
 		if e.ID == id {
-			return e, nil
+			return ElementTarget{UIElement: e, App: tree.App, UIStep: tree.Step}, nil
 		}
 	}
-	return UIElement{}, fmt.Errorf("the last UI tree (step %d) has no element %d; call machine_ui again", tree.Step, id)
+	return ElementTarget{}, fmt.Errorf("your last machine_ui read (step %d, %s) has no element %d; call machine_ui again", tree.Step, tree.App, id)
 }
 
 // Name is how an outline and a click report the element, e.g. RadioButton "25%".

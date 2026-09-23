@@ -40,7 +40,7 @@ func TestUIReportsElementCentersAsScreenFractions(t *testing.T) {
 	writeUI(t, control, tipSplitUI)
 	mc := readyMachine(t, mgr)
 
-	tree, err := mgr.UI(context.Background(), mc.RunID, "TipSplit", 0)
+	tree, err := mgr.UI(context.Background(), mc.RunID, HolderCoder, "TipSplit", 0)
 	if err != nil {
 		t.Fatalf("UI: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestUIOutlineIsOneIndentedLineAnElement(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	writeUI(t, control, tipSplitUI)
 	mc := readyMachine(t, mgr)
-	tree, err := mgr.UI(context.Background(), mc.RunID, "", 0)
+	tree, err := mgr.UI(context.Background(), mc.RunID, HolderCoder, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,21 +110,21 @@ func TestUIOutlineIsOneIndentedLineAnElement(t *testing.T) {
 func TestElementCenterAimsAtTheLatestRead(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
-	if _, err := mgr.ElementCenter(mc.RunID, 1); !errors.Is(err, ErrNoUITree) {
+	if _, err := mgr.ElementCenter(mc.RunID, HolderCoder, 1, 0); !errors.Is(err, ErrNoUITree) {
 		t.Errorf("before any read: err = %v, want ErrNoUITree", err)
 	}
 	writeUI(t, control, tipSplitUI)
-	if _, err := mgr.UI(context.Background(), mc.RunID, "", 0); err != nil {
+	if _, err := mgr.UI(context.Background(), mc.RunID, HolderCoder, "", 0); err != nil {
 		t.Fatal(err)
 	}
-	e, err := mgr.ElementCenter(mc.RunID, 5)
+	e, err := mgr.ElementCenter(mc.RunID, HolderCoder, 5, 0)
 	if err != nil || e.Label != "25%" {
 		t.Errorf("element 5 = %+v, %v", e, err)
 	}
 	if e.Name() != `RadioButton/Segment "25%"` {
 		t.Errorf("Name() = %q", e.Name())
 	}
-	if _, err := mgr.ElementCenter(mc.RunID, 99); err == nil || !strings.Contains(err.Error(), "machine_ui again") {
+	if _, err := mgr.ElementCenter(mc.RunID, HolderCoder, 99, 0); err == nil || !strings.Contains(err.Error(), "machine_ui again") {
 		t.Errorf("an unknown id: err = %v", err)
 	}
 }
@@ -134,15 +134,15 @@ func TestUIFailureIsReadable(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
 	writeUI(t, control, tipSplitUI)
-	if _, err := mgr.UI(context.Background(), mc.RunID, "", 0); err != nil {
+	if _, err := mgr.UI(context.Background(), mc.RunID, HolderCoder, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	testsupport.Flag(t, control, "input-down")
-	_, err := mgr.UI(context.Background(), mc.RunID, "", 0)
+	_, err := mgr.UI(context.Background(), mc.RunID, HolderCoder, "", 0)
 	if err == nil || !strings.Contains(err.Error(), "Accessibility") {
 		t.Errorf("err = %v, want the helper's message", err)
 	}
-	if _, err := mgr.ElementCenter(mc.RunID, 5); err != nil {
+	if _, err := mgr.ElementCenter(mc.RunID, HolderCoder, 5, 0); err != nil {
 		t.Errorf("a failed read dropped the last good tree: %v", err)
 	}
 }
@@ -150,7 +150,7 @@ func TestUIFailureIsReadable(t *testing.T) {
 func TestUIClampsTheLimit(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
-	if _, err := mgr.UI(context.Background(), mc.RunID, "", 5000); err != nil {
+	if _, err := mgr.UI(context.Background(), mc.RunID, HolderCoder, "", 5000); err != nil {
 		t.Fatal(err)
 	}
 	m := regexp.MustCompile(`--ui-base64 ([A-Za-z0-9+/=]+)`).FindStringSubmatch(testsupport.Calls(t, control))

@@ -1094,7 +1094,7 @@ func TestTurnReadsTheUITreeAndClicksAnElement(t *testing.T) {
 		t.Errorf("the model never saw the element's center:\n%s", req)
 	}
 	prog := messagesOfKind(store, session.Progress)
-	if len(prog) != 2 || !strings.Contains(prog[1].Text, `clicked [1] RadioButton/Segment "25%" at (0.596, 0.467)`) {
+	if len(prog) != 2 || !strings.Contains(prog[1].Text, `clicked [1] RadioButton/Segment "25%" in TipSplit at (0.596, 0.467)`) {
 		t.Fatalf("progress = %+v, want the click to name the element it hit", prog)
 	}
 	if !strings.Contains(testsupport.Calls(t, control), "--ui-base64") {

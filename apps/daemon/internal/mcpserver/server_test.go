@@ -899,6 +899,55 @@ const tipSplitUI = `{"app":{"name":"TipSplit","pid":7},"apps":["Finder","TipSpli
 {"role":"AXRadioGroup","depth":0,"frame":{"x":438,"y":347,"w":196,"h":24}},
 {"role":"AXRadioButton","subrole":"AXSegment","label":"25%","depth":1,"frame":{"x":586,"y":347,"w":48,"h":24}}]}`
 
+const textEditUI = `{"app":{"name":"TextEdit","pid":9},"apps":["Finder","TextEdit"],"screen":{"width":1024,"height":768},
+"truncated":false,"elements":[
+{"role":"AXWindow","title":"Untitled","depth":0,"frame":{"x":100,"y":100,"w":600,"h":437}},
+{"role":"AXScrollArea","depth":1,"frame":{"x":80,"y":50,"w":602,"h":437}},
+{"role":"AXTextArea","depth":2,"frame":{"x":80,"y":50,"w":602,"h":437}}]}`
+
+// Issue #35: the verifier's machine_ui must not replace the coder's tree. A coder
+// click by element id resolves against the coder's own last read, and a click
+// pinned to a uiStep that is not the caller's latest read is refused.
+func TestAnElementClickUsesTheCallersOwnTree(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.putUI(tipSplitUI)
+	var coder machine.UITree
+	h.call("machine_ui", map[string]any{"runId": runID}, &coder)
+
+	// A verifier turn aims at another app in between.
+	h.putUI(textEditUI)
+	if _, err := h.mgr.UI(context.Background(), runID, machine.HolderVerifier, "TextEdit", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	var out struct {
+		Element *machine.UIElement `json:"element"`
+		UIStep  int                `json:"uiStep"`
+		App     string             `json:"app"`
+	}
+	h.call("machine_click", map[string]any{"runId": runID, "element": 2}, &out)
+	if out.Element == nil || out.Element.Label != "25%" || out.App != "TipSplit" || out.UIStep != coder.Step {
+		t.Fatalf("clicked %+v in %q (tree step %d), want TipSplit's 25%% segment from the coder's step %d", out.Element, out.App, out.UIStep, coder.Step)
+	}
+	if posted := postedActions(t, h.control); len(posted) != 1 || posted[0]["x"] != 610.0 || posted[0]["y"] != 359.0 {
+		t.Errorf("posted %+v, want one click at TipSplit's 25%% segment (610,359)", posted)
+	}
+
+	// Element 3 exists only in the verifier's tree.
+	if res := h.raw("machine_click", map[string]any{"runId": runID, "element": 3}); !res.IsError || strings.Contains(text(res), "TextEdit") {
+		t.Errorf("element 3 resolved outside the coder's tree: %s", text(res))
+	}
+
+	// A click pinned to an older read is refused, not aimed at the newer tree.
+	h.putUI(tipSplitUI)
+	h.call("machine_ui", map[string]any{"runId": runID}, nil)
+	res := h.raw("machine_click", map[string]any{"runId": runID, "element": 2, "uiStep": coder.Step})
+	if !res.IsError || !strings.Contains(text(res), "machine_ui") {
+		t.Errorf("a click pinned to a stale read: %s, want an error that says to read machine_ui again", text(res))
+	}
+}
+
 func (h *harness) putUI(body string) {
 	h.t.Helper()
 	if err := os.WriteFile(filepath.Join(h.control, "ui.json"), []byte(body), 0o644); err != nil {

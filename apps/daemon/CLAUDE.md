@@ -193,8 +193,11 @@ UI tree (ADR 0012)
   bar and bare layout skipped, capped at `limit` (default 250, verifier 200, max 1000).
   It needs Accessibility, which the image grants to tart-guest-agent; the helper inherits
   it. No lease. Every read is a `machine_ui` step with the whole tree.
-- `Manager.UI` keeps the last good tree per machine; `machine_click {element}` aims at its
-  center via `ElementCenter` without re-reading. `UITree.Outline` is the text both
+- `Manager.UI` keeps the last good tree per machine and reader (`HolderCoder`,
+  `HolderVerifier`); `machine_click {element}` aims at the caller's own tree via
+  `ElementCenter` without re-reading, so a verifier read never retargets a coder's ids
+  (issue #35). An optional `uiStep` refuses a click whose ids are not from the caller's
+  latest read. Nothing checks that the app is still frontmost. `UITree.Outline` is the text both
   surfaces show a model; keep it one element a line with its id and center.
 - The verifier's prompt makes the tree the way to aim and a coder's constraints hard rules
   (`verifier.go`). `TestSystemPromptBindsConstraintsAndAimsFromTheTree` pins the phrases.

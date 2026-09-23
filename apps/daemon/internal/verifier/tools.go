@@ -300,7 +300,7 @@ const verifierUILimit = 200
 
 // uiResult reads the UI tree and returns its outline, both brains' text.
 func uiResult(ctx context.Context, mgr *machine.Manager, runID, app string) (string, int) {
-	tree, err := mgr.UI(ctx, runID, app, verifierUILimit)
+	tree, err := mgr.UI(ctx, runID, machine.HolderVerifier, app, verifierUILimit)
 	if err != nil {
 		return "error: " + err.Error() + ". Take a machine_screenshot and use the positions it describes instead.", tree.Step
 	}
@@ -317,12 +317,12 @@ func uiResult(ctx context.Context, mgr *machine.Manager, runID, app string) (str
 func click(ctx context.Context, mgr *machine.Manager, runID string, element int, x, y *float64, button string, clicks int) (string, int) {
 	done := ""
 	if element != 0 {
-		e, err := mgr.ElementCenter(runID, element)
+		e, err := mgr.ElementCenter(runID, machine.HolderVerifier, element, 0)
 		if err != nil {
 			return "error: " + err.Error(), 0
 		}
 		x, y = &e.X, &e.Y
-		done = fmt.Sprintf("clicked [%d] %s at (%.3f, %.3f)", e.ID, e.Name(), e.X, e.Y)
+		done = fmt.Sprintf("clicked [%d] %s in %s at (%.3f, %.3f)", e.ID, e.Name(), e.App, e.X, e.Y)
 	}
 	if x == nil || y == nil {
 		return "error: machine_click needs an element id from machine_ui, or both x and y", 0
