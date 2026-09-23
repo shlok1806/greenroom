@@ -2,7 +2,7 @@
 
 One Go binary, `greenroom`. MCP on `/mcp`, companion API on `/api/`, `/healthz`. Drives
 Tart as a subprocess. State and evidence under `~/.greenroom/` (`state.json`,
-`runs/<runId>/`).
+`daemon.lock`, `runs/<runId>/`).
 
 ## Commands
 
