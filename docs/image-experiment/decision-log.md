@@ -69,13 +69,20 @@ Evidence for each is in [`report.md`](report.md) and [`raw/`](raw/) unless noted
     it is.
 16. **A verifier model outage is not an image result.** NIM timed out, returned 404, 429
     and 500 for long stretches; in the first pass three of six tasks got no verdict. The
-    bench now resends after the verifier gives up and records each outage. Task time is
-    compared only on runs without an outage (one per image), and stays inconclusive: model
-    latency dominates it. Every verdict that did arrive was the correct fail, with 11 steps
-    and no misclicks, on every image.
+    bench now resends after the verifier gives up and records each outage. Task time and
+    steps count only tasks whose verdict came from the first send: `greenroom-base` runs 1
+    to 3 (231.4, 312.5 and 495.2 s), `greenroom-base-v5` run 1 (406.6 s) and
+    `greenroom-lean-a` run 3 (251.9 s). `greenroom-base` runs 2 and 3 and
+    `greenroom-base-v5` run 1 hit model errors that the daemon retried within the turn
+    (`modelOutages` with `gaveUp` false), so their wall time includes model retry time.
+    Task time stays inconclusive: model latency dominates it. Verdicts on the first send
+    took 11 or 12 steps with no misclicks; a verdict after resends counts only the last
+    send's steps. Every verdict that did arrive was the correct fail.
 17. **Samples that shared the host with another VM are kept and marked, not dropped.** The
     self-hosted CI runner is this host; its VM suite and the pipeline's real-guest build
-    overlapped three runs, which show 2 to 4 times the idle CPU of their siblings.
+    overlapped three runs. Two of them (`greenroom-base` run 3, `greenroom-lean-a` run 1)
+    show 2 to 4 times the idle CPU of their siblings and are marked; the third
+    (`greenroom-base` run 1, PR #37's suite) shows no elevation (25.7% against 24.9%).
 18. **The benchmarked `greenroom-lean-a` is kept although its script predates review.** The
     review added read-backs, a settle wait and a best-effort Software Update write; the
     settings written are the same. The final script was verified by a fresh build
@@ -85,10 +92,13 @@ Evidence for each is in [`report.md`](report.md) and [`raw/`](raw/) unless noted
     idle processes -18%, running user agents -28%, widgets gone, memory -2%, image size and
     reboot time equal, no popups in either, both survive a reboot with `swiftc` working.
     Idle CPU is the same within noise (12.0 to 17.2% against 14.2 to 18.1% in uncontended
-    runs), and task time is inconclusive. A is the current winner over the standard image.
+    runs), and task time is inconclusive (251.9 s against 406.6 s, one first-send verdict
+    each, the control's with model retries in it). A is the current winner over the
+    standard image.
 20. **The bar for variant B**, by decision 4: B wins only if it is at least 15% better
     than A's medians here on boot to ready (20.5 s, so 17.4 s or less), idle CPU (16.9%,
-    so 14.4% or less) or task time (251.9 s on its clean run, so 214 s or less), with no
+    so 14.3% or less) or task time (251.9 s on its only first-send verdict, so 214 s or
+    less), with no
     popups and every stability check passing. Idle CPU and task time need more runs, or a
     quiet host and a reliable model, before they can decide anything.
 

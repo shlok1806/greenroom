@@ -9,7 +9,7 @@ machines per image, one at a time. Raw data: [`raw/`](raw/). Decisions: [`decisi
 
 | Image | Built by | Allocated size | What it is |
 | --- | --- | --- | --- |
-| `greenroom-base` | `build-image.sh`, 2026-09-20 | 31.2 GB | The image the local daemon serves. Stale: input helper v2, older provisioning. |
+| `greenroom-base` | `build-image.sh`, 2026-09-20 | 31.1 GB | The image the local daemon serves. Stale: input helper v2, older provisioning. |
 | `greenroom-base-v5` | `build-image.sh` in the VM suite CI, 2026-09-23 | 32.6 GB | Same script and helper (v5) as A, without `-lean`. The like-for-like control. |
 | `greenroom-lean-a` | `build-image.sh -lean -name greenroom-lean-a` | 32.6 GB | Variant A. |
 
@@ -32,8 +32,8 @@ Median of three runs, each run in brackets. Change is A against the first column
 | launchd jobs, user domain | **497** | **420** | -16% |
 | launchd jobs running, user domain | **227** (227, 222, 228) | **163** (163, 163, 167) | -28% |
 | launchd jobs, system domain | 415 | 415 | 0 |
-| Task wall time (s), clean runs only | 406.6 (1 run, 1 outage) | 251.9 (1 run) | inconclusive |
-| Task verifier steps, clean runs only | 11 | 11 | 0 |
+| Task wall time (s), verdict on first send | 406.6 (1 run, model retries) | 251.9 (1 run) | inconclusive |
+| Task verifier steps, verdict on first send | 11 | 11 | 0 |
 | Task misclicks | 0, 0, 0 | 0, 0, 0 | 0 |
 | Verdict (correct is fail) | fail, none (model), none (model) | none (model), fail, fail | every verdict correct |
 | First `machine_ui` (s) | **0.17** | **0.18** | 0 |
@@ -49,11 +49,11 @@ Median of three runs, each run in brackets. Change is A against the first column
 | Metric | greenroom-base | greenroom-lean-a | Change |
 | --- | --- | --- | --- |
 | Boot to ready (s) | **37.9** (37.9, 29.2, 48.4\*) | **20.5** | -46% |
-| Idle CPU busy, 10 min mean (%) | **25.7** (25.7\*, 24.9, 49.2\*) | **16.9** | -34% |
+| Idle CPU busy, 10 min mean (%) | **25.7** (25.7, 24.9, 49.2\*) | **16.9** | -34% |
 | Idle processes | **588** | **483** | -18% |
 | launchd jobs running, user domain | **223** | **163** | -27% |
-| Task wall time (s), clean runs only | 231.4 (1 run) | 251.9 (1 run) | inconclusive |
-| Task verifier steps | 11, 11, 12 | 11 (clean run) | 0 |
+| Task wall time (s), verdict on first send | **312.5** (231.4, 312.5, 495.2; 2 and 3 model retries) | 251.9 (1 run) | inconclusive |
+| Task verifier steps, verdict on first send | 11, 11, 12 | 11 (1 run) | 0 |
 | First `machine_ui` (s) | **14.79** | **0.18** | helper already baked |
 | Popups seen | 0, 0, 0 | 0, 0, 0 | 0 |
 | Desktop widgets on screen | 3, 3, 3 | 0, 0, 0 | gone |
@@ -64,21 +64,26 @@ Most of this second table is the stale image, not the lean profile: `greenroom-b
 predates helper v5 (its first UI read compiles the helper for about 15 s) and the current
 provisioning. Read the first table for what `-lean` itself buys.
 
-\* The run shared the host with another VM. `greenroom-base` run 3 idled while PR #38's VM
-suite (the self-hosted runner is this host) booted its own machine, and run 1 overlapped
-PR #37's suite. `greenroom-lean-a` run 1 overlapped the no-mistakes pipeline's real-guest
-build of the lean image. Each shows 2 to 4 times the CPU of its sibling runs. They are
-kept in the medians and the raw data, not dropped.
+\* The run shared the host with another VM and shows 2 to 4 times the idle CPU of its
+sibling runs. `greenroom-base` run 3 idled while PR #38's VM suite (the self-hosted runner
+is this host) booted its own machine. `greenroom-lean-a` run 1 overlapped the no-mistakes
+pipeline's real-guest build of the lean image. `greenroom-base` run 1 also overlapped
+PR #37's suite but shows no elevation (25.7% idle CPU against 24.9% for run 2), so it is
+not marked. All are kept in the medians and the raw data, not dropped.
 
 The verifier model (NVIDIA NIM) was down for long stretches: timeouts, 404, 429 and 500.
-The bench resends the task after the verifier gives up (up to 3 times, 120 s apart,
-recorded under `task.modelOutages`); "none (model)" is a run with no verdict after that.
-Of nine tasks only three got a verdict without resends (`greenroom-base` run 1,
-`greenroom-lean-a` run 3, and `greenroom-base-v5` run 1 after one slow turn), so task time
-is compared on those alone and is inconclusive: model latency dominates it and the image
-does not show through. Steps, misclicks and verdicts agree wherever there is a verdict:
-11 steps, no misclicks, the correct fail every time. A verdict that came after resends
-counts only the last send's steps (2 and 4), which is why the table uses clean runs.
+Every model error is recorded under `task.modelOutages`. The daemon retries model errors
+within a turn (`gaveUp` false); after the verifier gives up (`gaveUp` true) the bench
+resends the task, up to 3 times, 120 s apart. "none (model)" is a run with no verdict
+after that. A task counts for time and steps only if its verdict came from the first
+send. Five of nine did: `greenroom-base` runs 1 to 3, `greenroom-base-v5` run 1 and
+`greenroom-lean-a` run 3. Of those, `greenroom-base` runs 2 and 3 and `greenroom-base-v5`
+run 1 hit model errors that the daemon retried within the turn, so their wall time
+includes model retry time. Task time is inconclusive: model latency dominates it and the
+image does not show through. Verdicts on the first send took 11 or 12 steps with no
+misclicks, and every verdict that arrived was the correct fail. A verdict after resends
+counts only the last send's steps (2 for `greenroom-lean-a` run 2), so it is left out of
+the step rows.
 
 Latency: A's run 3 (0.171 s screenshot, 0.085 s UI read) matches base-v5; its runs 1 and 2
 were slower on both calls. With three samples and host noise that is not a difference
