@@ -437,7 +437,7 @@ private struct RunHeader: View {
     }
 
     private var title: String { RunTitle.short(task: task, runId: runId) }
-    private var fullTask: String { RunTitle.text(task: task, runId: runId) }
+    private var fullTask: String { RunTitle.subtitle(task: task, alive: facts.isAlive) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

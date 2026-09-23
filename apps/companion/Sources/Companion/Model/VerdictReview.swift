@@ -349,7 +349,12 @@ extension RunTitle {
             if character == ")", depth > 0 { depth -= 1; continue }
             if depth == 0 { out.append(character) }
         }
-        return StepSummary.oneLine(out.replacingOccurrences(of: " ,", with: ","))
+        // An aside removed before punctuation leaves "UI only : set Bill".
+        var flat = StepSummary.oneLine(out)
+        for mark in [",", ":", ";", ".", "!", "?"] {
+            flat = flat.replacingOccurrences(of: " " + mark, with: mark)
+        }
+        return flat
     }
 
     /// The end of the first sentence or clause introduced by a colon.

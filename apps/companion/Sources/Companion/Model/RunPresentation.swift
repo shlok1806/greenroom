@@ -14,6 +14,14 @@ enum RunTitle {
         return hash.isEmpty ? "Untitled run" : "Run \(hash)"
     }
 
+    /// The line under a run's title: its whole task, or that it has none. With no task the
+    /// title is already "Run <hash>", so repeating it under itself said nothing.
+    static func subtitle(task: String?, alive: Bool) -> String {
+        let flat = StepSummary.oneLine(task ?? "")
+        if !flat.isEmpty { return text(task: flat, runId: "") }
+        return alive ? "No task yet" : "No task was sent to this run"
+    }
+
     /// The first task message of a transcript, for a run whose summary has none yet.
     static func task(in messages: [Message]) -> String? {
         messages.first { $0.kind == .task }?.text
