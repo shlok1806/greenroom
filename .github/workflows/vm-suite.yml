@@ -95,9 +95,14 @@ jobs:
           done
           echo "GREENROOM_BASE_IMAGE=$image" >> "$GITHUB_ENV"
 
+      # -count=1 turns off go test's result cache. Go keys the cache on the test
+      # binary, flags, env and files a test opens, never on the Tart guests and
+      # base image the suite really exercises. On this persistent runner an
+      # unchanged package came back "(cached)" and the suite passed in seconds
+      # without booting a VM.
       - name: go test -tags tart (full suite)
         working-directory: apps/daemon
-        run: go test -tags tart -timeout 20m ./...
+        run: go test -tags tart -count=1 -timeout 20m ./...
 
       - name: Cleanup - delete VMs this job created
         if: always()
