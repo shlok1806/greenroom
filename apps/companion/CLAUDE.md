@@ -92,9 +92,10 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   not open (the daemon may have restarted with other data), and a read that lands after
   a newer one of the same piece is discarded. URLSession holds an SSE response until the first
   bytes (the daemon's 15 s ping), so "Live" follows the resync, not the stream opening.
-  While the stream stays open after a resync whose list read failed, the resync is retried
-  on the same backoff until the list answers (`resyncUntilTheListAnswers`), or the window
-  would say "not answering" for as long as the stream lives.
+  While the stream is open, any failed read of the run list (a resync, Try Again, or the
+  `perform(.runs)` an event triggers) starts the resync retry on the same backoff until the
+  list answers (`retryTheListIfItFailed`; one at a time, cancelled when the stream ends),
+  or the window would say "not answering" for as long as the stream lives.
 - Connection state follows the last list read (`ConnectionState`): `offline` only when
   nothing answered; an HTTP error status is `refused`, shown in the daemon's words, never as
   "not running". The composer is disabled only while `offline`.
@@ -161,8 +162,11 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 - Only `RunView` sets a `.navigationTitle` (the run's short title); with no run open the
   window is "Greenroom Companion". A title on a pane (the conversation) names the whole window.
 - Composer keys: Return and Cmd-Return send; Shift-Return and Option-Return insert a line
-  break at the cursor through the field's `selection`. Left to the vertical `TextField`,
-  Shift-Return ends editing and selects the whole draft, so the next key erases it.
+  break at the cursor through the active field editor (a newline written into the binding
+  while the field is edited is overwritten by the editor); the binding and `selection`
+  path is only the fallback with no key window, as in tests. Left to the vertical
+  `TextField`, Shift-Return ends editing and selects the whole draft, so the next key
+  erases it.
 - The verdict card's words about Reject depend on `RunFacts.verifierListens`
   (`VerdictReview.explanation`, and the rejected note): on a destroyed run nothing looks
   again, so nothing may say it will.
@@ -201,7 +205,8 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   the identity first, then to the inner id once the row exists (`StepsView.reveal`).
 - `HostedViewTests` host real views in an off-display, never-key `NSWindow` (title, scroll
   position, keys into a field editor). The app is `.prohibited`, so there is no key window:
-  code that needs one (`NSApp.sendAction(_:to: nil ...)`) fails there and must not be the fix.
+  code that needs one (`NSApp.sendAction(_:to: nil ...)`, `NSApp.keyWindow`) does nothing there,
+  so it needs a fallback those tests exercise (the composer's Shift-Return).
 - A `Text` with `.fixedSize(horizontal: false, vertical: true)` in an empty state can make
   the window grow to thousands of points tall when first laid out narrow. Let it wrap.
   The verdict card's actions text is the same case: it gets its room from
