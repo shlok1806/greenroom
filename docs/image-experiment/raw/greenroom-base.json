@@ -1,0 +1,1572 @@
+{
+ "image": {
+  "name": "greenroom-base",
+  "sizeGB": 31,
+  "diskGB": 50,
+  "source": "local",
+  "diskImgAllocatedGB": 31.15
+ },
+ "started": "2026-09-23T06:39:13+00:00",
+ "host": "Shloks-MacBook-Pro-2.local",
+ "daemonCommit": "f065ada7442121ff290185007514c30dbe214cd6",
+ "settings": {
+  "runs": 3,
+  "idleSeconds": 600,
+  "sampleEvery": 30,
+  "latencyReps": 5
+ },
+ "runs": [
+  {
+   "run": 1,
+   "runId": "20260923-063914-bebacd082e16d1ba",
+   "createdAt": "2026-09-23T06:39:52+00:00",
+   "bootToReadySeconds": 37.87,
+   "bootStep": {
+    "agentSeconds": 32,
+    "bootSeconds": 37.8,
+    "captureAlertSeconds": 1.9,
+    "desktopPrefsSeconds": 2,
+    "ip": "192.168.64.153",
+    "ipSeconds": 0,
+    "keySeconds": 1.2,
+    "sshSeconds": 0.6,
+    "status": "ready"
+   },
+   "idle": {
+    "seconds": 600,
+    "sampleEvery": 30,
+    "summary": {
+     "cpuBusyMean": 25.74,
+     "cpuBusySettledMean": 30.07,
+     "memUsedMBMean": 7942.1,
+     "memUsedMBSettledMean": 7981.5,
+     "memWiredMBMean": 891.55,
+     "memWiredMBSettledMean": 933.0,
+     "procsMean": 522.95,
+     "procsSettledMean": 569.4,
+     "userjobsMean": 494.4,
+     "userjobsSettledMean": 495.8,
+     "userrunningMean": 202.1,
+     "userrunningSettledMean": 223.1,
+     "systemjobsMean": 415.2,
+     "systemjobsSettledMean": 415.4,
+     "load1Mean": 17.69,
+     "load1SettledMean": 2.57
+    },
+    "samples": [
+     {
+      "cpuUser": 27.58,
+      "cpuSys": 24.82,
+      "cpuIdle": 47.58,
+      "cpuBusy": 52.4,
+      "memUsedMB": 7154,
+      "memUnusedMB": 1024,
+      "memWiredMB": 858,
+      "procs": 426,
+      "userjobs": 493,
+      "userrunning": 162,
+      "systemjobs": 415,
+      "load1": 124.06,
+      "t": 0.0
+     },
+     {
+      "cpuUser": 28.98,
+      "cpuSys": 16.4,
+      "cpuIdle": 54.6,
+      "cpuBusy": 45.38,
+      "memUsedMB": 8114,
+      "memUnusedMB": 66,
+      "memWiredMB": 877,
+      "procs": 453,
+      "userjobs": 493,
+      "userrunning": 175,
+      "systemjobs": 415,
+      "load1": 76.71,
+      "t": 30.0
+     },
+     {
+      "cpuUser": 1.15,
+      "cpuSys": 2.7,
+      "cpuIdle": 96.77,
+      "cpuBusy": 3.85,
+      "memUsedMB": 7797,
+      "memUnusedMB": 382,
+      "memWiredMB": 856,
+      "procs": 446,
+      "userjobs": 493,
+      "userrunning": 175,
+      "systemjobs": 415,
+      "load1": 46.98,
+      "t": 60.0
+     },
+     {
+      "cpuUser": 0.44,
+      "cpuSys": 1.34,
+      "cpuIdle": 98.2,
+      "cpuBusy": 1.78,
+      "memUsedMB": 7784,
+      "memUnusedMB": 395,
+      "memWiredMB": 852,
+      "procs": 444,
+      "userjobs": 493,
+      "userrunning": 175,
+      "systemjobs": 415,
+      "load1": 29.19,
+      "t": 90.0
+     },
+     {
+      "cpuUser": 8.92,
+      "cpuSys": 7.4,
+      "cpuIdle": 84.3,
+      "cpuBusy": 16.32,
+      "memUsedMB": 8030,
+      "memUnusedMB": 149,
+      "memWiredMB": 839,
+      "procs": 483,
+      "userjobs": 493,
+      "userrunning": 179,
+      "systemjobs": 415,
+      "load1": 19.42,
+      "t": 120.0
+     },
+     {
+      "cpuUser": 3.57,
+      "cpuSys": 3.57,
+      "cpuIdle": 92.84,
+      "cpuBusy": 7.14,
+      "memUsedMB": 7945,
+      "memUnusedMB": 235,
+      "memWiredMB": 817,
+      "procs": 478,
+      "userjobs": 493,
+      "userrunning": 179,
+      "systemjobs": 415,
+      "load1": 12.19,
+      "t": 150.0
+     },
+     {
+      "cpuUser": 5.34,
+      "cpuSys": 5.76,
+      "cpuIdle": 88.88,
+      "cpuBusy": 11.1,
+      "memUsedMB": 8081,
+      "memUnusedMB": 99,
+      "memWiredMB": 840,
+      "procs": 501,
+      "userjobs": 493,
+      "userrunning": 184,
+      "systemjobs": 415,
+      "load1": 7.85,
+      "t": 180.0
+     },
+     {
+      "cpuUser": 29.41,
+      "cpuSys": 4.75,
+      "cpuIdle": 65.83,
+      "cpuBusy": 34.16,
+      "memUsedMB": 8096,
+      "memUnusedMB": 83,
+      "memWiredMB": 845,
+      "procs": 504,
+      "userjobs": 493,
+      "userrunning": 190,
+      "systemjobs": 415,
+      "load1": 5.13,
+      "t": 210.0
+     },
+     {
+      "cpuUser": 11.34,
+      "cpuSys": 12.2,
+      "cpuIdle": 76.44,
+      "cpuBusy": 23.54,
+      "memUsedMB": 8110,
+      "memUnusedMB": 71,
+      "memWiredMB": 847,
+      "procs": 509,
+      "userjobs": 493,
+      "userrunning": 194,
+      "systemjobs": 415,
+      "load1": 3.38,
+      "t": 240.0
+     },
+     {
+      "cpuUser": 8.2,
+      "cpuSys": 10.2,
+      "cpuIdle": 81.77,
+      "cpuBusy": 18.4,
+      "memUsedMB": 7916,
+      "memUnusedMB": 262,
+      "memWiredMB": 870,
+      "procs": 521,
+      "userjobs": 493,
+      "userrunning": 198,
+      "systemjobs": 415,
+      "load1": 3.19,
+      "t": 270.0
+     },
+     {
+      "cpuUser": 31.6,
+      "cpuSys": 21.64,
+      "cpuIdle": 46.75,
+      "cpuBusy": 53.24,
+      "memUsedMB": 7894,
+      "memUnusedMB": 286,
+      "memWiredMB": 866,
+      "procs": 550,
+      "userjobs": 494,
+      "userrunning": 214,
+      "systemjobs": 415,
+      "load1": 3.17,
+      "t": 300.0
+     },
+     {
+      "cpuUser": 11.59,
+      "cpuSys": 8.31,
+      "cpuIdle": 80.8,
+      "cpuBusy": 19.9,
+      "memUsedMB": 7992,
+      "memUnusedMB": 189,
+      "memWiredMB": 860,
+      "procs": 557,
+      "userjobs": 495,
+      "userrunning": 215,
+      "systemjobs": 415,
+      "load1": 2.99,
+      "t": 330.0
+     },
+     {
+      "cpuUser": 16.18,
+      "cpuSys": 12.9,
+      "cpuIdle": 70.9,
+      "cpuBusy": 29.08,
+      "memUsedMB": 8072,
+      "memUnusedMB": 108,
+      "memWiredMB": 864,
+      "procs": 554,
+      "userjobs": 495,
+      "userrunning": 217,
+      "systemjobs": 415,
+      "load1": 2.62,
+      "t": 360.0
+     },
+     {
+      "cpuUser": 5.3,
+      "cpuSys": 37.12,
+      "cpuIdle": 57.57,
+      "cpuBusy": 42.42,
+      "memUsedMB": 7964,
+      "memUnusedMB": 217,
+      "memWiredMB": 940,
+      "procs": 565,
+      "userjobs": 495,
+      "userrunning": 219,
+      "systemjobs": 415,
+      "load1": 2.9,
+      "t": 390.0
+     },
+     {
+      "cpuUser": 18.68,
+      "cpuSys": 22.41,
+      "cpuIdle": 58.9,
+      "cpuBusy": 41.09,
+      "memUsedMB": 7969,
+      "memUnusedMB": 211,
+      "memWiredMB": 965,
+      "procs": 569,
+      "userjobs": 495,
+      "userrunning": 222,
+      "systemjobs": 415,
+      "load1": 2.46,
+      "t": 420.0
+     },
+     {
+      "cpuUser": 31.13,
+      "cpuSys": 18.4,
+      "cpuIdle": 50.45,
+      "cpuBusy": 49.53,
+      "memUsedMB": 8022,
+      "memUnusedMB": 157,
+      "memWiredMB": 975,
+      "procs": 587,
+      "userjobs": 496,
+      "userrunning": 228,
+      "systemjobs": 415,
+      "load1": 2.43,
+      "t": 450.0
+     },
+     {
+      "cpuUser": 11.58,
+      "cpuSys": 13.14,
+      "cpuIdle": 75.27,
+      "cpuBusy": 24.72,
+      "memUsedMB": 7873,
+      "memUnusedMB": 306,
+      "memWiredMB": 960,
+      "procs": 578,
+      "userjobs": 497,
+      "userrunning": 230,
+      "systemjobs": 416,
+      "load1": 2.97,
+      "t": 480.1
+     },
+     {
+      "cpuUser": 17.62,
+      "cpuSys": 7.37,
+      "cpuIdle": 75.0,
+      "cpuBusy": 24.99,
+      "memUsedMB": 7963,
+      "memUnusedMB": 216,
+      "memWiredMB": 960,
+      "procs": 577,
+      "userjobs": 497,
+      "userrunning": 228,
+      "systemjobs": 416,
+      "load1": 2.39,
+      "t": 510.1
+     },
+     {
+      "cpuUser": 4.37,
+      "cpuSys": 2.99,
+      "cpuIdle": 92.62,
+      "cpuBusy": 7.36,
+      "memUsedMB": 8045,
+      "memUnusedMB": 135,
+      "memWiredMB": 970,
+      "procs": 579,
+      "userjobs": 497,
+      "userrunning": 229,
+      "systemjobs": 416,
+      "load1": 2.1,
+      "t": 540.1
+     },
+     {
+      "cpuUser": 4.5,
+      "cpuSys": 3.83,
+      "cpuIdle": 92.11,
+      "cpuBusy": 8.33,
+      "memUsedMB": 8021,
+      "memUnusedMB": 159,
+      "memWiredMB": 970,
+      "procs": 578,
+      "userjobs": 497,
+      "userrunning": 229,
+      "systemjobs": 416,
+      "load1": 1.62,
+      "t": 570.1
+     }
+    ]
+   },
+   "idleScreenshot": "/tmp/greenroom-bench-greenroom-base/run1-after-idle.png",
+   "task": {
+    "buildSeconds": 20.31,
+    "buildOK": true,
+    "firstUiSeconds": 14.79,
+    "appUpSeconds": 14.79,
+    "latency": {
+     "screenshotSeconds": [
+      0.229,
+      0.244,
+      0.444,
+      0.972,
+      1.028
+     ],
+     "uiSeconds": [
+      0.222,
+      0.242,
+      0.467,
+      0.424,
+      0.543
+     ],
+     "screenshotMedian": 0.444,
+     "uiMedian": 0.424
+    },
+    "sends": 1,
+    "modelOutages": [],
+    "wallSeconds": 231.4,
+    "questions": 0,
+    "verdict": "fail",
+    "verdictText": "The TipSplit app calculates tip amounts correctly but computes \"Each pays\" incorrectly. With Bill=120, Tip=20%, People=3: the tip shows $24.00 (correct) but \"Each pays\" shows $8.00 instead of the expected $48.00. After switching to 25% tip: tip shows $30.00 (correct) but \"Each pays\" shows $10.00 instead of the expected $50.00. The app appears to be calculating tip per person (24/3=8, 30/3=10) rather than (bill + tip) / people.",
+    "correct": true,
+    "steps": 11,
+    "clicks": 4,
+    "misclicks": 0,
+    "uiReads": 3,
+    "screenshots": 2,
+    "tools": {
+     "machine_ui": 3,
+     "machine_input": 6,
+     "machine_screenshot": 2
+    },
+    "misclickDetail": [],
+    "appsSeenByVerifier": [
+     "Finder",
+     "Terminal",
+     "TipSplit"
+    ],
+    "popupWordsInVerifierText": [
+     "picture, 0 to 1, not in pixels. The screen shows: 1. System dialog: none 2. Frontmost: TipSplit 3. TipSplit Bill 120 Tip 15% 1",
+     "picture, 0 to 1, not in pixels. The screen shows: 1. System dialog: none 2. Frontmost: TipSplit, TipSplit 3. Window text: TipS"
+    ]
+   },
+   "reboot": {
+    "execReturnedSeconds": 30.0,
+    "rebooted": true,
+    "agentBackSeconds": 37.2,
+    "swiftcOK": true,
+    "swiftcSeconds": 9.3,
+    "screenshotOK": true,
+    "screenshotSeconds": 0.56,
+    "uiOK": true,
+    "uiSeconds": 0.11
+   },
+   "popups": [
+    {
+     "phase": "idle",
+     "owner": "Notification Center",
+     "name": "Featured",
+     "kind": "widget",
+     "at": "2026-09-23T06:39:53+00:00",
+     "layer": -2147483601,
+     "size": "360x180"
+    },
+    {
+     "phase": "idle",
+     "owner": "Notification Center",
+     "name": "Forecast",
+     "kind": "widget",
+     "at": "2026-09-23T06:39:53+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    },
+    {
+     "phase": "idle",
+     "owner": "Notification Center",
+     "name": "Month",
+     "kind": "widget",
+     "at": "2026-09-23T06:39:53+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    },
+    {
+     "phase": "task",
+     "owner": "Notification Center",
+     "name": "Featured",
+     "kind": "widget",
+     "at": "2026-09-23T06:50:37+00:00",
+     "layer": -2147483601,
+     "size": "360x180"
+    },
+    {
+     "phase": "task",
+     "owner": "Notification Center",
+     "name": "Forecast",
+     "kind": "widget",
+     "at": "2026-09-23T06:50:37+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    },
+    {
+     "phase": "task",
+     "owner": "Notification Center",
+     "name": "Month",
+     "kind": "widget",
+     "at": "2026-09-23T06:50:37+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    }
+   ],
+   "windowPolls": {
+    "ok": 84,
+    "failed": 0,
+    "owners": [
+     "Control Center",
+     "Dock",
+     "Notification Center",
+     "TipSplit",
+     "Window Server"
+    ]
+   }
+  },
+  {
+   "run": 2,
+   "runId": "20260923-065514-84895edd3435226d",
+   "createdAt": "2026-09-23T06:55:43+00:00",
+   "bootToReadySeconds": 29.25,
+   "bootStep": {
+    "agentSeconds": 23.2,
+    "bootSeconds": 29.2,
+    "captureAlertSeconds": 2.4,
+    "desktopPrefsSeconds": 1.5,
+    "ip": "192.168.64.159",
+    "ipSeconds": 0,
+    "keySeconds": 1.7,
+    "sshSeconds": 0.3,
+    "status": "ready"
+   },
+   "idle": {
+    "seconds": 600,
+    "sampleEvery": 30,
+    "summary": {
+     "cpuBusyMean": 24.92,
+     "cpuBusySettledMean": 31.79,
+     "memUsedMBMean": 7956.15,
+     "memUsedMBSettledMean": 7984.5,
+     "memWiredMBMean": 914.15,
+     "memWiredMBSettledMean": 964.9,
+     "procsMean": 543.75,
+     "procsSettledMean": 589.6,
+     "userjobsMean": 496.15,
+     "userjobsSettledMean": 497.3,
+     "userrunningMean": 199.75,
+     "userrunningSettledMean": 220.2,
+     "systemjobsMean": 415.05,
+     "systemjobsSettledMean": 415.1,
+     "load1Mean": 11.38,
+     "load1SettledMean": 2.47
+    },
+    "samples": [
+     {
+      "cpuUser": 25.82,
+      "cpuSys": 31.56,
+      "cpuIdle": 42.6,
+      "cpuBusy": 57.38,
+      "memUsedMB": 7621,
+      "memUnusedMB": 558,
+      "memWiredMB": 886,
+      "procs": 451,
+      "userjobs": 495,
+      "userrunning": 162,
+      "systemjobs": 415,
+      "load1": 76.03,
+      "t": 0.0
+     },
+     {
+      "cpuUser": 1.57,
+      "cpuSys": 2.25,
+      "cpuIdle": 96.17,
+      "cpuBusy": 3.82,
+      "memUsedMB": 8046,
+      "memUnusedMB": 133,
+      "memWiredMB": 885,
+      "procs": 475,
+      "userjobs": 495,
+      "userrunning": 175,
+      "systemjobs": 415,
+      "load1": 47.33,
+      "t": 30.0
+     },
+     {
+      "cpuUser": 4.3,
+      "cpuSys": 3.58,
+      "cpuIdle": 92.37,
+      "cpuBusy": 7.88,
+      "memUsedMB": 7823,
+      "memUnusedMB": 356,
+      "memWiredMB": 894,
+      "procs": 470,
+      "userjobs": 495,
+      "userrunning": 174,
+      "systemjobs": 415,
+      "load1": 29.29,
+      "t": 60.0
+     },
+     {
+      "cpuUser": 0.23,
+      "cpuSys": 2.11,
+      "cpuIdle": 97.65,
+      "cpuBusy": 2.34,
+      "memUsedMB": 7807,
+      "memUnusedMB": 372,
+      "memWiredMB": 862,
+      "procs": 468,
+      "userjobs": 495,
+      "userrunning": 174,
+      "systemjobs": 415,
+      "load1": 18.0,
+      "t": 90.0
+     },
+     {
+      "cpuUser": 35.32,
+      "cpuSys": 13.9,
+      "cpuIdle": 50.77,
+      "cpuBusy": 49.22,
+      "memUsedMB": 7999,
+      "memUnusedMB": 180,
+      "memWiredMB": 861,
+      "procs": 509,
+      "userjobs": 495,
+      "userrunning": 180,
+      "systemjobs": 415,
+      "load1": 11.5,
+      "t": 120.0
+     },
+     {
+      "cpuUser": 2.56,
+      "cpuSys": 2.99,
+      "cpuIdle": 94.43,
+      "cpuBusy": 5.55,
+      "memUsedMB": 7952,
+      "memUnusedMB": 227,
+      "memWiredMB": 844,
+      "procs": 507,
+      "userjobs": 495,
+      "userrunning": 179,
+      "systemjobs": 415,
+      "load1": 7.36,
+      "t": 150.0
+     },
+     {
+      "cpuUser": 6.22,
+      "cpuSys": 5.55,
+      "cpuIdle": 88.22,
+      "cpuBusy": 11.77,
+      "memUsedMB": 7923,
+      "memUnusedMB": 257,
+      "memWiredMB": 842,
+      "procs": 507,
+      "userjobs": 495,
+      "userrunning": 180,
+      "systemjobs": 415,
+      "load1": 4.84,
+      "t": 180.0
+     },
+     {
+      "cpuUser": 0.0,
+      "cpuSys": 1.54,
+      "cpuIdle": 98.45,
+      "cpuBusy": 1.54,
+      "memUsedMB": 8040,
+      "memUnusedMB": 139,
+      "memWiredMB": 835,
+      "procs": 523,
+      "userjobs": 495,
+      "userrunning": 184,
+      "systemjobs": 415,
+      "load1": 3.36,
+      "t": 210.0
+     },
+     {
+      "cpuUser": 0.22,
+      "cpuSys": 1.56,
+      "cpuIdle": 98.21,
+      "cpuBusy": 1.78,
+      "memUsedMB": 8086,
+      "memUnusedMB": 94,
+      "memWiredMB": 840,
+      "procs": 530,
+      "userjobs": 495,
+      "userrunning": 191,
+      "systemjobs": 415,
+      "load1": 3.01,
+      "t": 240.0
+     },
+     {
+      "cpuUser": 21.75,
+      "cpuSys": 17.36,
+      "cpuIdle": 60.87,
+      "cpuBusy": 39.11,
+      "memUsedMB": 7981,
+      "memUnusedMB": 199,
+      "memWiredMB": 885,
+      "procs": 539,
+      "userjobs": 495,
+      "userrunning": 194,
+      "systemjobs": 415,
+      "load1": 2.22,
+      "t": 270.0
+     },
+     {
+      "cpuUser": 3.25,
+      "cpuSys": 3.25,
+      "cpuIdle": 93.48,
+      "cpuBusy": 6.5,
+      "memUsedMB": 7747,
+      "memUnusedMB": 432,
+      "memWiredMB": 883,
+      "procs": 569,
+      "userjobs": 496,
+      "userrunning": 209,
+      "systemjobs": 415,
+      "load1": 2.68,
+      "t": 300.0
+     },
+     {
+      "cpuUser": 4.15,
+      "cpuSys": 3.95,
+      "cpuIdle": 91.89,
+      "cpuBusy": 8.1,
+      "memUsedMB": 7941,
+      "memUnusedMB": 238,
+      "memWiredMB": 896,
+      "procs": 578,
+      "userjobs": 497,
+      "userrunning": 215,
+      "systemjobs": 415,
+      "load1": 2.32,
+      "t": 330.0
+     },
+     {
+      "cpuUser": 15.74,
+      "cpuSys": 17.23,
+      "cpuIdle": 67.2,
+      "cpuBusy": 32.97,
+      "memUsedMB": 7898,
+      "memUnusedMB": 281,
+      "memWiredMB": 984,
+      "procs": 580,
+      "userjobs": 497,
+      "userrunning": 217,
+      "systemjobs": 415,
+      "load1": 2.08,
+      "t": 360.0
+     },
+     {
+      "cpuUser": 18.52,
+      "cpuSys": 10.31,
+      "cpuIdle": 71.15,
+      "cpuBusy": 28.83,
+      "memUsedMB": 8038,
+      "memUnusedMB": 141,
+      "memWiredMB": 983,
+      "procs": 575,
+      "userjobs": 497,
+      "userrunning": 217,
+      "systemjobs": 415,
+      "load1": 1.77,
+      "t": 390.0
+     },
+     {
+      "cpuUser": 18.4,
+      "cpuSys": 17.7,
+      "cpuIdle": 64.52,
+      "cpuBusy": 36.1,
+      "memUsedMB": 8043,
+      "memUnusedMB": 135,
+      "memWiredMB": 949,
+      "procs": 583,
+      "userjobs": 497,
+      "userrunning": 218,
+      "systemjobs": 415,
+      "load1": 1.8,
+      "t": 420.1
+     },
+     {
+      "cpuUser": 24.68,
+      "cpuSys": 21.36,
+      "cpuIdle": 53.94,
+      "cpuBusy": 46.04,
+      "memUsedMB": 8093,
+      "memUnusedMB": 86,
+      "memWiredMB": 963,
+      "procs": 594,
+      "userjobs": 497,
+      "userrunning": 220,
+      "systemjobs": 415,
+      "load1": 3.38,
+      "t": 450.1
+     },
+     {
+      "cpuUser": 18.97,
+      "cpuSys": 20.49,
+      "cpuIdle": 60.53,
+      "cpuBusy": 39.46,
+      "memUsedMB": 8016,
+      "memUnusedMB": 163,
+      "memWiredMB": 993,
+      "procs": 592,
+      "userjobs": 497,
+      "userrunning": 222,
+      "systemjobs": 415,
+      "load1": 2.81,
+      "t": 480.1
+     },
+     {
+      "cpuUser": 28.62,
+      "cpuSys": 39.54,
+      "cpuIdle": 31.82,
+      "cpuBusy": 68.16,
+      "memUsedMB": 8066,
+      "memUnusedMB": 113,
+      "memWiredMB": 994,
+      "procs": 606,
+      "userjobs": 498,
+      "userrunning": 227,
+      "systemjobs": 415,
+      "load1": 2.31,
+      "t": 510.1
+     },
+     {
+      "cpuUser": 24.48,
+      "cpuSys": 20.18,
+      "cpuIdle": 55.32,
+      "cpuBusy": 44.66,
+      "memUsedMB": 8052,
+      "memUnusedMB": 127,
+      "memWiredMB": 1008,
+      "procs": 618,
+      "userjobs": 498,
+      "userrunning": 229,
+      "systemjobs": 415,
+      "load1": 3.23,
+      "t": 540.1
+     },
+     {
+      "cpuUser": 3.55,
+      "cpuSys": 3.55,
+      "cpuIdle": 92.88,
+      "cpuBusy": 7.1,
+      "memUsedMB": 7951,
+      "memUnusedMB": 228,
+      "memWiredMB": 996,
+      "procs": 601,
+      "userjobs": 499,
+      "userrunning": 228,
+      "systemjobs": 416,
+      "load1": 2.33,
+      "t": 570.1
+     }
+    ]
+   },
+   "idleScreenshot": "/tmp/greenroom-bench-greenroom-base/run2-after-idle.png",
+   "task": {
+    "buildSeconds": 31.51,
+    "buildOK": true,
+    "firstUiSeconds": 12.65,
+    "appUpSeconds": 12.65,
+    "latency": {
+     "screenshotSeconds": [
+      0.385,
+      0.279,
+      0.271,
+      0.249,
+      0.282
+     ],
+     "uiSeconds": [
+      0.212,
+      0.211,
+      0.23,
+      0.207,
+      0.211
+     ],
+     "screenshotMedian": 0.279,
+     "uiMedian": 0.211
+    },
+    "sends": 1,
+    "modelOutages": [
+     {
+      "send": 1,
+      "gaveUp": false,
+      "seconds": 312.5,
+      "errors": [
+       "verifier turn failed: https://integrate.api.nvidia.com/v1 returned 429 after 5 attempts: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+     }
+    ],
+    "wallSeconds": 312.5,
+    "questions": 0,
+    "verdict": "fail",
+    "verdictText": "The TipSplit app calculates incorrectly. After setting Bill=120, Tip=20%, People=3, the app shows \"Each pays: $8.00\" but the correct value is $48.00 ((120 + 24) / 3 = 48). After changing to 25% tip, the app shows \"Each pays: $10.00\" but the correct value is $50.00 ((120 + 30) / 3 = 50). The app appears to be dividing by 18 instead of 3 (144/18=8, 150/15=10), or has some other calculation bug.",
+    "correct": true,
+    "steps": 11,
+    "clicks": 4,
+    "misclicks": 0,
+    "uiReads": 3,
+    "screenshots": 2,
+    "tools": {
+     "machine_ui": 3,
+     "machine_input": 6,
+     "machine_screenshot": 2
+    },
+    "misclickDetail": [],
+    "appsSeenByVerifier": [
+     "Finder",
+     "Terminal",
+     "TipSplit"
+    ],
+    "popupWordsInVerifierText": [
+     "picture, 0 to 1, not in pixels. The screen shows: 1. System dialog: none 2. Frontmost: TipSplit 3. Window text: TipSplit Bill "
+    ]
+   },
+   "reboot": {
+    "execReturnedSeconds": 30.0,
+    "rebooted": true,
+    "agentBackSeconds": 58.8,
+    "swiftcOK": true,
+    "swiftcSeconds": 9.9,
+    "screenshotOK": true,
+    "screenshotSeconds": 2.43,
+    "uiOK": true,
+    "uiSeconds": 1.08
+   },
+   "popups": [
+    {
+     "phase": "idle",
+     "owner": "Notification Center",
+     "name": "Featured",
+     "kind": "widget",
+     "at": "2026-09-23T06:55:43+00:00",
+     "layer": -2147483601,
+     "size": "360x180"
+    },
+    {
+     "phase": "idle",
+     "owner": "Notification Center",
+     "name": "com.apple.weather::com.apple.weather.widget:com.apple.weather",
+     "kind": "widget",
+     "at": "2026-09-23T06:55:43+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    },
+    {
+     "phase": "idle",
+     "owner": "Notification Center",
+     "name": "Month",
+     "kind": "widget",
+     "at": "2026-09-23T06:55:43+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    },
+    {
+     "phase": "task",
+     "owner": "Notification Center",
+     "name": "Featured",
+     "kind": "widget",
+     "at": "2026-09-23T07:06:34+00:00",
+     "layer": -2147483601,
+     "size": "360x180"
+    },
+    {
+     "phase": "task",
+     "owner": "Notification Center",
+     "name": "com.apple.weather::com.apple.weather.widget:com.apple.weather",
+     "kind": "widget",
+     "at": "2026-09-23T07:06:34+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    },
+    {
+     "phase": "task",
+     "owner": "Notification Center",
+     "name": "Month",
+     "kind": "widget",
+     "at": "2026-09-23T07:06:34+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    }
+   ],
+   "windowPolls": {
+    "ok": 91,
+    "failed": 0,
+    "owners": [
+     "Control Center",
+     "Dock",
+     "Notification Center",
+     "TipSplit",
+     "Window Server"
+    ]
+   }
+  },
+  {
+   "run": 3,
+   "runId": "20260923-071258-325f1d14209e1e51",
+   "createdAt": "2026-09-23T07:13:46+00:00",
+   "bootToReadySeconds": 48.37,
+   "bootStep": {
+    "agentSeconds": 40.1,
+    "bootSeconds": 48.3,
+    "captureAlertSeconds": 2.9,
+    "desktopPrefsSeconds": 1.4,
+    "ip": "192.168.64.166",
+    "ipSeconds": 0.1,
+    "keySeconds": 3,
+    "sshSeconds": 0.7,
+    "status": "ready"
+   },
+   "idle": {
+    "seconds": 600,
+    "sampleEvery": 30,
+    "summary": {
+     "cpuBusyMean": 49.16,
+     "cpuBusySettledMean": 74.27,
+     "memUsedMBMean": 7999.15,
+     "memUsedMBSettledMean": 8040.4,
+     "memWiredMBMean": 886.25,
+     "memWiredMBSettledMean": 924.2,
+     "procsMean": 542.3,
+     "procsSettledMean": 588.3,
+     "userjobsMean": 495.25,
+     "userjobsSettledMean": 496.5,
+     "userrunningMean": 202.75,
+     "userrunningSettledMean": 222.6,
+     "systemjobsMean": 415.1,
+     "systemjobsSettledMean": 415.2,
+     "load1Mean": 15.63,
+     "load1SettledMean": 9.51
+    },
+    "samples": [
+     {
+      "cpuUser": 37.12,
+      "cpuSys": 26.65,
+      "cpuIdle": 36.21,
+      "cpuBusy": 63.77,
+      "memUsedMB": 7606,
+      "memUnusedMB": 574,
+      "memWiredMB": 870,
+      "procs": 450,
+      "userjobs": 494,
+      "userrunning": 167,
+      "systemjobs": 415,
+      "load1": 80.54,
+      "t": 0.0
+     },
+     {
+      "cpuUser": 0.45,
+      "cpuSys": 2.28,
+      "cpuIdle": 97.26,
+      "cpuBusy": 2.73,
+      "memUsedMB": 8052,
+      "memUnusedMB": 127,
+      "memWiredMB": 857,
+      "procs": 468,
+      "userjobs": 494,
+      "userrunning": 176,
+      "systemjobs": 415,
+      "load1": 49.35,
+      "t": 30.0
+     },
+     {
+      "cpuUser": 6.29,
+      "cpuSys": 6.96,
+      "cpuIdle": 86.74,
+      "cpuBusy": 13.25,
+      "memUsedMB": 7833,
+      "memUnusedMB": 346,
+      "memWiredMB": 877,
+      "procs": 466,
+      "userjobs": 494,
+      "userrunning": 176,
+      "systemjobs": 415,
+      "load1": 30.62,
+      "t": 60.0
+     },
+     {
+      "cpuUser": 0.43,
+      "cpuSys": 1.75,
+      "cpuIdle": 97.81,
+      "cpuBusy": 2.18,
+      "memUsedMB": 7814,
+      "memUnusedMB": 365,
+      "memWiredMB": 848,
+      "procs": 464,
+      "userjobs": 494,
+      "userrunning": 176,
+      "systemjobs": 415,
+      "load1": 18.69,
+      "t": 90.0
+     },
+     {
+      "cpuUser": 5.12,
+      "cpuSys": 5.36,
+      "cpuIdle": 89.51,
+      "cpuBusy": 10.48,
+      "memUsedMB": 7991,
+      "memUnusedMB": 188,
+      "memWiredMB": 844,
+      "procs": 503,
+      "userjobs": 494,
+      "userrunning": 180,
+      "systemjobs": 415,
+      "load1": 12.14,
+      "t": 120.0
+     },
+     {
+      "cpuUser": 3.8,
+      "cpuSys": 3.55,
+      "cpuIdle": 93.36,
+      "cpuBusy": 7.35,
+      "memUsedMB": 7909,
+      "memUnusedMB": 270,
+      "memWiredMB": 835,
+      "procs": 498,
+      "userjobs": 494,
+      "userrunning": 180,
+      "systemjobs": 415,
+      "load1": 7.82,
+      "t": 150.0
+     },
+     {
+      "cpuUser": 4.89,
+      "cpuSys": 4.66,
+      "cpuIdle": 90.44,
+      "cpuBusy": 9.55,
+      "memUsedMB": 8097,
+      "memUnusedMB": 82,
+      "memWiredMB": 847,
+      "procs": 523,
+      "userjobs": 494,
+      "userrunning": 189,
+      "systemjobs": 415,
+      "load1": 5.31,
+      "t": 180.0
+     },
+     {
+      "cpuUser": 29.2,
+      "cpuSys": 5.14,
+      "cpuIdle": 65.65,
+      "cpuBusy": 34.34,
+      "memUsedMB": 8098,
+      "memUnusedMB": 80,
+      "memWiredMB": 848,
+      "procs": 525,
+      "userjobs": 494,
+      "userrunning": 192,
+      "systemjobs": 415,
+      "load1": 3.43,
+      "t": 210.0
+     },
+     {
+      "cpuUser": 0.0,
+      "cpuSys": 1.33,
+      "cpuIdle": 98.66,
+      "cpuBusy": 1.33,
+      "memUsedMB": 8080,
+      "memUnusedMB": 100,
+      "memWiredMB": 822,
+      "procs": 525,
+      "userjobs": 494,
+      "userrunning": 192,
+      "systemjobs": 415,
+      "load1": 2.73,
+      "t": 240.0
+     },
+     {
+      "cpuUser": 48.55,
+      "cpuSys": 46.84,
+      "cpuIdle": 4.59,
+      "cpuBusy": 95.39,
+      "memUsedMB": 8099,
+      "memUnusedMB": 81,
+      "memWiredMB": 835,
+      "procs": 541,
+      "userjobs": 494,
+      "userrunning": 201,
+      "systemjobs": 415,
+      "load1": 6.96,
+      "t": 270.0
+     },
+     {
+      "cpuUser": 29.23,
+      "cpuSys": 68.12,
+      "cpuIdle": 2.63,
+      "cpuBusy": 97.35,
+      "memUsedMB": 7955,
+      "memUnusedMB": 224,
+      "memWiredMB": 874,
+      "procs": 563,
+      "userjobs": 495,
+      "userrunning": 206,
+      "systemjobs": 415,
+      "load1": 13.55,
+      "t": 300.0
+     },
+     {
+      "cpuUser": 39.21,
+      "cpuSys": 57.43,
+      "cpuIdle": 3.35,
+      "cpuBusy": 96.64,
+      "memUsedMB": 7893,
+      "memUnusedMB": 286,
+      "memWiredMB": 855,
+      "procs": 571,
+      "userjobs": 496,
+      "userrunning": 215,
+      "systemjobs": 415,
+      "load1": 10.94,
+      "t": 330.0
+     },
+     {
+      "cpuUser": 37.56,
+      "cpuSys": 31.55,
+      "cpuIdle": 30.88,
+      "cpuBusy": 69.11,
+      "memUsedMB": 8084,
+      "memUnusedMB": 96,
+      "memWiredMB": 850,
+      "procs": 572,
+      "userjobs": 496,
+      "userrunning": 216,
+      "systemjobs": 415,
+      "load1": 9.22,
+      "t": 360.0
+     },
+     {
+      "cpuUser": 37.77,
+      "cpuSys": 44.82,
+      "cpuIdle": 17.39,
+      "cpuBusy": 82.59,
+      "memUsedMB": 8114,
+      "memUnusedMB": 64,
+      "memWiredMB": 906,
+      "procs": 588,
+      "userjobs": 496,
+      "userrunning": 220,
+      "systemjobs": 415,
+      "load1": 9.67,
+      "t": 390.1
+     },
+     {
+      "cpuUser": 17.21,
+      "cpuSys": 27.17,
+      "cpuIdle": 55.61,
+      "cpuBusy": 44.38,
+      "memUsedMB": 8113,
+      "memUnusedMB": 67,
+      "memWiredMB": 947,
+      "procs": 586,
+      "userjobs": 496,
+      "userrunning": 222,
+      "systemjobs": 415,
+      "load1": 7.22,
+      "t": 420.1
+     },
+     {
+      "cpuUser": 29.15,
+      "cpuSys": 53.66,
+      "cpuIdle": 17.17,
+      "cpuBusy": 82.81,
+      "memUsedMB": 8070,
+      "memUnusedMB": 110,
+      "memWiredMB": 966,
+      "procs": 584,
+      "userjobs": 496,
+      "userrunning": 225,
+      "systemjobs": 415,
+      "load1": 7.12,
+      "t": 450.1
+     },
+     {
+      "cpuUser": 17.95,
+      "cpuSys": 31.63,
+      "cpuIdle": 50.41,
+      "cpuBusy": 49.58,
+      "memUsedMB": 7938,
+      "memUnusedMB": 242,
+      "memWiredMB": 965,
+      "procs": 614,
+      "userjobs": 497,
+      "userrunning": 231,
+      "systemjobs": 415,
+      "load1": 12.55,
+      "t": 480.1
+     },
+     {
+      "cpuUser": 23.12,
+      "cpuSys": 61.7,
+      "cpuIdle": 15.79,
+      "cpuBusy": 84.82,
+      "memUsedMB": 8087,
+      "memUnusedMB": 92,
+      "memWiredMB": 961,
+      "procs": 608,
+      "userjobs": 497,
+      "userrunning": 230,
+      "systemjobs": 415,
+      "load1": 10.03,
+      "t": 510.1
+     },
+     {
+      "cpuUser": 25.98,
+      "cpuSys": 39.73,
+      "cpuIdle": 34.27,
+      "cpuBusy": 65.71,
+      "memUsedMB": 8083,
+      "memUnusedMB": 97,
+      "memWiredMB": 961,
+      "procs": 599,
+      "userjobs": 498,
+      "userrunning": 230,
+      "systemjobs": 416,
+      "load1": 8.27,
+      "t": 540.1
+     },
+     {
+      "cpuUser": 37.74,
+      "cpuSys": 32.0,
+      "cpuIdle": 30.24,
+      "cpuBusy": 69.74,
+      "memUsedMB": 8067,
+      "memUnusedMB": 112,
+      "memWiredMB": 957,
+      "procs": 598,
+      "userjobs": 498,
+      "userrunning": 231,
+      "systemjobs": 416,
+      "load1": 6.5,
+      "t": 570.1
+     }
+    ]
+   },
+   "idleScreenshot": "/tmp/greenroom-bench-greenroom-base/run3-after-idle.png",
+   "task": {
+    "buildSeconds": 40.1,
+    "buildOK": true,
+    "firstUiSeconds": 15.48,
+    "appUpSeconds": 15.48,
+    "latency": {
+     "screenshotSeconds": [
+      0.506,
+      0.295,
+      0.292,
+      0.304,
+      0.46
+     ],
+     "uiSeconds": [
+      0.434,
+      0.174,
+      0.188,
+      0.241,
+      0.206
+     ],
+     "screenshotMedian": 0.304,
+     "uiMedian": 0.206
+    },
+    "sends": 1,
+    "modelOutages": [
+     {
+      "send": 1,
+      "gaveUp": false,
+      "seconds": 495.2,
+      "errors": [
+       "verifier turn failed: https://integrate.api.nvidia.com/v1 returned 429 after 5 attempts: {\"status\":429,\"title\":\"Too Many Requests\"}"
+      ]
+     }
+    ],
+    "wallSeconds": 495.2,
+    "questions": 0,
+    "verdict": "fail",
+    "verdictText": "The TipSplit app calculates \"Each pays\" incorrectly. After setting Bill=120, Tip=20%, People=3, the app shows \"Each pays: $8.00\" but the correct value should be $48.00 ((120 + 24) / 3). After switching to 25% tip, the app shows \"Each pays: $10.00\" but the correct value should be $50.00 ((120 + 30) / 3). The app appears to be dividing only the tip amount by the number of people, not the total (bill + tip) by the number of people.",
+    "correct": true,
+    "steps": 12,
+    "clicks": 4,
+    "misclicks": 0,
+    "uiReads": 5,
+    "screenshots": 1,
+    "tools": {
+     "machine_ui": 5,
+     "machine_input": 6,
+     "machine_screenshot": 1
+    },
+    "misclickDetail": [],
+    "appsSeenByVerifier": [
+     "Finder",
+     "Terminal",
+     "TipSplit"
+    ],
+    "popupWordsInVerifierText": [
+     "picture, 0 to 1, not in pixels. The screen shows: 1. System dialog: none 2. Frontmost: TipSplit application, window title \"Tip"
+    ]
+   },
+   "reboot": {
+    "execReturnedSeconds": 30.0,
+    "rebooted": true,
+    "agentBackSeconds": 71.6,
+    "swiftcOK": true,
+    "swiftcSeconds": 17.2,
+    "screenshotOK": true,
+    "screenshotSeconds": 1.83,
+    "uiOK": true,
+    "uiSeconds": 1.45
+   },
+   "popups": [
+    {
+     "phase": "idle",
+     "owner": "Notification Center",
+     "name": "Featured",
+     "kind": "widget",
+     "at": "2026-09-23T07:13:47+00:00",
+     "layer": -2147483601,
+     "size": "360x180"
+    },
+    {
+     "phase": "idle",
+     "owner": "Notification Center",
+     "name": "com.apple.weather::com.apple.weather.widget:com.apple.weather",
+     "kind": "widget",
+     "at": "2026-09-23T07:13:47+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    },
+    {
+     "phase": "idle",
+     "owner": "Notification Center",
+     "name": "Month",
+     "kind": "widget",
+     "at": "2026-09-23T07:13:47+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    },
+    {
+     "phase": "task",
+     "owner": "Notification Center",
+     "name": "Featured",
+     "kind": "widget",
+     "at": "2026-09-23T07:24:50+00:00",
+     "layer": -2147483601,
+     "size": "360x180"
+    },
+    {
+     "phase": "task",
+     "owner": "Notification Center",
+     "name": "com.apple.weather::com.apple.weather.widget:com.apple.weather",
+     "kind": "widget",
+     "at": "2026-09-23T07:24:50+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    },
+    {
+     "phase": "task",
+     "owner": "Notification Center",
+     "name": "Month",
+     "kind": "widget",
+     "at": "2026-09-23T07:24:50+00:00",
+     "layer": -2147483601,
+     "size": "180x180"
+    }
+   ],
+   "windowPolls": {
+    "ok": 109,
+    "failed": 0,
+    "owners": [
+     "Control Center",
+     "Dock",
+     "Notification Center",
+     "TipSplit",
+     "Window Server"
+    ]
+   }
+  }
+ ],
+ "finished": "2026-09-23T07:34:37+00:00",
+ "summary": {
+  "runs": 3,
+  "completed": 3,
+  "bootToReadySeconds": [
+   37.87,
+   29.25,
+   48.37
+  ],
+  "idleCpuBusyPct": [
+   25.74,
+   24.92,
+   49.16
+  ],
+  "idleCpuBusySettledPct": [
+   30.07,
+   31.79,
+   74.27
+  ],
+  "idleMemUsedMB": [
+   7981.5,
+   7984.5,
+   8040.4
+  ],
+  "idleProcs": [
+   569.4,
+   589.6,
+   588.3
+  ],
+  "idleUserJobs": [
+   495.8,
+   497.3,
+   496.5
+  ],
+  "idleUserRunning": [
+   223.1,
+   220.2,
+   222.6
+  ],
+  "idleSystemJobs": [
+   415.4,
+   415.1,
+   415.2
+  ],
+  "taskWallSeconds": [
+   231.4,
+   312.5,
+   495.2
+  ],
+  "taskSteps": [
+   11,
+   11,
+   12
+  ],
+  "taskMisclicks": [
+   0,
+   0,
+   0
+  ],
+  "taskVerdict": [
+   "fail",
+   "fail",
+   "fail"
+  ],
+  "taskCorrect": [
+   true,
+   true,
+   true
+  ],
+  "firstUiSeconds": [
+   14.79,
+   12.65,
+   15.48
+  ],
+  "screenshotMedianSeconds": [
+   0.444,
+   0.279,
+   0.304
+  ],
+  "uiMedianSeconds": [
+   0.424,
+   0.211,
+   0.206
+  ],
+  "popups": [
+   0,
+   0,
+   0
+  ],
+  "widgets": [
+   3,
+   3,
+   3
+  ],
+  "rebootOK": [
+   true,
+   true,
+   true
+  ],
+  "rebootAgentBackSeconds": [
+   37.2,
+   58.8,
+   71.6
+  ],
+  "imageSizeGB": 31,
+  "bootToReadySecondsMedian": 37.87,
+  "idleCpuBusyPctMedian": 25.74,
+  "idleCpuBusySettledPctMedian": 31.79,
+  "idleMemUsedMBMedian": 7984.5,
+  "idleProcsMedian": 588.3,
+  "idleUserJobsMedian": 496.5,
+  "idleUserRunningMedian": 222.6,
+  "idleSystemJobsMedian": 415.2,
+  "taskWallSecondsMedian": 312.5,
+  "taskStepsMedian": 11,
+  "taskMisclicksMedian": 0,
+  "firstUiSecondsMedian": 14.79,
+  "screenshotMedianSecondsMedian": 0.304,
+  "uiMedianSecondsMedian": 0.211,
+  "popupsMedian": 0,
+  "widgetsMedian": 3,
+  "rebootAgentBackSecondsMedian": 58.8
+ }
+}
