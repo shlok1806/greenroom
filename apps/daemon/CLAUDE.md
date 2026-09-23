@@ -24,6 +24,7 @@ go run . prepare-image -vm <running vm>
 go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir> [-watch]]
 
 scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
+                        # image default: local greenroom-lean-a, then greenroom-base, then upstream Cirrus
 scripts/uninstall.sh    # keeps the binary and ~/.greenroom
 scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-lean] [-force]
 ```

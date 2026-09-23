@@ -13,7 +13,8 @@ Note: `apps/daemon/scripts/build-image.sh` also makes a VM named `greenroom-base
 the input helper and ssh key baked in but none of the TCC, display or first-boot work
 below. The two are not merged yet. The daemon's CI and `install.sh` expect the
 `build-image.sh` one. `build-image.sh -lean -name greenroom-lean-a` builds the lean
-variant under test in `docs/image-experiment/`.
+variant from `docs/image-experiment/`; `install.sh` prefers it over `greenroom-base` when
+both exist.
 
 ## Layout
 
