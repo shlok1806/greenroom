@@ -17,9 +17,9 @@ own Mac. Fleet, hosting and PR posting are deferred.
 
 What exists today:
 
-- Daemon with 21 MCP tools: `machine_create`, `_wait`, `_list`, `_sync`, `_exec`,
-  `_approve_capture`, `_screenshot`, `_destroy`, `_ui`, `_click`, `_type`, `_key`,
-  `_scroll`, `_input`, `_session_start`, `_session_send`, `_session_read`,
+- Daemon with 22 MCP tools: `machine_create`, `_wait`, `_list`, `_sync`, `_exec`,
+  `_exec_wait`, `_approve_capture`, `_screenshot`, `_destroy`, `_ui`, `_click`, `_type`,
+  `_key`, `_scroll`, `_input`, `_session_start`, `_session_send`, `_session_read`,
   `_session_close`, `agent_send`, `agent_wait`, `agent_transcript`.
 - Verifier on NVIDIA NIM or in `manual` mode.
 - Companion app: runs, transcript, steps, screen player, live H.264 screen (ADR 0011),
