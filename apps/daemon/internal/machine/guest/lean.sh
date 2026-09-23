@@ -139,34 +139,37 @@ defaults write com.apple.Siri StatusMenuVisible -bool false
 defaults write com.apple.Siri VoiceTriggerUserEnabled -bool false
 
 # --- Spotlight indexing off on every volume (the index lives on the Data volume). --------
-sudo -n mdutil -a -i off >/dev/null 2>&1
+sudo -n mdutil -a -i off >/dev/null || true
 
 # --- Game Center off. ---------------------------------------------------------------------
 defaults write com.apple.gamed Disabled -bool true
 
 # --- Software Update: no checks, downloads or installs, and no App Store auto updates. ----
-sudo -n softwareupdate --schedule off >/dev/null 2>&1 || true
-for key in AutomaticCheckEnabled AutomaticDownload AutomaticallyInstallMacOSUpdates CriticalUpdateInstall ConfigDataInstall; do
+sudo -n softwareupdate --schedule off >/dev/null || true
+su_keys="AutomaticCheckEnabled AutomaticDownload AutomaticallyInstallMacOSUpdates CriticalUpdateInstall ConfigDataInstall"
+for key in $su_keys; do
   sudo -n defaults write /Library/Preferences/com.apple.SoftwareUpdate "$key" -bool false
 done
 sudo -n defaults write /Library/Preferences/com.apple.commerce AutoUpdate -bool false
 
 # --- Time Machine: never offer a new disk, and no backups. --------------------------------
 sudo -n defaults write /Library/Preferences/com.apple.TimeMachine DoNotOfferNewDisksForBackup -bool true
-sudo -n tmutil disable 2>/dev/null || true
+sudo -n tmutil disable || true
 
 # --- Setup Assistant, What's New and Apple Account prompts: every pane already seen for
 # this build, so neither login nor an update relaunches Setup Assistant (MiniBuddy). ------
 product="$(sw_vers -productVersion)"
 build="$(sw_vers -buildVersion)"
-for key in DidSeeAccessibility DidSeeActivationLock DidSeeAppStore DidSeeAppearanceSetup \
-  DidSeeApplePaySetup DidSeeCloudSetup DidSeeIntelligence DidSeeLockdownMode DidSeePrivacy \
-  DidSeeScreenTime DidSeeSiriSetup DidSeeSyncSetup DidSeeSyncSetup2 DidSeeTermsOfAddress \
-  DidSeeTouchIDSetup DidSeeiCloudLoginForStorageServices; do
+seen_keys="DidSeeAccessibility DidSeeActivationLock DidSeeAppStore DidSeeAppearanceSetup
+  DidSeeApplePaySetup DidSeeCloudSetup DidSeeIntelligence DidSeeLockdownMode DidSeePrivacy
+  DidSeeScreenTime DidSeeSiriSetup DidSeeSyncSetup DidSeeSyncSetup2 DidSeeTermsOfAddress
+  DidSeeTouchIDSetup DidSeeiCloudLoginForStorageServices"
+version_keys="LastSeenCloudProductVersion LastSeenSiriProductVersion LastSeenDiagnosticsProductVersion
+  LastSeenIntelligenceProductVersion LastSeenAgeRangeSelectionProductVersion"
+for key in $seen_keys; do
   defaults write com.apple.SetupAssistant "$key" -bool true
 done
-for key in LastSeenCloudProductVersion LastSeenSiriProductVersion LastSeenDiagnosticsProductVersion \
-  LastSeenIntelligenceProductVersion LastSeenAgeRangeSelectionProductVersion; do
+for key in $version_keys; do
   defaults write com.apple.SetupAssistant "$key" -string "$product"
 done
 defaults write com.apple.SetupAssistant LastSeenBuddyBuildVersion -string "$build"
@@ -181,6 +184,7 @@ for app in Terminal System%20Settings Safari TextEdit Preview Activity%20Monitor
   check "dock-$app" sh -c "printf '%s' \"\$1\" | grep -q \"/$app.app\"" _ "$dock"
 done
 check dock-recents is "$(defaults read com.apple.dock show-recents)" 0
+check dock-others sh -c 'o="$(defaults read com.apple.dock persistent-others)" && [ -z "$(printf %s "$o" | tr -d "()[:space:]")" ]'
 
 # One label a line, exactly as launchd reports it, so a label with stray whitespace fails.
 disabled="$(launchctl print-disabled "gui/$uid" | sed -n 's/^[[:space:]]*"\([^"]*\)" => disabled$/\1/p')"
@@ -192,15 +196,24 @@ check widgets-desktop is "$(defaults read com.apple.WindowManager StandardHideWi
 check widgets-stage is "$(defaults read com.apple.WindowManager StageManagerHideWidgets)" 1
 check siri-enabled is "$(defaults read com.apple.assistant.support 'Assistant Enabled')" 0
 check siri-menu is "$(defaults read com.apple.Siri StatusMenuVisible)" 0
-check spotlight sh -c '! mdutil -s /System/Volumes/Data | grep -q "Indexing enabled"'
+check siri-voice-trigger is "$(defaults read com.apple.Siri VoiceTriggerUserEnabled)" 0
+check spotlight sh -c 'mdutil -s /System/Volumes/Data | grep -q "Indexing disabled"'
 check gamecenter is "$(defaults read com.apple.gamed Disabled)" 1
-for key in AutomaticCheckEnabled AutomaticDownload AutomaticallyInstallMacOSUpdates CriticalUpdateInstall ConfigDataInstall; do
+check softwareupdate-schedule sh -c 'sudo -n softwareupdate --schedule 2>&1 | grep -q "Automatic checking for updates is turned off"'
+for key in $su_keys; do
   check "softwareupdate-$key" is "$(defaults read /Library/Preferences/com.apple.SoftwareUpdate "$key")" 0
 done
 check appstore-autoupdate is "$(defaults read /Library/Preferences/com.apple.commerce AutoUpdate)" 0
 check timemachine-offer is "$(defaults read /Library/Preferences/com.apple.TimeMachine DoNotOfferNewDisksForBackup)" 1
-check setup-cloud is "$(defaults read com.apple.SetupAssistant DidSeeCloudSetup)" 1
+check timemachine-autobackup is "$(defaults read /Library/Preferences/com.apple.TimeMachine AutoBackup)" 0
+for key in $seen_keys; do
+  check "setup-$key" is "$(defaults read com.apple.SetupAssistant "$key")" 1
+done
+for key in $version_keys; do
+  check "setup-$key" is "$(defaults read com.apple.SetupAssistant "$key")" "$product"
+done
 check setup-buddy-build is "$(defaults read com.apple.SetupAssistant LastSeenBuddyBuildVersion)" "$build"
+check setup-minibuddy is "$(defaults read com.apple.SetupAssistant MiniBuddyShouldLaunchToResumeSetup)" 0
 check setup-done sudo -n test -f /var/db/.AppleSetupDone
 
 if [ -n "$fail" ]; then

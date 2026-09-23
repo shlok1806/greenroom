@@ -18,6 +18,10 @@ import (
 //
 //	LEAN_DROP=<label>        launchd forgets that disable (print-disabled omits it)
 //	LEAN_IGNORE=<domain> <key>  defaults drops writes to that key, as if macOS renamed it
+//	LEAN_FAIL=<command>      that command's write exits non-zero and changes nothing
+//
+// Every call of a sealed-system tool (csrutil, bless, mount, nvram), and every sudo or
+// defaults write naming a path under /System, lands in the log file "sealed".
 type leanGuest struct {
 	dir, store string
 }
@@ -39,6 +43,7 @@ func newLeanGuest(t *testing.T) *leanGuest {
 op="$1"; domain="$(printf '%s' "$2" | tr '/' '_')"; key="$3"; f="$S/$domain.$(printf '%s' "$key" | tr ' ' '_')"
 case "$op" in
   write)
+    case "$2" in /System*) echo "defaults $*" >> "$S/sealed" ;; esac
     [ "$LEAN_IGNORE" = "$2 $3" ] && exit 0
     case "$4" in
       -bool) case "$5" in true|yes|1) echo 1 ;; *) echo 0 ;; esac > "$f" ;;
@@ -62,16 +67,35 @@ case "$1" in
 esac`,
 		// sudo -n <command...>: run it, except the two that touch the real system.
 		"sudo": `[ "$1" = -n ] && shift
+for a in "$@"; do case "$a" in /System*) echo "sudo $*" >> "` + g.store + `/sealed" ;; esac; done
 case "$1" in
   touch) exit 0 ;;
   test) exit 0 ;;
 esac
 exec "$@"`,
-		"mdutil":         `case "$1" in -s) printf '%s:\n\tIndexing disabled.\n' "$2" ;; esac`,
-		"sw_vers":        `case "$1" in -productVersion) echo 26.6.2 ;; -buildVersion) echo 25G83 ;; esac`,
-		"killall":        `exit 0`,
-		"softwareupdate": `exit 0`,
-		"tmutil":         `exit 0`,
+		// mdutil -a -i off | -s <volume>
+		"mdutil": `S="` + g.store + `"
+case "$1" in
+  -a) [ "$LEAN_FAIL" = mdutil ] && { echo "mdutil: /Volumes/busy: Error" >&2; exit 1; }; : > "$S/mdutil-off" ;;
+  -s) if [ -f "$S/mdutil-off" ]; then printf '%s:\n\tIndexing disabled.\n' "$2"; else printf '%s:\n\tIndexing enabled.\n' "$2"; fi ;;
+esac`,
+		"sw_vers": `case "$1" in -productVersion) echo 26.6.2 ;; -buildVersion) echo 25G83 ;; esac`,
+		"killall": `exit 0`,
+		// softwareupdate --schedule [off]
+		"softwareupdate": `S="` + g.store + `"
+[ "$1" = --schedule ] || exit 0
+if [ "$2" = off ]; then
+  [ "$LEAN_FAIL" = softwareupdate ] && exit 1
+  : > "$S/schedule-off"
+elif [ -f "$S/schedule-off" ]; then echo "Automatic checking for updates is turned off."
+else echo "Automatic checking for updates is turned on."; fi`,
+		// tmutil disable writes AutoBackup, as the real one does.
+		"tmutil": `[ "$1" = disable ] || exit 0
+[ "$LEAN_FAIL" = tmutil ] && exit 1
+exec defaults write /Library/Preferences/com.apple.TimeMachine AutoBackup -bool false`,
+	}
+	for _, name := range []string{"csrutil", "bless", "mount", "nvram"} {
+		stubs[name] = `echo "` + name + ` $*" >> "` + g.store + `/sealed"`
 	}
 	for name, body := range stubs {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
@@ -195,10 +219,54 @@ func TestLeanScriptFailsWhenAKeyDoesNotReadBack(t *testing.T) {
 
 // SIP, the authenticated root and the sealed system volume are out of bounds.
 func TestLeanScriptNeverTouchesTheSealedSystem(t *testing.T) {
-	for _, banned := range []string{"csrutil", "bless", "authenticated-root", "mount -uw", "/System/Library/LaunchAgents/", "rm -rf /System"} {
-		if strings.Contains(leanScript, banned) {
-			t.Errorf("leanScript contains %q", banned)
-		}
+	g := newLeanGuest(t)
+	out, err := g.run(t)
+	if err != nil || !strings.Contains(out, "lean: ok") {
+		t.Fatalf("lean script failed: %v\n%s", err, out)
+	}
+	if b, err := os.ReadFile(filepath.Join(g.store, "sealed")); err == nil {
+		t.Errorf("the script touched the sealed system:\n%s", b)
+	}
+}
+
+// A write that fails must not stop the script before the read-back names what is wrong.
+func TestLeanScriptNamesAFailedWriteInsteadOfAborting(t *testing.T) {
+	for cmd, check := range map[string]string{
+		"mdutil":         "spotlight",
+		"softwareupdate": "softwareupdate-schedule",
+		"tmutil":         "timemachine-autobackup",
+	} {
+		t.Run(cmd, func(t *testing.T) {
+			g := newLeanGuest(t)
+			out, err := g.run(t, "LEAN_FAIL="+cmd)
+			if err == nil {
+				t.Fatalf("the script passed although %s failed:\n%s", cmd, out)
+			}
+			if !strings.Contains(out, "check failed: "+check+"\n") || strings.Count(out, "check failed:") != 1 {
+				t.Errorf("want exactly the one failed check %s:\n%s", check, out)
+			}
+		})
+	}
+}
+
+// Every setting the script writes is read back, so any one that does not take fails the build.
+func TestLeanScriptReadsBackEverySetting(t *testing.T) {
+	for _, c := range []struct{ ignore, check string }{
+		{"com.apple.Siri VoiceTriggerUserEnabled", "siri-voice-trigger"},
+		{"com.apple.dock persistent-others", "dock-others"},
+		{"com.apple.SetupAssistant DidSeePrivacy", "setup-DidSeePrivacy"},
+		{"com.apple.SetupAssistant DidSeeiCloudLoginForStorageServices", "setup-DidSeeiCloudLoginForStorageServices"},
+		{"com.apple.SetupAssistant LastSeenSiriProductVersion", "setup-LastSeenSiriProductVersion"},
+		{"com.apple.SetupAssistant MiniBuddyShouldLaunchToResumeSetup", "setup-minibuddy"},
+		{"/Library/Preferences/com.apple.TimeMachine AutoBackup", "timemachine-autobackup"},
+	} {
+		t.Run(c.check, func(t *testing.T) {
+			g := newLeanGuest(t)
+			out, err := g.run(t, "LEAN_IGNORE="+c.ignore)
+			if err == nil || !strings.Contains(out, "check failed: "+c.check+"\n") {
+				t.Fatalf("a lost %s did not fail check %s: %v\n%s", c.ignore, c.check, err, out)
+			}
+		})
 	}
 }
 

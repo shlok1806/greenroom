@@ -378,29 +378,43 @@ class Bench:
                 raise RuntimeError("machine_create: " + err)
             run_id = out["runId"]
             self.mine.add("greenroom-" + run_id)
-            while True:
-                w, err, _ = self.mcp.call("machine_wait", {"runId": run_id, "timeoutSeconds": 50}, timeout=90)
-                if err:
-                    raise RuntimeError("machine_wait: " + err)
-                if w["status"] == "ready":
-                    return run_id, round(now() - t0, 2), w
-                if w["status"] == "failed":
-                    msg = w.get("error", "")
-                    if "limit" in msg.lower() or "exceeds" in msg.lower():
-                        log("boot refused by the host limit, retrying:", msg)
-                        self.destroy(run_id)
-                        time.sleep(30)
-                        break
-                    raise RuntimeError("boot failed: " + msg)
+            try:
+                w = self.boot(run_id)
+            except BaseException:
+                self.destroy(run_id)
+                raise
+            if w is not None:
+                return run_id, round(now() - t0, 2), w
+            time.sleep(30)
+
+    def boot(self, run_id):
+        """Waits for the machine: its ready status, or None after the host limit refused it."""
+        while True:
+            w, err, _ = self.mcp.call("machine_wait", {"runId": run_id, "timeoutSeconds": 50}, timeout=90)
+            if err:
+                raise RuntimeError("machine_wait: " + err)
+            if w["status"] == "ready":
+                return w
+            if w["status"] == "failed":
+                msg = w.get("error", "")
+                if "limit" in msg.lower() or "exceeds" in msg.lower():
+                    log("boot refused by the host limit, retrying:", msg)
+                    self.destroy(run_id)
+                    return None
+                raise RuntimeError("boot failed: " + msg)
 
     def destroy(self, run_id):
-        self.mcp.call("machine_destroy", {"runId": run_id}, timeout=180)
+        """Forgets the machine only once tart no longer lists it, so a leak stops the bench."""
         vm = "greenroom-" + run_id
+        if vm not in self.mine:
+            return
+        _, err, _ = self.mcp.call("machine_destroy", {"runId": run_id}, timeout=180)
         for _ in range(60):
             if vm not in [v["Name"] for v in self.tart.vms()]:
-                break
+                self.mine.discard(vm)
+                return
             time.sleep(2)
-        self.mine.discard(vm)
+        raise RuntimeError(f"{vm} is still listed 120 s after machine_destroy" + (f": {err}" if err else ""))
 
     def exec(self, run_id, command, cwd=None, timeout=300):
         args = {"runId": run_id, "command": command, "timeoutSeconds": timeout}
@@ -548,6 +562,10 @@ class Bench:
     def reboot(self, run_id, vm):
         res = {}
         before = self.tart.run("exec", vm, "sysctl", "-n", "kern.boottime").stdout
+        if not before.strip():
+            res["rebooted"] = None
+            res["error"] = "could not read kern.boottime before the reboot, so it is unmeasured"
+            return res
         t0 = now()
         # The exec never returns cleanly: the guest goes down under it.
         self.exec(run_id, "sudo -n /sbin/reboot", timeout=10)
