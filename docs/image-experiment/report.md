@@ -9,7 +9,7 @@ machines per image, one at a time. Raw data: [`raw/`](raw/). Decisions: [`decisi
 
 | Image | Built by | Allocated size | What it is |
 | --- | --- | --- | --- |
-| `greenroom-base` | `build-image.sh`, 2026-09-20 | 31.1 GB | The image the local daemon serves. Stale: input helper v2, older provisioning. |
+| `greenroom-base` | `build-image.sh`, 2026-09-20 | 31.1 GB | The image the local daemon served until [decision 22](decision-log.md), now the rollback target. Stale: input helper v2, older provisioning. |
 | `greenroom-base-v5` | `build-image.sh` in the VM suite CI, 2026-09-23 | 32.6 GB | Same script and helper (v5) as A, without `-lean`. The like-for-like control. |
 | `greenroom-lean-a` | `build-image.sh -lean -name greenroom-lean-a` | 32.6 GB | Variant A. |
 
@@ -44,7 +44,7 @@ Median of three runs, each run in brackets. Change is A against the first column
 | Survives `sudo reboot`, `swiftc` works | yes, yes, yes | yes, yes, yes | same |
 | Reboot: guest agent back (s) | **30.8** | **30.5** | 0 |
 
-### A against the image the daemon serves today (`greenroom-base`)
+### A against the image the daemon served when measured (`greenroom-base`)
 
 | Metric | greenroom-base | greenroom-lean-a | Change |
 | --- | --- | --- | --- |
