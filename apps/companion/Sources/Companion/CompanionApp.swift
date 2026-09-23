@@ -12,6 +12,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        // Every window that shows, and whenever its screen changes, is kept on its screen.
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didChangeScreenNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+                let number = (note.object as? NSWindow)?.windowNumber
+                MainActor.assumeIsolated {
+                    if let number, let window = NSApp.window(withWindowNumber: number) { Self.keepOnScreen(window) }
+                }
+            }
+        }
+    }
+
+    /// Fits a restored window that is wider or taller than its screen back onto it (#64).
+    static func keepOnScreen(_ window: NSWindow) {
+        guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
+        let fitted = RunLayout.fitted(frame: window.frame, visible: visible)
+        if fitted != window.frame { window.setFrame(fitted, display: true) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

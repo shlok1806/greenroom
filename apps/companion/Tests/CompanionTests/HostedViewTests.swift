@@ -43,7 +43,12 @@ final class HostedViewTests: XCTestCase {
 
     /// Answers every route for one run, `run-1`, with `steps` steps. Messages the app
     /// posts are handed to `posted`.
-    private func client(steps: Int = 0, failing: Set<Int> = [], posted: (@Sendable (Data) -> Void)? = nil) -> DaemonClient {
+    private func client(steps: Int = 0, failing: Set<Int> = [], live: Bool = false,
+                        posted: (@Sendable (Data) -> Void)? = nil) -> DaemonClient {
+        let status = live ? "ready" : "finished"
+        let machine = live
+            ? #", "machine": {"runId": "run-1", "name": "gr-1", "image": "base", "status": "ready", "createdAt": "\#(Self.created)", "dir": "/r"}"#
+            : ""
         let stepList = (1...max(steps, 1)).prefix(steps).map { seq in
             failing.contains(seq)
                 ? #"{"seq": \#(seq), "at": "\#(Self.created)", "tool": "machine_exec", "input": {"command": "false"}, "error": "exit 1"}"#
@@ -52,9 +57,9 @@ final class HostedViewTests: XCTestCase {
         return StubURLProtocol.client { request in
             switch (request.httpMethod ?? "GET", request.url?.path(percentEncoded: true) ?? "") {
             case ("GET", "/api/runs"):
-                return .json(#"[{"runId": "run-1", "createdAt": "\#(Self.created)", "status": "finished", "task": "Check the tip splitter", "steps": \#(steps)}]"#)
+                return .json(#"[{"runId": "run-1", "createdAt": "\#(Self.created)", "status": "\#(status)", "task": "Check the tip splitter", "steps": \#(steps)}]"#)
             case ("GET", "/api/runs/run-1"):
-                return .json(#"{"runId": "run-1", "createdAt": "\#(Self.created)", "status": "finished"}"#)
+                return .json(#"{"runId": "run-1", "createdAt": "\#(Self.created)", "status": "\#(status)"\#(machine)}"#)
             case ("GET", "/api/runs/run-1/messages"):
                 return .json(#"{"messages": [{"seq": 1, "at": "\#(Self.created)", "from": "coder", "kind": "task", "text": "Check the tip splitter"}]}"#)
             case ("GET", "/api/runs/run-1/steps"):
@@ -146,6 +151,25 @@ final class HostedViewTests: XCTestCase {
         let document = try XCTUnwrap(scroll.documentView).bounds
         // Step 207 of 300 sits well down the list; the view must have moved there.
         XCTAssertGreaterThan(visible.minY, document.height * 0.5, "the list stayed at \(visible) of \(document)")
+    }
+
+    /// #59, seen again on a live run: Steps opened with "Follow newest" on stayed at step 1
+    /// of 51. Opening it on a live run shows the newest step.
+    func testFollowingALiveRunOpensAtTheNewestStep() async throws {
+        UserDefaults.standard.set(false, forKey: "stepsErrorsOnly")
+        let store = RunStore(client: client(steps: 300, live: true))
+        await store.resync()
+        store.selectedRunId = "run-1"
+        await store.select("run-1")
+        XCTAssertTrue(store.facts("run-1").isAlive)
+        let window = host(StepsView(store: store, runId: "run-1").frame(width: 900, height: 600),
+                          size: CGSize(width: 900, height: 600))
+        try await settle()
+        let scroll = try XCTUnwrap(scrollView(in: try XCTUnwrap(window.contentView)))
+        let document = try XCTUnwrap(scroll.documentView).bounds
+        await waitUntil { scroll.documentVisibleRect.maxY > document.height * 0.9 }
+        XCTAssertGreaterThan(scroll.documentVisibleRect.maxY, document.height * 0.9,
+                             "the list stayed at \(scroll.documentVisibleRect) of \(document)")
     }
 
     // MARK: - #65 Shift-Return in the composer

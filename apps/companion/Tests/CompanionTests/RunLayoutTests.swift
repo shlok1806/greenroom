@@ -21,6 +21,16 @@ final class RunLayoutTests: XCTestCase {
                        CGSize(width: 1320, height: 840))
     }
 
+    /// #64 after a relaunch: the restored frame, 1320 wide at x = -148, is put back on a
+    /// 1024 x 678 screen; a frame that fits is left alone.
+    func testARestoredFrameWiderThanTheScreenIsFittedToIt() {
+        let visible = CGRect(x: 0, y: 25, width: 1024, height: 678)
+        let fitted = RunLayout.fitted(frame: CGRect(x: -148, y: 30, width: 1320, height: 678), visible: visible)
+        XCTAssertEqual(fitted, CGRect(x: 0, y: 25, width: 1024, height: 678))
+        let fine = CGRect(x: 100, y: 60, width: 900, height: 600)
+        XCTAssertEqual(RunLayout.fitted(frame: fine, visible: visible), fine)
+    }
+
     func testDefaultWindowIsNeverUnderTheMinimum() {
         XCTAssertEqual(RunLayout.defaultWindowSize(visible: CGSize(width: 800, height: 500)),
                        RunLayout.windowMinimum)
