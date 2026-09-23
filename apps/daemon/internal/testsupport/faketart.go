@@ -14,7 +14,7 @@ import (
 // Every invocation is appended to <control>/calls.log. Files in the control directory switch behavior:
 //
 //	fail-clone, fail-run, fail-ip, fail-exec, fail-stop, fail-delete, fail-keyinstall,
-//	fail-capture-approval, fail-desktop-prefs (capture-approval-stale: the approval check reports a stale record)
+//	fail-capture-approval, fail-desktop-prefs, fail-lean (capture-approval-stale: the approval check reports a stale record)
 //	                    the matching operation exits 1 with a message
 //	exec-exit-<n>       `tart exec` exits n
 //	exec-codes          `tart exec` exits with the next line of this file (consumed), then 0
@@ -106,6 +106,13 @@ case "$sub" in
         case "$*" in *" sh check") [ -f "$C/capture-approval-stale" ] && exit 3 ;; esac
         # "app <path>" prints the bundle URL replayd keys the record by.
         case "$*" in *" sh app "*) for last; do :; done; echo "file:///Users/admin/${last#/}/" ;; esac
+        exit 0 ;;
+    esac
+    # The lean image profile (machine/lean.go) confirms its read-back with "lean: ok".
+    case "$*" in
+      *StandardHideWidgets*)
+        [ -f "$C/fail-lean" ] && { echo "lean: check failed: gamecenter" >&2; exit 1; }
+        echo "lean: ok"
         exit 0 ;;
     esac
     case "$*" in

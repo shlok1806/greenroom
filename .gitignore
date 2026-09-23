@@ -19,3 +19,7 @@ coverage/
 /apps/daemon/daemon
 /apps/daemon/greenroom
 /apps/daemon/smokeclient
+
+# Python bytecode from running the spikes.
+__pycache__/
+*.pyc

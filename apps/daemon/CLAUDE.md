@@ -25,7 +25,7 @@ go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live 
 
 scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
 scripts/uninstall.sh    # keeps the binary and ~/.greenroom
-scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-force]
+scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-lean] [-force]
 ```
 
 `usage()` prints each subcommand's flag set, so `greenroom` with no arguments lists every flag.
@@ -298,12 +298,23 @@ Clones of `greenroom-base` skip the ~28 s first-control compile.
   pins it.
 - This is a different `greenroom-base` from the Packer build in `images/`. See the
   inconsistency note there.
+- `-lean` (`prepare-image -lean`, `machine.ApplyLeanProfile`, script `guest/lean.sh`) is
+  variant A of `docs/image-experiment/`: only the core apps in the Dock, the other apps'
+  gui-domain agents `launchctl disable`d, widgets, banners, Siri, indexing, update
+  downloads and installs, Time Machine and setup prompts off. Automatic update checks stay
+  on (see the comment in `lean.sh`). It writes preferences and launchd's disabled list only;
+  never SIP, the authenticated root or the sealed volume. It runs as the user through
+  `/bin/sh`, not zsh: zsh does not word-split `$list`, and one disable of a newline-joined
+  "label" once passed a substring read-back. The read-back matches labels exactly. It
+  cannot hide apps from macOS 26's Apps view (the Launchpad replacement); that needs the
+  sealed volume. Boot applies nothing lean; the image carries it.
+  `lean_test.go` runs the real script under stub `defaults`/`launchctl`/`sudo`.
 
 ## Test seams
 
 - `WithTartBin` points at the fake tart in `internal/testsupport/faketart.go`. It records
   every call; control files turn on failures. The list is in that file's header comment, plus
-  `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `ui.json` (what `--ui-base64`
+  `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-lean`, `ui.json` (what `--ui-base64`
   prints) and `tart-version` (fake a version mismatch). It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session got a pty.
 - The fake tart runs `exec -i ... --serve` as the fake live screen helper by re-executing
