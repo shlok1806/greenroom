@@ -137,8 +137,9 @@ Computer use (ADR 0009)
   hardcode Retina 2.
 - The input helper is compiled in the guest with `swiftc` to
   `~/.greenroom/bin/greenroom-input-<inputHelperVersion>`. Bump `inputHelperVersion`
-  when `guest/input.swift` changes, and rebuild `greenroom-base`. Nothing detects a stale
-  image except a slow first control request. Source and input travel base64, never
+  when `guest/input.swift` changes, and rebuild `greenroom-base`. Locally nothing detects a
+  stale image except a slow first control request. The VM suite workflow bakes and tests
+  `greenroom-base-v<inputHelperVersion>` itself, so a bump rebuilds its image once. Source and input travel base64, never
   through a shell.
 
 Live screen (ADR 0011)

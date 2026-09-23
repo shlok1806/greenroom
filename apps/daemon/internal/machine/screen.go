@@ -402,15 +402,23 @@ func (s *screenStream) input(ctx context.Context, actions []InputAction) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, wait)
-	defer cancel()
+	sendCtx, cancelSend := context.WithTimeout(ctx, wait)
+	defer cancelSend()
 	select {
 	case s.writes <- frameScreenMsg(screenInput, payload):
 	case <-s.done:
 		return errScreenEnded
-	case <-ctx.Done():
-		return fmt.Errorf("send input to the live screen: %w", ctx.Err())
+	case <-sendCtx.Done():
+		return fmt.Errorf("send input to the live screen: %w", sendCtx.Err())
 	}
+	// Concurrent batches can reach the helper in another order than they
+	// registered, so the ACK deadline counts the backlog as of the send: every
+	// batch sent ahead of this one is still in it.
+	s.mu.Lock()
+	wait = s.backlog + s.slack
+	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
 	select {
 	case msg := <-ack:
 		if msg != "" {

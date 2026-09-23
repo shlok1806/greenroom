@@ -14,6 +14,7 @@ on:
       - "apps/daemon/internal/tart/**"
       - "apps/daemon/internal/testsupport/**"
       - "apps/daemon/e2e*_test.go"
+      - "apps/daemon/scripts/build-image.sh"
       - ".github/workflows/vm-suite.yml"
 
 jobs:
@@ -54,7 +55,9 @@ jobs:
           print("Tart capacity OK. Running guest(s) before this job: " + (", ".join(running) if running else "(none)"))
           '
 
-      - name: Verify greenroom-base image is prepared
+      # The image name carries the helper version, so bumping inputHelperVersion
+      # bakes a fresh image here instead of silently testing a stale one.
+      - name: Prepare greenroom-base for this input helper version
         working-directory: apps/daemon
         run: |
           set -euo pipefail
@@ -63,13 +66,19 @@ jobs:
             echo "::error::Could not parse inputHelperVersion out of internal/machine/input.go."
             exit 1
           fi
-          echo "Daemon expects input helper version: $version"
-          if ! tart list | grep -q 'greenroom-base'; then
-            echo "::error::greenroom-base VM not found. Run apps/daemon/scripts/build-image.sh to bake the prepared image (and the version $version input helper) before the VM suite can run."
-            exit 1
+          image="greenroom-base-v$version"
+          echo "Daemon expects input helper version $version: using $image"
+          if tart list --source local --quiet | grep -qx "$image"; then
+            echo "$image already exists."
+          else
+            echo "$image not found; building it with scripts/build-image.sh."
+            scripts/build-image.sh -name "$image"
           fi
-          echo "greenroom-base exists. This only proves the image is present, not that its baked-in helper is version $version:"
-          echo "checking the actual baked version needs the VM booted, which the suite below does anyway. If runs in this suite show a ~28s compile on every machine, the image is stale; rebuild with apps/daemon/scripts/build-image.sh."
+          for stale in $(tart list --source local --quiet | grep -E '^greenroom-base-v[0-9]+$' | grep -vx "$image" || true); do
+            echo "Deleting $stale, baked for another helper version."
+            tart delete "$stale" || echo "::warning::Failed to delete $stale"
+          done
+          echo "GREENROOM_BASE_IMAGE=$image" >> "$GITHUB_ENV"
 
       - name: go test -tags tart (full suite)
         working-directory: apps/daemon
@@ -97,7 +106,7 @@ jobs:
           with open(os.path.join(path, "after.json")) as f:
               after_names = [v.get("Name", "") for v in json.load(f)]
           created = [n for n in after_names if n and n not in before_names]
-          to_delete = [n for n in created if n.startswith("greenroom-") and n != "greenroom-base"]
+          to_delete = [n for n in created if n.startswith("greenroom-") and not n.startswith("greenroom-base")]
           if not to_delete:
               print("No VMs created by this job need cleanup.")
           for name in to_delete:
