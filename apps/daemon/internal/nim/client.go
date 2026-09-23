@@ -60,7 +60,14 @@ type Message struct {
 	Content    string
 	ToolCalls  []ToolCall
 	ToolCallID string
+	// FinishReason is why the model stopped, on a reply only; never sent back. "length"
+	// means it hit ChatMaxTokens, so Content and any tool call may be cut off mid-way.
+	FinishReason string
 }
+
+// ChatMaxTokens is the completion budget of one Chat step. A reasoning model spends it on
+// thinking before it answers, so 1200 ran out before a long verdict was written (issue #71).
+const ChatMaxTokens = 8192
 
 // Usage reports what one call cost.
 type Usage struct {
@@ -108,18 +115,18 @@ func (c *Client) Chat(ctx context.Context, model string, msgs []Message, tools [
 	body := map[string]any{
 		"model":       model,
 		"messages":    encodeMessages(msgs),
-		"max_tokens":  1200,
+		"max_tokens":  ChatMaxTokens,
 		"temperature": 0.2,
 	}
 	if len(tools) > 0 {
 		body["tools"] = encodeTools(tools)
 		body["tool_choice"] = "auto"
 	}
-	wm, usage, err := c.complete(ctx, model, body)
+	wm, finish, usage, err := c.complete(ctx, model, body)
 	if err != nil {
 		return Message{}, usage, err
 	}
-	msg := Message{Role: "assistant", Content: textOf(wm.Content)}
+	msg := Message{Role: "assistant", Content: textOf(wm.Content), FinishReason: finish}
 	for _, tc := range wm.ToolCalls {
 		msg.ToolCalls = append(msg.ToolCalls, ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
 	}
@@ -143,26 +150,26 @@ func (c *Client) Describe(ctx context.Context, model string, jpeg []byte, prompt
 			},
 		}},
 	}
-	wm, _, err := c.complete(ctx, model, body)
+	wm, _, _, err := c.complete(ctx, model, body)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(textOf(wm.Content)), nil
 }
 
-// complete posts body and returns the first choice's message.
-func (c *Client) complete(ctx context.Context, model string, body map[string]any) (wireMessage, Usage, error) {
+// complete posts body and returns the first choice's message and finish reason.
+func (c *Client) complete(ctx context.Context, model string, body map[string]any) (wireMessage, string, Usage, error) {
 	var out wireResponse
 	if err := c.post(ctx, body, &out); err != nil {
-		return wireMessage{}, Usage{}, err
+		return wireMessage{}, "", Usage{}, err
 	}
 	if out.Error != nil && out.Error.Message != "" {
-		return wireMessage{}, out.Usage, fmt.Errorf("%s: %s", model, out.Error.Message)
+		return wireMessage{}, "", out.Usage, fmt.Errorf("%s: %s", model, out.Error.Message)
 	}
 	if len(out.Choices) == 0 {
-		return wireMessage{}, out.Usage, fmt.Errorf("%s: the endpoint returned no choices", model)
+		return wireMessage{}, "", out.Usage, fmt.Errorf("%s: the endpoint returned no choices", model)
 	}
-	return out.Choices[0].Message, out.Usage, nil
+	return out.Choices[0].Message, out.Choices[0].FinishReason, out.Usage, nil
 }
 
 // RetryBackoff is the wait before each retry of a failed request, so the

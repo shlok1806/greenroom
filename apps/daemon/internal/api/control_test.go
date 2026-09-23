@@ -103,14 +103,16 @@ func TestReleasingControlReportsWhatWasDone(t *testing.T) {
 func TestALapsedLeaseIsRecordedWithItsActions(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
-	h.postJSON("/api/runs/"+runID+"/control", map[string]any{"ttlSeconds": 1}, nil)
+	// A 3 s lease, not 1 s: on a loaded host the input posted right after taking control can arrive
+	// after a 1 s lease has already lapsed.
+	h.postJSON("/api/runs/"+runID+"/control", map[string]any{"ttlSeconds": 3}, nil)
 	h.postJSON("/api/runs/"+runID+"/input", map[string]any{
 		"actions": []machine.InputAction{{Type: "click", X: frac(0.5), Y: frac(0.5)}},
 	}, nil)
-	time.Sleep(1200 * time.Millisecond)
+	time.Sleep(3300 * time.Millisecond)
 
-	h.postJSON("/api/runs/"+runID+"/control", map[string]any{"ttlSeconds": 1}, nil)
-	time.Sleep(1200 * time.Millisecond)
+	h.postJSON("/api/runs/"+runID+"/control", map[string]any{"ttlSeconds": 3}, nil)
+	time.Sleep(3300 * time.Millisecond)
 	if code, body := h.status(http.MethodDelete, "/api/runs/"+runID+"/control", nil); code != http.StatusOK {
 		t.Fatalf("release: status %d: %s", code, body)
 	}
@@ -123,9 +125,9 @@ func TestALapsedLeaseIsRecordedWithItsActions(t *testing.T) {
 	}
 	want := []string{
 		"human took control of the screen",
-		"human lost control of the screen after 1 action: the lease lapsed with no input or renewal for 1 s",
+		"human lost control of the screen after 1 action: the lease lapsed with no input or renewal for 3 s",
 		"human took control of the screen",
-		"human lost control of the screen after 0 actions: the lease lapsed with no input or renewal for 1 s",
+		"human lost control of the screen after 0 actions: the lease lapsed with no input or renewal for 3 s",
 	}
 	if strings.Join(handovers, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("handovers:\n%s\nwant:\n%s", strings.Join(handovers, "\n"), strings.Join(want, "\n"))
