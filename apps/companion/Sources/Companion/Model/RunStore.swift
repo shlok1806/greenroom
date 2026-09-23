@@ -720,6 +720,13 @@ final class RunStore: PilotHost {
         }
     }
 
+    /// Whether the transcript shows "Verifier is working": it owes an answer and can still
+    /// give one. A destroyed run's verifier has stopped, so its last human message waits
+    /// for nothing, whatever the daemon posted after it.
+    nonisolated static func verifierIsWorking(_ messages: [Message], verifierListens: Bool) -> Bool {
+        verifierListens && awaitingVerifier(messages)
+    }
+
     /// True while the verifier owes an answer (ADR 0006, "A human is always
     /// answered"). Verifier progress and system events do not end the wait.
     nonisolated static func awaitingVerifier(_ messages: [Message]) -> Bool {

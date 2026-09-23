@@ -54,9 +54,14 @@ struct ConversationView: View {
 
     private var messages: [Message] { store.messages[runId] ?? [] }
     private var items: [TranscriptLayout.Item] { TranscriptLayout.items(messages, toolCalls: showsToolCalls) }
-    private var awaitingVerifier: Bool { RunStore.awaitingVerifier(messages) }
+    private var awaitingVerifier: Bool {
+        RunStore.verifierIsWorking(messages, verifierListens: store.facts(runId).verifierListens)
+    }
 
     private static let workingRowId = -1
+    /// The 1 pt line after the last row. Scrolling to it, not to the last message, shows the
+    /// whole of a tall last bubble: scrolled to its own id it stopped a line short.
+    private static let endRowId = -2
 
     var body: some View {
         VStack(spacing: 0) {
@@ -118,6 +123,7 @@ struct ConversationView: View {
                     Color.clear
                         .frame(height: 1)
                         .onScrollVisibilityChange(threshold: 0.01) { atBottom = $0 }
+                        .id(Self.endRowId)
                 }
                 .scrollTargetLayout()
                 .padding(.horizontal, Space.m)
@@ -143,7 +149,7 @@ struct ConversationView: View {
                 if phase == .interacting { userScrolled = true }
             }
             .onChange(of: messages.count) {
-                guard let last = items.last else { return }
+                guard !items.isEmpty else { return }
                 // The first batch always anchors: before it arrives the
                 // empty list reads as "not at the bottom".
                 guard atBottom || !anchored else { return }
@@ -152,7 +158,7 @@ struct ConversationView: View {
                 // After the new row has laid out, or the scroll stops short of it.
                 Task {
                     try? await Task.sleep(for: .milliseconds(50))
-                    withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                    withAnimation { proxy.scrollTo(Self.endRowId, anchor: .bottom) }
                 }
             }
             .onChange(of: awaitingVerifier) {
@@ -161,17 +167,17 @@ struct ConversationView: View {
             }
             .onAppear {
                 atBottom = true
-                if let last = items.last {
+                if !items.isEmpty {
                     anchored = true
-                    proxy.scrollTo(last.id, anchor: .bottom)
+                    proxy.scrollTo(Self.endRowId, anchor: .bottom)
                 }
             }
             .overlay(alignment: .bottomTrailing) {
                 if !atBottom, anchored, userScrolled, items.count > 3 {
                     Button {
                         atBottom = true
-                        if let last = items.last {
-                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        if !items.isEmpty {
+                            withAnimation { proxy.scrollTo(Self.endRowId, anchor: .bottom) }
                         }
                     } label: {
                         Label("Jump to latest", systemImage: "arrow.down")
@@ -725,7 +731,14 @@ private struct Composer: View {
                     .lineLimit(1...6)
                     .focused($focused)
                     .sendOnReturn(enabled: canSend, send) {
-                        (draft, selection) = insertingNewline(into: draft, at: selection)
+                        // While the field is being edited its field editor owns the text: a
+                        // newline written into the binding is overwritten by the editor's own
+                        // copy (seen in the app, #65), so the break goes in through the editor.
+                        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+                            editor.insertNewlineIgnoringFieldEditor(nil)
+                        } else {
+                            (draft, selection) = insertingNewline(into: draft, at: selection)
+                        }
                     }
                     .padding(.vertical, 3)
 

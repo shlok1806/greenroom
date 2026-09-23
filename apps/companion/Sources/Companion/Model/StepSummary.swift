@@ -32,6 +32,13 @@ enum StepSummary {
         case "machine_ui": return uiLine(input: input, output: output)
         case "machine_approve_capture":
             if let app = input?["app"]?.stringValue, !app.isEmpty { return appName(app) }
+        case "machine_click", "machine_key", "machine_scroll":
+            // The single-action tools record the action's own fields, without a type.
+            if case .object(var fields)? = input {
+                if let element = number(fields["element"]) { return "click element \(Int(element))" }
+                fields["type"] = .string(String(tool.dropFirst("machine_".count)))
+                return actionLine(.object(fields))
+            }
         default: break
         }
         if let actions = input?["actions"], case .array(let list) = actions {

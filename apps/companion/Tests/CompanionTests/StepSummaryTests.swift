@@ -110,6 +110,17 @@ final class StepSummaryTests: XCTestCase {
         XCTAssertEqual(ToolCatalog.entry(for: "machine_approve_capture").title, "Approve capture")
     }
 
+    /// The single-action tools record the action's fields without a type; seen in the app
+    /// as a Click row reading {"x":0.5,"y":0.41}.
+    func testASingleActionToolReadsAsItsAction() {
+        let click = step("machine_click", input: .object(["x": .double(0.5), "y": .double(0.41)]))
+        XCTAssertEqual(StepSummary.line(for: click), "click 50%, 41%")
+        let byElement = step("machine_click", input: .object(["element": .int(3)]))
+        XCTAssertEqual(StepSummary.line(for: byElement), "click element 3")
+        let key = step("machine_key", input: .object(["key": .string("a"), "mods": .array([.string("cmd")])]))
+        XCTAssertEqual(StepSummary.line(for: key), "key cmd-a")
+    }
+
     /// Keys, scrolls and waits read as words when they record under their own name.
     func testEveryMachineToolHasATitle() {
         for tool in ["machine_key", "machine_scroll", "machine_wait", "machine_list", "machine_ui", "machine_approve_capture"] {

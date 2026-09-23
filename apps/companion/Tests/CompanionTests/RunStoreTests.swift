@@ -134,6 +134,14 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.details["run-1"]?.status, .ready)
     }
 
+    /// Seen in the app on a destroyed run: a note sent there showed "Verifier is working"
+    /// under a composer saying nothing will answer.
+    func testNobodyIsWorkingOnARunWhoseVerifierStopped() {
+        let note = message(1, kind: .note, from: .human)
+        XCTAssertTrue(RunStore.verifierIsWorking([note], verifierListens: true))
+        XCTAssertFalse(RunStore.verifierIsWorking([note], verifierListens: false))
+    }
+
     func testAwaitingVerifier() {
         func note(_ seq: Int, from: MessageFrom) -> Message { message(seq, kind: .note, from: from) }
 
