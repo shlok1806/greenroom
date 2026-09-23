@@ -14,8 +14,8 @@ import (
 // refused before it reaches a guest shell.
 var tzName = regexp.MustCompile(`^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)*$`)
 
-// HostTimeZone is the host's tz database name, from the /etc/localtime link macOS keeps,
-// or "" when it cannot be told.
+// HostTimeZone is the host's tz database name: TZ when it is one, else the /etc/localtime
+// link macOS keeps, or "" when it cannot be told.
 func HostTimeZone() string {
 	if tz := os.Getenv("TZ"); tzName.MatchString(tz) {
 		return tz
