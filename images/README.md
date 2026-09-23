@@ -20,7 +20,7 @@ below. The two are not merged yet. The daemon's CI and `install.sh` expect the
 | --- | --- |
 | `greenroom-base.pkr.hcl` | Base layer build |
 | `greenroom-xcode.pkr.hcl` | Xcode layer build |
-| `scripts/greenroom-tcc.sh` | TCC rows for our binaries, screen-recording reminder fix |
+| `scripts/greenroom-tcc.sh` | TCC rows for our binaries, screen-capture alert fix (replayd approvals), desktop preferences |
 | `scripts/firstboot.sh` | Reads the seed disk, personalizes the VM |
 | `scripts/smoke-test.sh` | Fails the build if screenshots or input do not work |
 | `data/com.greenroom.firstboot.plist` | LaunchDaemon for `firstboot.sh` |

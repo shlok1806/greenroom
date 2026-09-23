@@ -2,7 +2,9 @@ package verifier
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
@@ -68,30 +70,61 @@ func withStatus(msgs []nim.Message, status string) []nim.Message {
 	return append(out, msgs[1:]...)
 }
 
-// project turns the transcript into model context: the verifier's progress
-// becomes assistant tool calls with results, everyone else speaks as user.
+// project turns the transcript into model context: everything the verifier
+// did, progress and the reply, ask or report_verdict that ended each turn,
+// becomes the assistant tool call that produced it, with its result; everyone
+// else speaks as user. A past verdict must never read as assistant prose: a
+// model imitates its history, and a verdict written as prose is posted as a
+// reply, so a new pass would never supersede an accepted fail.
 func project(msgs []session.Message) []nim.Message {
 	out := []nim.Message{{Role: "system", Content: systemPrompt}}
 	for _, m := range msgs {
 		switch m.Kind {
 		case session.Progress:
-			id := fmt.Sprintf("p%d", m.Seq)
 			name, args, result := splitProgress(m.Text)
-			out = append(out,
-				nim.Message{Role: "assistant", ToolCalls: []nim.ToolCall{{ID: id, Name: name, Arguments: args}}},
-				nim.Message{Role: "tool", ToolCallID: id, Content: result})
+			out = append(out, toolTurn(fmt.Sprintf("p%d", m.Seq), name, args, result)...)
 		case session.Reply:
-			out = append(out, nim.Message{Role: "assistant", Content: m.Text})
+			out = append(out, toolTurn(fmt.Sprintf("r%d", m.Seq), "reply", jsonArgs(map[string]any{"text": m.Text}),
+				fmt.Sprintf("Posted as message %d.", m.Seq))...)
 		case session.Question:
-			out = append(out, nim.Message{Role: "assistant", Content: "[I asked] " + m.Text})
+			out = append(out, toolTurn(fmt.Sprintf("q%d", m.Seq), "ask", jsonArgs(map[string]any{"question": m.Text}),
+				fmt.Sprintf("Posted as question %d; your turn ended until someone answers.", m.Seq))...)
 		case session.Verdict:
-			out = append(out, nim.Message{Role: "assistant", Content: fmt.Sprintf("[I reported verdict %s] %s", m.Verdict, m.Text)})
+			args := map[string]any{"verdict": m.Verdict, "summary": m.Text}
+			if len(m.Evidence) > 0 {
+				args["evidence"] = m.Evidence
+			}
+			out = append(out, toolTurn(fmt.Sprintf("v%d", m.Seq), "report_verdict", jsonArgs(args),
+				fmt.Sprintf("Posted as verdict %d, a proposal the coder or a human may accept or dispute. "+
+					"A later task gets a new verdict of its own through report_verdict.", m.Seq))...)
 		default:
 			out = append(out, nim.Message{Role: "user", Content: speaker(m)})
 		}
 	}
 	return out
 }
+
+// toolTurn is one assistant tool call and its result.
+func toolTurn(id, name, args, result string) []nim.Message {
+	return []nim.Message{
+		{Role: "assistant", ToolCalls: []nim.ToolCall{{ID: id, Name: name, Arguments: args}}},
+		{Role: "tool", ToolCallID: id, Content: result},
+	}
+}
+
+func jsonArgs(v map[string]any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// proseVerdict matches prose that claims to be a verdict or a question: the
+// shapes an older context taught the model ("[I reported verdict pass] ...")
+// and a bare "Verdict: pass". Such prose would be posted as a reply.
+var proseVerdict = regexp.MustCompile(`(?i)^\s*(\[\s*I (reported|report) (a )?verdict|\[\s*I asked\]|\**verdict\**\s*[:=-]\s*\**\s*(pass|fail|inconclusive))`)
+
+// proseNudge is what the model is told when it writes proseVerdict.
+const proseNudge = "You wrote a verdict or a question as plain text, which is posted as an ordinary reply and " +
+	"records no verdict. Call report_verdict (or ask) now with the same content."
 
 // projectLate projects messages that arrive mid-turn, skipping the verifier's
 // own so they are not mistaken for new history.

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	imagepng "image/png"
 	"os"
@@ -44,14 +45,57 @@ func (m *Manager) Exec(ctx context.Context, runID, command, cwd string, timeout 
 		defer cancel()
 	}
 	script := command
-	if cwd != "" {
-		script = "cd " + shellQuote(cwd) + " && " + command
+	if cd := cdCommand(cwd); cd != "" {
+		script = cd + " && " + command
 	}
-	res, err := m.tart.Exec(ctx, mc.Name, "/bin/zsh", "-lc", script)
+	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", execWrapper, "greenroom-exec", script)
 	out := ExecResult{Stdout: res.Stdout, Stderr: res.Stderr, ExitCode: res.ExitCode, Seconds: time.Since(started).Seconds()}
 	out.Step = mc.rec.step("machine_exec", map[string]any{"command": command, "cwd": cwd}, truncatedForLog(out), err, started)
 	m.emitStep(mc.RunID, out.Step)
 	return out, err
+}
+
+// execWrapper runs a machine_exec command ($1) in a login zsh with its output
+// in files, then prints them. tart exec returns only when every holder of the
+// guest's stdout and stderr pipes has closed them, so a command that leaves a
+// child running (`./App &`, `(cd x && ./App) &`) would hold the call until its
+// timeout. Children inherit files instead, and a file never blocks anyone.
+// Output that a background child writes after the shell exits is not returned.
+const execWrapper = `d=$(mktemp -d /tmp/greenroom-exec.XXXXXX) || exit 125
+/bin/zsh -lc "$1" >"$d/out" 2>"$d/err" </dev/null
+s=$?
+cat "$d/out"
+cat "$d/err" >&2
+rm -rf "$d"
+exit $s`
+
+// cdCommand is the shell command that enters a machine_exec cwd, or "" for
+// none. A leading ~ means the guest home, as in a shell; anything else is
+// quoted whole, so a relative path is relative to the home the shell starts in.
+func cdCommand(cwd string) string {
+	switch rest, tilde := homeRelative(cwd); {
+	case tilde && rest == "":
+		return `cd "$HOME"`
+	case tilde:
+		return `cd "$HOME"/` + shellQuote(rest)
+	case cwd == "":
+		return ""
+	default:
+		return "cd " + shellQuote(cwd)
+	}
+}
+
+// homeRelative strips a leading "~" or "~/" from a guest path. tilde says one
+// was there; rest is the path below the home, "" for the home itself. "~user"
+// is not the home and is left alone.
+func homeRelative(p string) (rest string, tilde bool) {
+	if p == "~" {
+		return "", true
+	}
+	if r, ok := strings.CutPrefix(p, "~/"); ok {
+		return strings.TrimLeft(r, "/"), true
+	}
+	return p, false
 }
 
 func truncatedForLog(r ExecResult) ExecResult {
@@ -215,7 +259,15 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 }
 
 // guestDest refuses a dest that is absolute or climbs above the guest home.
+// "~/x" is x in the guest home, as a shell would read it, never a directory
+// named "~".
 func guestDest(dest string) (string, error) {
+	if rest, tilde := homeRelative(dest); tilde {
+		dest = rest
+		if dest == "" {
+			return "", errors.New(`dest "~" is the guest home itself; name a directory inside it`)
+		}
+	}
 	if filepath.IsAbs(dest) {
 		return "", fmt.Errorf("dest %q must be relative to the guest home", dest)
 	}

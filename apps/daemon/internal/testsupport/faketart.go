@@ -13,7 +13,8 @@ import (
 // FakeTart writes a shell script answering every tart subcommand the daemon uses, so tests need no VM.
 // Every invocation is appended to <control>/calls.log. Files in the control directory switch behavior:
 //
-//	fail-clone, fail-run, fail-ip, fail-exec, fail-stop, fail-delete, fail-keyinstall
+//	fail-clone, fail-run, fail-ip, fail-exec, fail-stop, fail-delete, fail-keyinstall,
+//	fail-capture-approval, fail-desktop-prefs
 //	                    the matching operation exits 1 with a message
 //	exec-exit-<n>       `tart exec` exits n
 //	exec-codes          `tart exec` exits with the next line of this file (consumed), then 0
@@ -23,6 +24,7 @@ import (
 //	input-down          the input helper refuses every event
 //	screen              "<width>x<height>" the input helper reports (default 1024x768)
 //	shot.b64            base64 PNG a screenshot returns
+//	ui.json             what the input helper's --ui-base64 prints (default: Finder, no elements)
 //	fail-session        an interactive session (`exec -i -t`) refuses to start
 //	fail-serve          the live screen helper (`exec -i ... --serve`) fails to start
 //	session-exits       a session prints session-output, if present, and exits at once
@@ -96,6 +98,17 @@ case "$sub" in
     case "$*" in
       *authorized_keys*) [ -f "$C/fail-keyinstall" ] && { echo "Error: cannot write" >&2; exit 1; } ;;
     esac
+    # replayd's screen-capture approvals; answered before exec-exit-<n> and exec-codes, which are for machine_exec.
+    case "$*" in
+      *ScreenCaptureApprovals*)
+        [ -f "$C/fail-capture-approval" ] && { echo "defaults: cannot write" >&2; exit 1; }
+        exit 0 ;;
+    esac
+    case "$*" in
+      *EnableStandardClickToShowDesktop*)
+        [ -f "$C/fail-desktop-prefs" ] && { echo "defaults: cannot write" >&2; exit 1; }
+        exit 0 ;;
+    esac
     # The sshd readiness probe; answered before exec-exit-<n>, which is for machine_exec.
     case "$*" in
       *"nc -z 127.0.0.1 22"*)
@@ -106,6 +119,12 @@ case "$sub" in
     case "$*" in
       *swiftc*)
         [ -f "$C/fail-input-install" ] && { echo "swiftc: command not found" >&2; exit 1; }
+        exit 0 ;;
+      *"greenroom-input"*"--ui-base64"*)
+        [ -f "$C/input-down" ] && { echo '{"error":"this machine has not granted Accessibility"}' >&2; exit 1; }
+        if [ -f "$C/ui.json" ]; then cat "$C/ui.json"; else
+          echo '{"app":{"name":"Finder","bundleId":"com.apple.finder","pid":1},"apps":["Finder"],"screen":{"width":1024,"height":768},"elements":[],"truncated":false}'
+        fi
         exit 0 ;;
       *greenroom-input*)
         [ -f "$C/input-down" ] && { echo '{"error":"this machine refused the event"}' >&2; exit 1; }

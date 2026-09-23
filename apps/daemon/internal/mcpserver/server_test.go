@@ -156,7 +156,7 @@ func TestServerExposesExactlyItsTools(t *testing.T) {
 		"machine_destroy": false,
 		"agent_send":      false, "agent_wait": false, "agent_transcript": false,
 		"machine_click": false, "machine_type": false, "machine_key": false,
-		"machine_scroll": false, "machine_input": false,
+		"machine_scroll": false, "machine_input": false, "machine_ui": false,
 		"machine_session_start": false, "machine_session_send": false,
 		"machine_session_read": false, "machine_session_close": false,
 	}
@@ -403,6 +403,15 @@ func TestExecPassesTheWorkingDirectory(t *testing.T) {
 	h.call("machine_exec", map[string]any{"runId": runID, "command": "pwd", "cwd": "work/app"}, nil)
 	if !strings.Contains(testsupport.Calls(t, h.control), "cd 'work/app'") {
 		t.Error("the cwd never reached the guest command")
+	}
+}
+
+func TestExecReadsATildeCwdAsTheGuestHome(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.call("machine_exec", map[string]any{"runId": runID, "command": "pwd", "cwd": "~/work/app"}, nil)
+	if !strings.Contains(testsupport.Calls(t, h.control), `cd "$HOME"/'work/app'`) {
+		t.Errorf("a ~ cwd was not entered from the guest home\ncalls:\n%s", testsupport.Calls(t, h.control))
 	}
 }
 
@@ -794,5 +803,64 @@ func TestTypeSendsOneBatchOneStep(t *testing.T) {
 
 	if n := h.inputSteps(runID); n != 1 {
 		t.Fatalf("machine_input steps = %d, want 1", n)
+	}
+}
+
+// --- machine_ui (ADR 0012) ---
+
+const tipSplitUI = `{"app":{"name":"TipSplit","pid":7},"apps":["Finder","TipSplit"],"screen":{"width":1024,"height":768},
+"truncated":false,"elements":[
+{"role":"AXRadioGroup","depth":0,"frame":{"x":438,"y":347,"w":196,"h":24}},
+{"role":"AXRadioButton","subrole":"AXSegment","label":"25%","depth":1,"frame":{"x":586,"y":347,"w":48,"h":24}}]}`
+
+func (h *harness) putUI(body string) {
+	h.t.Helper()
+	if err := os.WriteFile(filepath.Join(h.control, "ui.json"), []byte(body), 0o644); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func TestUIReturnsAnOutlineAndTheStructuredTree(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.putUI(tipSplitUI)
+
+	var tree machine.UITree
+	res := h.call("machine_ui", map[string]any{"runId": runID, "app": "TipSplit"}, &tree)
+	if len(tree.Elements) != 2 || tree.Elements[1].X != 0.596 || tree.Elements[1].Y != 0.467 {
+		t.Fatalf("structured tree = %+v, want the 25%% segment at (0.596, 0.467)", tree)
+	}
+	if out := text(res); !strings.Contains(out, `[2] RadioButton/Segment label="25%" center (0.596, 0.467)`) {
+		t.Errorf("the outline does not give the segment's center:\n%s", out)
+	}
+}
+
+// A click by element lands on the element's center, in the same points a
+// click by fraction would.
+func TestClickAnElementFromTheLatestUIRead(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	if res := h.raw("machine_click", map[string]any{"runId": runID, "element": 2}); !res.IsError || !strings.Contains(text(res), "machine_ui") {
+		t.Errorf("a click by element before any read: %s, want an error naming machine_ui", text(res))
+	}
+	h.putUI(tipSplitUI)
+	h.call("machine_ui", map[string]any{"runId": runID}, nil)
+
+	var out struct {
+		Step    int                `json:"step"`
+		Element *machine.UIElement `json:"element"`
+	}
+	h.call("machine_click", map[string]any{"runId": runID, "element": 2}, &out)
+	if out.Element == nil || out.Element.Label != "25%" || out.Step == 0 {
+		t.Errorf("result = %+v, want the clicked element and its step", out)
+	}
+	posted := postedActions(t, h.control)
+	// 0.596 x 1024 and 0.467 x 768, rounded to points: the segment's middle.
+	if len(posted) != 1 || posted[0]["x"] != 610.0 || posted[0]["y"] != 359.0 {
+		t.Errorf("posted %+v, want one click at 610,359", posted)
+	}
+	if res := h.raw("machine_click", map[string]any{"runId": runID}); !res.IsError {
+		t.Error("a click with neither an element nor x and y was accepted")
 	}
 }

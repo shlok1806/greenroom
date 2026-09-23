@@ -25,7 +25,7 @@ var inputHelper string
 // inputHelperVersion names the compiled helper. Bump it whenever
 // guest/input.swift changes, or running machines and prepared images keep
 // the old binary.
-const inputHelperVersion = 3
+const inputHelperVersion = 4
 
 // ControlTTL is how long an unused screen-control lease lives unless the taker
 // asks otherwise. Every input renews it by its own ttl, so a crashed holder
@@ -91,6 +91,7 @@ type InputResult struct {
 type inputState struct {
 	mu     sync.Mutex             // held across the install
 	screen atomic.Pointer[Screen] // set once installed; screenshots read it without mu
+	ui     atomic.Pointer[UITree] // the last machine_ui read, which a click may aim at
 	asMu   sync.Mutex             // serializes InputAs so one call's release cannot end another's lease
 
 	screenMu sync.Mutex // serializes starting the live screen

@@ -19,7 +19,9 @@ import (
 const manualHelp = `Instructions, one per line, case-insensitive first word:
   run <shell command>                       run a command on the machine
   screenshot                                capture the screen
+  ui [app]                                  list the frontmost (or named) app's controls
   click <x> <y>                             click at a fraction of the screen, 0 to 1
+  click <id>                                click an element from the last ui
   type <text>                               type text into whatever has focus
   key <key> [mods]                          press a key, e.g. key a cmd shift
   scroll <dx> <dy>                          scroll by a delta, in points
@@ -81,7 +83,7 @@ func (m *Manual) follow(ctx context.Context, runID string, store *session.Store,
 		case "ask":
 			m.post(store, session.Message{Kind: session.Question, Text: orElse(strings.TrimSpace(arg), "(empty question)")})
 			return steps, session.Question
-		case "run", "screenshot", "click", "type", "key", "scroll":
+		case "run", "screenshot", "ui", "click", "type", "key", "scroll":
 			if unusable(ctx, m.mgr, runID) != "" {
 				m.post(store, session.Message{Kind: session.Reply, Text: machineStatus(ctx, m.mgr, runID)})
 				return steps, session.Reply
@@ -123,14 +125,23 @@ func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (
 		}
 		return call, fmt.Sprintf("step %d\n%s\nThe image is saved at %s", shot.Step, shotGeometry(shot), shot.Path), shot.Step
 
+	case "ui":
+		call = callOf("machine_ui", map[string]string{"app": arg})
+		result, step = uiResult(ctx, m.mgr, runID, arg)
+		return call, result, step
+
 	case "click":
+		if id, err := strconv.Atoi(strings.TrimSpace(arg)); err == nil {
+			call = callOf("machine_click", map[string]int{"element": id})
+			result, step = click(ctx, m.mgr, runID, id, nil, nil, "", 0)
+			return call, result, step
+		}
 		x, y, err := parseTwoFloats(arg)
 		call = callOf("machine_click", map[string]float64{"x": x, "y": y})
 		if err != nil {
-			return call, "error: click needs two numbers, x and y, 0 to 1", 0
+			return call, "error: click needs two numbers, x and y, 0 to 1, or an element id from ui", 0
 		}
-		result, step = postInput(ctx, m.mgr, runID, fmt.Sprintf("clicked (%.2f, %.2f)", x, y),
-			machine.InputAction{Type: "click", X: &x, Y: &y})
+		result, step = click(ctx, m.mgr, runID, 0, &x, &y, "", 0)
 		return call, result, step
 
 	case "type":

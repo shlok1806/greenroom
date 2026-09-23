@@ -31,7 +31,8 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	s := mcp.NewServer(&mcp.Implementation{Name: "greenroom", Version: Version}, &mcp.ServerOptions{
 		Instructions: "greenroom gives you a disposable macOS machine. Call machine_create once and keep its runId, " +
 			"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_exec to build " +
-			"and run, machine_screenshot to look at the screen, and machine_destroy when done. " +
+			"and run, machine_screenshot to look at the screen, machine_ui to find controls and their centers before " +
+			"machine_click, and machine_destroy when done. " +
 			"Every run also owns one conversation: agent_send posts into it, agent_wait blocks for what comes " +
 			"back, and agent_transcript reads it. That is how you reach greenroom's verifier and how a watching " +
 			"human reaches you. " +
@@ -80,7 +81,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	type syncIn struct {
 		RunID   string   `json:"runId" jsonschema:"runId from machine_create"`
 		Source  string   `json:"source" jsonschema:"Absolute path of a directory on the host to copy into the machine"`
-		Dest    string   `json:"dest,omitempty" jsonschema:"Destination path in the guest, relative to the admin home. Defaults to work/<basename of source>."`
+		Dest    string   `json:"dest,omitempty" jsonschema:"Destination path in the guest, relative to the admin home (a leading ~/ means the same). Defaults to work/<basename of source>."`
 		Exclude []string `json:"exclude,omitempty" jsonschema:"rsync exclude patterns, e.g. node_modules, .git, build"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
@@ -95,12 +96,14 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	type execIn struct {
 		RunID          string `json:"runId" jsonschema:"runId from machine_create"`
 		Command        string `json:"command" jsonschema:"Shell command, run with zsh -lc in the guest"`
-		Cwd            string `json:"cwd,omitempty" jsonschema:"Working directory in the guest, e.g. work/myapp"`
+		Cwd            string `json:"cwd,omitempty" jsonschema:"Working directory in the guest: relative to the home, absolute, or starting with ~/, e.g. work/myapp"`
 		TimeoutSeconds int    `json:"timeoutSeconds,omitempty" jsonschema:"Kill the command after this many seconds. Default 600."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "machine_exec",
-		Description: "Run a shell command inside the machine and return stdout, stderr and the exit code.",
+		Name: "machine_exec",
+		Description: "Run a shell command inside the machine and return stdout, stderr and the exit code. It returns " +
+			"when the shell exits: a command may leave a process running in the background (./App &), whose later " +
+			"output is not returned.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in execIn) (*mcp.CallToolResult, machine.ExecResult, error) {
 		timeout := 10 * time.Minute
 		if in.TimeoutSeconds > 0 {

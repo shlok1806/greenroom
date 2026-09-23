@@ -1,6 +1,6 @@
 #!/bin/bash
 # Grant greenroom's guest binaries the privacy rights they need, and stop the
-# screen-recording reminder that macOS 15 and later show, which TCC does not cover.
+# screen-capture alert that macOS 15 and later show, which TCC does not cover.
 #
 # Runs INSIDE the guest at image-build time. Requires SIP off, which the Cirrus base
 # image already provides. With SIP off, no csreq blob is needed.
@@ -107,20 +107,33 @@ if command -v automationmodetool >/dev/null 2>&1; then
   ' || echo "warn: automationmodetool step did not complete"
 fi
 
-# The screen-recording reminder on macOS 15 and later is not TCC. It lives in a
-# replayd group container keyed by responsible executable path, fires monthly, takes
-# focus and lands in screenshots. A far-future date stops it. GitHub's runner images
-# do the same.
+# The screen-capture alert on macOS 15 and later ("... is requesting to bypass the
+# system private window picker and directly access your screen and audio") is not
+# TCC. replayd keeps a per-user record keyed by the responsible process's resolved
+# executable path and alerts a client with no record, or one alerted too long ago,
+# on its next capture. It takes focus and lands in screenshots. A far-future date
+# stops it. macOS 15.1 and later (Tahoe included) want a dictionary per client; the
+# 15.0 form, a bare date, is ignored. The daemon writes the same records at every
+# boot (apps/daemon/internal/machine/capturealert.go); keep the two in step.
 APPROVALS="${HOME}/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist"
-mkdir -p "$(dirname "${APPROVALS}")"
-for binary in "${GREENROOM_BINARIES[@]}" /opt/homebrew/bin/tart-guest-agent; do
+FAR="3024-01-01 00:00:00 +0000"
+for binary in "${GREENROOM_BINARIES[@]}" /opt/homebrew/bin/tart-guest-agent /usr/libexec/sshd-keygen-wrapper; do
   realpath_bin="$(realpath "${binary}" 2>/dev/null || echo "${binary}")"
-  /usr/libexec/PlistBuddy -c "Add :'${realpath_bin}' date 3024-01-01T00:00:00Z" \
-    "${APPROVALS}" 2>/dev/null \
-    || /usr/libexec/PlistBuddy -c "Set :'${realpath_bin}' 3024-01-01T00:00:00Z" \
-    "${APPROVALS}" 2>/dev/null \
-    || true
+  defaults write "${APPROVALS}" "${realpath_bin}" -dict \
+    kScreenCaptureApprovalLastAlerted -date "${FAR}" \
+    kScreenCaptureApprovalLastUsed -date "${FAR}" \
+    kScreenCapturePrivacyHintDate -date "${FAR}"
+  defaults read "${APPROVALS}" "${realpath_bin}" >/dev/null
 done
-sudo killall -HUP replayd 2>/dev/null || true
+# replayd caches the file and writes its copy back; launchd restarts it on demand.
+killall -9 replayd 2>/dev/null || true
+
+# Desktop preferences for an agent that clicks by coordinates. "Click wallpaper to
+# reveal desktop" hides every window when a click misses; window restore reopens
+# whatever was open when the image was shut down. The daemon sets the same keys at
+# every boot (apps/daemon/internal/machine/desktopprefs.go); keep the two in step.
+defaults write com.apple.WindowManager EnableStandardClickToShowDesktop -bool false
+defaults write NSGlobalDomain NSQuitAlwaysKeepsWindows -bool false
+defaults write com.apple.loginwindow TALLogoutSavesState -bool false
 
 echo "greenroom-tcc: done"
