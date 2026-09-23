@@ -50,6 +50,9 @@ struct VerdictDraft: Equatable, Sendable {
     var openedEvidence = false
     /// The inline "accept anyway?" row is showing.
     var confirmingAccept = false
+    /// The card's evidence is open. Per run and verdict and never saved, so a card opened
+    /// on one verdict does not open every other one, nor come back open after a relaunch.
+    var expanded = false
 }
 
 /// An LRU of decoded frame images, so scrubbing never refetches a frame.

@@ -22,7 +22,6 @@ struct StepsView: View {
 
     private var facts: RunFacts { store.facts(runId) }
 
-    @AppStorage("verdictCardExpanded") private var verdictExpanded = false
     @AppStorage("showsConversation") private var showsConversation = true
 
     private var fromVerdict: Bool { store.focusedStep?.fromVerdict == true && store.focusedStep?.runId == runId }
@@ -31,7 +30,6 @@ struct StepsView: View {
         VStack(spacing: 0) {
             if fromVerdict, let focusedStep {
                 EvidenceBar(step: focusedStep, back: {
-                    verdictExpanded = true
                     showsConversation = true
                     store.clearFocus()
                 }, record: nil)
@@ -173,7 +171,7 @@ private struct StepsHeader: View {
             HStack(spacing: StepColumn.gap) {
                 Text("Step").frame(width: StepColumn.seq, alignment: .trailing)
                 Text("Tool").frame(width: StepColumn.icon + StepColumn.gap + StepColumn.title, alignment: .leading)
-                Text("Detail").frame(maxWidth: .infinity, alignment: .leading)
+                Text("Detail").lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                 Text("Time").frame(width: StepColumn.time, alignment: .trailing)
                     .help("Your local time (\(Chrome.zone))")
                 Text("Took").frame(width: StepColumn.duration, alignment: .trailing)

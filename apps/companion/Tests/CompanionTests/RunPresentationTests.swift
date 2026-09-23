@@ -166,9 +166,11 @@ final class RunPresentationTests: XCTestCase {
 
     func testTheConversationKeepsItsWidthUntilTheStageNeedsIt() {
         XCTAssertEqual(RunLayout.conversation(420, in: 1200), 420)
-        // 700 across leaves the stage its 380 and the line 1.
-        XCTAssertEqual(RunLayout.conversation(420, in: 700), 319)
-        XCTAssertEqual(RunLayout.conversation(420, in: 500), RunLayout.conversationMinimum)
+        // 800 across leaves the stage its 440 and the line 1.
+        XCTAssertEqual(RunLayout.conversation(420, in: 800), 359)
+        XCTAssertEqual(RunLayout.conversation(420, in: 741), RunLayout.conversationMinimum)
+        // Narrower than both minimums: the conversation gives way, not the stage.
+        XCTAssertNil(RunLayout.conversation(420, in: 740))
         XCTAssertEqual(RunLayout.conversation(9000, in: 3000), RunLayout.conversationMaximum)
         // Before the first layout there is no width yet; the choice stands.
         XCTAssertEqual(RunLayout.conversation(420, in: 0), 420)

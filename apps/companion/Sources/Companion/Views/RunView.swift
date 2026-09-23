@@ -41,13 +41,15 @@ struct RunView: View {
     let runId: String
     @Binding var pane: StagePane
     @Binding var showsConversation: Bool
+    /// Folds the sidebar, for a conversation asked for where it does not fit beside the stage.
+    var makeRoom: () -> Void = {}
 
     @State private var confirmingDestroy = false
     @State private var capturing = false
     @State private var savingRecording = false
     @State private var failureCursor: Int?
     @AppStorage("conversationWidth") private var conversationWidth = RunLayout.conversationIdeal
-    @State private var detailWidth: Double = 0
+    @State private var detailSize: CGSize = .zero
 
     private var facts: RunFacts { store.facts(runId) }
     private var pilot: ControlPilot { store.pilot(for: runId) }
@@ -56,6 +58,23 @@ struct RunView: View {
     private var canCapture: Bool { facts.machineReady && !capturing }
     private var canExport: Bool { !(store.frames[runId] ?? []).isEmpty && !savingRecording }
     private var canDestroy: Bool { store.details[runId]?.machine != nil }
+
+    /// The conversation's width beside the stage; nil when the window is too narrow for both.
+    private var conversationFit: Double? {
+        RunLayout.conversation(conversationWidth, in: detailSize.width)
+    }
+
+    /// Whether the conversation is beside the stage: asked for, and room for it.
+    private var conversationShown: Bool { showsConversation && conversationFit != nil }
+
+    /// What the toolbar and the menu toggle. Asking for a conversation that has no room
+    /// folds the sidebar to make it.
+    private var conversationToggle: Binding<Bool> {
+        Binding(get: { conversationShown }, set: { show in
+            showsConversation = show
+            if show, conversationFit == nil { makeRoom() }
+        })
+    }
 
     var body: some View {
         // A hand-made split, not `.inspector` or `HSplitView`: inside a split view both
@@ -71,8 +90,9 @@ struct RunView: View {
                 )
                 Divider()
                 // Hidden conversation: the verdict must still be read, not shrink to a chip.
-                if !showsConversation {
-                    VerdictCard(store: store, runId: runId, facts: facts, compact: true)
+                if !conversationShown {
+                    VerdictCard(store: store, runId: runId, facts: facts, compact: true,
+                                maxHeight: RunLayout.verdictCardMaximum(column: detailSize.height))
                         .id(VerdictCard.identity(runId: runId, verdict: facts.verdict))
                         .padding(.horizontal, Space.l)
                         .padding(.top, Space.m)
@@ -80,24 +100,24 @@ struct RunView: View {
                 stage
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(minWidth: RunLayout.stageMinimum, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            if showsConversation {
+            // No hard minimum: one would add to the window's own, and showing the sidebar
+            // in a narrow window would then widen the window past the screen (issue #64).
+            // `conversationFit` keeps the stage at `stageMinimum` or takes the conversation away.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            if conversationShown, let width = conversationFit {
                 ColumnDivider(width: $conversationWidth)
                 // `.id(runId)` rebuilds per run: message seqs restart at 1, so a half-typed
                 // draft, answer or dispute would otherwise post into the next run.
                 ConversationView(store: store, runId: runId)
                     .id(runId)
-                    // A range, not a fixed width, so the window's minimum counts the least it can take.
-                    .frame(
-                        minWidth: RunLayout.conversationMinimum,
-                        idealWidth: RunLayout.conversation(conversationWidth, in: detailWidth),
-                        maxWidth: RunLayout.conversation(conversationWidth, in: detailWidth)
-                    )
+                    // First pick: the stage keeps its minimum through `conversationFit`.
+                    .frame(minWidth: RunLayout.conversationMinimum, idealWidth: width, maxWidth: width)
                     .frame(maxHeight: .infinity)
+                    .layoutPriority(1)
                     .transition(.move(edge: .trailing))
             }
         }
-        .onGeometryChange(for: Double.self) { $0.size.width } action: { detailWidth = $0 }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { detailSize = $0 }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle(RunTitle.short(task: store.run(runId)?.task, runId: runId))
         // The header names the run; the toolbar title would say it twice.
@@ -125,7 +145,7 @@ struct RunView: View {
         }
         .focusedSceneValue(\.runCommands, RunCommands(
             pane: $pane,
-            showsConversation: $showsConversation,
+            showsConversation: conversationToggle,
             capture: canCapture ? { Task { await capture() } } : nil,
             export: canExport ? { Task { await saveRecording() } } : nil,
             destroy: canDestroy ? { confirmingDestroy = true } : nil,
@@ -235,12 +255,12 @@ struct RunView: View {
         }
         ToolbarItem(placement: .primaryAction) {
             Button {
-                withAnimation(.snappy(duration: 0.2)) { showsConversation.toggle() }
+                withAnimation(.snappy(duration: 0.2)) { conversationToggle.wrappedValue.toggle() }
             } label: {
                 Label("Conversation", systemImage: "sidebar.trailing")
                     .labelStyle(.titleAndIcon)
             }
-            .help("\(showsConversation ? "Hide" : "Show") the conversation (\(Keys.conversation))")
+            .help("\(conversationShown ? "Hide" : "Show") the conversation (\(Keys.conversation))")
         }
     }
 
@@ -291,20 +311,73 @@ struct ControlButton: View {
 // MARK: - Layout
 
 enum RunLayout {
-    static let stageMinimum: Double = 380
+    /// The design spec's window: least and default size.
+    static let windowMinimum = CGSize(width: 820, height: 560)
+    static let windowDefault = CGSize(width: 1320, height: 840)
+
+    /// The first window's size on a screen whose visible frame (less the menu bar and
+    /// Dock) is `visible`: the default, cut down to fit. Never under the minimum, which
+    /// the window keeps anyway.
+    static func defaultWindowSize(visible: CGSize) -> CGSize {
+        CGSize(
+            width: max(min(windowDefault.width, visible.width), windowMinimum.width),
+            height: max(min(windowDefault.height, visible.height), windowMinimum.height)
+        )
+    }
+
+    static let sidebarMinimum: Double = 240
+    static let sidebarIdeal: Double = 290
+    static let sidebarMaximum: Double = 380
+    /// The design spec's least stage: the player bar, the evidence row and the Steps
+    /// table's Detail column need it.
+    static let stageMinimum: Double = 440
     static let conversationMinimum: Double = 300
     static let conversationIdeal: Double = 380
     static let conversationMaximum: Double = 560
+    static let divider: Double = 1
+    /// The most of its column the pinned verdict card takes, so the column's header,
+    /// transcript and composer stay on screen when its evidence is open.
+    static let verdictCardShare: Double = 0.6
+    /// However short the column, the card's reasons keep this much room to scroll in.
+    static let verdictBodyMinimum: Double = 72
 
     static func clamp(_ width: Double) -> Double {
         min(max(width, conversationMinimum), conversationMaximum)
     }
 
-    /// The width a person chose, given back when the window is too narrow for it:
-    /// the stage keeps its minimum first.
-    static func conversation(_ chosen: Double, in available: Double) -> Double {
-        let room = available > 0 ? available - stageMinimum - 1 : conversationMaximum
-        return max(conversationMinimum, min(clamp(chosen), room))
+    /// The width a person chose, given back when the window is too narrow for it: the
+    /// stage keeps its minimum first. Nil when the conversation does not fit beside the
+    /// stage at all; the window then shows the verdict above the stage (the spec's
+    /// order: the sidebar folds first, then the conversation gives way).
+    static func conversation(_ chosen: Double, in available: Double) -> Double? {
+        guard available > 0 else { return clamp(chosen) }
+        let room = available - stageMinimum - divider
+        guard room >= conversationMinimum else { return nil }
+        return min(clamp(chosen), room)
+    }
+
+    /// Below this window width the sidebar, `sidebar` wide, folds away, so the stage
+    /// keeps its minimum and the conversation fits beside it. The width is clamped to the
+    /// sidebar's own range, so an unmeasured (or folded) sidebar counts as its minimum.
+    static func sidebarFoldWidth(sidebar: Double, showsConversation: Bool) -> Double {
+        let sidebar = min(max(sidebar, sidebarMinimum), sidebarMaximum)
+        return sidebar + divider + stageMinimum + (showsConversation ? divider + conversationMinimum : 0)
+    }
+
+    /// The tallest the pinned verdict card may be in a column this tall; its body
+    /// scrolls inside that. Nil before the column has been measured.
+    static func verdictCardMaximum(column height: Double) -> Double? {
+        guard height > 0 else { return nil }
+        return (height * verdictCardShare).rounded(.down)
+    }
+
+    /// How tall the card's scrolling body is: all of its `natural` height, or what a card
+    /// capped at `card` leaves after its headline and actions (`chrome`). Nil means no
+    /// limit yet (nothing measured, no cap).
+    static func verdictBody(natural: Double?, card: Double?, chrome: Double) -> Double? {
+        guard let card else { return natural }
+        let room = max(card - chrome, verdictBodyMinimum)
+        return min(natural ?? verdictBodyMinimum, room)
     }
 }
 

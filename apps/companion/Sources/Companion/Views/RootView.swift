@@ -12,17 +12,23 @@ struct RootView: View {
     /// Set when a narrow window folded the sidebar away, so widening brings it back.
     @State private var autoCollapsed = false
     @State private var windowWidth: Double = 0
+    /// The sidebar's width as last laid out, which a person may have dragged past its ideal.
+    @State private var sidebarWidth = RunLayout.sidebarIdeal
 
     /// Below this the sidebar folds away, so the stage and the conversation keep their room.
-    /// Just above the least the three columns take together (about 970).
     private var foldWidth: Double {
-        showsConversation ? 1000 : 700
+        RunLayout.sidebarFoldWidth(sidebar: sidebarWidth, showsConversation: showsConversation)
     }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
             SidebarView(store: store)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 380)
+                .navigationSplitViewColumnWidth(
+                    min: RunLayout.sidebarMinimum, ideal: RunLayout.sidebarIdeal, max: RunLayout.sidebarMaximum
+                )
+                .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
+                    if width > 0 { sidebarWidth = width }
+                }
         } detail: {
             detail
         }
@@ -74,7 +80,8 @@ struct RootView: View {
                     OfflineBanner(store: store)
                 }
                 if let runId = store.selectedRunId {
-                    RunView(store: store, runId: runId, pane: $pane, showsConversation: $showsConversation)
+                    RunView(store: store, runId: runId, pane: $pane, showsConversation: $showsConversation,
+                            makeRoom: makeRoom)
                 } else if store.runs.isEmpty {
                     WelcomeView(address: store.daemonAddress)
                         .toolbar(removing: .title)
@@ -99,6 +106,14 @@ struct RootView: View {
             autoCollapsed = false
             withAnimation(.snappy) { columns = .all }
         }
+    }
+
+    /// The conversation was asked for beside a sidebar shown by hand, with no room for
+    /// both: the sidebar gives way first, and comes back once the window is wide enough.
+    private func makeRoom() {
+        guard columns != .detailOnly else { return }
+        autoCollapsed = true
+        withAnimation(.snappy) { columns = .detailOnly }
     }
 
     /// The last run a person looked at, else the one that needs them, else the newest,

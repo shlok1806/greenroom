@@ -29,6 +29,7 @@ struct ConversationView: View {
     @State private var anchored = false
     @State private var userScrolled = false
     @AppStorage("showsToolCalls") private var showsToolCalls = true
+    @State private var columnHeight: Double = 0
 
     private var messages: [Message] { store.messages[runId] ?? [] }
     private var items: [TranscriptLayout.Item] { TranscriptLayout.items(messages, toolCalls: showsToolCalls) }
@@ -40,15 +41,19 @@ struct ConversationView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            VerdictCard(store: store, runId: runId, facts: store.facts(runId))
+            VerdictCard(store: store, runId: runId, facts: store.facts(runId),
+                        maxHeight: RunLayout.verdictCardMaximum(column: columnHeight))
                 .id(VerdictCard.identity(runId: runId, verdict: store.verdict(runId)))
                 .padding(Space.m)
                 .background(Color(nsColor: .windowBackgroundColor))
+                // Before the transcript, which scrolls in whatever is left.
+                .layoutPriority(1)
             Divider()
             transcript
             Divider()
             Composer(store: store, runId: runId) { atBottom = true }
         }
+        .onGeometryChange(for: Double.self) { $0.size.height } action: { columnHeight = $0 }
         .navigationTitle("Conversation")
     }
 

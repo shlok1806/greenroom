@@ -10,14 +10,24 @@ struct VerdictCard: View {
     let facts: RunFacts
     /// Beside the stage rather than atop the conversation: slimmer.
     var compact = false
+    /// The tallest the card may be (`RunLayout.verdictCardMaximum`). Its headline and
+    /// actions stay; the reasons and evidence between them scroll.
+    var maxHeight: Double?
 
-    @AppStorage("verdictCardExpanded") private var expanded = false
     @State private var sending = false
+    /// The natural height of the card's body, so its scroll view is no taller than it.
+    @State private var bodyHeight: CGFloat?
+    /// The headline's and the actions' heights: what of `maxHeight` is left for the body.
+    @State private var headlineHeight: CGFloat = 0
+    @State private var actionsHeight: CGFloat = 0
     @FocusState private var reasonFocused: Bool
 
     /// Kept by the store: accepting rebuilds this card, and no draft or confirmation may
     /// live in a view that goes away under it. No sheet, alert or dialog in this flow.
     private var draft: VerdictDraft { store.verdictDraft(runId) }
+
+    /// Evidence opened, per run and verdict: never carried to another run or a relaunch.
+    private var expanded: Bool { draft.expanded }
 
     private var reason: Binding<String> {
         Binding(get: { store.verdictDraft(runId).reason },
@@ -77,29 +87,48 @@ struct VerdictCard: View {
         let detailed = expanded && !compact
         return VStack(alignment: .leading, spacing: Space.s) {
             headline(review, verdict: verdict)
-            outcome(verdict, tint: tint)
-            if let note = review.note {
-                Label(note, systemImage: review.humanReviewed ? "info.circle" : "person.crop.circle.badge.questionmark")
-                    .font(.callout)
-                    .foregroundStyle(verdict.status == .accepted && !review.humanReviewed ? Palette.attention : .secondary)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headlineHeight = $0 }
+                .layoutPriority(1)
+            // Between the headline (with Less) and the actions, so both stay in reach
+            // however much evidence is open: the body scrolls once the card is capped.
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: Space.s) {
+                    outcome(verdict, tint: tint)
+                    if let note = review.note {
+                        Label(note, systemImage: review.humanReviewed ? "info.circle" : "person.crop.circle.badge.questionmark")
+                            .font(.callout)
+                            .foregroundStyle(verdict.status == .accepted && !review.humanReviewed ? Palette.attention : .secondary)
+                    }
+                    // Short reasons in full; long ones to three lines until opened. Numbers are
+                    // what a reviewer checks, so two lines was never enough.
+                    Text(words)
+                        .font(.callout)
+                        .lineLimit(detailed || words.count <= 280 ? nil : 3)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(checks, id: \.self) { check in
+                        Label(check.text, systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(check == .noEvidence ? Palette.failure : Palette.attention)
+                    }
+                    evidence(verdict, claims: VerdictCheck.claimedValues(words), detailed: detailed)
+                    if detailed || verdict.status == .contested {
+                        disputes(verdict, messages: messages)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bodyHeight = $0 }
             }
-            // Short reasons in full; long ones to three lines until opened. Numbers are
-            // what a reviewer checks, so two lines was never enough.
-            Text(words)
-                .font(.callout)
-                .lineLimit(detailed || words.count <= 280 ? nil : 3)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-            ForEach(checks, id: \.self) { check in
-                Label(check.text, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(check == .noEvidence ? Palette.failure : Palette.attention)
-            }
-            evidence(verdict, claims: VerdictCheck.claimedValues(words), detailed: detailed)
-            if detailed || verdict.status == .contested {
-                disputes(verdict, messages: messages)
-            }
+            .scrollBounceBehavior(.basedOnSize)
+            .overlayScrollers()
+            // Never taller than what it holds, nor than the card's cap leaves it. Only the
+            // body is capped: a capped card frame would stretch to its cap.
+            .frame(maxHeight: bodyLimit)
             actions(verdict, review: review)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { actionsHeight = $0 }
+                // Room for the whole explanation first; the body scrolls in what is left.
+                // Not `fixedSize`: laid out narrow for a moment, that text would grow the window.
+                .layoutPriority(1)
         }
         .padding(Space.m)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -110,6 +139,14 @@ struct VerdictCard: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Verdict, \(review.state), \(Chrome.outcomeTitle(verdict.verdict))")
+    }
+
+    /// The body's height: all of it, or what the cap leaves after the headline, the
+    /// actions, the padding and the gaps between them.
+    private var bodyLimit: CGFloat? {
+        let chrome = headlineHeight + actionsHeight + 2 * Space.m + 2 * Space.s
+        return RunLayout.verdictBody(natural: bodyHeight.map(Double.init), card: maxHeight, chrome: Double(chrome))
+            .map { CGFloat($0) }
     }
 
     /// State and decider first: that is what decides whether to trust the rest.
@@ -128,7 +165,7 @@ struct VerdictCard: View {
             Spacer(minLength: Space.s)
             if !compact {
                 Button {
-                    withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
+                    withAnimation(.snappy(duration: 0.2)) { store.updateVerdictDraft(runId) { $0.expanded.toggle() } }
                 } label: {
                     Label(expanded ? "Less" : "Evidence", systemImage: expanded ? "chevron.up" : "chevron.down")
                         .labelStyle(.titleAndIcon)
@@ -267,7 +304,6 @@ struct VerdictCard: View {
                     Text(explanation(verdict, unreviewed: unreviewed, outcome: outcome))
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                     // Mac order: the primary action last, on the right, apart from the other.
                     HStack(spacing: Space.s) {
                         if unreviewed {
