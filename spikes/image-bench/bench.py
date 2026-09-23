@@ -641,7 +641,11 @@ class Bench:
             rec["popups"] = watcher.report()
             rec["windowPolls"] = {"ok": watcher.polls, "failed": watcher.errors, "owners": sorted(watcher.owners)}
             log(f"run {i}: destroying {run_id}")
-            self.destroy(run_id)
+            try:
+                self.destroy(run_id)
+            except Exception as e:
+                log(f"run {i}: destroy failed: {e!r}")
+                rec["destroyError"] = repr(e)
         return rec
 
     def image_facts(self):
