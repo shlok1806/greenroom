@@ -74,10 +74,15 @@ Boot and lifecycle
 - Boot writes replayd's screen-capture approvals (`capturealert.go`) before ready, so
   before the frame recorder's first capture and the live helper. Without them macOS 15+
   shows "tart-guest-agent is requesting to bypass the system private window picker" over
-  the screen. On macOS 26 replayd ignores a record missing any of the five keys, and it
-  caches the file, so the script holds it with SIGSTOP across the write and then kills it.
-  A complete record exits early without touching replayd. Records for tart-guest-agent
-  and sshd-keygen-wrapper, paths resolved each boot. A failure is logged and recorded as
+  the screen. The alert is decided by `kScreenCaptureApprovalLastUsed` alone, which
+  replayd sets to now on every capture and resets after 30 idle days or a clock jump, so
+  boot writes LastUsed, LastAlerted and the hint date in 3024 unconditionally (a baked
+  record is as old as the image), for tart-guest-agent and sshd-keygen-wrapper, paths
+  resolved each boot. replayd caches the file, so it is stopped across the write and
+  killed after. Captures (`captureScreen`, the live helper) run `ensureCaptureApproval`
+  first, which rewrites a reset or aged record at most once a minute by the wall clock
+  (the monotonic clock stops while the host sleeps). `machine_approve_capture` writes a
+  record for an app under test, keyed by its bundle URL. A failure is logged and recorded as
   `captureAlertError`, never fatal: the machine works under the alert. In `PrepareGuest`
   it is fatal.
 - Boot also sets desktop preferences (`desktopprefs.go`, step key `desktopPrefsSeconds`,

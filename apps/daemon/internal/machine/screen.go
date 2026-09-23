@@ -496,6 +496,7 @@ func (m *Manager) screenStream(ctx context.Context, mc *Machine) (*screenStream,
 	if _, err := m.ensureInput(ctx, mc); err != nil {
 		return nil, err
 	}
+	m.ensureCaptureApproval(ctx, mc)
 	pipe, err := m.tart.StartPipe(mc.Name, "/bin/sh", "-c", serveScript())
 	if err != nil {
 		return nil, fmt.Errorf("start the live screen: %w", err)

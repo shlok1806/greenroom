@@ -156,6 +156,7 @@ func (m *Manager) Screenshot(ctx context.Context, runID string) (data []byte, sh
 // captureScreen returns the guest screen as PNG bytes. Screenshot and the
 // frame recorder both use it.
 func (m *Manager) captureScreen(ctx context.Context, mc *Machine) ([]byte, error) {
+	m.ensureCaptureApproval(ctx, mc)
 	// A path per call: Screenshot and the frame recorder capture concurrently.
 	var tag [8]byte
 	if _, err := rand.Read(tag[:]); err != nil {

@@ -50,6 +50,8 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 		if aerr := phase("captureAlertSeconds", func() error { return approveScreenCapture(ctx, m.tart, mc.Name) }); aerr != nil {
 			timings["captureAlertError"] = aerr.Error()
 			m.Log.Warn("the screen-capture alert may cover this machine's screen", "runId", mc.RunID, "err", aerr)
+		} else {
+			mc.markCaptureApproved()
 		}
 		// Not fatal either: a machine that still hides windows on a wallpaper click works.
 		if perr := phase("desktopPrefsSeconds", func() error { return applyDesktopPrefs(ctx, m.tart, mc.Name) }); perr != nil {

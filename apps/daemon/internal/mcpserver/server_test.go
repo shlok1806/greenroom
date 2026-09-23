@@ -154,8 +154,8 @@ func TestServerExposesExactlyItsTools(t *testing.T) {
 	want := map[string]bool{
 		"machine_create": false, "machine_wait": false, "machine_list": false,
 		"machine_sync": false, "machine_exec": false, "machine_screenshot": false,
-		"machine_destroy": false,
-		"agent_send":      false, "agent_wait": false, "agent_transcript": false,
+		"machine_destroy": false, "machine_approve_capture": false,
+		"agent_send": false, "agent_wait": false, "agent_transcript": false,
 		"machine_click": false, "machine_type": false, "machine_key": false,
 		"machine_scroll": false, "machine_input": false, "machine_ui": false,
 		"machine_session_start": false, "machine_session_send": false,
@@ -520,6 +520,22 @@ func TestSyncDescriptionMatchesTheTildeBehaviour(t *testing.T) {
 	h.call("machine_sync", map[string]any{"runId": runID, "source": t.TempDir(), "dest": "~/work/myapp"}, &res)
 	if res.Dest != "work/myapp" {
 		t.Errorf("dest ~/work/myapp synced to %q, want work/myapp as the description promises", res.Dest)
+	}
+}
+
+func TestApproveCaptureTakesAGuestAppPath(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	var out struct {
+		Client string `json:"client"`
+		Step   int    `json:"step"`
+	}
+	h.call("machine_approve_capture", map[string]any{"runId": runID, "app": "~/work/Shot/Shot.app"}, &out)
+	if out.Client != "file:///Users/admin/work/Shot/Shot.app/" || out.Step == 0 {
+		t.Errorf("result = %+v, want the bundle URL and the step", out)
+	}
+	if res := h.raw("machine_approve_capture", map[string]any{"runId": runID, "app": "work/Shot/shot"}); !res.IsError {
+		t.Error("a path that is not an .app bundle was accepted")
 	}
 }
 

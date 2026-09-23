@@ -109,18 +109,17 @@ fi
 
 # The screen-capture alert on macOS 15 and later ("... is requesting to bypass the
 # system private window picker and directly access your screen and audio") is not
-# TCC. replayd keeps a per-user record keyed by the responsible process's resolved
-# executable path and alerts a client with no record, or one whose hint date has
-# passed, on its next capture. It takes focus and lands in screenshots. A hint date
-# in 3024 stops it. On macOS 26 replayd drops a record missing any of these five
-# keys, and it caches the file and writes its copy back, so it is held with SIGSTOP
-# across the write and killed afterwards; launchd restarts it on demand. The daemon
-# writes the same records at every boot
-# (apps/daemon/internal/machine/capturealert.go); keep the two in step.
+# TCC. replayd keeps a per-user record keyed by the capturing client's resolved
+# executable path. The alert is decided by kScreenCaptureApprovalLastUsed alone
+# (missing or over 30 days old alerts), and kScreenCapturePrivacyHintDate schedules
+# the monthly banner, so all three dates go in 3024. replayd caches the file and
+# writes its copy back, so it is stopped across the write and killed afterwards;
+# launchd restarts it on demand. The daemon rewrites the same records at every boot
+# and before captures (apps/daemon/internal/machine/capturealert.go), because an
+# image's LastUsed ages; keep the two in step.
 APPROVALS="${HOME}/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist"
-PB=/usr/libexec/PlistBuddy
+FAR="3024-01-01 00:00:00 +0000"
 mkdir -p "$(dirname "${APPROVALS}")"
-NOW="$(LC_ALL=C TZ=UTC date -u '+%a %b %d %H:%M:%S UTC %Y')"
 REPLAYD="$(pgrep -x -u "$(id -u)" replayd || true)"
 if [[ -n "${REPLAYD}" ]]; then
   # Killed on every exit, so a failed write cannot leave replayd stopped.
@@ -129,14 +128,11 @@ if [[ -n "${REPLAYD}" ]]; then
 fi
 for binary in "${GREENROOM_BINARIES[@]}" /opt/homebrew/bin/tart-guest-agent /usr/libexec/sshd-keygen-wrapper; do
   c="$(realpath "${binary}" 2>/dev/null || echo "${binary}")"
-  "${PB}" -c "Delete :${c}" "${APPROVALS}" >/dev/null 2>&1 || true
-  "${PB}" -c "Add :${c} dict" \
-    -c "Add :${c}:kScreenCaptureAlertableUsageCount integer 1" \
-    -c "Add :${c}:kScreenCaptureApprovalLastAlerted date ${NOW}" \
-    -c "Add :${c}:kScreenCaptureApprovalLastUsed date ${NOW}" \
-    -c "Add :${c}:kScreenCapturePrivacyHintDate date Thu Jan 01 00:00:00 UTC 3024" \
-    -c "Add :${c}:kScreenCapturePrivacyHintPolicy integer 2592000" "${APPROVALS}" >/dev/null
-  LC_ALL=C TZ=UTC "${PB}" -c "Print :${c}:kScreenCapturePrivacyHintPolicy" "${APPROVALS}" >/dev/null
+  defaults write "${APPROVALS}" "${c}" -dict \
+    kScreenCaptureApprovalLastAlerted -date "${FAR}" \
+    kScreenCaptureApprovalLastUsed -date "${FAR}" \
+    kScreenCapturePrivacyHintDate -date "${FAR}"
+  defaults read "${APPROVALS}" "${c}" | grep -q "kScreenCaptureApprovalLastUsed = \"${FAR}\""
 done
 if [[ -n "${REPLAYD}" ]]; then
   kill -9 ${REPLAYD} 2>/dev/null || true

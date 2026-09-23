@@ -33,13 +33,21 @@ deltas; `du` over-counts shared APFS clone extents.
   `ScreenCaptureApprovals.plist` reminder date, and automation mode without auth.
 - The alert `"tart-guest-agent" is requesting to bypass the system private window picker`
   is replayd, not TCC: the TCC row is already granted and capture works while it shows.
-  replayd alerts any client (keyed by the responsible executable's resolved path, here
-  `/opt/homebrew/Cellar/tart-guest-agent/<ver>/bin/tart-guest-agent`) that has no record
-  or a stale `kScreenCaptureApprovalLastAlerted`. On 15.1 and later (verified on 26.6.2)
-  the record is a dict of dates; the 15.0 bare-date form is ignored, and PlistBuddy
-  rejects ISO dates, so use `defaults write ... -dict ... -date`. Kill replayd afterwards
-  or it writes its cached copy back. The daemon writes it at every boot, before ready
-  (`machine/capturealert.go`), and `prepare-image` bakes it.
+  replayd keys a record by the capturing client: the responsible executable's resolved
+  path (here `/opt/homebrew/Cellar/tart-guest-agent/<ver>/bin/tart-guest-agent`, and
+  `/usr/libexec/sshd-keygen-wrapper` for ssh), or an app's bundle URL. Measured on
+  26.6.2: the alert is decided by `kScreenCaptureApprovalLastUsed` alone (missing or
+  over 30 days old alerts; `kScreenCaptureApprovalLastAlerted` is not consulted);
+  `kScreenCapturePrivacyHintDate` schedules the monthly "is accessing your screen"
+  banner; replayd sets LastUsed to now on every capture and resets the record after 30
+  idle days or a clock jump. So all three dates go in 3024, written with `defaults write
+  ... -dict ... -date` (the 15.0 bare-date form is ignored, and PlistBuddy cannot address
+  a bundle-URL key). replayd caches the file and every restart with a stale record adds an
+  alert, so it is stopped across the write and killed after. The daemon writes the record
+  unconditionally at every boot (a baked record's LastUsed is as old as the image), checks
+  it before captures at most once a minute, and `prepare-image` bakes it
+  (`machine/capturealert.go`). `machine_approve_capture` does the same for an app under
+  test that captures the screen itself.
 - "Click wallpaper to reveal desktop" (`com.apple.WindowManager
   EnableStandardClickToShowDesktop`, on by default since Sonoma) hides every window when
   a click lands on the wallpaper. Off, together with window restore at login

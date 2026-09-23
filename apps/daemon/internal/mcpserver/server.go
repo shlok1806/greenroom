@@ -132,6 +132,26 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	type runIn struct {
 		RunID string `json:"runId" jsonschema:"runId from machine_create"`
 	}
+
+	type approveIn struct {
+		RunID string `json:"runId" jsonschema:"runId from machine_create"`
+		App   string `json:"app" jsonschema:"Guest path of the .app bundle to approve, absolute or relative to the guest home (~/ accepted), e.g. work/MyApp/MyApp.app"`
+	}
+	type approveOut struct {
+		Client string `json:"client" jsonschema:"The bundle URL macOS keys the approval by"`
+		Step   int    `json:"step"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "machine_approve_capture",
+		Description: "Pre-approve an app under test that captures the screen itself (ScreenCaptureKit, a screen " +
+			"recorder), so macOS does not cover the screen with \"<App> is requesting to bypass the system private " +
+			"window picker\" when it starts capturing. Call it after the app is built and before it first captures. " +
+			"Not needed for machine_screenshot or the live screen: greenroom approves its own capture. The approval " +
+			"is by bundle path; a bare executable outside an .app cannot be approved this way.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in approveIn) (*mcp.CallToolResult, approveOut, error) {
+		client, step, err := mgr.ApproveCapture(ctx, in.RunID, in.App)
+		return nil, approveOut{Client: client, Step: step}, err
+	})
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_screenshot",
 		Description: "Capture the machine's screen. Returns a JPEG to look at, the path of the lossless PNG saved in " +

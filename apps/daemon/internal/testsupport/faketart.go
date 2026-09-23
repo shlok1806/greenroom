@@ -101,7 +101,9 @@ case "$sub" in
     # replayd's screen-capture approvals; answered before exec-exit-<n> and exec-codes, which are for machine_exec.
     case "$*" in
       *ScreenCaptureApprovals*)
-        [ -f "$C/fail-capture-approval" ] && { echo "PlistBuddy: cannot write" >&2; exit 1; }
+        [ -f "$C/fail-capture-approval" ] && { echo "defaults: cannot write" >&2; exit 1; }
+        # "app <path>" prints the bundle URL replayd keys the record by.
+        case "$*" in *" sh app "*) for last; do :; done; echo "file:///Users/admin/${last#/}/" ;; esac
         exit 0 ;;
     esac
     case "$*" in

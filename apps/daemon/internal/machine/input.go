@@ -95,6 +95,8 @@ type inputState struct {
 	asMu   sync.Mutex             // serializes InputAs so one call's release cannot end another's lease
 
 	screenMu sync.Mutex // serializes starting the live screen
+
+	approval captureApproval // when replayd's approvals were last written or checked
 }
 
 // helperName is the compiled helper's path relative to the guest home.
