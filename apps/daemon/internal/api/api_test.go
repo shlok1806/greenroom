@@ -377,6 +377,39 @@ func TestARunWithNoVerdictSaysSoTheSameWayEverywhere(t *testing.T) {
 	}
 }
 
+// The companion names a run by its first task, so the list carries it, flattened and clipped.
+func TestTheRunListNamesARunByItsFirstTask(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	var runs []RunSummary
+	h.get("/api/runs", &runs)
+	if got := findRun(t, runs, runID).Task; got != "" {
+		t.Fatalf("a run with no task is named %q", got)
+	}
+
+	store := h.store(runID)
+	long := strings.Repeat("word ", 100)
+	for _, m := range []session.Message{
+		{From: session.Coder, Kind: session.Note, Text: "context first"},
+		{From: session.Coder, Kind: session.Task, Text: "Check\n  the   tip.  " + long},
+		{From: session.Human, Kind: session.Task, Text: "a later task"},
+	} {
+		if _, err := store.Append(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h.get("/api/runs", &runs)
+	got := []rune(findRun(t, runs, runID).Task)
+	if !strings.HasPrefix(string(got), "Check the tip. word word") {
+		t.Errorf("task = %q, want the first task with whitespace collapsed", string(got))
+	}
+	if len(got) != taskTitleLimit || got[len(got)-1] != '…' {
+		t.Errorf("task is %d runes ending %q, want %d ending in an ellipsis", len(got), got[len(got)-1], taskTitleLimit)
+	}
+}
+
 // --- the conversation ---
 
 func TestMessagesReturnOnlyWhatIsAfterN(t *testing.T) {

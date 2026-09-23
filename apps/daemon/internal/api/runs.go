@@ -23,6 +23,8 @@ type RunSummary struct {
 	Verdict      *session.VerdictState `json:"verdict"`
 	LastActivity time.Time             `json:"lastActivity"`
 	Messages     int                   `json:"messages"`
+	// Task is the run's first task message, clipped: what the companion names the run by.
+	Task string `json:"task,omitempty"`
 }
 
 // Statuses of a run with no live machine; a live one reports its machine.Status.
@@ -65,6 +67,7 @@ func (a *api) summary(runID string, mc *machine.Machine) RunSummary {
 	// Count steps.jsonl: manifest.Steps is a high-water mark, and the list must agree with /steps.
 	steps := a.stepLog(runID)
 	s.Steps = steps.Count
+	s.Task = a.runTask(runID)
 	if mc != nil {
 		s.Status, s.Image, s.IP, s.VNCURL = string(mc.Status), mc.Image, mc.IP, mc.VNCURL
 		s.CreatedAt = mc.CreatedAt
