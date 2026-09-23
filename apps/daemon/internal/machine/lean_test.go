@@ -238,8 +238,8 @@ func TestLeanScriptNeverTouchesTheSealedSystem(t *testing.T) {
 // A write that fails must not stop the script before the read-back names what is wrong.
 func TestLeanScriptNamesAFailedWriteInsteadOfAborting(t *testing.T) {
 	for cmd, check := range map[string]string{
-		"mdutil":         "spotlight",
-		"tmutil":         "timemachine-autobackup",
+		"mdutil": "spotlight",
+		"tmutil": "timemachine-autobackup",
 	} {
 		t.Run(cmd, func(t *testing.T) {
 			g := newLeanGuest(t)

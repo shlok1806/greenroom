@@ -300,8 +300,9 @@ Clones of `greenroom-base` skip the ~28 s first-control compile.
   inconsistency note there.
 - `-lean` (`prepare-image -lean`, `machine.ApplyLeanProfile`, script `guest/lean.sh`) is
   variant A of `docs/image-experiment/`: only the core apps in the Dock, the other apps'
-  gui-domain agents `launchctl disable`d, widgets, banners, Siri, indexing, update, Time
-  Machine and setup prompts off. It writes preferences and launchd's disabled list only;
+  gui-domain agents `launchctl disable`d, widgets, banners, Siri, indexing, update
+  downloads and installs, Time Machine and setup prompts off. Automatic update checks stay
+  on (see the comment in `lean.sh`). It writes preferences and launchd's disabled list only;
   never SIP, the authenticated root or the sealed volume. It runs as the user through
   `/bin/sh`, not zsh: zsh does not word-split `$list`, and one disable of a newline-joined
   "label" once passed a substring read-back. The read-back matches labels exactly. It
