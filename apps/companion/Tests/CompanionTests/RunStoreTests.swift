@@ -385,6 +385,61 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.verdictDraft("run-1"), VerdictDraft(verdictSeq: 9))
     }
 
+    /// The coding agent accepting mid-draft must take the Reject form with it.
+    func testADraftEndsWhenItsVerdictCloses() async {
+        let posts = Counter()
+        let client = StubURLProtocol.client { request in
+            if request.httpMethod == "POST" { posts.add() }
+            return .json("{}")
+        }
+        let store = RunStore(client: client)
+        store.runs = [RunSummary(runId: "run-1", createdAt: Date(timeIntervalSince1970: 0), status: .ready,
+                                 verdict: VerdictState(seq: 5, verdict: "fail", evidence: ["step 2"], status: .proposed))]
+        store.updateVerdictDraft("run-1") {
+            $0.action = .reject
+            $0.reason = "step 3 shows $48.00"
+            $0.confirmingAccept = true
+        }
+
+        store.runs[0].verdict = VerdictState(seq: 5, verdict: "fail", evidence: ["step 2"], status: .accepted, acceptedBy: .coder)
+        XCTAssertEqual(store.verdictDraft("run-1"), VerdictDraft(verdictSeq: 5, verdictClosed: true))
+        let sent = await store.sendVerdictAction(runId: "run-1")
+        XCTAssertFalse(sent)
+        XCTAssertEqual(posts.value, 0, "a dispute was posted to a closed verdict")
+
+        // A re-check begun on the closed verdict stays while it stays closed.
+        store.updateVerdictDraft("run-1") { $0.action = .recheck }
+        XCTAssertEqual(store.verdictDraft("run-1").action, .recheck)
+    }
+
+    func testDraftsOutliveAResyncUntilTheirRunIsGone() async {
+        let gone = Counter()
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/runs":
+                let second = #", {"runId": "run-2", "createdAt": "2026-09-18T10:00:00Z", "verdict": {"seq": 5, "verdict": "fail", "status": "proposed"}}"#
+                return .json(#"[{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z"}\#(gone.value == 0 ? second : "")]"#)
+            case "/api/runs/run-1": return .json(#"{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z"}"#)
+            case "/api/runs/run-1/messages": return .json(#"{"messages": []}"#)
+            default: return .json("[]")
+            }
+        }
+        let store = RunStore(client: client)
+        await store.resync()
+        store.updateVerdictDraft("run-2") {
+            $0.action = .reject
+            $0.reason = "half typed"
+        }
+        store.selectedRunId = "run-1"
+
+        await store.resync()
+        XCTAssertEqual(store.verdictDraft("run-2").reason, "half typed", "a refresh lost an unsent reason")
+
+        gone.add()
+        await store.resync()
+        XCTAssertNil(store.verdictDrafts["run-2"])
+    }
+
     func testCancellationIsNotAFailure() {
         XCTAssertTrue(RunStore.isCancellation(CancellationError()))
         XCTAssertTrue(RunStore.isCancellation(DaemonError.cancelled))

@@ -110,7 +110,8 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   the machine is destroyed (`RunFacts.verifierListens`); then the re-check is disabled and
   the card and composer say nothing will answer.
 - The verdict's drafts (the action and its reason, whether evidence was opened, the
-  accept confirmation) live in `RunStore.verdictDrafts`, per run and verdict. The verdict
+  accept confirmation) live in `RunStore.verdictDrafts`, per run and verdict. A draft ends
+  when its verdict changes or closes, or its run leaves the list; a resync keeps it. The verdict
   flow has no sheet, alert or dialog: accepting rebuilds the card, and a sheet whose
   presenter goes away leaves the window unable to take a click. Ask inline.
 - The player shows one source chip (live, connecting, recording, driving). Take Control

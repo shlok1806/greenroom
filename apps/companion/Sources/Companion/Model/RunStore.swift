@@ -35,12 +35,15 @@ struct SeekRequest: Hashable, Sendable {
 
 /// What a person has started on one run's verdict. The store holds it, not the card, so
 /// the card can be rebuilt by the very change an action causes (accepting redraws it)
-/// without losing the draft or orphaning a dialog. It belongs to one verdict: a new
-/// verdict starts empty, so a reason typed for one is never sent against another.
+/// without losing the draft or orphaning a dialog. It belongs to one verdict as it stood:
+/// a new verdict, or the same one closing, starts it empty, so a reason typed for one is
+/// never sent against another, nor against a verdict that can no longer take it.
 struct VerdictDraft: Equatable, Sendable {
     enum Action: Equatable, Sendable { case reject, recheck }
 
     var verdictSeq: Int?
+    /// Whether the verdict was accepted or rejected when the draft began.
+    var verdictClosed = false
     var action: Action?
     var reason = ""
     /// Accepting without having opened any cited evidence asks first.
@@ -223,7 +226,6 @@ final class RunStore: PilotHost {
         messages = messages.filter { $0.key == keep }
         steps = steps.filter { $0.key == keep }
         frames = frames.filter { $0.key == keep }
-        verdictDrafts = verdictDrafts.filter { $0.key == keep }
     }
 
     private func perform(_ fetch: Fetch) async {
@@ -241,6 +243,8 @@ final class RunStore: PilotHost {
             case .runs:
                 do {
                     runs = withLearnedTasks(try await client.runs())
+                    let listed = Set(runs.map(\.runId))
+                    verdictDrafts = verdictDrafts.filter { listed.contains($0.key) }
                     reachable = true
                     learnMissingTasks()
                 } catch {
@@ -385,9 +389,11 @@ final class RunStore: PilotHost {
 
     /// The draft for the run's current verdict; empty when it was made for another one.
     func verdictDraft(_ runId: String) -> VerdictDraft {
-        let seq = verdict(runId)?.seq
-        if let held = verdictDrafts[runId], held.verdictSeq == seq { return held }
-        return VerdictDraft(verdictSeq: seq)
+        let current = verdict(runId)
+        let seq = current?.seq
+        let closed = current.map { $0.status == .accepted || $0.status == .rejected } ?? false
+        if let held = verdictDrafts[runId], held.verdictSeq == seq, held.verdictClosed == closed { return held }
+        return VerdictDraft(verdictSeq: seq, verdictClosed: closed)
     }
 
     func updateVerdictDraft(_ runId: String, _ change: (inout VerdictDraft) -> Void) {
@@ -421,6 +427,10 @@ final class RunStore: PilotHost {
         let draft = verdictDraft(runId)
         let text = draft.reason.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let action = draft.action, !text.isEmpty, let verdict = verdict(runId), let seq = verdict.seq else { return false }
+        switch action {
+        case .reject: guard verdict.status.isOpen else { return false }
+        case .recheck: guard verdict.status == .accepted else { return false }
+        }
         let sent: Bool
         switch action {
         case .reject:
