@@ -98,7 +98,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 		Exclude []string `json:"exclude,omitempty" jsonschema:"rsync exclude patterns, e.g. node_modules, .git, build"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "machine_sync",
+		Name: "machine_sync",
 		Description: "Copy a host directory into the machine with rsync. Fast on repeat calls; only changed files move. " +
 			"dest is relative to the guest home, and a leading ~/ is accepted (it means the same). The result's dest is " +
 			"the path relative to the home, which machine_exec's cwd takes as is.",
