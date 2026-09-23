@@ -139,6 +139,10 @@ func TestGuestDest(t *testing.T) {
 		"work/./app":      "work/app",
 		"work/sub/../app": "work/app",
 		"app":             "app",
+		"~/foo":           "foo", // the guest home, as a shell reads it, never a dir named ~
+		"~/work/app":      "work/app",
+		"~//x":            "x",
+		"~foo":            "~foo", // another user's home in a shell; here just a name
 	}
 	for in, want := range ok {
 		got, err := guestDest(in)
@@ -150,7 +154,8 @@ func TestGuestDest(t *testing.T) {
 			t.Errorf("guestDest(%q) = %q, want %q", in, got, want)
 		}
 	}
-	bad := []string{"/tmp/escaped", "..", "../sibling", "../../../tmp/escaped", "work/../../etc", ".", ""}
+	bad := []string{"/tmp/escaped", "..", "../sibling", "../../../tmp/escaped", "work/../../etc", ".", "",
+		"~", "~/", "~/..", "~/../x"}
 	for _, in := range bad {
 		if got, err := guestDest(in); err == nil {
 			t.Errorf("guestDest(%q) = %q, want a refusal", in, got)

@@ -333,3 +333,24 @@ func TestActorAnswersAHumanNoteWithManual(t *testing.T) {
 		t.Errorf("question = %+v, want the verifier asking back what was asked", question)
 	}
 }
+
+func TestManualReadsTheUIAndClicksAnElement(t *testing.T) {
+	mgr, runID, control := ready(t)
+	putUI(t, control, segmentUI)
+	store := openStore(t, mgr, runID)
+	post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "ui TipSplit\nclick 1\nverdict pass clicked it"})
+
+	if _, err := NewManual(mgr, testLog()).Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	progress := messagesOfKind(store, session.Progress)
+	if len(progress) != 2 {
+		t.Fatalf("got %d progress messages, want 2: %+v", len(progress), progress)
+	}
+	if !strings.HasPrefix(progress[0].Text, `machine_ui {"app":"TipSplit"}`) || !strings.Contains(progress[0].Text, "center (0.596, 0.467)") {
+		t.Errorf("ui progress = %q", progress[0].Text)
+	}
+	if !strings.Contains(progress[1].Text, `clicked [1] RadioButton/Segment "25%"`) {
+		t.Errorf("click progress = %q", progress[1].Text)
+	}
+}

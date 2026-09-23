@@ -45,6 +45,21 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 		err = phase("keySeconds", func() error { return m.installSSHKey(ctx, mc.Name) })
 	}
 	if err == nil {
+		// Before ready, so before the frame recorder's first capture. Not fatal:
+		// the machine works with the alert up, it only covers the screen.
+		if aerr := phase("captureAlertSeconds", func() error { return approveScreenCapture(ctx, m.tart, mc.Name) }); aerr != nil {
+			timings["captureAlertError"] = aerr.Error()
+			m.Log.Warn("the screen-capture alert may cover this machine's screen", "runId", mc.RunID, "err", aerr)
+		} else {
+			mc.markCaptureApproved()
+		}
+		// Not fatal either: a machine that still hides windows on a wallpaper click works.
+		if perr := phase("desktopPrefsSeconds", func() error { return applyDesktopPrefs(ctx, m.tart, mc.Name) }); perr != nil {
+			timings["desktopPrefsError"] = perr.Error()
+			m.Log.Warn("a click on this machine's wallpaper may hide its windows", "runId", mc.RunID, "err", perr)
+		}
+	}
+	if err == nil {
 		err = phase("sshSeconds", func() error {
 			sshCtx, sshCancel := context.WithTimeout(boot, m.readyTimeout)
 			defer sshCancel()

@@ -125,6 +125,7 @@ func serve(args []string) error {
 	mgr.CheckTart(context.Background()) // logs a version mismatch, never fatal
 
 	reg := session.NewRegistry(o.root, o.maxDisputes, session.WithOnVerdict(func(runID string, v session.VerdictState) { _ = mgr.RecordVerdict(runID, v) }))
+	mgr.SetMessageActivity(reg.LastMessageAt) // machine_list and the capacity error report idle time
 
 	kind := strings.ToLower(strings.TrimSpace(o.verifierKind))
 	if kind == "" {

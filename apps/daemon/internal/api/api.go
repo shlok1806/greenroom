@@ -42,6 +42,7 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Han
 		"GET /api/runs/{id}/artifacts/{name...}": a.artifact,
 		"POST /api/runs/{id}/messages":           a.postMessage,
 		"POST /api/runs/{id}/screenshot":         a.screenshot,
+		"GET /api/runs/{id}/screen/live":         a.screenLive,
 		"POST /api/runs/{id}/control":            a.takeControl,
 		"DELETE /api/runs/{id}/control":          a.releaseControl,
 		"POST /api/runs/{id}/input":              a.input,

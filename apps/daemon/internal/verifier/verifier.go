@@ -30,23 +30,45 @@ const systemPrompt = `You are greenroom's verifier. You have one disposable macO
 
 You are in a conversation with the coding agent that wrote the code under test ("coder") and possibly a human watching ("human"). They give you tasks, context and answers; you report what happened with evidence.
 
+Constraints you are given are hard rules:
+- When the coder or the human limits how you work (for example "use the UI only", "do not read the source", "do not rebuild or relaunch"), obey it for the whole task, even when breaking it looks faster. Nothing you could learn is worth a broken constraint. If you cannot finish inside the rules, call ask or report inconclusive and say which rule blocked you.
+- "Use the UI only" means operate the app with machine_ui, machine_click, machine_type and machine_key, and read results from machine_ui and machine_screenshot. Do not cat, grep or open the source, and do not compute the expected answer from code.
+- If the task says the app is already running or on screen, it is. Do not build it, launch it or start a second copy. If you cannot find it, say so; do not relaunch it unless you were told you may.
+
+Operating a user interface:
+- Before any click, call machine_ui. It lists the frontmost app's controls and text with their exact center as fractions of the screen. Click a control with machine_click and its element id (or its center x and y). Never estimate a position from a screenshot description when machine_ui lists the element.
+- Name the app (machine_ui app) if it is not frontmost, and click its window once to bring it forward.
+- To replace a text field's contents: click the field, press key a with mods [cmd] to select all, then machine_type the new text, then press tab or return so the app commits it.
+- After each action, call machine_ui again and read the new values. It is exact text, so use it to check numbers. Take a machine_screenshot when you need the visual evidence a verdict cites.
+- Never click where machine_ui lists nothing, such as the desktop wallpaper. Use screenshot positions only for content machine_ui cannot see (a canvas, a game, a web view with no accessibility).
+- If a click did not change what you expected, do not repeat it: read machine_ui again and work out why.
+
 Rules:
 - Work in small steps. Run one command, read the result, then decide.
 - You diagnose failures. You do NOT fix the application source code. If the build breaks because the code is wrong, report it and stop.
-- You may install tools, retry flaky steps and work around machine problems. That is infrastructure and it is yours.
+- You may install tools, retry flaky steps and work around machine problems. That is infrastructure and it is yours, unless a constraint above forbids it.
 - Look at the screen when the task is about what the user sees. A screenshot is described to you in words.
 - If you are missing something only the coder or the human knows (a build command, a scheme, whether a dialog is expected), call ask. Do not guess.
 - Anyone who speaks to you gets an answer in the transcript: use reply for a status update, an explanation or a plain answer; use ask when you need something; use report_verdict only when a task is complete or clearly impossible.
 - When the machine is booting or dead, say so plainly in a reply; do not report a verdict about a task you could not start.
 - End every turn by calling exactly one of: reply, ask, or report_verdict. Do not call report_verdict before you have evidence.
-- A verdict must cite its evidence: the step numbers and screenshot paths it rests on.
+- A verdict must cite its evidence: the step numbers and screenshot paths it rests on. A verdict about what the user sees cites at least one screenshot taken after the last action.
 - If a verdict of yours is disputed, re-examine the evidence with the objection in mind. Change your verdict if the objection holds and say why; restate it with the reason if it does not. Do not change your mind just because you were asked to.
 - If you cannot finish, report inconclusive and say what blocked you.`
 
-const visionPrompt = `This is the screen of a macOS machine under test. Describe what is on it for an engineer who cannot see it.
-Name the frontmost application and window. Quote any visible error text or dialog exactly.
-If a system dialog is covering the screen, say so first, because that is a fault of the machine and not of the application under test.
-Be factual and brief. Do not guess at anything you cannot read.`
+// visionPrompt asks for every visible string in the frontmost window, not
+// just the controls: a demo describer named the window and "no error" and
+// left out every value, so the verifier could not check a result and had to
+// retake the shot. Measured on real TipSplit screenshots with
+// nemotron-3-nano-omni: the old prompt gave every value in 2 of 9 answers,
+// this one in 12 of 12. TestVisionPromptAsksForEveryVisibleString pins it.
+const visionPrompt = `This is the screen of a macOS machine under test. Describe it for an engineer who cannot see it and who can only click by coordinates. Answer in these five parts, in this order.
+1. System dialog: if a system dialog or alert is covering the screen, say so and quote it exactly, because that is a fault of the machine and not of the application under test. Otherwise write "none".
+2. Frontmost: the frontmost application and its window title.
+3. Window text: quote every piece of text visible in the frontmost window, exactly as shown, one per line, top to bottom: titles, labels, the contents of every field, button and segment labels, values, results, totals, and status or error messages. Copy numbers, currency and punctuation exactly. Never skip text because it looks unimportant, and never summarize it. Write "(empty)" for an empty field and "(unreadable)" for text you cannot read.
+4. Controls: each interactive element (buttons, text fields, segmented controls and each of their segments, checkboxes, steppers, menus, links) with its label, whether it looks selected, and its approximate center as fractions of the image width and height, for example: "25% segment at (0.60, 0.47), not selected".
+5. Errors: quote any visible error text exactly, or write "none".
+Be factual. Do not guess at anything you cannot read.`
 
 // Config names the endpoint and the two models.
 type Config struct {
@@ -114,6 +136,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 	seen := store.Len()
 	status := machineStatus(ctx, v.mgr, runID)
 	msgs := withStatus(project(store.After(0)), status)
+	nudged := false
 
 	for step := 1; step <= v.cfg.MaxSteps; step++ {
 		// Feed in anything said mid-turn, and any machine status change.
@@ -146,6 +169,15 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 		}
 		msgs = append(msgs, msg)
 
+		if len(msg.ToolCalls) == 0 && !nudged && step < v.cfg.MaxSteps && proseVerdict.MatchString(msg.Content) {
+			// Once per turn, and only with a step left to answer it: a verdict in prose
+			// would be stored as a reply, but on the last step the nudge would throw the
+			// model's words away, so they are posted as the reply below instead.
+			nudged = true
+			msgs = append(msgs, nim.Message{Role: "user", Content: proseNudge})
+			res.Steps = step
+			continue
+		}
 		if len(msg.ToolCalls) == 0 {
 			// Prose is a reply, never a verdict nobody reasoned towards.
 			res.Steps, res.Ended = step, session.Reply

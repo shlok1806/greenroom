@@ -55,6 +55,69 @@ final class DaemonClientTests: XCTestCase {
         ])
     }
 
+    // MARK: - Live screen
+
+    private static let screenHeaders = ["Content-Type": DaemonClient.screenStreamType]
+
+    private static func screenWire() -> Data {
+        let hello = #"{"version":"greenroom-input 3","screen":{"width":1024,"height":768},"pixels":{"width":2048,"height":1536}}"#
+        let sample = VideoSample(keyframe: true, pts: 42, data: Data([0, 0, 0, 1, 0x65]))
+        return SyntheticScreen.message(0x01, Data(hello.utf8))
+            + SyntheticScreen.message(0x02, AVCConfigTests.guestRecord)
+            + SyntheticScreen.message(0x03, SyntheticScreen.videoPayload(sample))
+    }
+
+    func testTheLiveScreenArrivesInPiecesAndComesOutWhole() async throws {
+        let seen = Recorder()
+        let wire = Self.screenWire()
+        let client = StubURLProtocol.client { request in
+            seen.append(request.url?.absoluteString ?? "")
+            seen.append(request.value(forHTTPHeaderField: "Accept") ?? "")
+            return StubURLProtocol.Reply(body: wire, headers: Self.screenHeaders, chunkSize: 7)
+        }
+        var messages: [ScreenMessage] = []
+        for try await message in client.liveScreen(runId: "run 1") {
+            messages.append(message)
+        }
+        var reader = ScreenFrameReader()
+        XCTAssertEqual(messages, try reader.append(wire))
+        XCTAssertEqual(messages.count, 3)
+        XCTAssertEqual(seen.values, ["http://daemon.test/api/runs/run%201/screen/live", DaemonClient.screenStreamType])
+    }
+
+    func testALiveScreenRefusalGivesTheDaemonsOwnMessage() async {
+        let client = StubURLProtocol.client { _ in .json(#"{"error": "machine is not ready"}"#, status: 409) }
+        do {
+            for try await _ in client.liveScreen(runId: "r") {}
+            XCTFail("expected a failure")
+        } catch {
+            XCTAssertEqual(error as? DaemonError, .status(code: 409, body: "machine is not ready"))
+        }
+    }
+
+    func testALiveScreenAnswerOfAnotherTypeIsRefused() async {
+        let client = StubURLProtocol.client { _ in
+            StubURLProtocol.Reply(body: Data("<html>".utf8), headers: ["Content-Type": "text/html"])
+        }
+        do {
+            for try await _ in client.liveScreen(runId: "r") {}
+            XCTFail("expected a failure")
+        } catch {
+            XCTAssertEqual(error as? DaemonError, .badResponse("text/html instead of \(DaemonClient.screenStreamType)"))
+        }
+    }
+
+    func testALiveScreenCutMidMessageIsABadResponse() async {
+        let wire = Self.screenWire().dropLast()
+        let client = StubURLProtocol.client { _ in StubURLProtocol.Reply(body: wire, headers: Self.screenHeaders) }
+        do {
+            for try await _ in client.liveScreen(runId: "r") {}
+            XCTFail("expected a failure")
+        } catch {
+            XCTAssertEqual(error as? DaemonError, .badResponse("the stream ended inside a message"))
+        }
+    }
+
     func testAnUnreachableDaemonIsNotReachableInTheEventStreamToo() async {
         let client = DaemonClient(baseURL: URL(string: "http://127.0.0.1:1")!)
         do {

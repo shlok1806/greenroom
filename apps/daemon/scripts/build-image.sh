@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build the greenroom base image (issue #12): clone the default OCI image, boot it, run
-# `greenroom prepare-image` to bake in the input helper and ssh key, and stop it.
+# `greenroom prepare-image` to bake in the input helper, ssh key, screen-capture approvals and desktop
+# preferences, and stop it.
 # Clones then skip the ~27 s first-control cost. -force replaces an existing image.
 set -euo pipefail
 
@@ -93,7 +94,7 @@ if [ -z "$ready" ]; then
 fi
 echo "guest agent is up"
 
-echo "preparing the guest (compiling the input helper, installing the ssh key)"
+echo "preparing the guest (compiling the input helper, installing the ssh key, pre-approving screen capture, setting desktop preferences)"
 go run . prepare-image -tart "$tart" -vm "$name"
 
 trap - EXIT

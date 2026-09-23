@@ -7,20 +7,32 @@
 //
 //     greenroom-input --version
 //     greenroom-input --json-base64 <base64 of {"actions":[...]}>
+//     greenroom-input --serve
+//     greenroom-input --ui-base64 <base64 of {"app":"...","limit":N}>
 //
-// It writes one JSON object to stdout and exits 0, or writes an error object
-// and exits 1. Coordinates are pixels on the main display; the daemon turns
-// the fractions the companion sends into pixels before it gets here.
+// --json-base64 writes one JSON object to stdout and exits 0, or writes an
+// error object and exits 1. --serve streams the screen as H.264 and takes
+// input batches on stdin until stdin closes (ADR 0011). --ui-base64 writes the
+// accessibility tree of the frontmost (or a named) application (ADR 0012).
+// Coordinates are points on the main display, both ways; the daemon turns
+// the fractions the companion sends into points before it gets here, and the
+// frames this reports into fractions after.
 //
 // The events go in through CGEvent at the HID tap, which needs the
 // Accessibility and PostEvent permissions. The greenroom image grants both to
 // the Tart guest agent, and this binary inherits them because the agent
-// starts it (docs/02-spike.md).
+// starts it (docs/02-spike.md). Reading the accessibility tree needs the same
+// Accessibility grant.
 
+import AppKit
+import ApplicationServices
 import CoreGraphics
+import CoreMedia
 import Foundation
+import ScreenCaptureKit
+import VideoToolbox
 
-let version = "greenroom-input 1"
+let version = "greenroom-input 5"
 
 // MARK: - Wire types
 
@@ -189,6 +201,9 @@ func type(text: String) {
             down.keyboardSetUnicodeString(stringLength: units.count, unicodeString: base)
             up.keyboardSetUnicodeString(stringLength: units.count, unicodeString: base)
         }
+        // Text is never a shortcut, whatever modifier state the source holds.
+        down.flags = []
+        up.flags = []
         post(down)
         usleep(1_000)
         post(up)
@@ -196,18 +211,44 @@ func type(text: String) {
     }
 }
 
+/// The modifier keys, in the order a hand presses them, with their flag.
+let modifierKeys: [(CGEventFlags, CGKeyCode)] = [
+    (.maskCommand, 55), (.maskShift, 56), (.maskAlternate, 58), (.maskControl, 59), (.maskSecondaryFn, 63),
+]
+
+/// A shortcut is pressed the way a keyboard sends it: each modifier key
+/// down, the key, then the modifiers up. A bare flag on the key event alone
+/// leaves the window server believing the modifier is still held, and the
+/// next characters typed arrive as command-1, command-2 (issue: typing after
+/// command-A was swallowed in SwiftUI text fields).
 func press(key name: String, mods: [String]?) throws {
     guard let code = keyCode(for: name) else {
         throw Failure("unknown key \(name)")
     }
     let modifiers = flags(mods)
+    let held = modifierKeys.filter { modifiers.contains($0.0) }
+    var state: CGEventFlags = []
+    for (flag, modifier) in held {
+        state.insert(flag)
+        guard let event = CGEvent(keyboardEventSource: source, virtualKey: modifier, keyDown: true) else { continue }
+        event.flags = state
+        post(event)
+    }
     guard let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true),
           let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false)
     else { throw Failure("cannot build a key event for \(name)") }
     down.flags = modifiers
     up.flags = modifiers
     post(down)
+    usleep(1_000)
     post(up)
+    for (flag, modifier) in held.reversed() {
+        state.remove(flag)
+        guard let event = CGEvent(keyboardEventSource: source, virtualKey: modifier, keyDown: false) else { continue }
+        event.flags = state
+        post(event)
+    }
+    usleep(1_000)
 }
 
 func scroll(deltaX: Double, deltaY: Double) {
@@ -223,6 +264,198 @@ func scroll(deltaX: Double, deltaY: Double) {
     // position the caller last moved to.
     event.location = cursor
     post(event)
+}
+
+
+// MARK: - UI tree (ADR 0012)
+
+struct UIRequest: Decodable {
+    var app: String?
+    var limit: Int?
+}
+
+/// One attribute of an element, or nil when it has none or will not say.
+func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
+    return value
+}
+
+func text(_ element: AXUIElement, _ name: String) -> String? {
+    guard let value = attribute(element, name) else { return nil }
+    let out: String
+    if let s = value as? String {
+        out = s
+    } else if let n = value as? NSNumber {
+        out = n.stringValue
+    } else {
+        return nil
+    }
+    let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return nil }
+    // A text view's whole document is not a label.
+    return trimmed.count > 120 ? String(trimmed.prefix(120)) + "..." : trimmed
+}
+
+func flag(_ element: AXUIElement, _ name: String) -> Bool? {
+    (attribute(element, name) as? NSNumber)?.boolValue
+}
+
+/// The element's frame in global points, top-left origin: the space CGEvent posts in.
+func frame(_ element: AXUIElement) -> CGRect? {
+    guard let p = attribute(element, kAXPositionAttribute), let s = attribute(element, kAXSizeAttribute),
+          CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID()
+    else { return nil }
+    var origin = CGPoint.zero
+    var size = CGSize.zero
+    // swiftlint:disable:next force_cast
+    guard AXValueGetValue(p as! AXValue, .cgPoint, &origin), AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
+    return CGRect(origin: origin, size: size)
+}
+
+func children(_ element: AXUIElement) -> [AXUIElement] {
+    (attribute(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []
+}
+
+/// Roles that are only layout. They are walked through, and listed only when
+/// they carry text of their own.
+let containerRoles: Set<String> = [
+    "AXGroup", "AXScrollArea", "AXSplitGroup", "AXLayoutArea", "AXLayoutItem", "AXUnknown",
+    "AXSplitter", "AXMatte", "AXGrowArea", "AXRow", "AXColumn", "AXCell",
+]
+
+let toggleRoles: Set<String> = ["AXRadioButton", "AXCheckBox", "AXSwitch", "AXToggle"]
+
+/// Finds the application to read: a name or bundle id if given, else the frontmost.
+func targetApp(_ name: String?) throws -> NSRunningApplication {
+    let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+    if let name, !name.isEmpty {
+        let wanted = name.lowercased()
+        if let app = apps.first(where: { $0.localizedName?.lowercased() == wanted || $0.bundleIdentifier?.lowercased() == wanted })
+            ?? apps.first(where: { ($0.localizedName?.lowercased() ?? "").contains(wanted) }) {
+            return app
+        }
+        throw Failure("no running application named \(name); running: \(apps.compactMap(\.localizedName).joined(separator: ", "))")
+    }
+    // The system-wide element knows focus now; NSWorkspace can lag a launch.
+    var focused: CFTypeRef?
+    if AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedApplicationAttribute as CFString, &focused) == .success,
+       let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() {
+        var pid: pid_t = 0
+        // swiftlint:disable:next force_cast
+        if AXUIElementGetPid(focused as! AXUIElement, &pid) == .success, let app = NSRunningApplication(processIdentifier: pid) {
+            return app
+        }
+    }
+    if let app = NSWorkspace.shared.frontmostApplication { return app }
+    throw Failure("no frontmost application")
+}
+
+/// Walks the target's windows depth first and lists what a person could see
+/// or use: every element with a frame on the screen, minus bare layout. The
+/// menu bar is left out; it is the same for every app and eats the budget.
+func uiTree(_ request: UIRequest) throws -> [String: Any] {
+    guard AXIsProcessTrusted() else {
+        throw Failure("this machine has not granted Accessibility to the guest agent, so the UI tree cannot be read")
+    }
+    let app = try targetApp(request.app)
+    let root = AXUIElementCreateApplication(app.processIdentifier)
+    AXUIElementSetMessagingTimeout(root, 1.0)
+    // Chromium and Electron build their tree only when asked.
+    AXUIElementSetAttributeValue(root, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+
+    let limit = max(1, min(request.limit ?? 250, 1000))
+    let screen = bounds
+    var elements: [[String: Any]] = []
+    var visited = 0
+    // Why the walk stopped early, if it did: the element limit, or the caps on
+    // elements visited and depth that keep a pathological tree from hanging it.
+    var truncatedBy: String? = nil
+
+    func visit(_ element: AXUIElement, depth: Int, clip: CGRect) {
+        if elements.count >= limit {
+            truncatedBy = truncatedBy ?? "limit"
+            return
+        }
+        if visited >= 5000 {
+            truncatedBy = truncatedBy ?? "visited"
+            return
+        }
+        if depth > 40 {
+            truncatedBy = truncatedBy ?? "depth"
+            return
+        }
+        visited += 1
+        let role = text(element, kAXRoleAttribute) ?? "AXUnknown"
+        if role == "AXMenuBar" { return }
+        var nextClip = clip
+        var listed = false
+        if let f = frame(element) {
+            let visible = f.intersection(clip)
+            // Hidden, collapsed or scrolled out of view: nothing to click, nor
+            // anything below it.
+            if f.width < 1 || f.height < 1 || visible.isNull || visible.width < 1 || visible.height < 1 {
+                if role != "AXApplication" { return }
+            } else {
+                if role == "AXScrollArea" || role == "AXWindow" { nextClip = visible }
+                let title = text(element, kAXTitleAttribute)
+                let label = text(element, kAXDescriptionAttribute)
+                let value = text(element, kAXValueAttribute)
+                let help = text(element, kAXHelpAttribute)
+                let identifier = text(element, kAXIdentifierAttribute)
+                let hasText = title != nil || label != nil || value != nil || identifier != nil
+                if !containerRoles.contains(role) || hasText {
+                    var item: [String: Any] = [
+                        "role": role,
+                        "depth": depth,
+                        "frame": ["x": visible.minX, "y": visible.minY, "w": visible.width, "h": visible.height],
+                    ]
+                    if let s = text(element, kAXSubroleAttribute), s != "AXUnknown" { item["subrole"] = s }
+                    if let title { item["title"] = title }
+                    if let label, label != title { item["label"] = label }
+                    // A radio button's or checkbox's value is 0 or 1: say which.
+                    if toggleRoles.contains(role), let value, value == "0" || value == "1" {
+                        if value == "1" { item["selected"] = true }
+                    } else if let value, value != title {
+                        item["value"] = value
+                    }
+                    if let help, title == nil, label == nil { item["help"] = help }
+                    if let identifier, !identifier.hasPrefix("_NS:") { item["identifier"] = identifier }
+                    if flag(element, kAXEnabledAttribute) == false { item["enabled"] = false }
+                    if flag(element, kAXSelectedAttribute) == true { item["selected"] = true }
+                    if flag(element, kAXFocusedAttribute) == true { item["focused"] = true }
+                    elements.append(item)
+                    listed = true
+                }
+            }
+        }
+        for child in children(element) {
+            visit(child, depth: listed ? depth + 1 : depth, clip: nextClip)
+        }
+    }
+
+    // Windows first, focused one first, so a cap cuts the background.
+    var windows = (attribute(root, kAXWindowsAttribute) as? [AXUIElement]) ?? []
+    if let focused = attribute(root, kAXFocusedWindowAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID() {
+        // swiftlint:disable:next force_cast
+        let f = focused as! AXUIElement
+        if let i = windows.firstIndex(where: { CFEqual($0, f) }) {
+            windows.insert(windows.remove(at: i), at: 0)
+        }
+    }
+    if windows.isEmpty { windows = children(root) }
+    for window in windows {
+        visit(window, depth: 0, clip: screen)
+    }
+
+    return [
+        "app": ["name": app.localizedName ?? "", "bundleId": app.bundleIdentifier ?? "", "pid": Int(app.processIdentifier)],
+        "apps": NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap(\.localizedName),
+        "screen": ["width": Int(screen.width), "height": Int(screen.height)],
+        "elements": elements,
+        "truncated": truncatedBy != nil,
+        "truncatedBy": truncatedBy ?? "",
+    ]
 }
 
 // MARK: - Running
@@ -269,10 +502,353 @@ func emit(_ object: [String: Any], to handle: FileHandle) {
     handle.write(Data("\n".utf8))
 }
 
+// MARK: - Serve (ADR 0011)
+
+/// Every message either way is [type u8][length u32 big-endian][payload].
+enum Wire {
+    static let hello: UInt8 = 0x01
+    static let format: UInt8 = 0x02
+    static let video: UInt8 = 0x03
+    static let ack: UInt8 = 0x04
+    static let log: UInt8 = 0x05
+    static let input: UInt8 = 0x10
+    static let keyframe: UInt8 = 0x11
+}
+
+/// The encoder and input threads both write stdout; one lock keeps each
+/// frame whole.
+let stdoutLock = NSLock()
+
+func writeAll(_ data: Data) {
+    data.withUnsafeBytes { raw in
+        guard var p = raw.baseAddress else { return }
+        var left = raw.count
+        while left > 0 {
+            let n = write(STDOUT_FILENO, p, left)
+            if n < 0 {
+                if errno == EINTR { continue }
+                exit(0) // EPIPE: the daemon went away and nobody is left to tell.
+            }
+            p += n
+            left -= n
+        }
+    }
+}
+
+func send(_ type: UInt8, _ payload: Data) {
+    var header = Data([type])
+    withUnsafeBytes(of: UInt32(payload.count).bigEndian) { header.append(contentsOf: $0) }
+    stdoutLock.lock()
+    defer { stdoutLock.unlock() }
+    writeAll(header)
+    writeAll(payload)
+}
+
+func send(_ type: UInt8, json object: [String: Any]) {
+    send(type, (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data("{}".utf8))
+}
+
+func log(_ message: String) {
+    send(Wire.log, Data(message.utf8))
+}
+
+/// Reads exactly count bytes from stdin, or nil at EOF.
+func readFull(_ count: Int) -> Data? {
+    var data = Data(count: count)
+    var got = 0
+    while got < count {
+        let n = data.withUnsafeMutableBytes { read(STDIN_FILENO, $0.baseAddress! + got, count - got) }
+        if n < 0 && errno == EINTR { continue }
+        if n <= 0 { return nil }
+        got += n
+    }
+    return data
+}
+
+/// H.264 from captured frames. encode and forceKeyframe run on videoQueue
+/// only; output runs on VideoToolbox's thread.
+final class Encoder {
+    private var session: VTCompressionSession?
+    private var width = 0
+    private var height = 0
+    private var lowLatency = true
+    private var fresh = true // the next frame starts a new session and must be an IDR
+    private var origin: CMTime?
+    private var lastPTS = CMTime(value: -1, timescale: 1000)
+    private var latest: CVPixelBuffer?
+
+    private let lock = NSLock() // guards the two below, shared with output
+    private var formatDue = true
+    private var lastFormat: CMFormatDescription?
+
+    func encode(_ buffer: CVPixelBuffer, at time: CMTime, forceKeyframe: Bool = false) {
+        latest = buffer
+        if session == nil || CVPixelBufferGetWidth(buffer) != width || CVPixelBufferGetHeight(buffer) != height {
+            open(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
+        }
+        guard let session else { return }
+
+        // Timestamps must rise even when a still frame is encoded again.
+        if origin == nil { origin = time }
+        var pts = CMTimeSubtract(time, origin!)
+        if pts <= lastPTS { pts = CMTimeAdd(lastPTS, CMTime(value: 1, timescale: 1000)) }
+        lastPTS = pts
+
+        let key = forceKeyframe || fresh
+        fresh = false
+        let status = VTCompressionSessionEncodeFrame(
+            session, imageBuffer: buffer, presentationTimeStamp: pts, duration: .invalid,
+            frameProperties: key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil,
+            infoFlagsOut: nil, outputHandler: output)
+        if status != noErr { log("encode failed: \(status)") }
+    }
+
+    /// Answers KEYFRAME. ScreenCaptureKit sends nothing while the screen is
+    /// still, so the last frame is encoded again.
+    func forceKeyframe() {
+        lock.lock()
+        formatDue = true
+        lock.unlock()
+        if let latest {
+            encode(latest, at: CMClockGetTime(CMClockGetHostTimeClock()), forceKeyframe: true)
+        }
+    }
+
+    private func open(width: Int, height: Int) {
+        if let session {
+            VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
+            VTCompressionSessionInvalidate(session)
+        }
+        self.width = width
+        self.height = height
+        fresh = true
+        lock.lock()
+        formatDue = true
+        lock.unlock()
+        // Low-latency rate control can open and then emit nothing, so it has
+        // to prove itself on a frame before it is trusted.
+        session = makeSession(lowLatency: lowLatency)
+        if lowLatency, let candidate = session, !produces(candidate) {
+            VTCompressionSessionInvalidate(candidate)
+            lowLatency = false
+            session = makeSession(lowLatency: false)
+        }
+        log("encoder \(width)x\(height): \(session == nil ? "failed" : lowLatency ? "low-latency rate control" : "hardware, real time")")
+    }
+
+    /// Encodes one blank frame and reports whether output came back. output
+    /// drops it by its negative timestamp, and the next real frame is an IDR.
+    private func produces(_ session: VTCompressionSession) -> Bool {
+        var blank: CVPixelBuffer?
+        CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                            [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &blank)
+        guard let blank else { return false }
+        var ok = false
+        let status = VTCompressionSessionEncodeFrame(
+            session, imageBuffer: blank, presentationTimeStamp: CMTime(value: -1, timescale: 1000),
+            duration: .invalid, frameProperties: nil, infoFlagsOut: nil
+        ) { status, _, sample in ok = status == noErr && sample?.dataBuffer != nil }
+        VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
+        return status == noErr && ok
+    }
+
+    private func makeSession(lowLatency: Bool) -> VTCompressionSession? {
+        let spec: [CFString: Any] = lowLatency
+            ? [kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true]
+            : [kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: true]
+        var session: VTCompressionSession?
+        let status = VTCompressionSessionCreate(
+            allocator: nil, width: Int32(width), height: Int32(height), codecType: kCMVideoCodecType_H264,
+            encoderSpecification: spec as CFDictionary, imageBufferAttributes: nil,
+            compressedDataAllocator: nil, outputCallback: nil, refcon: nil, compressionSessionOut: &session)
+        guard status == noErr, let session else {
+            log("VTCompressionSessionCreate failed: \(status)")
+            return nil
+        }
+        let properties: [(CFString, CFTypeRef)] = [
+            (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue),
+            (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse),
+            (kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel),
+            (kVTCompressionPropertyKey_AverageBitRate, 8_000_000 as CFNumber),
+            (kVTCompressionPropertyKey_ExpectedFrameRate, 60 as CFNumber),
+            (kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, 2 as CFNumber),
+        ]
+        for (key, value) in properties {
+            let status = VTSessionSetProperty(session, key: key, value: value)
+            if status != noErr { log("\(key) not set: \(status)") }
+        }
+        VTCompressionSessionPrepareToEncodeFrames(session)
+        return session
+    }
+
+    private func output(_ status: OSStatus, _: VTEncodeInfoFlags, _ sample: CMSampleBuffer?) {
+        guard status == noErr, let sample, let block = sample.dataBuffer else {
+            if status != noErr { log("encoder output failed: \(status)") }
+            return
+        }
+        let pts = sample.presentationTimeStamp
+        if pts < .zero { return } // the probe frame
+        let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[CFString: Any]]
+        let keyframe = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
+
+        if keyframe, let format = sample.formatDescription {
+            lock.lock()
+            let due = formatDue || lastFormat.map { !CMFormatDescriptionEqual($0, otherFormatDescription: format) } ?? true
+            formatDue = false
+            lastFormat = format
+            lock.unlock()
+            if due {
+                let atoms = CMFormatDescriptionGetExtension(
+                    format, extensionKey: kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms) as? [String: Any]
+                guard let avcC = atoms?["avcC"] as? Data else {
+                    log("keyframe without avcC")
+                    return
+                }
+                send(Wire.format, avcC)
+            }
+        }
+
+        let length = CMBlockBufferGetDataLength(block)
+        var payload = Data(count: 9 + length)
+        payload[0] = keyframe ? 1 : 0
+        let micros = UInt64(max(0, CMTimeConvertScale(pts, timescale: 1_000_000, method: .roundHalfAwayFromZero).value))
+        withUnsafeBytes(of: micros.bigEndian) { payload.replaceSubrange(1..<9, with: $0) }
+        payload.withUnsafeMutableBytes { raw in
+            _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: raw.baseAddress! + 9)
+        }
+        send(Wire.video, payload)
+    }
+}
+
+let videoQueue = DispatchQueue(label: "greenroom.video", qos: .userInteractive)
+let encoder = Encoder()
+
+final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
+    func stream(_ stream: SCStream, didOutputSampleBuffer sample: CMSampleBuffer, of type: SCStreamOutputType) {
+        // Idle frames carry no image; only complete ones are new pixels.
+        guard type == .screen, sample.isValid, let buffer = sample.imageBuffer,
+              let info = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+              let raw = info.first?[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete
+        else { return }
+        encoder.encode(buffer, at: sample.presentationTimeStamp)
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        log("capture stopped: \(error.localizedDescription)")
+        exit(1)
+    }
+}
+
+let capture = Capture()
+/// Held for the life of the process: a released SCStream stops capturing.
+var activeStream: SCStream?
+
+func startCapture(pixelWidth: Int, pixelHeight: Int) {
+    SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
+        guard let screen = content?.displays.first(where: { $0.displayID == display }) ?? content?.displays.first else {
+            log("no display to capture: \(error?.localizedDescription ?? "none listed")")
+            exit(1)
+        }
+        let config = SCStreamConfiguration()
+        config.width = pixelWidth
+        config.height = pixelHeight
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        config.queueDepth = 3
+        config.showsCursor = true
+        let stream = SCStream(filter: SCContentFilter(display: screen, excludingWindows: []), configuration: config, delegate: capture)
+        do {
+            try stream.addStreamOutput(capture, type: .screen, sampleHandlerQueue: videoQueue)
+        } catch {
+            log("cannot add stream output: \(error.localizedDescription)")
+            exit(1)
+        }
+        activeStream = stream
+        stream.startCapture { error in
+            if let error {
+                log("cannot start capture: \(error.localizedDescription)")
+                exit(1)
+            }
+        }
+    }
+}
+
+struct Batch: Decodable {
+    var id: Int?
+    var actions: [Action]
+}
+
+/// Posts one INPUT batch and answers it on the input thread, so a click never
+/// waits behind a frame being encoded.
+func handleInput(_ payload: Data) {
+    let id = (try? JSONSerialization.jsonObject(with: payload) as? [String: Any])?["id"] as? Int ?? 0
+    var reply: [String: Any] = ["id": id]
+    do {
+        for action in try JSONDecoder().decode(Batch.self, from: payload).actions {
+            try run(action)
+        }
+    } catch let failure as Failure {
+        reply["error"] = failure.message
+    } catch {
+        reply["error"] = "\(error)"
+    }
+    send(Wire.ack, json: reply)
+}
+
+func readInput() {
+    while let header = readFull(5) {
+        let length = header[1..<5].reduce(0) { $0 << 8 | Int($1) }
+        guard let payload = readFull(length) else { break }
+        switch header[0] {
+        case Wire.input: handleInput(payload)
+        case Wire.keyframe: videoQueue.async { encoder.forceKeyframe() }
+        default: log("unknown message type \(header[0])")
+        }
+    }
+    // EOF. The stop is bounded so a wedged stream cannot keep us alive.
+    let stopped = DispatchSemaphore(value: 0)
+    if let stream = activeStream {
+        stream.stopCapture { _ in stopped.signal() }
+        _ = stopped.wait(timeout: .now() + 2)
+    }
+    exit(0)
+}
+
+func serve() -> Never {
+    signal(SIGPIPE, SIG_IGN)
+    let mode = CGDisplayCopyDisplayMode(display)
+    let pixelWidth = mode?.pixelWidth ?? Int(bounds.width)
+    let pixelHeight = mode?.pixelHeight ?? Int(bounds.height)
+    send(Wire.hello, json: [
+        "version": version,
+        "screen": ["width": Int(bounds.width), "height": Int(bounds.height)],
+        "pixels": ["width": pixelWidth, "height": pixelHeight],
+    ])
+    startCapture(pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+    Thread { readInput() }.start()
+    dispatchMain()
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 if arguments.first == "--version" {
     print(version)
     exit(0)
+}
+if arguments.first == "--serve" {
+    serve()
+}
+if arguments.count == 2, arguments[0] == "--ui-base64" {
+    do {
+        guard let payload = Data(base64Encoded: arguments[1]) else { throw Failure("--ui-base64 needs base64") }
+        emit(try uiTree(JSONDecoder().decode(UIRequest.self, from: payload)), to: FileHandle.standardOutput)
+        exit(0)
+    } catch let failure as Failure {
+        emit(["error": failure.message], to: FileHandle.standardError)
+        exit(1)
+    } catch {
+        emit(["error": "\(error)"], to: FileHandle.standardError)
+        exit(1)
+    }
 }
 
 guard arguments.count == 2, arguments[0] == "--json-base64",

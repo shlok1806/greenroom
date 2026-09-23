@@ -183,6 +183,17 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.runs[0].frames, 2)
     }
 
+    func testAFrameIsNotActivity() {
+        let store = store()
+        store.frames["run-1"] = []
+        let before = store.runs[0].lastActivity
+        let later = Frame(at: before.addingTimeInterval(3600), file: "late.jpg", step: 1)
+
+        XCTAssertEqual(store.apply(.frame(runId: "run-1", frame: later)), .nothing)
+        XCTAssertEqual(store.runs[0].frames, 1)
+        XCTAssertEqual(store.runs[0].lastActivity, before, "an idle machine's frames made it look active")
+    }
+
     func testFramesForARunThatIsNotOpenAreIgnored() {
         let store = store()
         XCTAssertEqual(store.apply(.frame(runId: "other", frame: frame(1))), .nothing)

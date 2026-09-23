@@ -84,9 +84,20 @@ func (m *Manager) captureInterval(mc *Machine) time.Duration {
 	return m.frameInterval
 }
 
+// captureFrame logs the run's first failure and the first recovery after it;
+// the rest are silent (ADR 0008). A host that sleeps suspends the VM, and the
+// first capture after it wakes can fail once with "could not create image
+// from display", then work again.
 func (m *Manager) captureFrame(ctx context.Context, mc *Machine, dir string) {
-	if err := m.writeFrame(ctx, mc, dir); err != nil && mc.rec.logFrameErrOnce() {
-		m.Log.Warn("frame capture failed; will keep retrying silently for this run", "runId", mc.RunID, "err", err)
+	if err := m.writeFrame(ctx, mc, dir); err != nil {
+		if mc.rec.frameFailed() {
+			m.Log.Warn("frame capture failed; will keep retrying, and log once when it recovers", "runId", mc.RunID, "err", err)
+		}
+		return
+	}
+	if fails, since, report := mc.rec.frameCaptured(); report {
+		m.Log.Info("frame capture recovered; later failures are not logged", "runId", mc.RunID,
+			"failedCaptures", fails, "outageSeconds", round1(time.Since(since)))
 	}
 }
 

@@ -69,6 +69,7 @@ type Machine struct {
 	sessions map[string]*PTYSession
 
 	frameCancel context.CancelFunc // guarded by Manager.mu
+	screen      *screenStream      // guarded by Manager.mu; the live screen, if one has started
 
 	// bootCancel stops finishBoot and bootDone closes when it returns. Both are
 	// set before the machine is shared, and are nil when no boot runs.
@@ -92,19 +93,23 @@ type Manager struct {
 	Root string
 	Log  *slog.Logger
 
-	tart          *tart.Client
-	createMu      sync.Mutex // serializes Create so the capacity check cannot be raced
-	stateMu       sync.Mutex // serializes state.json writes; taken before mu, never under it
-	mu            sync.Mutex
-	machines      map[string]*Machine
-	sshKey        string
-	pubKey        string
-	maxMachines   int
-	readyTimeout  time.Duration
-	frameInterval time.Duration
-	vmPoll        time.Duration
-	sshProbe      func(ctx context.Context, vmName, addr string) error
-	onWatch       func(vncURL string)
+	tart             *tart.Client
+	createMu         sync.Mutex // serializes Create so the capacity check cannot be raced
+	stateMu          sync.Mutex // serializes state.json writes; taken before mu, never under it
+	mu               sync.Mutex
+	machines         map[string]*Machine
+	sshKey           string
+	pubKey           string
+	maxMachines      int
+	readyTimeout     time.Duration
+	frameInterval    time.Duration
+	vmPoll           time.Duration
+	sshProbe         func(ctx context.Context, vmName, addr string) error
+	onWatch          func(vncURL string)
+	screenIdle       time.Duration
+	screenBuffer     int
+	screenInputSlack time.Duration
+	messageActivity  func(runID string) time.Time // guarded by mu; see SetMessageActivity
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)
@@ -152,6 +157,17 @@ func WithVMPollInterval(d time.Duration) Option {
 	return func(m *Manager) { m.vmPoll = d }
 }
 
+// WithScreenIdle sets how long a live screen runs with nobody watching.
+func WithScreenIdle(d time.Duration) Option {
+	return func(m *Manager) { m.screenIdle = d }
+}
+
+// WithScreenInputSlack sets how long a live screen may take to ACK an input
+// beyond the time its actions and those queued before it take to post.
+func WithScreenInputSlack(d time.Duration) Option {
+	return func(m *Manager) { m.screenInputSlack = d }
+}
+
 // WithWatchHandler is called with the screen address of each watched machine.
 func WithWatchHandler(fn func(vncURL string)) Option {
 	return func(m *Manager) { m.onWatch = fn }
@@ -168,7 +184,8 @@ func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error)
 	m := &Manager{
 		Root: root, Log: log, tart: tart.New(), machines: map[string]*Machine{},
 		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout, frameInterval: defaultFrameInterval,
-		vmPoll: defaultVMPollInterval,
+		vmPoll: defaultVMPollInterval, screenIdle: defaultScreenIdle, screenBuffer: defaultScreenBuffer,
+		screenInputSlack: screenInputSlack,
 	}
 	m.sshProbe = m.probeSSHInGuest
 	for _, opt := range opts {
@@ -260,7 +277,7 @@ func (m *Manager) emitStep(runID string, seq int) {
 // publicLocked copies mc without its internal handles. The caller holds m.mu.
 func (mc *Machine) publicLocked() *Machine {
 	c := *mc
-	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel = nil, nil, nil, nil, nil, nil
+	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel, c.screen = nil, nil, nil, nil, nil, nil, nil
 	c.bootCancel, c.bootDone = nil, nil
 	return &c
 }
@@ -421,7 +438,9 @@ func (m *Manager) checkHostCapacity(ctx context.Context) error {
 	var ours, foreign []string
 	for name, runID := range held {
 		if runID != "" {
-			ours = append(ours, "runId "+runID)
+			// Idle time lets the caller tell a stale run from a busy one. Choosing is theirs:
+			// greenroom never destroys a machine it was not asked to.
+			ours = append(ours, fmt.Sprintf("runId %s (%s)", runID, describeIdle(m.IdleFor(runID))))
 		} else {
 			foreign = append(foreign, name)
 		}
@@ -499,10 +518,15 @@ func (m *Manager) forgetLocked(mc *Machine) []*tart.Session {
 	return m.detachLocked(mc)
 }
 
-// detachLocked stops the frame recorder and detaches the sessions. It is safe to repeat.
+// detachLocked stops the frame recorder and the live screen, and detaches the
+// sessions. It is safe to repeat.
 func (m *Manager) detachLocked(mc *Machine) []*tart.Session {
 	if mc.frameCancel != nil {
 		mc.frameCancel()
+	}
+	if mc.screen != nil {
+		mc.screen.end(errors.New("the live screen ended: the machine is gone"))
+		mc.screen = nil
 	}
 	live := make([]*tart.Session, 0, len(mc.sessions))
 	for _, s := range mc.sessions {
