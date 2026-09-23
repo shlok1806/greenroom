@@ -123,7 +123,6 @@ struct ScreenView: View {
             guard now else { return }
             goLive()
             player.playing = false
-            evidenceStep = nil
         }
         .onChange(of: store.verdict(runId)?.seq) {
             // Opened on the old verdict's evidence and not moved since: follow the new one.
@@ -316,6 +315,8 @@ struct ScreenView: View {
     private func goLive() {
         player.live = true
         if !player.frames.isEmpty { player.index = player.frames.count - 1 }
+        returnPoint = nil
+        evidenceStep = nil
     }
 
     private func backToVerdict() {
