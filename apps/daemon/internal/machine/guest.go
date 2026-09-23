@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	imagepng "image/png"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,12 +26,25 @@ type ExecResult struct {
 	Stdout   string  `json:"stdout"`
 	Stderr   string  `json:"stderr"`
 	ExitCode int     `json:"exitCode"`
+	TimedOut bool    `json:"timedOut,omitempty"` // the guest killed the command at its timeout; the output is what it printed until then
 	Seconds  float64 `json:"seconds"`
 	Step     int     `json:"step"` // its number in steps.jsonl
 }
 
+// execTimedOutExit and execTimedOutNote are how execWrapper reports a timeout.
+const (
+	execTimedOutExit = 124
+	execTimedOutNote = "greenroom: timed out after "
+)
+
+// execHostGrace is how much longer the host waits than the guest's own timeout,
+// so the guest's watchdog, not the host, ends a command and its output comes back.
+const execHostGrace = 20 * time.Second
+
 // Exec runs command in the guest's login shell, optionally in cwd. A non-zero
-// exit is reported in ExitCode, not as an error.
+// exit is reported in ExitCode, not as an error. At timeout the guest kills the
+// command's process group (issue #28) and the result has TimedOut, exit 124 and
+// the output printed so far; the host gives up only execHostGrace later.
 func (m *Manager) Exec(ctx context.Context, runID, command, cwd string, timeout time.Duration) (ExecResult, error) {
 	mc, err := m.get(runID)
 	if err != nil {
@@ -39,17 +54,20 @@ func (m *Manager) Exec(ctx context.Context, runID, command, cwd string, timeout 
 		return ExecResult{}, err
 	}
 	started := time.Now()
+	guestSeconds := 0
 	if timeout > 0 {
+		guestSeconds = int(math.Ceil(timeout.Seconds()))
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
+		ctx, cancel = context.WithTimeout(ctx, timeout+execHostGrace)
 		defer cancel()
 	}
 	script := command
 	if cd := cdCommand(cwd); cd != "" {
 		script = cd + " && " + command
 	}
-	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", execWrapper, "greenroom-exec", script)
+	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", execWrapper, "greenroom-exec", script, strconv.Itoa(guestSeconds))
 	out := ExecResult{Stdout: res.Stdout, Stderr: res.Stderr, ExitCode: res.ExitCode, Seconds: time.Since(started).Seconds()}
+	out.TimedOut = err == nil && res.ExitCode == execTimedOutExit && strings.Contains(res.Stderr, execTimedOutNote)
 	out.Step = mc.rec.step("machine_exec", map[string]any{"command": command, "cwd": cwd}, truncatedForLog(out), err, started)
 	m.emitStep(mc.RunID, out.Step)
 	return out, err
@@ -61,11 +79,36 @@ func (m *Manager) Exec(ctx context.Context, runID, command, cwd string, timeout 
 // child running (`./App &`, `(cd x && ./App) &`) would hold the call until its
 // timeout. Children inherit files instead, and a file never blocks anyone.
 // Output that a background child writes after the shell exits is not returned.
-const execWrapper = `d=$(mktemp -d /tmp/greenroom-exec.XXXXXX) || exit 125
-/bin/zsh -lc "$1" >"$d/out" 2>"$d/err" </dev/null
+//
+// $2 is the timeout in seconds, 0 for none. The host cannot kill a guest
+// process (killing tart exec leaves it running, issue #28), so the guest does:
+// set -m puts zsh in its own process group, and a watchdog sends that group
+// TERM at the timeout and KILL 5 s later (at once if zsh is already gone). The
+// output so far is still printed, with a note and exit 124, and the files are
+// removed either way. Children a command leaves running on a normal exit stay
+// running. The wrapper's own stderr goes to /dev/null so the shell's job notices
+// never reach the caller; the command's stderr is written to fd 3, which zsh and
+// the watchdog do not inherit (a child holding it would hold the call open).
+const execWrapper = `exec 3>&2 2>/dev/null
+d=$(mktemp -d /tmp/greenroom-exec.XXXXXX) || exit 125
+set -m
+/bin/zsh -lc "$1" >"$d/out" 2>"$d/err" </dev/null 3>&- &
+z=$!
+w=
+if [ "${2:-0}" -gt 0 ]; then
+  (sleep "$2"; : >"$d/timedout"; kill -TERM -"$z"; sleep 5; kill -KILL -"$z") >/dev/null 2>&1 </dev/null 3>&- &
+  w=$!
+fi
+wait "$z"
 s=$?
+[ -n "$w" ] && kill -KILL -"$w"
+if [ -f "$d/timedout" ]; then
+  kill -KILL -"$z"
+  s=124
+fi
 cat "$d/out"
-cat "$d/err" >&2
+cat "$d/err" >&3
+[ -f "$d/timedout" ] && echo "` + execTimedOutNote + `$2 s; the command and its children were killed" >&3
 rm -rf "$d"
 exit $s`
 

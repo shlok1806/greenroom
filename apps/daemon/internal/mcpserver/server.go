@@ -112,7 +112,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 		RunID          string `json:"runId" jsonschema:"runId from machine_create"`
 		Command        string `json:"command" jsonschema:"Shell command, run with zsh -lc in the guest"`
 		Cwd            string `json:"cwd,omitempty" jsonschema:"Working directory in the guest: relative to the home, absolute, or starting with ~/, e.g. work/myapp"`
-		TimeoutSeconds int    `json:"timeoutSeconds,omitempty" jsonschema:"Kill the command after this many seconds. Default 600."`
+		TimeoutSeconds int    `json:"timeoutSeconds,omitempty" jsonschema:"Kill the command and its children in the guest after this many seconds. Default 600. The result then has timedOut true, exit code 124, and the output printed until then."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_exec",

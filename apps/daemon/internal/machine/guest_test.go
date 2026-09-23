@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -108,41 +110,102 @@ func localSSH(t *testing.T) string {
 	return home
 }
 
-// tart exec returns only when every holder of the guest's stdout and stderr
-// has closed them. The wrapper gives a command files instead, so a child the
-// command leaves running cannot hold the call open. Run for real, in a host
-// shell, with a login zsh that reads no dotfiles of this host's user.
-func TestExecWrapperReturnsWhileABackgroundChildRuns(t *testing.T) {
+// runWrapper runs execWrapper for real in a host shell, with a login zsh that
+// reads no dotfiles of this host's user. Every pid the command writes to
+// $HOME/pids is killed when the test ends, so no child outlives it.
+func runWrapper(t *testing.T, command string, timeoutSeconds int) (stdout, stderr string, code int, took time.Duration) {
+	t.Helper()
 	if _, err := os.Stat("/bin/zsh"); err != nil {
 		t.Skip("no /bin/zsh")
 	}
 	home := t.TempDir()
-	cmd := exec.Command("/bin/sh", "-c", execWrapper, "greenroom-exec",
-		"echo out; echo err >&2; sleep 20 & (cd / && sleep 20) & exit 3")
+	t.Cleanup(func() {
+		pids, _ := os.ReadFile(filepath.Join(home, "pids"))
+		for _, f := range strings.Fields(string(pids)) {
+			if pid, err := strconv.Atoi(f); err == nil {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
+	cmd := exec.Command("/bin/sh", "-c", execWrapper, "greenroom-exec", command, strconv.Itoa(timeoutSeconds))
 	cmd.Env = append(os.Environ(), "HOME="+home, "ZDOTDIR="+home)
-	var stdout, stderr strings.Builder
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	var out, errOut strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errOut
 	started := time.Now()
-	done := make(chan error, 1)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	select {
 	case err := <-done:
 		var exit *exec.ExitError
-		if !errors.As(err, &exit) || exit.ExitCode() != 3 {
-			t.Errorf("err = %v, want exit status 3", err)
+		if errors.As(err, &exit) {
+			code = exit.ExitCode()
+		} else if err != nil {
+			t.Fatal(err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(20 * time.Second):
 		_ = cmd.Process.Kill()
-		t.Fatal("the wrapper waited for the command's background children")
+		t.Fatal("the wrapper did not return")
 	}
-	if took := time.Since(started); took > 5*time.Second {
-		t.Errorf("took %s, want the shell's own time", took)
+	return out.String(), errOut.String(), code, time.Since(started)
+}
+
+func execTempDirs(t *testing.T) int {
+	t.Helper()
+	m, _ := filepath.Glob("/tmp/greenroom-exec.*")
+	return len(m)
+}
+
+// tart exec returns only when every holder of the guest's stdout and stderr
+// has closed them. The wrapper gives a command files instead, so a child the
+// command leaves running cannot hold the call open, and keeps running.
+func TestExecWrapperReturnsWhileABackgroundChildRuns(t *testing.T) {
+	before := execTempDirs(t)
+	stdout, stderr, code, took := runWrapper(t,
+		`echo out; echo err >&2; sleep 20 & echo $! >> "$HOME/pids"; (cd / && exec sleep 20) & echo $! >> "$HOME/pids"; exit 3`, 600)
+	if code != 3 || took > 5*time.Second {
+		t.Errorf("exit %d after %s, want exit 3 in the shell's own time", code, took)
 	}
-	if stdout.String() != "out\n" || stderr.String() != "err\n" {
-		t.Errorf("stdout %q, stderr %q, want out and err", stdout.String(), stderr.String())
+	if stdout != "out\n" || stderr != "err\n" {
+		t.Errorf("stdout %q, stderr %q, want out and err and no job notices", stdout, stderr)
+	}
+	if n := execTempDirs(t); n > before {
+		t.Errorf("%d /tmp/greenroom-exec.* dirs left behind", n-before)
+	}
+}
+
+// Issue #28: at the timeout the guest kills the command and its children, and the
+// output so far comes back with exit 124 and a note.
+func TestExecWrapperTimeoutKillsTheTreeAndKeepsTheOutput(t *testing.T) {
+	before := execTempDirs(t)
+	marker := filepath.Join(t.TempDir(), "survived")
+	stdout, stderr, code, took := runWrapper(t,
+		`echo before; (sleep 4; touch `+marker+`) & echo $! >> "$HOME/pids"; for i in 1 2 3 4 5 6; do echo tick $i; sleep 1; done; touch `+marker, 2)
+	if code != execTimedOutExit || took > 5*time.Second {
+		t.Errorf("exit %d after %s, want %d at about 2 s", code, took, execTimedOutExit)
+	}
+	if !strings.HasPrefix(stdout, "before\ntick 1\n") {
+		t.Errorf("stdout %q, want what the command printed before the timeout", stdout)
+	}
+	if !strings.Contains(stderr, execTimedOutNote+"2 s") {
+		t.Errorf("stderr %q, want the timeout note", stderr)
+	}
+	time.Sleep(3 * time.Second)
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the command or its background child kept running past the timeout")
+	}
+	if n := execTempDirs(t); n > before {
+		t.Errorf("%d /tmp/greenroom-exec.* dirs left behind", n-before)
+	}
+}
+
+// A command that ignores TERM is killed 5 s later.
+func TestExecWrapperTimeoutKillsACommandThatIgnoresTerm(t *testing.T) {
+	_, stderr, code, took := runWrapper(t, `trap "" TERM; echo $$ >> "$HOME/pids"; while :; do sleep 1; done`, 1)
+	if code != execTimedOutExit || took > 10*time.Second || !strings.Contains(stderr, execTimedOutNote) {
+		t.Errorf("exit %d after %s, stderr %q; want 124 within about 6 s", code, took, stderr)
 	}
 }
 
@@ -153,7 +216,7 @@ func TestExecRunsTheCommandThroughTheWrapper(t *testing.T) {
 		t.Fatalf("Exec: %v", err)
 	}
 	log := testsupport.Calls(t, control)
-	if !strings.Contains(log, `/bin/zsh -lc "$1" >"$d/out" 2>"$d/err" </dev/null`) || !strings.Contains(log, "greenroom-exec ./App &") {
+	if !strings.Contains(log, `/bin/zsh -lc "$1" >"$d/out" 2>"$d/err" </dev/null 3>&- &`) || !strings.Contains(log, "greenroom-exec ./App & 10") {
 		t.Errorf("the command did not run behind the wrapper\ncalls:\n%s", log)
 	}
 }
