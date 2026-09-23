@@ -40,50 +40,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-@main
+/// The app's one entry point, called from the `CompanionApp` executable. The scene
+/// lives here, in the library, so `CompanionSnapshots` can host the same views.
+public enum CompanionMain {
+    @MainActor
+    public static func run() {
+        CompanionApp.main()
+    }
+}
+
 struct CompanionApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     private var store: RunStore { delegate.store }
 
     var body: some Scene {
-        WindowGroup {
+        // One window: selection lives in the store, so a second window would mirror it.
+        Window("Greenroom Companion", id: "main") {
             RootView(store: store)
-                .frame(minWidth: 900, minHeight: 560)
+                .frame(minWidth: 820, minHeight: 560)
                 .task { store.start() }
         }
+        .defaultSize(width: 1320, height: 840)
         .commands {
-            CommandGroup(after: .toolbar) {
-                Button("Refresh") {
-                    Task { await store.resync() }
-                }
-                .keyboardShortcut("r", modifiers: .command)
-            }
+            SidebarCommands()
+            RunMenuCommands(store: store)
         }
     }
 }
 
-struct RootView: View {
+/// The View and Run menus. They act on the open run through `RunCommands` and
+/// `ScreenCommands`, which the run's views publish while they are on screen.
+struct RunMenuCommands: Commands {
     let store: RunStore
 
-    var body: some View {
-        NavigationSplitView {
-            SidebarView(store: store)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 260)
-        } detail: {
-            if let runId = store.selectedRunId {
-                RunView(store: store, runId: runId)
-            } else {
-                ContentUnavailableView(
-                    "Pick a run",
-                    systemImage: "sidebar.left",
-                    description: Text("Runs are listed newest first.")
-                )
+    @FocusedValue(\.runCommands) private var run
+    @FocusedValue(\.screenCommands) private var screen
+
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Button("Screen") { run?.pane.wrappedValue = .screen }
+                .keyboardShortcut("1", modifiers: .command)
+                .disabled(run == nil)
+            Button("Steps") { run?.pane.wrappedValue = .steps }
+                .keyboardShortcut("2", modifiers: .command)
+                .disabled(run == nil)
+            Button(run?.showsConversation.wrappedValue == false ? "Show Conversation" : "Hide Conversation") {
+                run?.showsConversation.wrappedValue.toggle()
             }
+            .keyboardShortcut("0", modifiers: [.command, .option])
+            .disabled(run == nil)
+            Divider()
+            Button("Refresh") {
+                Task { await store.resync() }
+            }
+            .keyboardShortcut("r", modifiers: .command)
+            Divider()
         }
-        // The SSE socket can look alive after sleep while the daemon restarted.
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await store.resync() }
+        CommandMenu("Run") {
+            Button("Follow Live") { screen?.goLive?() }
+                .keyboardShortcut("l", modifiers: .command)
+                .disabled(screen?.goLive == nil)
+            Button(run?.controlTitle ?? "Take Control") { run?.control?() }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+                .disabled(run?.control == nil)
+            Divider()
+            Button("Next Failure") { run?.nextFailure?() }
+                .keyboardShortcut("'", modifiers: .command)
+                .disabled(run?.nextFailure == nil)
+            Button("Previous Failure") { run?.previousFailure?() }
+                .keyboardShortcut("'", modifiers: [.command, .shift])
+                .disabled(run?.previousFailure == nil)
+            Divider()
+            Button("Capture Screenshot") { run?.capture?() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(run?.capture == nil)
+            Button("Export Recording...") { run?.export?() }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(run?.export == nil)
+            Divider()
+            Button("Destroy Machine...") { run?.destroy?() }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .disabled(run?.destroy == nil)
         }
     }
 }

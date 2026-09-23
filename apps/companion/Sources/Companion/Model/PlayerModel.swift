@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Screen tab's player state (ADR 0008), kept out of the view so it is testable.
+/// The Screen stage's player state (ADR 0008), kept out of the view so it is testable.
 struct PlayerModel: Equatable, Sendable {
     enum Speed: Double, CaseIterable, Sendable {
         case normal = 1
@@ -49,7 +49,7 @@ struct PlayerModel: Equatable, Sendable {
         guard !frames.isEmpty else { return }
         remainder = 0
         live = false
-        index = frames.firstIndex { $0.step >= step } ?? frames.count - 1
+        index = FrameTimeline.index(ofStep: step, in: frames) ?? 0
     }
 
     /// The store already dedupes by file; the index follows only while live.

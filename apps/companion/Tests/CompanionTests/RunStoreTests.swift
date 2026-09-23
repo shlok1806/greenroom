@@ -30,10 +30,50 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.runs[0].messages, 2)
     }
 
-    func testMessagesForARunThatIsNotOpenAreIgnored() {
+    func testMessagesForARunThatIsNotOpenAreNotHeld() {
         let store = store()
         XCTAssertEqual(store.apply(.message(runId: "other", message: message(1))), .nothing)
         XCTAssertNil(store.messages["other"])
+    }
+
+    /// A verdict arriving for a run nobody has open must still reach its sidebar row.
+    func testAVerdictForARunThatIsNotOpenAsksForTheRunList() {
+        let store = store()
+        store.runs.append(RunSummary(runId: "live", createdAt: Date(timeIntervalSince1970: 0), status: .ready, messages: 15))
+        let verdict = Message(seq: 16, at: Date(timeIntervalSince1970: 16), from: .verifier, kind: .verdict, text: "no",
+                              verdict: "fail")
+        XCTAssertEqual(store.apply(.message(runId: "live", message: verdict)), .run("live"))
+        XCTAssertNil(store.messages["live"])
+        XCTAssertEqual(store.run("live")?.messages, 16)
+    }
+
+    /// A detail read before the verdict existed must not hide the list's newer one.
+    func testANewerListedVerdictWinsOverAnEmptyOrOlderDetail() {
+        let store = store()
+        store.details["run-1"] = RunDetail(runId: "run-1")
+        store.runs[0].verdict = VerdictState(seq: 16, verdict: "fail", status: .proposed)
+        XCTAssertEqual(store.verdict("run-1")?.status, .proposed)
+        store.details["run-1"] = RunDetail(runId: "run-1", verdict: VerdictState(seq: 9, verdict: "pass", status: .proposed))
+        XCTAssertEqual(store.verdict("run-1")?.seq, 16)
+    }
+
+    /// A daemon without `RunSummary.task` still gets rows named by their task.
+    func testRunsWithoutATaskLearnItFromTheirTranscript() async {
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/runs": .json(#"[{"runId": "20260919-170059-65804c", "createdAt": "2026-09-19T17:00:59Z", "messages": 2}]"#)
+            default: .json(#"{"messages": [{"seq": 1, "from": "system", "kind": "event", "text": "machine is ready"}, {"seq": 2, "from": "coder", "kind": "task", "text": "Look around ~/work"}]}"#)
+            }
+        }
+        let store = RunStore(client: client)
+        await store.resync()
+        for _ in 0..<50 where store.runs.first?.task == nil {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(store.runs.first?.task, "Look around ~/work")
+        // A later read of the list keeps what was learned.
+        await store.resync()
+        XCTAssertEqual(store.runs.first?.task, "Look around ~/work")
     }
 
     func testAVerdictAsksForTheRunAgain() {
@@ -220,6 +260,186 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.verdict("run-1")?.status, .accepted)
     }
 
+    func testAClosedVerdictWinsATieOnSeq() {
+        let store = store()
+        store.details["run-1"] = RunDetail(
+            runId: "run-1",
+            verdict: VerdictState(seq: 5, verdict: "pass", status: .proposed)
+        )
+        store.runs[0].verdict = VerdictState(seq: 5, verdict: "pass", status: .accepted, acceptedBy: .human)
+        XCTAssertEqual(store.verdict("run-1")?.status, .accepted)
+
+        store.runs[0].verdict = VerdictState(seq: 5, verdict: "pass", status: .proposed)
+        store.details["run-1"]?.verdict = VerdictState(seq: 5, verdict: "pass", status: .rejected)
+        XCTAssertEqual(store.verdict("run-1")?.status, .rejected)
+    }
+
+    func testVerdictCardDraftsBelongToOneRunAndOneVerdict() {
+        let verdict = VerdictState(seq: 7, verdict: "fail", status: .proposed)
+        let same = VerdictCard.identity(runId: "run-1", verdict: verdict)
+        XCTAssertEqual(same, VerdictCard.identity(runId: "run-1", verdict: VerdictState(seq: 7, verdict: "fail", status: .accepted)),
+                       "accepting must not wipe the card mid-action")
+        XCTAssertNotEqual(same, VerdictCard.identity(runId: "run-2", verdict: verdict), "a draft carried into the next run")
+        XCTAssertNotEqual(same, VerdictCard.identity(runId: "run-1", verdict: VerdictState(seq: 9, verdict: "pass", status: .proposed)),
+                          "a draft carried onto a new verdict")
+    }
+
+    func testAContestedVerdictWinsATieOverAProposedOne() {
+        let store = store()
+        store.details["run-1"] = RunDetail(runId: "run-1", verdict: VerdictState(seq: 5, verdict: "fail", status: .proposed))
+        store.runs[0].verdict = VerdictState(seq: 5, verdict: "fail", status: .contested)
+        XCTAssertEqual(store.verdict("run-1")?.status, .contested)
+
+        store.runs[0].verdict = VerdictState(seq: 5, verdict: "fail", status: .proposed)
+        store.details["run-1"]?.verdict = VerdictState(seq: 5, verdict: "fail", status: .contested)
+        XCTAssertEqual(store.verdict("run-1")?.status, .contested)
+    }
+
+    /// Reproduces a restarted daemon with a shorter conversation: nothing held from before
+    /// may still be shown, for the open run or any other.
+    func testAReconnectReplacesEveryHeldTranscript() async {
+        let messages = (1...16).map { #"{"seq": \#($0), "from": "coder", "kind": "note", "text": "m\#($0)"}"# }
+        let page = #"{"messages": [\#(messages.joined(separator: ","))]}"#
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/runs":
+                .json(#"[{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z", "messages": 16}, {"runId": "run-2", "createdAt": "2026-09-18T10:00:00Z", "messages": 16}]"#)
+            case "/api/runs/run-1": .json(#"{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z"}"#)
+            case "/api/runs/run-1/messages": .json(page)
+            default: .json("[]")
+            }
+        }
+        let store = RunStore(client: client)
+        let stale = (1...18).map { message($0) }
+        store.messages = ["run-1": stale, "run-2": stale]
+        store.selectedRunId = "run-1"
+
+        await store.resync()
+
+        XCTAssertEqual(store.messages["run-1"]?.count, 16)
+        XCTAssertNil(store.messages["run-2"], "a run that is not open kept the old daemon's transcript")
+        XCTAssertEqual(store.facts("run-2").messageCount, 16)
+    }
+
+    func testAMessageThatDisagreesWithTheHeldOneRereadsTheTranscript() {
+        let store = store()
+        store.apply(.message(runId: "run-1", message: message(1)))
+        store.apply(.message(runId: "run-1", message: message(2)))
+        let other = Message(seq: 2, at: Date(timeIntervalSince1970: 2), from: .verifier, kind: .note, text: "not the held one")
+        XCTAssertEqual(store.apply(.message(runId: "run-1", message: other)), .messages("run-1"))
+    }
+
+    /// The accept confirmation lives in the store, per run, so the card being rebuilt by
+    /// the accept cannot strand it; accepting clears it.
+    func testAcceptWithoutOpenedEvidenceAsksInTheStoreAndAcceptingClearsIt() async {
+        let posts = Counter()
+        let client = StubURLProtocol.client { request in
+            if request.httpMethod == "POST" { posts.add(); return .json("{}") }
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/runs":
+                return .json(#"[{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z", "verdict": {"seq": 5, "verdict": "fail", "evidence": ["step 2"], "status": "proposed"}}]"#)
+            default:
+                return .json(#"{"messages": []}"#)
+            }
+        }
+        let store = RunStore(client: client)
+        await store.resync()
+
+        await store.requestAccept(runId: "run-1")
+        XCTAssertTrue(store.verdictDraft("run-1").confirmingAccept)
+        XCTAssertEqual(posts.value, 0, "accepted without asking")
+
+        let accepted = await store.acceptVerdict(runId: "run-1")
+        XCTAssertTrue(accepted)
+        XCTAssertEqual(posts.value, 1)
+        XCTAssertFalse(store.verdictDraft("run-1").confirmingAccept)
+        XCTAssertNil(store.verdictDrafts["run-1"])
+    }
+
+    func testAcceptAfterOpeningEvidenceSendsAtOnce() async {
+        let posts = Counter()
+        let client = StubURLProtocol.client { request in
+            if request.httpMethod == "POST" { posts.add(); return .json("{}") }
+            return .json(#"{"messages": []}"#)
+        }
+        let store = RunStore(client: client)
+        store.runs = [RunSummary(runId: "run-1", createdAt: Date(timeIntervalSince1970: 0), status: .ready,
+                                 verdict: VerdictState(seq: 5, verdict: "pass", evidence: ["step 2"], status: .proposed))]
+        store.updateVerdictDraft("run-1") { $0.openedEvidence = true }
+        await store.requestAccept(runId: "run-1")
+        XCTAssertEqual(posts.value, 1)
+        XCTAssertFalse(store.verdictDraft("run-1").confirmingAccept)
+    }
+
+    func testADraftBelongsToOneVerdict() {
+        let store = store()
+        store.runs[0].verdict = VerdictState(seq: 5, verdict: "fail", status: .proposed)
+        store.updateVerdictDraft("run-1") {
+            $0.action = .reject
+            $0.reason = "step 3 shows $48.00"
+            $0.openedEvidence = true
+        }
+        XCTAssertEqual(store.verdictDraft("run-1").reason, "step 3 shows $48.00")
+
+        store.runs[0].verdict = VerdictState(seq: 9, verdict: "pass", status: .proposed)
+        XCTAssertEqual(store.verdictDraft("run-1"), VerdictDraft(verdictSeq: 9))
+    }
+
+    /// The coding agent accepting mid-draft must take the Reject form with it.
+    func testADraftEndsWhenItsVerdictCloses() async {
+        let posts = Counter()
+        let client = StubURLProtocol.client { request in
+            if request.httpMethod == "POST" { posts.add() }
+            return .json("{}")
+        }
+        let store = RunStore(client: client)
+        store.runs = [RunSummary(runId: "run-1", createdAt: Date(timeIntervalSince1970: 0), status: .ready,
+                                 verdict: VerdictState(seq: 5, verdict: "fail", evidence: ["step 2"], status: .proposed))]
+        store.updateVerdictDraft("run-1") {
+            $0.action = .reject
+            $0.reason = "step 3 shows $48.00"
+            $0.confirmingAccept = true
+        }
+
+        store.runs[0].verdict = VerdictState(seq: 5, verdict: "fail", evidence: ["step 2"], status: .accepted, acceptedBy: .coder)
+        XCTAssertEqual(store.verdictDraft("run-1"), VerdictDraft(verdictSeq: 5, verdictClosed: true))
+        let sent = await store.sendVerdictAction(runId: "run-1")
+        XCTAssertFalse(sent)
+        XCTAssertEqual(posts.value, 0, "a dispute was posted to a closed verdict")
+
+        // A re-check begun on the closed verdict stays while it stays closed.
+        store.updateVerdictDraft("run-1") { $0.action = .recheck }
+        XCTAssertEqual(store.verdictDraft("run-1").action, .recheck)
+    }
+
+    func testDraftsOutliveAResyncUntilTheirRunIsGone() async {
+        let gone = Counter()
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/runs":
+                let second = #", {"runId": "run-2", "createdAt": "2026-09-18T10:00:00Z", "verdict": {"seq": 5, "verdict": "fail", "status": "proposed"}}"#
+                return .json(#"[{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z"}\#(gone.value == 0 ? second : "")]"#)
+            case "/api/runs/run-1": return .json(#"{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z"}"#)
+            case "/api/runs/run-1/messages": return .json(#"{"messages": []}"#)
+            default: return .json("[]")
+            }
+        }
+        let store = RunStore(client: client)
+        await store.resync()
+        store.updateVerdictDraft("run-2") {
+            $0.action = .reject
+            $0.reason = "half typed"
+        }
+        store.selectedRunId = "run-1"
+
+        await store.resync()
+        XCTAssertEqual(store.verdictDraft("run-2").reason, "half typed", "a refresh lost an unsent reason")
+
+        gone.add()
+        await store.resync()
+        XCTAssertNil(store.verdictDrafts["run-2"])
+    }
+
     func testCancellationIsNotAFailure() {
         XCTAssertTrue(RunStore.isCancellation(CancellationError()))
         XCTAssertTrue(RunStore.isCancellation(DaemonError.cancelled))
@@ -265,6 +485,29 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.steps["run-1"], [])
         XCTAssertNil(store.frames["run-1"])
         XCTAssertEqual(store.lastError, "The daemon answered 404: no frames")
+    }
+
+    func testConnectionFollowsEveryReadOfTheRunList() async {
+        let answering = StubURLProtocol.client { _ in .json(#"[{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z", "task": "Check the tip"}]"#) }
+        let store = RunStore(client: answering)
+        XCTAssertEqual(store.connection, .connecting)
+        await store.resync()
+        XCTAssertEqual(store.connection, .online)
+        XCTAssertEqual(store.runs.first?.task, "Check the tip")
+
+        let silent = RunStore(client: StubURLProtocol.client { _ in .json(#"{"error": "down"}"#, status: 503) })
+        await silent.resync()
+        XCTAssertEqual(silent.connection, .offline(hasData: false))
+        silent.runs = [RunSummary(runId: "run-1", createdAt: Date())]
+        XCTAssertEqual(silent.connection, .offline(hasData: true))
+    }
+
+    /// A run switch must never carry a lease: each run has its own pilot, lent by the
+    /// seam a test or the daemon provides.
+    func testEachRunHasItsOwnPilot() {
+        let store = RunStore()
+        XCTAssertTrue(store.pilot(for: "run-1") === store.pilot(for: "run-1"))
+        XCTAssertFalse(store.pilot(for: "run-1") === store.pilot(for: "run-2"))
     }
 
     func testAFullSelectClearsAnEarlierError() async {
@@ -314,4 +557,11 @@ final class RunStoreTests: XCTestCase {
         XCTAssertTrue(SidebarView.run(run, matches: Chrome.timeOfDay(created)))
         XCTAssertFalse(SidebarView.run(run, matches: "booting"))
     }
+}
+
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.withLock { count } }
+    func add() { lock.withLock { count += 1 } }
 }

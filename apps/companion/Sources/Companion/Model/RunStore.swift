@@ -8,6 +8,8 @@ enum Followup: Hashable, Sendable {
     case nothing
     case steps(String)
     case run(String)
+    /// The held transcript no longer matches the daemon's: read it again.
+    case messages(String)
 }
 
 /// One fetch needed to resync with the daemon.
@@ -19,12 +21,35 @@ enum Fetch: Hashable, Sendable {
     case frames(String)
 }
 
-/// Jump the Screen tab to the first frame at or after `step` (ADR 0008).
+/// Jump the Screen stage to the first frame at or after `step` (ADR 0008).
 /// `nonce` makes a repeated click on the same row seek again.
 struct SeekRequest: Hashable, Sendable {
     var runId: String
     var step: Int
     var nonce: Int
+    /// Raised from the verdict's evidence, so the stage offers the way back.
+    var fromVerdict = false
+    /// Show the step's record in Steps rather than its frame on the Screen.
+    var inSteps = false
+}
+
+/// What a person has started on one run's verdict. The store holds it, not the card, so
+/// the card can be rebuilt by the very change an action causes (accepting redraws it)
+/// without losing the draft or orphaning a dialog. It belongs to one verdict as it stood:
+/// a new verdict, or the same one closing, starts it empty, so a reason typed for one is
+/// never sent against another, nor against a verdict that can no longer take it.
+struct VerdictDraft: Equatable, Sendable {
+    enum Action: Equatable, Sendable { case reject, recheck }
+
+    var verdictSeq: Int?
+    /// Whether the verdict was accepted or rejected when the draft began.
+    var verdictClosed = false
+    var action: Action?
+    var reason = ""
+    /// Accepting without having opened any cited evidence asks first.
+    var openedEvidence = false
+    /// The inline "accept anyway?" row is showing.
+    var confirmingAccept = false
 }
 
 /// An LRU of decoded frame images, so scrubbing never refetches a frame.
@@ -86,19 +111,42 @@ final class RunStore: PilotHost {
     var steps: [String: [Step]] = [:]
     var frames: [String: [Frame]] = [:]
     var connected = false
+    /// Whether the last read of the run list answered; nil before the first one finishes.
+    var reachable: Bool?
     var lastError: String?
     var selectedRunId: String?
     var seekRequest: SeekRequest?
+    private(set) var verdictDrafts: [String: VerdictDraft] = [:]
 
     let client: DaemonClient
+    /// The lease routes; the daemon client unless a test lends the screen without one.
+    private let controlClient: any ControlClient
+    /// The live screen route; the daemon client unless a test stands in for it.
+    private let screenSource: any ScreenSource
+
+    /// First task messages learned from transcripts, for a daemon whose run list has no
+    /// `task` (before `RunSummary.task`). Merged into every run list read.
+    private var learnedTasks: [String: String] = [:]
+    /// Runs whose transcript is being read only to learn the task, so each is read once.
+    private var taskFetches: Set<String> = []
 
     private let frameCache = FrameCache()
     private var streamTask: Task<Void, Never>?
     private var seekNonce = 0
     private var pilots: [String: ControlPilot] = [:]
+    /// The newest read started for each piece, so an older answer landing late never
+    /// replaces a newer one.
+    private var reads: [Fetch: Int] = [:]
+    private var readCounter = 0
 
-    init(client: DaemonClient = DaemonClient()) {
+    init(
+        client: DaemonClient = DaemonClient(),
+        controlClient: (any ControlClient)? = nil,
+        screenSource: (any ScreenSource)? = nil
+    ) {
         self.client = client
+        self.controlClient = controlClient ?? client
+        self.screenSource = screenSource ?? client
     }
 
     // MARK: - Lifecycle
@@ -165,8 +213,19 @@ final class RunStore: PilotHost {
             failures.append(error)
             if fetch == .runs { reached = false }
         }
+        if reached { forgetUnselected() }
         settle(failures)
         return reached
+    }
+
+    /// The daemon may have restarted with other data, so what is held for runs that are
+    /// not open is dropped rather than shown; opening one reads it afresh.
+    private func forgetUnselected() {
+        let keep = selectedRunId
+        details = details.filter { $0.key == keep }
+        messages = messages.filter { $0.key == keep }
+        steps = steps.filter { $0.key == keep }
+        frames = frames.filter { $0.key == keep }
     }
 
     private func perform(_ fetch: Fetch) async {
@@ -175,13 +234,37 @@ final class RunStore: PilotHost {
 
     /// Loads and stores one piece; `nil` on success.
     private func attempt(_ fetch: Fetch) async -> Error? {
+        readCounter += 1
+        let read = readCounter
+        reads[fetch] = read
+        func current() -> Bool { reads[fetch] == read }
         do {
             switch fetch {
-            case .runs: runs = try await client.runs()
-            case .detail(let runId): details[runId] = try await client.run(runId)
-            case .messages(let runId): messages[runId] = try await client.messages(runId)
-            case .steps(let runId): steps[runId] = try await client.steps(runId)
-            case .frames(let runId): frames[runId] = try await client.frames(runId)
+            case .runs:
+                do {
+                    runs = withLearnedTasks(try await client.runs())
+                    let listed = Set(runs.map(\.runId))
+                    verdictDrafts = verdictDrafts.filter { listed.contains($0.key) }
+                    reachable = true
+                    learnMissingTasks()
+                } catch {
+                    if !RunStore.isCancellation(error) { reachable = false }
+                    throw error
+                }
+            case .detail(let runId):
+                let detail = try await client.run(runId)
+                if current() { details[runId] = detail }
+            case .messages(let runId):
+                let held = try await client.messages(runId)
+                guard current() else { break }
+                messages[runId] = held
+                learn(task: RunTitle.task(in: held), for: runId)
+            case .steps(let runId):
+                let held = StepLog.normalized(try await client.steps(runId))
+                if current() { steps[runId] = held }
+            case .frames(let runId):
+                let held = try await client.frames(runId)
+                if current() { frames[runId] = held }
             }
             return nil
         } catch {
@@ -211,6 +294,8 @@ final class RunStore: PilotHost {
             break
         case .steps(let runId):
             await perform(.steps(runId))
+        case .messages(let runId):
+            await perform(.messages(runId))
         case .run(let runId):
             await perform(.runs)
             if details[runId] != nil || selectedRunId == runId {
@@ -225,8 +310,23 @@ final class RunStore: PilotHost {
     func apply(_ event: ServerEvent) -> Followup {
         switch event {
         case .message(let runId, let message):
-            guard var held = messages[runId] else { return .nothing }
-            if let last = held.last, message.seq <= last.seq { return .nothing }
+            guard var held = messages[runId] else {
+                // Not open: the row still counts it, and a verdict changes its badge now.
+                if let index = runs.firstIndex(where: { $0.runId == runId }) {
+                    runs[index].messages += 1
+                    runs[index].lastActivity = max(runs[index].lastActivity, message.at)
+                }
+                if message.kind == .task { learn(task: message.text, for: runId) }
+                switch message.kind {
+                case .verdict, .accept, .dispute: return .run(runId)
+                default: return .nothing
+                }
+            }
+            if let last = held.last, message.seq <= last.seq {
+                // A repeat out of a reconnect changes nothing; a different message at a
+                // held seq means the daemon's transcript is not the one held.
+                return held.first(where: { $0.seq == message.seq }) == message ? .nothing : .messages(runId)
+            }
             held.append(message)
             messages[runId] = held
             if let index = runs.firstIndex(where: { $0.runId == runId }) {
@@ -285,10 +385,69 @@ final class RunStore: PilotHost {
         return true
     }
 
+    // MARK: - Verdict actions
+
+    /// The draft for the run's current verdict; empty when it was made for another one.
+    func verdictDraft(_ runId: String) -> VerdictDraft {
+        let current = verdict(runId)
+        let seq = current?.seq
+        let closed = current.map { $0.status == .accepted || $0.status == .rejected } ?? false
+        if let held = verdictDrafts[runId], held.verdictSeq == seq, held.verdictClosed == closed { return held }
+        return VerdictDraft(verdictSeq: seq, verdictClosed: closed)
+    }
+
+    func updateVerdictDraft(_ runId: String, _ change: (inout VerdictDraft) -> Void) {
+        var draft = verdictDraft(runId)
+        change(&draft)
+        verdictDrafts[runId] = draft
+    }
+
+    /// Accept, or ask first when none of the cited evidence was opened.
+    func requestAccept(runId: String) async {
+        guard let verdict = verdict(runId), verdict.status.isOpen else { return }
+        if verdictDraft(runId).openedEvidence || (verdict.evidence ?? []).isEmpty {
+            await acceptVerdict(runId: runId)
+        } else {
+            updateVerdictDraft(runId) { $0.confirmingAccept = true }
+        }
+    }
+
+    @discardableResult
+    func acceptVerdict(runId: String) async -> Bool {
+        updateVerdictDraft(runId) { $0.confirmingAccept = false }
+        guard let verdict = verdict(runId), verdict.status.isOpen, let seq = verdict.seq else { return false }
+        let sent = await send(runId: runId, kind: .accept, text: "accepted", replyTo: seq)
+        if sent { verdictDrafts[runId] = nil }
+        return sent
+    }
+
+    /// Sends the draft's reject or re-check with its reason.
+    @discardableResult
+    func sendVerdictAction(runId: String) async -> Bool {
+        let draft = verdictDraft(runId)
+        let text = draft.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let action = draft.action, !text.isEmpty, let verdict = verdict(runId), let seq = verdict.seq else { return false }
+        switch action {
+        case .reject: guard verdict.status.isOpen else { return false }
+        case .recheck: guard verdict.status == .accepted else { return false }
+        }
+        let sent: Bool
+        switch action {
+        case .reject:
+            sent = await send(runId: runId, kind: .dispute, text: text, replyTo: seq)
+        case .recheck:
+            // A task starts a verifier turn; no reply-to, since the accepted verdict is closed.
+            sent = await send(runId: runId, kind: .task,
+                              text: "Re-check the \(Chrome.outcomeTitle(verdict.verdict).lowercased()) verdict (message \(seq)) before it is trusted: \(text)")
+        }
+        if sent { verdictDrafts[runId] = nil }
+        return sent
+    }
+
     func screenshot(runId: String) async {
         do {
             try await client.screenshot(runId: runId)
-            steps[runId] = try await client.steps(runId)
+            steps[runId] = StepLog.normalized(try await client.steps(runId))
             // The daemon writes the capture into the conversation. Re-read it
             // rather than trust the stream, which may be what is broken.
             await reloadTranscript(runId)
@@ -362,14 +521,14 @@ final class RunStore: PilotHost {
     /// redrawn tab keeps it and two views never both ask for it.
     func pilot(for runId: String) -> ControlPilot {
         if let held = pilots[runId] { return held }
-        let pilot = ControlPilot(runId: runId, client: client, host: self)
+        let pilot = ControlPilot(runId: runId, client: controlClient, host: self)
         pilots[runId] = pilot
         return pilot
     }
 
     /// A fresh live screen (ADR 0011); the caller starts it and must stop it.
     func liveScreen(for runId: String) -> LiveScreen {
-        LiveScreen(runId: runId, source: client)
+        LiveScreen(runId: runId, source: screenSource)
     }
 
     var holdsControl: Bool {
@@ -395,19 +554,114 @@ final class RunStore: PilotHost {
         _ = await attempt(.runs)
     }
 
-    func requestSeek(runId: String, step: Int) {
+    func requestSeek(runId: String, step: Int, fromVerdict: Bool = false, inSteps: Bool = false) {
         seekNonce += 1
-        seekRequest = SeekRequest(runId: runId, step: step, nonce: seekNonce)
+        seekRequest = SeekRequest(runId: runId, step: step, nonce: seekNonce, fromVerdict: fromVerdict, inSteps: inSteps)
+    }
+
+    /// The step the stage is pointing at, highlighted in Steps and named in the status
+    /// line. Cleared by `clearFocus` (the way back to the verdict) or a run change.
+    var focusedStep: SeekRequest? {
+        guard let request = seekRequest, request.runId == selectedRunId else { return nil }
+        return request
+    }
+
+    func clearFocus() {
+        seekRequest = nil
     }
 
     // MARK: - Derived
+
+    var connection: ConnectionState {
+        ConnectionState.derive(reachable: reachable, hasData: !runs.isEmpty)
+    }
+
+    /// Where the daemon is, as a person would type it.
+    var daemonAddress: String {
+        let url = client.baseURL
+        guard let host = url.host() else { return url.absoluteString }
+        return url.port.map { "\(host):\($0)" } ?? host
+    }
+
+    /// The one derived state every view shows for a run (companion ADR 0002). Uses the
+    /// held records when the run is open, so its row and its header agree.
+    func facts(_ runId: String, now: Date = Date()) -> RunFacts {
+        RunFacts.derive(
+            summary: run(runId),
+            detail: details[runId],
+            messages: messages[runId],
+            steps: steps[runId],
+            verdict: verdict(runId),
+            now: now
+        )
+    }
 
     func run(_ runId: String) -> RunSummary? {
         runs.first { $0.runId == runId }
     }
 
+    /// The newer of the detail's and the list's: a detail read before the verdict arrived
+    /// must not hide the one the list now has. Contesting, accepting and rejecting keep
+    /// the seq, so on a tie the copy further along (`progress`) is the newer one.
     func verdict(_ runId: String) -> VerdictState? {
-        details[runId]?.verdict ?? run(runId)?.verdict
+        let detail = details[runId]?.verdict
+        let listed = run(runId)?.verdict
+        guard let detail, detail.status != .none else { return listed ?? detail }
+        guard let listed else { return detail }
+        let listedSeq = listed.seq ?? 0, detailSeq = detail.seq ?? 0
+        if listedSeq != detailSeq { return listedSeq > detailSeq ? listed : detail }
+        return Self.progress(listed.status) > Self.progress(detail.status) ? listed : detail
+    }
+
+    /// How far a verdict has gone at one seq: none, proposed, contested, then closed.
+    private static func progress(_ status: VerdictStatus) -> Int {
+        switch status {
+        case .none, .unknown: 0
+        case .proposed: 1
+        case .contested: 2
+        case .accepted, .rejected: 3
+        }
+    }
+
+    // MARK: - Task titles
+
+    private func withLearnedTasks(_ fetched: [RunSummary]) -> [RunSummary] {
+        fetched.map { run in
+            var run = run
+            if run.task?.isEmpty ?? true, let known = learnedTasks[run.runId] { run.task = known }
+            return run
+        }
+    }
+
+    private func learn(task: String?, for runId: String) {
+        guard let task, !task.isEmpty, learnedTasks[runId] == nil else { return }
+        learnedTasks[runId] = task
+        if let index = runs.firstIndex(where: { $0.runId == runId }), runs[index].task?.isEmpty ?? true {
+            runs[index].task = task
+        }
+    }
+
+    /// Reads, a few at a time and once each, the transcripts of runs the list did not name.
+    private func learnMissingTasks() {
+        let missing = runs.filter { ($0.task?.isEmpty ?? true) && $0.messages > 0 && !taskFetches.contains($0.runId) }
+            .map(\.runId)
+        guard !missing.isEmpty else { return }
+        taskFetches.formUnion(missing)
+        Task { [weak self] in
+            for batch in stride(from: 0, to: missing.count, by: 4).map({ Array(missing[$0..<min($0 + 4, missing.count)]) }) {
+                await withTaskGroup(of: (String, String?).self) { group in
+                    for runId in batch {
+                        group.addTask { [weak self] in
+                            let held = try? await self?.client.messages(runId)
+                            return (runId, held.flatMap { RunTitle.task(in: $0) })
+                        }
+                    }
+                    for await (runId, task) in group {
+                        self?.learn(task: task, for: runId)
+                    }
+                }
+            }
+        }
     }
 
     /// True while the verifier owes an answer (ADR 0006, "A human is always
