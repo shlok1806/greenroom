@@ -109,7 +109,8 @@ Boot and lifecycle
   `vm.log`. `watchProcess` does the same after ready; a reattached machine has no process,
   so it polls `tart list` every `WithVMPollInterval` (15 s) instead.
 - `Destroy` cancels the boot and waits for `finishBoot` to return, which then records
-  nothing. The machine stays in the map and `state.json` (marked `destroying`) until its
+  nothing. It also waits for the frame recorder to return, so no frame lands in the run
+  directory after it. The machine stays in the map and `state.json` (marked `destroying`) until its
   VM is deleted; stop and delete ignore the caller's context.
 - `state.json` is written atomically outside `m.mu` (`saveState`, ordered by `stateMu`).
   A corrupt file is moved to `state.json.corrupt-<ts>`; a run that cannot be reopened is

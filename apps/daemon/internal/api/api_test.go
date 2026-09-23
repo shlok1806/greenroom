@@ -48,6 +48,13 @@ func newHarness(t *testing.T, extra ...machine.Option) *harness {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
+	// Destroy stops each frame recorder, so nothing writes into a run directory while
+	// t.TempDir removes it. Cleanups run last-in first-out, so this runs before that.
+	t.Cleanup(func() {
+		for _, mc := range mgr.List() {
+			_ = mgr.Destroy(context.Background(), mc.RunID)
+		}
+	})
 	reg := session.NewRegistry(mgr.Root, 2)
 	ts := httptest.NewServer(LocalOnly(New(mgr, reg, log)))
 	t.Cleanup(ts.Close)
