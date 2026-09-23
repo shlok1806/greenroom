@@ -3,4 +3,6 @@
 # and -count=1 keeps Go from replaying cached results.
 commands:
   test: "cd apps/daemon && go vet ./... && go test -race -count=1 ./... && cd ../companion && swift test"
-  lint: "pnpm lint"
+  # The gate worktree starts without node_modules, so install from the lockfile
+  # first or biome is not on PATH.
+  lint: "pnpm install --frozen-lockfile --prefer-offline && pnpm lint"

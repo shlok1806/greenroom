@@ -21,16 +21,25 @@ if [ -z "${GREENROOM_TART:-}" ] && [ ! -x "$tart" ]; then
   tart="tart"
 fi
 
-# Prefer the prepared image (issue #12) when it exists. GREENROOM_IMAGE overrides.
+# Prefer the lean image (docs/image-experiment/decision-log.md, decision 22), then the prepared
+# image (issue #12), then upstream. GREENROOM_IMAGE overrides.
 image="${GREENROOM_IMAGE:-}"
+image_source="GREENROOM_IMAGE"
 if [ -z "$image" ]; then
-  if "$tart" list --source local 2>/dev/null | grep -q '^local[[:space:]]\{1,\}greenroom-base[[:space:]]'; then
-    image="greenroom-base"
-  else
+  local_vms="$("$tart" list --source local 2>/dev/null || true)"
+  for candidate in greenroom-lean-a greenroom-base; do
+    if printf '%s\n' "$local_vms" | grep -q "^local[[:space:]]\{1,\}$candidate[[:space:]]"; then
+      image="$candidate"
+      image_source="local image"
+      break
+    fi
+  done
+  if [ -z "$image" ]; then
     image="ghcr.io/cirruslabs/macos-tahoe-base:latest"
+    image_source="no greenroom-lean-a or greenroom-base, upstream"
   fi
 fi
-echo "image: $image"
+echo "image: $image ($image_source)"
 
 label="com.greenroom.daemon"
 root="$HOME/.greenroom"

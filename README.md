@@ -33,7 +33,9 @@ Decisions: [docs/adr/](docs/adr/).
    `scripts/uninstall.sh`.
 
    Optional, makes the first click on each machine ~30 s faster:
-   `scripts/build-image.sh`, then rerun `scripts/install.sh` (it picks up `greenroom-base`).
+   `scripts/build-image.sh`, then rerun `scripts/install.sh`. It picks `greenroom-lean-a`
+   if that local image exists, then `greenroom-base`, then the upstream Cirrus image;
+   `GREENROOM_IMAGE` overrides.
 
 2. Install and open the companion (`/Applications/Greenroom Companion.app`):
 

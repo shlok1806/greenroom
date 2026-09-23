@@ -102,6 +102,42 @@ Evidence for each is in [`report.md`](report.md) and [`raw/`](raw/) unless noted
     popups and every stability check passing. Idle CPU and task time need more runs, or a
     quiet host and a reliable model, before they can decide anything.
 
+21. **Variant B is dropped (2026-09-23, coordinator).** Decision 4 lets B win only if it
+    is at least 15% better than A on boot, idle CPU or task time, and decision 20 turns that
+    into bars against A's medians (17.4 s boot, 14.3% idle CPU, 214 s task). A already disables the removed apps' user agents
+    (running user agents -28%, processes -18%, widgets 0); what is left is the 415 system
+    launchd jobs, which are identical across base, control and A and which deleting app
+    bundles from the sealed volume would not touch. Deleting the bundles would only remove
+    files that no longer run, from a snapshot every clone shares, so B has no plausible way
+    to be 15% better than A on boot, idle CPU or task time, and it would cost disabling
+    authenticated root. The one visible leftover, macOS 26's Apps.app listing every system
+    app, is out of the Dock and does not surface to an agent.
+22. **`greenroom-lean-a` replaces `greenroom-base` on the local daemon (2026-09-23).**
+    Decision 1 picks an image by measured data and decision 2 makes a TipSplit verifier
+    task part of that data, so the swap waited for the benchmark (19) and a TipSplit demo
+    on the daemon itself. The demo ran on
+    127.0.0.1:7777 with `image: greenroom-lean-a` (run 20260923-115755-4e4054d99265aaca):
+    boot 28.4 s, Dock with only the core apps, no widgets or popups; the verifier set the
+    bill, tip and people by machine_ui element clicks, all on the right controls, proposed
+    the correct fail on the planted bug, and after the fix proposed the correct pass
+    (steps 24, 26, 28). NVIDIA NIM refused several turns (429 and 500 from
+    nemotron-3-ultra) and the task was resent twice; that is model availability under a
+    shared key, not the image. The swap is done by pointing the daemon at the image, so no
+    image was renamed or deleted: `apps/daemon/scripts/install.sh` now defaults to
+    `greenroom-lean-a` when that local image exists, then `greenroom-base`, then the
+    upstream Cirrus image, so a plain rerun keeps lean-a. Rollback is
+    `GREENROOM_IMAGE=greenroom-base apps/daemon/scripts/install.sh`.
+23. **The verifier model is the next bottleneck.** Every run in this experiment and the
+    demo lost time to NIM errors on the default brain. An offline screen of NIM models
+    (40 labelled screenshots, 45 replayed decisions) found moonshotai/kimi-k3 as describer
+    (value recall 0.94, no invented values, 0 failures) and z-ai/glm-5.3 or a single
+    kimi-k3 that sees the screen as brain (0 failed calls, all verdicts right). Results:
+    [`verifier-models/report.md`](verifier-models/report.md),
+    [`verifier-models/tables.md`](verifier-models/tables.md), and the configurations to try
+    in [`verifier-models/shortlist.md`](verifier-models/shortlist.md). The screening
+    harness and its patch were not committed. A realistic Claude Code driven live suite
+    comparing the shortlist is still pending; the default models stay until it reports.
+
 ### Follow-ups for the feature agent
 
 - Both images reopen a Terminal window over the desktop at every login (the Cirrus base's
@@ -109,6 +145,7 @@ Evidence for each is in [`report.md`](report.md) and [`raw/`](raw/) unless noted
   `screenshots/base-v5-after-idle.jpg`). The verifier then sees Terminal in its app list.
   Clearing Terminal's saved state in the image is a small fix; it changes the image, so
   it needs its own measurement.
-- `greenroom-base`, the image the local daemon serves, is stale (helper v2). Rebuilding it
-  with the current `build-image.sh` gives most of the difference in the second table of
-  the report with no lean profile at all.
+- The local daemon now serves `greenroom-lean-a` (decision 22). `greenroom-base` is still
+  stale (helper v2) and is the rollback target; rebuilding it with the current
+  `build-image.sh` gives anyone still on it most of the difference in the second table of
+  the report, with no lean profile at all.
