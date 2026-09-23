@@ -79,6 +79,42 @@ func TestActorTakesATurnWhenATaskArrivesAndStopsWithTheMachine(t *testing.T) {
 	}
 }
 
+// Issue #33: after the machine is destroyed the actor is gone, so a task was accepted and nothing
+// ever answered it, and agent_wait looped forever. Whatever would start a turn now gets an event
+// saying nothing will answer; a note that starts none gets nothing.
+func TestAMessageOnADestroyedRunIsToldNothingWillAnswer(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	v := newVerifier(t, mgr, (&scriptedModel{}).start(t))
+	reg := session.NewRegistry(mgr.Root, 2)
+	actors := NewActors(v, mgr, reg)
+	if err := mgr.Destroy(context.Background(), runID); err != nil {
+		t.Fatalf("Destroy: %v", err)
+	}
+	if actors.Running(runID) {
+		t.Fatal("the actor outlived its machine")
+	}
+	store, err := reg.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	post(t, store, session.Message{From: session.Coder, Kind: session.Note, Text: "for the record"})
+	postTask(t, store, "run echo hi")
+	deadline := time.Now().Add(5 * time.Second)
+	for !eventSaying(store, "nothing will answer") {
+		if time.Now().After(deadline) {
+			t.Fatalf("a task on a destroyed run got no answer at all; transcript: %+v", store.After(0))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := len(messagesOfKind(store, session.Event)); n != 1 {
+		t.Errorf("%d events, want one, for the task and not the note; transcript: %+v", n, store.After(0))
+	}
+	last := lastMessage(t, store)
+	if last.From != session.System || !strings.Contains(last.Text, "destroyed") {
+		t.Errorf("last message = %+v, want the system saying the machine was destroyed", last)
+	}
+}
+
 // A coder note is context and must not cost a model call.
 func TestACoderNoteDoesNotStartATurn(t *testing.T) {
 	mgr, runID, _ := ready(t)
@@ -197,6 +233,11 @@ func TestActorGivesUpAndSaysSo(t *testing.T) {
 		if !eventSaying(store, want) {
 			t.Errorf("no %q event; transcript: %+v", want, store.After(0))
 		}
+	}
+	// Issue #45: "send another message" led a coder to send a note, which never starts a turn, and
+	// wait forever. The event names what does.
+	if !eventSaying(store, "send a task, answer or dispute to try again") || !eventSaying(store, "a coding agent's note does not start a turn") {
+		t.Errorf("the give-up event does not say which messages restart the verifier; transcript: %+v", store.After(0))
 	}
 	// It gave up on the turn, not on the run: the next message still works.
 	if !actors.Running(runID) {

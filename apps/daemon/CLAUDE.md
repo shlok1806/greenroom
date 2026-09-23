@@ -159,9 +159,15 @@ Conversation and verifier
 - The verifier is reached only through the conversation. Nothing but the actor calls
   `Turn`. There is no `machine_verify` tool.
 - A verdict is a proposal. After `-max-disputes` (default 2) disputes it is contested and
-  only a human can close it.
+  only a human can close it: the coder may accept or dispute only a `proposed` verdict
+  (issue #34, ADR 0006 rule 4).
 - Every human message starts a turn and gets a `reply`, `question` or `verdict`, even
-  while the machine boots or is dead. A coder `note` does not start a turn.
+  while the machine boots or is dead. A coder `note` does not start a turn. Once the
+  machine is destroyed the run has no actor, so `Actors.answerEndedRuns` answers anything
+  that would start a turn with an event saying nothing will answer (issue #33).
+- `agent_wait` keeps waiting while everything new is verifier `progress`, and returns the
+  batch when anything else lands or at the timeout: one call per verifier turn, not one per
+  step (issue #46).
 - `Manual` answers exactly like `Verifier`, through the same `Manager` calls. Anything
   that works under `-verifier manual` works under `nim`.
 - Model failures retry: `nim.RetryBackoff` (1, 2, 4, 8 s on 429/5xx/transport, honours
@@ -180,7 +186,9 @@ Computer use (ADR 0009)
 - At most one control lease per machine; `Manager.Input` refuses input without it. Lease
   expires after `ControlTTL` (60 s) of silence; each batch renews it. A human taking
   or releasing it posts to the transcript (`internal/api`); each batch is one
-  `machine_input` step.
+  `machine_input` step. Expiry is lazy, so a human lease that lapsed is posted ("human lost
+  control of the screen after N actions") when the human takes the screen again
+  (`TakeControlReporting`) or lets go of it, never as a second "took control" (issue #57).
 - The verifier takes the lease per call, not per turn, via `Manager.InputAs`. A human
   holding it is a readable error, not a failure.
 - Coordinates are fractions 0 to 1. Only the manager converts to points (`ScreenOf`), and

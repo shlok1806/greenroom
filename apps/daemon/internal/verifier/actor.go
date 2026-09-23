@@ -54,6 +54,7 @@ func NewActors(b Brain, mgr *machine.Manager, reg *session.Registry, opts ...Act
 			a.Stop(ev.RunID)
 		}
 	})
+	reg.Listen(a.answerEndedRuns)
 	for _, mc := range mgr.List() {
 		a.Start(mc.RunID)
 	}
@@ -72,6 +73,28 @@ func NewActors(b Brain, mgr *machine.Manager, reg *session.Registry, opts ...Act
 		a.Start(id)
 	}
 	return a
+}
+
+// answerEndedRuns tells whoever starts a turn on a run whose machine is gone that nothing will
+// answer, so a coder's agent_wait returns instead of looping forever (issue #33). A run with an
+// actor, such as a failed boot, is answered by it.
+func (a *Actors) answerEndedRuns(runID string, m session.Message) {
+	if !m.StartsTurn() || a.Running(runID) {
+		return
+	}
+	man, err := machine.ReadManifest(a.mgr.RunDir(runID))
+	if err != nil || man.DestroyedAt == nil {
+		return
+	}
+	// Listeners run under the store's lock, so append elsewhere.
+	go func() {
+		store, err := a.reg.Get(runID)
+		if err != nil {
+			return
+		}
+		appendMessage(a.log, store, session.Message{From: session.System, Kind: session.Event, Text: fmt.Sprintf(
+			"this run's machine was destroyed, so the verifier has stopped and nothing will answer this %s", m.Kind)})
+	}()
 }
 
 // Start begins an actor for runID if none is running.
@@ -159,7 +182,8 @@ func (a *Actors) runTurn(ctx context.Context, runID string, store *session.Store
 		}
 		if attempt >= attempts {
 			appendMessage(a.log, store, session.Message{From: session.System, Kind: session.Event,
-				Text: fmt.Sprintf("verifier gave up on this turn after %d attempts; send another message to try again", attempts)})
+				Text: fmt.Sprintf("verifier gave up on this turn after %d attempts; send a task, answer or dispute to try again "+
+					"(a human's note also starts a turn; a coding agent's note does not start a turn)", attempts)})
 			*seen = store.Len()
 			return
 		}

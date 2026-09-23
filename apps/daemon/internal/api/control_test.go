@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
@@ -86,13 +87,48 @@ func TestReleasingControlReportsWhatWasDone(t *testing.T) {
 	if code, body := h.status(http.MethodDelete, "/api/runs/"+runID+"/control", nil); code != http.StatusOK {
 		t.Fatalf("release: status %d: %s", code, body)
 	}
-	if !conversationSays(h, runID, "gave the screen back after 1 actions") {
+	if !conversationSays(h, runID, "gave the screen back after 1 action") {
 		t.Error("the release did not say what was done")
 	}
 	var detail RunDetail
 	h.get("/api/runs/"+runID, &detail)
 	if detail.Machine != nil && detail.Machine.Control != nil {
 		t.Errorf("the lease survived the release: %+v", detail.Machine.Control)
+	}
+}
+
+// Issue #57: a lease that lapsed left no trace, so the transcript read "took control", "took
+// control", "gave the screen back after 0 actions". The lapse is recorded with what was done under
+// it, when the human takes the screen again or lets go of a lapsed lease.
+func TestALapsedLeaseIsRecordedWithItsActions(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.postJSON("/api/runs/"+runID+"/control", map[string]any{"ttlSeconds": 1}, nil)
+	h.postJSON("/api/runs/"+runID+"/input", map[string]any{
+		"actions": []machine.InputAction{{Type: "click", X: frac(0.5), Y: frac(0.5)}},
+	}, nil)
+	time.Sleep(1200 * time.Millisecond)
+
+	h.postJSON("/api/runs/"+runID+"/control", map[string]any{"ttlSeconds": 1}, nil)
+	time.Sleep(1200 * time.Millisecond)
+	if code, body := h.status(http.MethodDelete, "/api/runs/"+runID+"/control", nil); code != http.StatusOK {
+		t.Fatalf("release: status %d: %s", code, body)
+	}
+
+	var handovers []string
+	for _, m := range h.store(runID).After(0) {
+		if strings.Contains(m.Text, "control of the screen") || strings.Contains(m.Text, "gave the screen back") {
+			handovers = append(handovers, m.Text)
+		}
+	}
+	want := []string{
+		"human took control of the screen",
+		"human lost control of the screen after 1 action: the lease lapsed with no input or renewal for 1 s",
+		"human took control of the screen",
+		"human lost control of the screen after 0 actions: the lease lapsed with no input or renewal for 1 s",
+	}
+	if strings.Join(handovers, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("handovers:\n%s\nwant:\n%s", strings.Join(handovers, "\n"), strings.Join(want, "\n"))
 	}
 }
 

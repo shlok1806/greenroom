@@ -247,10 +247,14 @@ func TestCoderDisputesUntilContestedThenAHumanCloses(t *testing.T) {
 	if !errors.Is(err, ErrContested) {
 		t.Fatalf("third coder dispute: %v", err)
 	}
-	// The coder may still agree.
-	must(t, s, Message{From: Coder, Kind: Accept, ReplyTo: v3.Seq})
-	if got := s.Verdict(); got.Status != Accepted || got.AcceptedBy != Coder {
-		t.Fatalf("coder accept of contested: %+v", got)
+	// Issue #34: nor may it accept. ADR 0006 keeps a contested verdict open until a human closes
+	// it; otherwise the party that lost the argument could skip the escalation it forces.
+	if _, err := s.Append(Message{From: Coder, Kind: Accept, ReplyTo: v3.Seq}); !errors.Is(err, ErrContested) {
+		t.Fatalf("coder accept of a contested verdict: %v, want ErrContested", err)
+	}
+	must(t, s, Message{From: Human, Kind: Accept, ReplyTo: v3.Seq})
+	if got := s.Verdict(); got.Status != Accepted || got.AcceptedBy != Human {
+		t.Fatalf("human accept of contested: %+v", got)
 	}
 }
 
