@@ -44,10 +44,16 @@ func setGuestTimeZone(ctx context.Context, c *tart.Client, vmName, zone string) 
 	if !tzName.MatchString(zone) {
 		return fmt.Errorf("set the time zone: %q is not a time zone name", zone)
 	}
+	// systemsetup can report an error early in a boot and still set the zone, or fail and
+	// set nothing, so its word is not taken: the link decides, with one retry, then a plain
+	// link as the fallback (seen on macOS 26: exit 1 at boot, zone set).
 	script := fmt.Sprintf(`set -e
 [ -e /usr/share/zoneinfo/%[1]s ]
-sudo -n systemsetup -settimezone %[1]s >/dev/null 2>&1 || sudo -n ln -sf /usr/share/zoneinfo/%[1]s /etc/localtime
-case "$(readlink /etc/localtime)" in */zoneinfo/%[1]s) ;; *) exit 1 ;; esac
+ok() { case "$(readlink /etc/localtime)" in */zoneinfo/%[1]s) return 0 ;; esac; return 1; }
+sudo -n systemsetup -settimezone %[1]s >/dev/null 2>&1 || true
+ok || { sleep 2; sudo -n systemsetup -settimezone %[1]s >/dev/null 2>&1 || true; }
+ok || sudo -n ln -sf /usr/share/zoneinfo/%[1]s /etc/localtime
+ok || { echo "the guest's /etc/localtime is $(readlink /etc/localtime)" >&2; exit 1; }
 `, zone)
 	if _, err := execChecked(ctx, c, vmName, "/bin/sh", "-c", script); err != nil {
 		return fmt.Errorf("set the time zone to %s: %w", zone, err)
