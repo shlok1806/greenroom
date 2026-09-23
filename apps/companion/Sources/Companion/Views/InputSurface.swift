@@ -159,12 +159,11 @@ final class InputSurfaceView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         guard active, let at = fraction(event) else { return super.scrollWheel(with: event) }
-        send(InputAction(
-            type: .scroll,
+        send(InputBatch.scroll(
             x: at.x,
             y: at.y,
-            deltaX: Double(event.scrollingDeltaX),
-            deltaY: Double(event.scrollingDeltaY)
+            appKitDeltaX: Double(event.scrollingDeltaX),
+            appKitDeltaY: Double(event.scrollingDeltaY)
         ))
     }
 

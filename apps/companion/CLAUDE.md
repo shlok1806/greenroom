@@ -75,6 +75,8 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 - While driving with the screen focused, Command shortcuts (Cmd-Q too) go to the guest.
   "Give Back", clicked with the mouse, is the way out.
 - `ScreenGeometry` is the only place a view point becomes a screen fraction.
+- A wheel event becomes a scroll through `InputBatch.scroll`, which negates AppKit's deltas:
+  the daemon's positive `deltaY` scrolls down, AppKit's positive `scrollingDeltaY` scrolls up.
 - `KeyTranslator`: anything with cmd/ctrl, or with no character (return, arrows, F-keys),
   is a named `key`; everything else is `type` with the produced characters.
 - Live screen (ADR 0011): streams only while the Screen stage is on screen, following live,

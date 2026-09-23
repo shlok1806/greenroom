@@ -97,6 +97,13 @@ enum KeyTranslator {
 
 /// Trims a queue of actions without losing anything the guest can observe.
 enum InputBatch {
+    /// A scroll from an AppKit wheel event. AppKit's positive `scrollingDeltaY` scrolls up (the
+    /// content moves down) and positive `scrollingDeltaX` scrolls left; the daemon's deltas are
+    /// the other way round, positive down and right, as its tools describe (daemon issue #51).
+    static func scroll(x: Double, y: Double, appKitDeltaX: Double, appKitDeltaY: Double) -> InputAction {
+        InputAction(type: .scroll, x: x, y: y, deltaX: -appKitDeltaX, deltaY: -appKitDeltaY)
+    }
+
     static func coalesced(_ actions: [InputAction]) -> [InputAction] {
         var out: [InputAction] = []
         for action in actions {

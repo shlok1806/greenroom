@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -235,6 +236,9 @@ func (m *Manager) Input(ctx context.Context, runID, holder string, actions []Inp
 	if len(actions) == 0 {
 		return InputResult{}, errors.New("no actions to post")
 	}
+	if err := validateActions(actions); err != nil {
+		return InputResult{}, err
+	}
 	if err := m.claimActions(mc, holder, len(actions)); err != nil {
 		return InputResult{}, err
 	}
@@ -276,9 +280,51 @@ func (m *Manager) InputAs(ctx context.Context, runID, holder string, actions []I
 	return m.Input(ctx, runID, holder, actions)
 }
 
-// pixels scales an action's fractions to guest points. Out-of-range fractions
-// are clamped: a drag off the edge is a hand, not a bad request.
+// The names the helper posts (input.swift `flags`, `mouseButton`, `perform`). Anything else is
+// refused here, before a batch posts anything: the helper drops an unknown modifier and makes an
+// unknown button a left click, so a typo in cmd-Q would type a q (issue #31).
+var (
+	actionTypes   = []string{"move", "click", "down", "up", "scroll", "type", "key", "sleep"}
+	modifierNames = map[string]bool{"cmd": true, "command": true, "meta": true, "shift": true, "alt": true,
+		"option": true, "opt": true, "ctrl": true, "control": true, "fn": true, "function": true}
+	buttonNames = map[string]bool{"": true, "left": true, "right": true, "middle": true, "center": true}
+)
+
+const (
+	modifierHelp = "use cmd, shift, alt, ctrl, fn (or command, meta, option, opt, control, function)"
+	buttonHelp   = "use left, right or middle"
+)
+
+// validateActions refuses a batch with a name the helper would silently misread.
+func validateActions(actions []InputAction) error {
+	for i, a := range actions {
+		if !slices.Contains(actionTypes, a.Type) {
+			return fmt.Errorf("action %d: unknown action type %q; use one of %s", i+1, a.Type, strings.Join(actionTypes, ", "))
+		}
+		if !buttonNames[strings.ToLower(a.Button)] {
+			return fmt.Errorf("action %d: unknown button %q; %s", i+1, a.Button, buttonHelp)
+		}
+		for _, mod := range a.Mods {
+			if !modifierNames[strings.ToLower(mod)] {
+				return fmt.Errorf("action %d: unknown modifier %q; %s", i+1, mod, modifierHelp)
+			}
+		}
+	}
+	return nil
+}
+
+// maxScrollDelta is the largest scroll the helper can post: CGEvent takes the wheel as an Int32.
+const maxScrollDelta = math.MaxInt32
+
+// pixels turns an action into what the helper posts. Fractions become guest points, and
+// out-of-range fractions are clamped: a drag off the edge is a hand, not a bad request. A scroll's
+// deltas are clamped to what CGEvent can carry (issue #36) and negated: InputAction's positive
+// deltaY scrolls down and positive deltaX right, as every tool says, while a positive CGEvent
+// wheel scrolls up and left (issue #51).
 func pixels(a InputAction, s Screen) InputAction {
+	if a.Type == "scroll" {
+		a.DeltaX, a.DeltaY = -clampDelta(a.DeltaX), -clampDelta(a.DeltaY)
+	}
 	if a.X != nil {
 		x := math.Round(clamp01(*a.X) * float64(s.Width))
 		a.X = &x
@@ -288,6 +334,10 @@ func pixels(a InputAction, s Screen) InputAction {
 		a.Y = &y
 	}
 	return a
+}
+
+func clampDelta(v float64) float64 {
+	return math.Min(math.Max(math.Round(v), -maxScrollDelta), maxScrollDelta)
 }
 
 func clamp01(v float64) float64 {

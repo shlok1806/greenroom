@@ -83,7 +83,7 @@ var tools = []nim.Tool{
 			"key": str("A key name: a letter, digit or punctuation character, or one of return, enter, tab, space, " +
 				"delete, forwarddelete, escape, left, right, up, down, home, end, pageup, pagedown, capslock, " +
 				"help, f1-f12."),
-			"mods": strList("Modifiers held with the key: cmd, shift, alt, ctrl, fn."),
+			"mods": strList("Modifiers held with the key: cmd, shift, alt, ctrl, fn. Any other name is an error."),
 		}, "key"),
 	},
 	{
@@ -113,10 +113,10 @@ var tools = []nim.Tool{
 					"button": str("left (default), right, or middle. For click, down and up."),
 					"clicks": integer("2 for a double click. For click, down and up."),
 					"deltaX": num("For scroll."),
-					"deltaY": num("For scroll."),
+					"deltaY": num("For scroll. Positive scrolls down."),
 					"text":   str("For type."),
 					"key":    str("For key."),
-					"mods":   strList("Modifiers held with key: cmd, shift, alt, ctrl, fn."),
+					"mods":   strList("Modifiers held with key: cmd, shift, alt, ctrl, fn. Any other name is an error."),
 					"ms":     integer("Milliseconds to wait. For sleep, capped at 5000."),
 				}, "type"),
 				"description": "Ordered actions to post in one batch, for example down, move, up to drag. The whole batch records as one step.",
