@@ -125,8 +125,8 @@ func TestWatchScreenOpensWithHelloFormatAndAKeyframe(t *testing.T) {
 			prev = s
 		}
 	}
-	if !strings.Contains(testsupport.Calls(t, control), `pkill -f '[g]reenroom-input-4 --serve'; exec "$HOME/.greenroom/bin/greenroom-input-4" --serve`) {
-		t.Errorf("the stream did not run helper version 4 with --serve:\n%s", testsupport.Calls(t, control))
+	if !strings.Contains(testsupport.Calls(t, control), `pkill -f '[g]reenroom-input-5 --serve'; exec "$HOME/.greenroom/bin/greenroom-input-5" --serve`) {
+		t.Errorf("the stream did not run helper version 5 with --serve:\n%s", testsupport.Calls(t, control))
 	}
 }
 

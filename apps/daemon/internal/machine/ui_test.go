@@ -165,3 +165,25 @@ func TestUIFractionsRefuseAnEmptyScreen(t *testing.T) {
 		t.Error("a 0x0 screen was accepted")
 	}
 }
+
+// A walk stopped by the helper's own caps says so, and does not suggest a higher
+// limit, which cannot help.
+func TestUIOutlineSaysWhyTheWalkStopped(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	for by, want := range map[string]string{
+		"limit":   "raise limit",
+		"visited": "a higher limit will not help",
+		"depth":   "a higher limit will not help",
+	} {
+		writeUI(t, control, `{"app":{"name":"Big","pid":3},"apps":["Big"],"screen":{"width":1024,"height":768},`+
+			`"truncated":true,"truncatedBy":"`+by+`","elements":[{"role":"AXButton","title":"OK","depth":0,"frame":{"x":10,"y":10,"w":40,"h":20}}]}`)
+		tree, err := mgr.UI(context.Background(), mc.RunID, HolderCoder, "", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tree.TruncatedBy != by || !strings.Contains(tree.Outline(), want) {
+			t.Errorf("truncatedBy %q: tree says %q, outline:\n%s\nwant %q", by, tree.TruncatedBy, tree.Outline(), want)
+		}
+	}
+}

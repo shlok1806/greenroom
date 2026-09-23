@@ -31,8 +31,9 @@ CGEvent posts in.
    focused, and its frame clipped to its window and scroll areas. It skips the menu bar,
    anything with no visible area, and pure layout (groups, rows, cells) that carries no
    text of its own, while still descending into it. A radio button's or checkbox's 0/1
-   value becomes `selected`. Output stops at `limit` elements (default 250, max 1000)
-   and says `truncated`. It sets `AXManualAccessibility` so Chromium and Electron build
+   value becomes `selected`. Output stops at `limit` elements (default 250, max 1000),
+   or at the walk's own caps (5000 elements visited, depth 40), and says `truncated`
+   with `truncatedBy` (`limit`, `visited` or `depth`); the outline says which. It sets `AXManualAccessibility` so Chromium and Electron build
    their trees.
 2. `Manager.UI` runs it through the same one-shot exec as input, records a `machine_ui`
    step with the whole tree, and converts each frame to fractions of the screen the
@@ -42,17 +43,26 @@ CGEvent posts in.
    indented outline, one element a line, with an id and its center:
    `[10] RadioButton/Segment label="25%" center (0.596, 0.467) size 0.047x0.031`.
    The MCP result also carries the structured tree.
-4. `machine_click` also takes `element`, an id from the machine's latest `machine_ui`,
-   and clicks its center. The tree is not re-read; the id is only as fresh as the last
-   read, and the tool says so. x and y still work for content with no AX tree.
+4. `machine_click` also takes `element`, an id from the caller's own latest
+   `machine_ui`, and clicks its center. Trees are kept per machine and reader (the
+   coder over MCP, the verifier), so one reader's read never retargets the other's ids
+   (issue #35). An optional `uiStep`, the step of the read the id came from, refuses a
+   click when that is not the caller's latest read. The result names the tree's app and
+   step. The tree is not re-read; the id is only as fresh as the read, and the tool says
+   so. x and y still work for content with no AX tree.
 5. The verifier's prompt makes machine_ui the way to aim: read the tree before a click,
    click element centers, read it again after, never click where it lists nothing. The
    vision model is asked for approximate centers of interactive elements, as a fallback
    for canvases, games and web views with no accessibility. A coder's explicit
    constraints ("use the UI only", "do not rebuild or relaunch") are hard rules.
 6. Boot and `prepare-image` turn off "Click wallpaper to reveal desktop"
-   (`com.apple.WindowManager EnableStandardClickToShowDesktop`) and window restore at
-   login (`machine/desktopprefs.go`), beside the screen-capture approvals.
+   (`com.apple.WindowManager EnableStandardClickToShowDesktop`), window restore at
+   login, display and system sleep (`pmset -a displaysleep 0 sleep 0`, via passwordless
+   sudo), the screensaver (`idleTime 0`) and the screen lock (`machine/desktopprefs.go`),
+   beside the screen-capture approvals. A sleeping guest display makes every capture
+   black with no error. The lock is changed only if it is on, because `sysadminctl`
+   needs the admin password; the script passes the Cirrus base image's default,
+   `admin`, which a different base would have to match.
 
 Alternatives rejected: sending the screenshot to a multimodal reasoning model (not
 available on the NIM models ADR 0005 chose, and still imprecise for small controls);
@@ -62,7 +72,7 @@ skip the event path a user takes, so they would verify less).
 
 ## Consequences
 
-- `inputHelperVersion` 4. An image built before it compiles the helper once on first
+- `inputHelperVersion` 4, then 5 for `truncatedBy`. An image built before it compiles the helper once on first
   use (~28 s); `scripts/build-image.sh` bakes it.
 - Apps with no or poor accessibility (custom-drawn views, games) still need screenshot
   positions. The verifier is told to fall back to them only then.

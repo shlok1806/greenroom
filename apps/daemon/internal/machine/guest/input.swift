@@ -32,7 +32,7 @@ import Foundation
 import ScreenCaptureKit
 import VideoToolbox
 
-let version = "greenroom-input 4"
+let version = "greenroom-input 5"
 
 // MARK: - Wire types
 
@@ -368,11 +368,21 @@ func uiTree(_ request: UIRequest) throws -> [String: Any] {
     let screen = bounds
     var elements: [[String: Any]] = []
     var visited = 0
-    var truncated = false
+    // Why the walk stopped early, if it did: the element limit, or the caps on
+    // elements visited and depth that keep a pathological tree from hanging it.
+    var truncatedBy: String? = nil
 
     func visit(_ element: AXUIElement, depth: Int, clip: CGRect) {
-        if elements.count >= limit || visited >= 5000 || depth > 40 {
-            truncated = truncated || elements.count >= limit
+        if elements.count >= limit {
+            truncatedBy = truncatedBy ?? "limit"
+            return
+        }
+        if visited >= 5000 {
+            truncatedBy = truncatedBy ?? "visited"
+            return
+        }
+        if depth > 40 {
+            truncatedBy = truncatedBy ?? "depth"
             return
         }
         visited += 1
@@ -429,7 +439,9 @@ func uiTree(_ request: UIRequest) throws -> [String: Any] {
     if let focused = attribute(root, kAXFocusedWindowAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID() {
         // swiftlint:disable:next force_cast
         let f = focused as! AXUIElement
-        windows.sort { a, _ in CFEqual(a, f) }
+        if let i = windows.firstIndex(where: { CFEqual($0, f) }) {
+            windows.insert(windows.remove(at: i), at: 0)
+        }
     }
     if windows.isEmpty { windows = children(root) }
     for window in windows {
@@ -441,7 +453,8 @@ func uiTree(_ request: UIRequest) throws -> [String: Any] {
         "apps": NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap(\.localizedName),
         "screen": ["width": Int(screen.width), "height": Int(screen.height)],
         "elements": elements,
-        "truncated": truncated,
+        "truncated": truncatedBy != nil,
+        "truncatedBy": truncatedBy ?? "",
     ]
 }
 

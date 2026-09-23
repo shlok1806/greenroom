@@ -53,8 +53,11 @@ type UITree struct {
 	Screen    Screen      `json:"screen"`
 	Elements  []UIElement `json:"elements"`
 	Truncated bool        `json:"truncated"`
-	Seconds   float64     `json:"seconds"`
-	Step      int         `json:"step"`
+	// TruncatedBy is why the walk stopped: "limit" (the element limit), or
+	// "visited" or "depth", the helper's caps on elements visited (5000) and depth (40).
+	TruncatedBy string  `json:"truncatedBy,omitempty"`
+	Seconds     float64 `json:"seconds"`
+	Step        int     `json:"step"`
 }
 
 // rawUITree is what the helper prints: frames in points, top-left origin.
@@ -85,7 +88,8 @@ type rawUITree struct {
 			H float64 `json:"h"`
 		} `json:"frame"`
 	} `json:"elements"`
-	Truncated bool `json:"truncated"`
+	Truncated   bool   `json:"truncated"`
+	TruncatedBy string `json:"truncatedBy"`
 }
 
 // UI reads the accessibility tree of the frontmost application, or of app
@@ -154,7 +158,7 @@ func uiFractions(raw rawUITree) (UITree, error) {
 	}
 	w, h := float64(s.Width), float64(s.Height)
 	out := UITree{App: raw.App.Name, BundleID: raw.App.BundleID, PID: raw.App.PID, Apps: raw.Apps,
-		Screen: s, Truncated: raw.Truncated, Elements: make([]UIElement, 0, len(raw.Elements))}
+		Screen: s, Truncated: raw.Truncated, TruncatedBy: raw.TruncatedBy, Elements: make([]UIElement, 0, len(raw.Elements))}
 	for i, e := range raw.Elements {
 		f := e.Frame
 		out.Elements = append(out.Elements, UIElement{
@@ -260,7 +264,11 @@ func (t UITree) Outline() string {
 		}
 		fmt.Fprintf(&b, " center (%.3f, %.3f) size %.3fx%.3f\n", e.X, e.Y, e.W, e.H)
 	}
-	if t.Truncated {
+	switch {
+	case !t.Truncated:
+	case t.TruncatedBy == "visited" || t.TruncatedBy == "depth":
+		b.WriteString("(truncated: the app's tree is larger than the walk reads, 5000 elements or 40 levels; name one app or window's app, a higher limit will not help)\n")
+	default:
 		b.WriteString("(truncated: more elements exist; name the app or raise limit)\n")
 	}
 	return b.String()
