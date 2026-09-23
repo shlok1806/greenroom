@@ -163,8 +163,9 @@ Conversation and verifier
   (issue #34, ADR 0006 rule 4).
 - Every human message starts a turn and gets a `reply`, `question` or `verdict`, even
   while the machine boots or is dead. A coder `note` does not start a turn. Once the
-  machine is destroyed the run has no actor, so `Actors.answerEndedRuns` answers anything
-  that would start a turn with an event saying nothing will answer (issue #33).
+  machine is destroyed the run has no actor, so `Actors.answerEnded` answers the last
+  unanswered turn-starting message, once, with an event saying nothing will answer: on the
+  "destroyed" event (a turn queued or cut short by `Stop`) and on each later message (issue #33).
 - `agent_wait` keeps waiting while everything new is verifier `progress`, and returns the
   batch when anything else lands or at the timeout: one call per verifier turn, not one per
   step (issue #46).
