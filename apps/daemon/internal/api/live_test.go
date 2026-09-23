@@ -69,7 +69,9 @@ func expectLiveOpening(t *testing.T, body io.Reader) {
 }
 
 func TestLiveScreenStreamsFrames(t *testing.T) {
-	h := newHarness(t, machine.WithScreenIdle(50*time.Millisecond))
+	// The live screen arms its idle stop when it starts, so a short idle can stop it on a loaded
+	// host before the viewer subscribes. A second still stops it promptly once the client leaves.
+	h := newHarness(t, machine.WithScreenIdle(time.Second))
 	runID := h.ready()
 
 	res, cancel := h.openLive(runID)
@@ -91,9 +93,10 @@ func TestLiveScreenStreamsFrames(t *testing.T) {
 	cancel()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		time.Sleep(100 * time.Millisecond)
-		again, _ := h.openLive(runID)
+		time.Sleep(1500 * time.Millisecond) // longer than the idle time, so a stream with no viewer has stopped
+		again, leave := h.openLive(runID)
 		expectLiveOpening(t, again.Body)
+		leave()
 		if testsupport.ServeStarts(t, h.control) >= 2 {
 			break
 		}

@@ -150,6 +150,14 @@ func ready(t *testing.T) (*machine.Manager, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A live machine keeps writing into its run directory, racing t.TempDir's cleanup under load.
+	// Registered after the TempDir, so it runs before the removal.
+	t.Cleanup(func() {
+		for _, mc := range mgr.List() {
+			_, _ = mgr.Wait(context.Background(), mc.RunID, 15*time.Second)
+			_ = mgr.Destroy(context.Background(), mc.RunID)
+		}
+	})
 	mc, err := mgr.Create(context.Background(), "img", false)
 	if err != nil {
 		t.Fatal(err)
