@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Registry lazily opens one Store per run under root/runs/<runId>/ and fans
@@ -62,6 +63,16 @@ func (r *Registry) Get(runID string) (*Store, error) {
 	s.Subscribe(func(m Message) { r.fanOut(runID, s, m) })
 	r.stores[runID] = s
 	return s, nil
+}
+
+// LastMessageAt is when runID's conversation last had a message; zero if the
+// run has none or cannot be opened. It is what machine.Manager.SetMessageActivity takes.
+func (r *Registry) LastMessageAt(runID string) time.Time {
+	s, err := r.Get(runID)
+	if err != nil {
+		return time.Time{}
+	}
+	return s.LastAt()
 }
 
 // fanOut runs under the store's lock, so listeners must not call back into

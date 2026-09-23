@@ -115,6 +115,11 @@ Evidence
   0 disables) into `frames/<unix-ms>.jpg` plus a line in `frames.jsonl`. A frame cites the
   current step; it never claims a number. Capture failures are logged once, never fatal.
 - A guest command's non-zero exit is `ExitCode`, not an `error`. `error` means tart failed.
+- Last activity (`Manager.LastActivity`, `/api/runs` `lastActivity`, `machine_list`
+  `idleSeconds`, the host-limit error) is the newest step end or message, never a frame:
+  the recorder captures an idle machine too. Messages reach the manager through
+  `SetMessageActivity`, wired in `main.go`. greenroom reports idle time and never destroys
+  a machine on its own; reaping is the user's call.
 
 Exec
 

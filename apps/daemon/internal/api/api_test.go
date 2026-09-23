@@ -310,6 +310,56 @@ func TestLastActivityFollowsTheStepsAndNotJustTheConversation(t *testing.T) {
 	}
 }
 
+// The frame recorder captures an idle machine every few seconds. A frame is not
+// activity: a run whose last step was hours ago must not look active a minute ago.
+func TestLastActivityIgnoresTheFrameRecorder(t *testing.T) {
+	h := newHarness(t, machine.WithFrameInterval(20*time.Millisecond))
+	h.putShot()
+	runID := h.ready()
+	dir := h.mgr.RunDir(runID)
+	steps, err := machine.ReadStepLog(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		frames, _ := machine.ReadFrames(dir)
+		if n := len(frames); n > 0 && frames[n-1].At.After(steps.Last.Add(100*time.Millisecond)) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no frame landed after the last step, so this test cannot see the regression")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	var runs []RunSummary
+	h.get("/api/runs", &runs)
+	got := findRun(t, runs, runID)
+	if !got.LastActivity.Equal(steps.Last) {
+		t.Errorf("lastActivity = %v, want the last step's end %v: frames are not activity", got.LastActivity, steps.Last)
+	}
+	if got.Frames == 0 {
+		t.Error("the summary stopped counting frames")
+	}
+}
+
+// A message is activity even when no step follows it.
+func TestLastActivityFollowsTheConversation(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	time.Sleep(10 * time.Millisecond)
+	m, err := h.store(runID).Append(session.Message{From: session.Human, Kind: session.Note, Text: "still here"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runs []RunSummary
+	h.get("/api/runs", &runs)
+	if got := findRun(t, runs, runID); !got.LastActivity.Equal(m.At) {
+		t.Errorf("lastActivity = %v, want the last message at %v", got.LastActivity, m.At)
+	}
+}
+
 // RunDetail.Verdict shadows the manifest's field; both routes must answer null, not an empty object.
 func TestARunWithNoVerdictSaysSoTheSameWayEverywhere(t *testing.T) {
 	h := newHarness(t)

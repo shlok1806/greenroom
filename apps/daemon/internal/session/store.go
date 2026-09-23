@@ -182,6 +182,16 @@ func (s *Store) After(seq int) []Message {
 	return out
 }
 
+// LastAt is when the newest message was appended; zero for an empty conversation.
+func (s *Store) LastAt() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.msgs) == 0 {
+		return time.Time{}
+	}
+	return s.msgs[len(s.msgs)-1].At
+}
+
 // Len is the sequence number of the last message, or 0.
 func (s *Store) Len() int {
 	s.mu.Lock()

@@ -68,14 +68,27 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 		return wrap(mgr.Wait(ctx, in.RunID, waitTimeout(in.TimeoutSeconds)))
 	})
 
+	type listedMachine struct {
+		*machine.Machine
+		LastActivity time.Time `json:"lastActivity" jsonschema:"When a step or message last happened on this run. Screen frames do not count."`
+		IdleSeconds  int       `json:"idleSeconds" jsonschema:"Seconds since lastActivity"`
+	}
 	type listOut struct {
-		Machines []*machine.Machine `json:"machines"`
+		Machines []listedMachine `json:"machines"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "machine_list",
-		Description: "List live machines with their runIds and status, for example to pick up a machine from an earlier session.",
+		Name: "machine_list",
+		Description: "List live machines with their runIds, status and how long each has been idle (idleSeconds: no " +
+			"tool step or message since lastActivity), for example to pick up a machine from an earlier session or " +
+			"to tell a stale run from a busy one when the host is at its machine limit.",
 	}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, listOut, error) {
-		return nil, listOut{Machines: mgr.List()}, nil
+		out := listOut{Machines: []listedMachine{}}
+		for _, mc := range mgr.List() {
+			last := mgr.LastActivity(mc.RunID)
+			out.Machines = append(out.Machines, listedMachine{Machine: mc, LastActivity: last,
+				IdleSeconds: int(max(0, time.Since(last)).Seconds())})
+		}
+		return nil, out, nil
 	})
 
 	type syncIn struct {

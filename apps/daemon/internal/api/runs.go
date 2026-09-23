@@ -69,25 +69,18 @@ func (a *api) summary(runID string, mc *machine.Machine) RunSummary {
 		s.Status, s.Image, s.IP, s.VNCURL = string(mc.Status), mc.Image, mc.IP, mc.VNCURL
 		s.CreatedAt = mc.CreatedAt
 	}
-	// LastActivity spans steps, frames and messages: an agent-driven run can be silent in the conversation for hours.
-	s.LastActivity = s.CreatedAt
-	later := func(t time.Time) {
-		if t.After(s.LastActivity) {
-			s.LastActivity = t
-		}
+	// Steps and messages, not frames: the recorder captures an idle machine too (machine.Manager.LastActivity).
+	s.LastActivity = a.mgr.LastActivity(runID)
+	if s.LastActivity.Before(s.CreatedAt) {
+		s.LastActivity = s.CreatedAt
 	}
-	later(steps.Last)
 	if frames, err := machine.ReadFrames(a.mgr.RunDir(runID)); err == nil {
 		s.Frames = len(frames)
-		if s.Frames > 0 {
-			later(frames[s.Frames-1].At)
-		}
 	}
 	if store, err := a.reg.Get(runID); err == nil {
-		msgs := store.After(0)
-		s.Messages = len(msgs)
-		if len(msgs) > 0 {
-			later(msgs[len(msgs)-1].At)
+		s.Messages = store.Len()
+		if last := store.LastAt(); last.After(s.LastActivity) {
+			s.LastActivity = last // also counted by the manager when main wires it in
 		}
 		if v := store.Verdict(); v.Status != session.None {
 			s.Verdict = &v

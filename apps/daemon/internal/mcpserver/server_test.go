@@ -60,6 +60,7 @@ func newHarness(t *testing.T) *harness {
 	})
 	// Tests play the verifier by appending to the store directly.
 	reg := session.NewRegistry(mgr.Root, 2)
+	mgr.SetMessageActivity(reg.LastMessageAt) // as main wires it
 	server := New(mgr, defaultImage, reg)
 	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
@@ -368,6 +369,38 @@ func TestListIsEmptyThenHoldsTheMachine(t *testing.T) {
 	}
 	if out.Machines[0].Name == "" || out.Machines[0].Status != machine.Ready {
 		t.Errorf("listed machine is incomplete: %+v", out.Machines[0])
+	}
+}
+
+// An agent at the host limit reads machine_list to tell a stale run from a busy one.
+func TestListSaysHowLongEachMachineHasBeenIdle(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	type row struct {
+		RunID        string    `json:"runId"`
+		LastActivity time.Time `json:"lastActivity"`
+		IdleSeconds  *int      `json:"idleSeconds"`
+	}
+	var out struct {
+		Machines []row `json:"machines"`
+	}
+	h.call("machine_list", nil, &out)
+	if len(out.Machines) != 1 || out.Machines[0].IdleSeconds == nil || out.Machines[0].LastActivity.IsZero() {
+		t.Fatalf("machine_list does not report idle time: %+v", out.Machines)
+	}
+	boot := out.Machines[0].LastActivity
+
+	store, err := h.reg.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := store.Append(session.Message{From: session.Coder, Kind: session.Note, Text: "rebuilding"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.call("machine_list", nil, &out)
+	if got := out.Machines[0].LastActivity; !got.Equal(m.At) || !got.After(boot) {
+		t.Errorf("lastActivity = %v after a message at %v, want the message", got, m.At)
 	}
 }
 

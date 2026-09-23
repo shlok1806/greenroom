@@ -261,8 +261,9 @@ final class RunStore: PilotHost {
             held.append(frame)
             frames[runId] = held
             if let index = runs.firstIndex(where: { $0.runId == runId }) {
+                // Not activity: the recorder captures an idle machine too, and the
+                // daemon's lastActivity counts only steps and messages.
                 runs[index].frames = (runs[index].frames ?? 0) + 1
-                runs[index].lastActivity = max(runs[index].lastActivity, frame.at)
             }
             return .nothing
         }
