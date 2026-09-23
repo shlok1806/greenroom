@@ -374,6 +374,7 @@ func TestUnknownModifiersAndButtonsAreRefusedBeforeAnythingIsPosted(t *testing.T
 		{Type: "key", Key: "a", Mods: []string{"Command", "opt", "control", "function", "meta", "option", "SHIFT"}},
 		{Type: "click", X: frac(0.5), Y: frac(0.5), Button: "center"},
 		{Type: "click", X: frac(0.5), Y: frac(0.5), Button: "Right"},
+		{Type: "Click", X: frac(0.5), Y: frac(0.5)},
 	}); err != nil {
 		t.Fatalf("aliases were refused: %v", err)
 	}

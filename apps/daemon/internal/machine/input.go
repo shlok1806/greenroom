@@ -298,7 +298,7 @@ const (
 // validateActions refuses a batch with a name the helper would silently misread.
 func validateActions(actions []InputAction) error {
 	for i, a := range actions {
-		if !slices.Contains(actionTypes, a.Type) {
+		if !slices.Contains(actionTypes, strings.ToLower(a.Type)) {
 			return fmt.Errorf("action %d: unknown action type %q; use one of %s", i+1, a.Type, strings.Join(actionTypes, ", "))
 		}
 		if !buttonNames[strings.ToLower(a.Button)] {
@@ -322,7 +322,7 @@ const maxScrollDelta = math.MaxInt32
 // deltaY scrolls down and positive deltaX right, as every tool says, while a positive CGEvent
 // wheel scrolls up and left (issue #51).
 func pixels(a InputAction, s Screen) InputAction {
-	if a.Type == "scroll" {
+	if strings.EqualFold(a.Type, "scroll") {
 		a.DeltaX, a.DeltaY = -clampDelta(a.DeltaX), -clampDelta(a.DeltaY)
 	}
 	if a.X != nil {
