@@ -72,6 +72,9 @@ type SessionReadResult struct {
 	Pending   int64  `json:"pending"`           // written but not yet returned
 	Dropped   int64  `json:"dropped,omitempty"` // lost because the caller fell behind
 	Running   bool   `json:"running"`
+	// ExitCode is how the command ended (issue #62); absent while it runs and
+	// when tart failed, which Error explains.
+	ExitCode *int `json:"exitCode,omitempty"`
 	// Error is why tart ended the session; empty for a command that finished.
 	Error string `json:"error,omitempty"`
 	Step  int    `json:"step"`
@@ -328,6 +331,8 @@ func (s *PTYSession) readOnce() SessionReadResult {
 	if !running {
 		if err := s.proc.Err(); err != nil {
 			out.Error = err.Error()
+		} else if code, ok := s.proc.ExitCode(); ok {
+			out.ExitCode = &code
 		}
 	}
 	return out

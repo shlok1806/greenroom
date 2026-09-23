@@ -18,16 +18,20 @@ import (
 //	                    the matching operation exits 1 with a message
 //	exec-exit-<n>       `tart exec` exits n
 //	exec-codes          `tart exec` exits with the next line of this file (consumed), then 0
+//	exec-sleep          machine_exec's command takes this many seconds
+//	exec-stdout         machine_exec's command prints this file and exits 0
 //	agent-down          `tart exec` fails as if the guest agent is unreachable
 //	ssh-down            the in-guest sshd probe is refused
 //	fail-input-install  compiling the guest input helper fails
+//	input-stale         the boot check finds only an old helper (greenroom-input-2)
 //	input-down          the input helper refuses every event
 //	screen              "<width>x<height>" the input helper reports (default 1024x768)
 //	shot.b64            base64 PNG a screenshot returns
 //	ui.json             what the input helper's --ui-base64 prints (default: Finder, no elements)
 //	fail-session        an interactive session (`exec -i -t`) refuses to start
 //	fail-serve          the live screen helper (`exec -i ... --serve`) fails to start
-//	session-exits       a session prints session-output, if present, and exits at once
+//	session-exits       a session prints session-output, if present, and exits at once, with the code in
+//	                    session-exit-code (default 0)
 //	tart-version        what `tart --version` prints (default tart.PinnedVersion)
 //	list-empty          `tart list` returns []
 //	vmnames, vmname     `tart list` reports these VMs running (default: one unrelated VM)
@@ -89,7 +93,8 @@ case "$sub" in
       [ -f "$C/fail-session" ] && { echo "Error: VM is not running" >&2; exit 1; }
       if [ -f "$C/session-exits" ]; then
         cat "$C/session-output" 2>/dev/null
-        exit 0
+        code=$(cat "$C/session-exit-code" 2>/dev/null)
+        exit "${code:-0}"
       fi
       exec cat
     fi
@@ -126,8 +131,11 @@ case "$sub" in
         [ -f "$C/ssh-down" ] && { echo "Connection refused" >&2; exit 1; }
         exit 0 ;;
     esac
-    # Input helper (ADR 0009): the compile must match before the call.
+    # Input helper (ADR 0009): the boot check and the compile must match before the call.
     case "$*" in
+      *greenroom-helper-check*)
+        if [ -f "$C/input-stale" ]; then echo "stale greenroom-input-2"; else echo current; fi
+        exit 0 ;;
       *swiftc*)
         [ -f "$C/fail-input-install" ] && { echo "swiftc: command not found" >&2; exit 1; }
         exit 0 ;;
@@ -145,6 +153,12 @@ case "$sub" in
         fi
         printf '{"ok":true,"screen":{"width":%s,"height":%s}}\n' "$w" "$h"
         exit 0 ;;
+    esac
+    # machine_exec's own command (the greenroom-exec wrapper).
+    case "$*" in
+      *greenroom-exec*)
+        [ -f "$C/exec-sleep" ] && sleep "$(cat "$C/exec-sleep")"
+        [ -f "$C/exec-stdout" ] && { cat "$C/exec-stdout"; exit 0; } ;;
     esac
     for f in "$C"/exec-exit-*; do
       [ -e "$f" ] || continue

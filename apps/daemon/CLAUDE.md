@@ -66,12 +66,17 @@ Boot and lifecycle
 - `Create` holds `createMu` for its whole length, so the host-capacity check and the clone
   cannot interleave. Default limit 2 (Apple's), `-max-machines` changes it.
 - `machine_create` returns `booting` at once; callers poll `machine_wait` (capped at 50 s,
-  under Claude Code's 60 s first-byte timeout). `agent_wait` has the same cap.
+  under Claude Code's 60 s first-byte timeout). `agent_wait`, `machine_exec` and
+  `machine_exec_wait` have the same cap. No tool may block longer.
 - Ready means usable: guest agent answers, IP known, ssh key installed, sshd accepts on
   guest 127.0.0.1:22 (probed via `tart exec`). The waiting phases each get their own
   `readyTimeout` (3 min). A timeout names the last probe error.
 - `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`,
-  `captureAlertSeconds`, `desktopPrefsSeconds`, `sshSeconds`.
+  `captureAlertSeconds`, `desktopPrefsSeconds`, `inputHelperSeconds`, `sshSeconds`.
+- Boot checks the image's input helper (`helperboot.go`, issue #41). One older than
+  `inputHelperVersion` is logged with the fix (`build-image.sh -force`), recorded as
+  `inputHelperStale` and `inputHelperFound`, and compiled before ready, so the first UI
+  call does not pay 30 to 50 s. A failure is `inputHelperError`, never fatal.
 - Boot writes replayd's screen-capture approvals (`capturealert.go`, ADR 0013) before ready, so
   before the frame recorder's first capture and the live helper. Without them macOS 15+
   shows "tart-guest-agent is requesting to bypass the system private window picker" over
@@ -123,6 +128,10 @@ Evidence
 - `manifest.Steps` is a high-water mark, not a count. Anything that reports a count reads
   `machine.ReadStepLog`.
 - Every tool call records itself (input, output, error, duration). A new tool does too.
+  The waits (`machine_wait`, `agent_wait`, `machine_exec_wait`) and `machine_list` only
+  read, and record nothing.
+- A result's `step` is claimed before its output is recorded, so `output.step` equals
+  `seq` (issue #47). `recorder.step` is only for outputs that carry no step.
 - Frames: every `-frame-interval` (default 2 s, 0.5 s while a control lease is held,
   0 disables) into `frames/<unix-ms>.jpg` plus a line in `frames.jsonl`. A frame cites the
   current step; it never claims a number. The first capture failure and the first recovery
@@ -150,6 +159,18 @@ Exec
   The result keeps the output so far, exit 124, `timedOut`. The host waits the timeout
   plus `execHostGrace`. The wrapper's stderr is `/dev/null` (job notices); the command's
   goes out through fd 3, which children must not inherit (`3>&-`).
+- The login zsh is not interactive and never reads `/etc/zshrc`, so the wrapper runs its
+  `disable log` itself (issue #40): `log` is `/usr/bin/log`, not zsh's builtin. Other
+  interactive-only settings from `/etc/zshrc` are not applied.
+- `machine_exec` waits at most `waitSeconds` (max 50), then returns `running` and an
+  `execId`; `machine_exec_wait` collects the rest (ADR 0015, issue #39). The command is a
+  job owned by the machine (`execjob.go`), detached from the call, cancelled by
+  `detachLocked`. Its step is claimed at start and written when it ends. The verifier's
+  `Manager.Exec` blocks on the same job.
+- Each stream keeps its first `ExecHeadLimit` (8 KiB) and last `ExecTailLimit` (24 KiB),
+  with `stdoutBytes`/`stderrBytes` and `*Truncated` (issue #29). `tart.ExecTo` streams
+  into that bounded writer, so no output is ever held whole. The tool description quotes
+  the limits; change both together.
 - A `cwd` or sync `dest` of `~` or `~/x` means the guest home (`homeRelative`). Both are
   otherwise shell-quoted, so a tilde would never expand and rsync would make a dir `~`.
 
@@ -199,8 +220,8 @@ Computer use (ADR 0009)
   `~/.greenroom/bin/greenroom-input-<inputHelperVersion>`. Bump `inputHelperVersion`
   when `guest/input.swift` changes, then rebuild the image `install.sh` serves by default:
   `greenroom-lean-a` when it exists (`build-image.sh -lean -name greenroom-lean-a -force`),
-  and `greenroom-base` as the rollback target (`build-image.sh -force`). Locally nothing detects a
-  stale image except a slow first control request. The VM suite workflow bakes and tests
+  and `greenroom-base` as the rollback target (`build-image.sh -force`). Locally boot detects a
+  stale image, warns and compiles the helper (see Boot and lifecycle). The VM suite workflow bakes and tests
   `greenroom-base-v<inputHelperVersion>` itself, so a bump rebuilds its image once. Source and input travel base64, never
   through a shell.
 - `InputAction` means what the tools say: positive `deltaY` scrolls down, positive `deltaX`
@@ -267,6 +288,8 @@ Interactive sessions (`machine_session_*`)
   start; `EIO` on the master is clean EOF.
 - Output buffer is the last 1 MiB, read by absolute offset; reads cap at 256 KiB and
   report `dropped` and `pending`. `cleanTTY` strips escapes on the way out.
+- A finished session's read carries `exitCode` (tart forwards the guest's), absent while
+  running and when tart itself failed (`error`) (issue #62).
 - `forgetLocked` is the only way a machine leaves the map, and it detaches its sessions so
   no `tart exec` child outlives the machine.
 - A pty echoes. Tests must not be satisfiable by the echoed command line.
@@ -335,7 +358,8 @@ Clones of `greenroom-base` skip the ~28 s first-control compile.
 - `WithTartBin` points at the fake tart in `internal/testsupport/faketart.go`. It records
   every call; control files turn on failures. The list is in that file's header comment, plus
   `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-lean`, `ui.json` (what `--ui-base64`
-  prints) and `tart-version` (fake a version mismatch). It writes
+  prints), `tart-version` (fake a version mismatch), `exec-sleep` and `exec-stdout` (a slow or
+  loud machine_exec), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session got a pty.
 - The fake tart runs `exec -i ... --serve` as the fake live screen helper by re-executing
   the test binary (`testsupport/fakescreen.go`, gated by an env var in its `init`). Its control

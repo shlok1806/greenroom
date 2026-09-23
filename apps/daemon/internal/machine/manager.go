@@ -68,6 +68,10 @@ type Machine struct {
 	// restarted daemon cannot prove a guest process is the one an old id named.
 	sessions map[string]*PTYSession
 
+	// execs are machine_exec commands by execId (execjob.go), guarded by
+	// Manager.mu. Not persisted either; detachLocked ends the running ones.
+	execs map[string]*execJob
+
 	frameCancel context.CancelFunc // guarded by Manager.mu
 	screen      *screenStream      // guarded by Manager.mu; the live screen, if one has started
 
@@ -278,6 +282,7 @@ func (m *Manager) emitStep(runID string, seq int) {
 func (mc *Machine) publicLocked() *Machine {
 	c := *mc
 	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel, c.screen = nil, nil, nil, nil, nil, nil, nil
+	c.execs = nil
 	c.bootCancel, c.bootDone = nil, nil
 	return &c
 }
@@ -437,26 +442,35 @@ func (m *Manager) checkHostCapacity(ctx context.Context) error {
 	// Name ours by runId, which is what machine_destroy takes.
 	var ours, foreign []string
 	for name, runID := range held {
-		if runID != "" {
+		switch {
+		case runID != "":
 			// Idle time lets the caller tell a stale run from a busy one. Choosing is theirs:
 			// greenroom never destroys a machine it was not asked to.
 			ours = append(ours, fmt.Sprintf("runId %s (%s)", runID, describeIdle(m.IdleFor(runID))))
-		} else {
-			foreign = append(foreign, name)
+		case strings.HasPrefix(name, namePrefix):
+			// Another root or port: probably another agent's run in progress (issue #42).
+			foreign = append(foreign, name+" (another greenroom daemon's)")
+		default:
+			foreign = append(foreign, name+" (not greenroom's)")
 		}
 	}
 	sort.Strings(ours)
 	sort.Strings(foreign)
+	// A machine this daemon did not create is someone else's work. Waiting is always safe:
+	// the limit usually clears on its own when their run ends.
+	const retry = "wait for one to finish and call machine_create again; do not stop machines you did not create"
 	switch {
 	case len(ours) > 0 && len(foreign) > 0:
-		return fmt.Errorf("host is at its limit of %d machines; destroy one of %s, or stop %s outside greenroom",
-			m.maxMachines, strings.Join(ours, ", "), strings.Join(foreign, ", "))
+		return fmt.Errorf("host is at its limit of %d machines: yours are %s, and %s belong to someone else. "+
+			"Call machine_destroy on one of yours if you are done with it, or %s",
+			m.maxMachines, strings.Join(ours, ", "), strings.Join(foreign, ", "), retry)
 	case len(ours) > 0:
 		return fmt.Errorf("host is at its limit of %d machines; call machine_destroy on one of %s first",
 			m.maxMachines, strings.Join(ours, ", "))
 	default:
-		return fmt.Errorf("host is at its limit of %d machines, all started outside greenroom (%s); stop one of them first",
-			m.maxMachines, strings.Join(foreign, ", "))
+		return fmt.Errorf("host is at its limit of %d machines, none of them this daemon's: %s. They are someone "+
+			"else's work, often a run that ends soon: %s",
+			m.maxMachines, strings.Join(foreign, ", "), retry)
 	}
 }
 
@@ -535,6 +549,11 @@ func (m *Manager) detachLocked(mc *Machine) []*tart.Session {
 		}
 	}
 	mc.sessions = nil
+	// Kills each running command's host tart exec, so none outlives the machine.
+	for _, j := range mc.execs {
+		j.cancel()
+	}
+	mc.execs = nil
 	return live
 }
 

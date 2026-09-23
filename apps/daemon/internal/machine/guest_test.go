@@ -209,6 +209,15 @@ func TestExecWrapperTimeoutKillsACommandThatIgnoresTerm(t *testing.T) {
 	}
 }
 
+// Issue #40: `log` is /usr/bin/log, as in Terminal. zsh has a log builtin that
+// macOS disables in /etc/zshrc, which a non-interactive zsh never reads.
+func TestExecWrapperRunsLogAsTheCommandNotTheZshBuiltin(t *testing.T) {
+	stdout, stderr, code, _ := runWrapper(t, `whence -w log`, 0)
+	if strings.Contains(stdout, "builtin") {
+		t.Errorf("whence -w log = %q (stderr %q, exit %d), want the command, not zsh's builtin", stdout, stderr, code)
+	}
+}
+
 func TestExecRunsTheCommandThroughTheWrapper(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
@@ -216,7 +225,7 @@ func TestExecRunsTheCommandThroughTheWrapper(t *testing.T) {
 		t.Fatalf("Exec: %v", err)
 	}
 	log := testsupport.Calls(t, control)
-	if !strings.Contains(log, `/bin/zsh -lc "$1" >"$d/out" 2>"$d/err" </dev/null 3>&- &`) || !strings.Contains(log, "greenroom-exec ./App & 10") {
+	if !strings.Contains(log, `/bin/zsh -lc "disable log 2>/dev/null; $1" >"$d/out" 2>"$d/err" </dev/null 3>&- &`) || !strings.Contains(log, "greenroom-exec ./App & 10") {
 		t.Errorf("the command did not run behind the wrapper\ncalls:\n%s", log)
 	}
 }
