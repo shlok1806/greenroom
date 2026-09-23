@@ -486,6 +486,43 @@ func TestSyncReportsDestAndSummary(t *testing.T) {
 	}
 }
 
+// The description is what an agent reads; it must match what guestDest accepts.
+func TestSyncDescriptionMatchesTheTildeBehaviour(t *testing.T) {
+	h := newHarness(t)
+	tools, err := h.session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var desc, dest string
+	for _, tool := range tools.Tools {
+		if tool.Name == "machine_sync" {
+			desc = tool.Description
+			raw, _ := json.Marshal(tool.InputSchema)
+			dest = string(raw)
+		}
+	}
+	for _, want := range []string{"relative to the guest home", "~/ is accepted"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("machine_sync description %q does not say %q", desc, want)
+		}
+	}
+	if !strings.Contains(dest, "~/work/myapp are the same place") {
+		t.Errorf("the dest schema does not say ~/ is the same as a home-relative path: %s", dest)
+	}
+
+	runID := h.ready()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "rsync"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var res machine.SyncResult
+	h.call("machine_sync", map[string]any{"runId": runID, "source": t.TempDir(), "dest": "~/work/myapp"}, &res)
+	if res.Dest != "work/myapp" {
+		t.Errorf("dest ~/work/myapp synced to %q, want work/myapp as the description promises", res.Dest)
+	}
+}
+
 // --- machine_screenshot ---
 
 func TestScreenshotReturnsAJPEGAndThePNGPath(t *testing.T) {

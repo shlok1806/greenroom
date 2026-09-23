@@ -94,12 +94,14 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	type syncIn struct {
 		RunID   string   `json:"runId" jsonschema:"runId from machine_create"`
 		Source  string   `json:"source" jsonschema:"Absolute path of a directory on the host to copy into the machine"`
-		Dest    string   `json:"dest,omitempty" jsonschema:"Destination path in the guest, relative to the admin home (a leading ~/ means the same). Defaults to work/<basename of source>."`
+		Dest    string   `json:"dest,omitempty" jsonschema:"Guest directory, relative to the guest home: work/myapp and ~/work/myapp are the same place. Must stay inside the home: no absolute path, no .., not ~ itself. Defaults to work/<basename of source>."`
 		Exclude []string `json:"exclude,omitempty" jsonschema:"rsync exclude patterns, e.g. node_modules, .git, build"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "machine_sync",
-		Description: "Copy a host directory into the machine with rsync. Fast on repeat calls; only changed files move.",
+		Description: "Copy a host directory into the machine with rsync. Fast on repeat calls; only changed files move. " +
+			"dest is relative to the guest home, and a leading ~/ is accepted (it means the same). The result's dest is " +
+			"the path relative to the home, which machine_exec's cwd takes as is.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in syncIn) (*mcp.CallToolResult, machine.SyncResult, error) {
 		res, err := mgr.Sync(ctx, in.RunID, in.Source, in.Dest, in.Exclude)
 		res.Seconds = round(res.Seconds)
