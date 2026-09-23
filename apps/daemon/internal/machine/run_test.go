@@ -229,3 +229,74 @@ func TestStepsFileIsOneObjectPerLine(t *testing.T) {
 		t.Fatalf("the line is not valid JSON: %v", err)
 	}
 }
+
+// Issue #67: an unterminated final line is what a crash mid-append leaves. Every reader skips it;
+// a bad line anywhere else is still an error, because that is damage, not a torn write.
+func TestReadersSkipATornFinalLineButNotABadMiddleOne(t *testing.T) {
+	r, dir := newTestRecorder(t)
+	r.step("machine_exec", map[string]any{"command": "a"}, nil, nil, time.Now())
+	r.step("machine_exec", map[string]any{"command": "b"}, nil, nil, time.Now())
+	if err := r.appendFrame(Frame{File: "1.jpg", Step: 2}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"steps.jsonl", "frames.jsonl"} {
+		f, err := os.OpenFile(filepath.Join(dir, name), os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = f.WriteString(`{"seq":999,"at":"2026`)
+		_ = f.Close()
+	}
+	if steps, err := ReadSteps(dir); err != nil || len(steps) != 2 {
+		t.Fatalf("ReadSteps = %d steps, %v; want 2 and no error", len(steps), err)
+	}
+	if log, err := ReadStepLog(dir); err != nil || log.Count != 2 || log.Highest != 2 {
+		t.Fatalf("ReadStepLog = %+v, %v; want 2 steps and no error", log, err)
+	}
+	if frames, err := ReadFrames(dir); err != nil || len(frames) != 1 {
+		t.Fatalf("ReadFrames = %d frames, %v; want 1 and no error", len(frames), err)
+	}
+
+	// Terminated, the same bytes are a bad line, not a torn one.
+	f, _ := os.OpenFile(filepath.Join(dir, "steps.jsonl"), os.O_APPEND|os.O_WRONLY, 0o644)
+	_, _ = f.WriteString("\n")
+	_ = f.Close()
+	if _, err := ReadSteps(dir); err == nil {
+		t.Fatal("a terminated bad line was skipped")
+	}
+}
+
+// Issue #67: a reattached recorder appends after a torn tail; without a repair the next step
+// would be glued onto the fragment and the damage would move to the middle of the file.
+func TestAReopenedRecorderCutsATornTailBeforeAppending(t *testing.T) {
+	r, dir := newTestRecorder(t)
+	r.step("machine_exec", map[string]any{"command": "a"}, nil, nil, time.Now())
+	f, err := os.OpenFile(filepath.Join(dir, "steps.jsonl"), os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString(`{"seq":2,"at":"2026`)
+	_ = f.Close()
+
+	again, err := newRecorder(dir, readManifest(t, dir), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	again.step("machine_exec", map[string]any{"command": "b"}, nil, nil, time.Now())
+	steps := readSteps(t, dir)
+	if len(steps) != 2 || steps[1].Seq != 2 {
+		t.Fatalf("steps after reopening = %+v, want 1 and 2", steps)
+	}
+}
+
+// eachLine reads lines longer than its buffer whole, as the scanner it replaced did.
+func TestReadStepsReadsALineLongerThanTheBuffer(t *testing.T) {
+	r, dir := newTestRecorder(t)
+	big := strings.Repeat("x", 300*1024)
+	r.step("machine_type", map[string]any{"text": big}, nil, nil, time.Now())
+	r.step("machine_exec", map[string]any{"command": "after"}, nil, nil, time.Now())
+	steps := readSteps(t, dir)
+	if len(steps) != 2 || steps[0].Input.(map[string]any)["text"] != big || steps[1].Seq != 2 {
+		t.Fatalf("read %d steps, want the long one whole and the next after it", len(steps))
+	}
+}

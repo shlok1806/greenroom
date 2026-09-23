@@ -84,7 +84,9 @@ func ReadSteps(dir string) ([]Step, error) {
 	return readJSONL[Step](dir, "steps.jsonl")
 }
 
-// readJSONL decodes one T per line of dir/name. A missing file is empty.
+// readJSONL decodes one T per line of dir/name. A missing file is empty. A
+// final line with no newline is a write in progress or torn by a crash, so it
+// is skipped; a bad line anywhere else is an error.
 func readJSONL[T any](dir, name string) ([]T, error) {
 	f, err := os.Open(filepath.Join(dir, name))
 	if errors.Is(err, os.ErrNotExist) {
@@ -95,22 +97,88 @@ func readJSONL[T any](dir, name string) ([]T, error) {
 	}
 	defer func() { _ = f.Close() }()
 	out := []T{}
-	sc := lineScanner(f)
-	for sc.Scan() {
+	err = eachLine(f, func(n int, line []byte, terminated bool) error {
 		var v T
-		if err := json.Unmarshal(sc.Bytes(), &v); err != nil {
-			return nil, fmt.Errorf("parse %s line %d: %w", name, len(out)+1, err)
+		if err := json.Unmarshal(line, &v); err != nil {
+			if !terminated {
+				return nil
+			}
+			return fmt.Errorf("parse %s line %d: %w", name, n, err)
 		}
 		out = append(out, v)
-	}
-	return out, sc.Err()
+		return nil
+	})
+	return out, err
 }
 
-// lineScanner allows lines up to 16 MiB; a step can carry a lot of output.
-func lineScanner(r io.Reader) *bufio.Scanner {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	return sc
+// maxLine bounds one JSONL line; a step can carry a lot of output.
+const maxLine = 16 * 1024 * 1024
+
+// eachLine calls fn for every non-blank line of r, numbered from 1, saying
+// whether it ended in a newline. Only the last line can lack one.
+func eachLine(r io.Reader, fn func(n int, line []byte, terminated bool) error) error {
+	br := bufio.NewReaderSize(r, 64*1024)
+	for n := 1; ; n++ {
+		line, err := br.ReadSlice('\n')
+		var long []byte
+		for errors.Is(err, bufio.ErrBufferFull) {
+			long = append(long, line...)
+			if len(long) > maxLine {
+				return fmt.Errorf("line %d is longer than %d bytes", n, maxLine)
+			}
+			line, err = br.ReadSlice('\n')
+		}
+		if long != nil {
+			line = append(long, line...)
+		}
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		terminated := len(line) > 0 && line[len(line)-1] == '\n'
+		if len(bytes.TrimSpace(line)) > 0 {
+			if ferr := fn(n, bytes.TrimRight(line, "\r\n"), terminated); ferr != nil {
+				return ferr
+			}
+		}
+		if err != nil {
+			return nil
+		}
+	}
+}
+
+// cutTornTail truncates path after its last newline. Only the one writer may
+// call it, before it appends: a reader would race a line being written.
+func cutTornTail(path string) (cut int64, err error) {
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil || info.Size() == 0 {
+		return 0, err
+	}
+	size := info.Size()
+	buf := make([]byte, 64*1024)
+	for end := size; end > 0; {
+		start := max(end-int64(len(buf)), 0)
+		chunk := buf[:end-start]
+		if _, err := f.ReadAt(chunk, start); err != nil {
+			return 0, err
+		}
+		if i := bytes.LastIndexByte(chunk, '\n'); i >= 0 {
+			keep := start + int64(i) + 1
+			if keep == size {
+				return 0, nil
+			}
+			return size - keep, f.Truncate(keep)
+		}
+		end = start
+	}
+	return size, f.Truncate(0)
 }
 
 // appendLine appends one JSON line to path.
@@ -146,27 +214,26 @@ func ReadStepLog(dir string) (StepLog, error) {
 		return out, err
 	}
 	defer func() { _ = f.Close() }()
-	sc := lineScanner(f)
-	for sc.Scan() {
-		line := sc.Bytes()
-		if len(bytes.TrimSpace(line)) == 0 {
-			continue
-		}
+	err = eachLine(f, func(n int, line []byte, terminated bool) error {
 		var s struct {
 			Seq        int       `json:"seq"`
 			At         time.Time `json:"at"`
 			DurationMS int64     `json:"durationMs"`
 		}
 		if err := json.Unmarshal(line, &s); err != nil {
-			return out, fmt.Errorf("parse steps.jsonl line %d: %w", out.Count+1, err)
+			if !terminated {
+				return nil // torn or still being written, as in readJSONL
+			}
+			return fmt.Errorf("parse steps.jsonl line %d: %w", n, err)
 		}
 		out.Count++
 		out.Highest = max(out.Highest, s.Seq)
 		if end := s.At.Add(time.Duration(s.DurationMS) * time.Millisecond); end.After(out.Last) {
 			out.Last = end
 		}
-	}
-	return out, sc.Err()
+		return nil
+	})
+	return out, err
 }
 
 // Step is one tool call against the machine, appended to steps.jsonl.
@@ -200,6 +267,15 @@ func newRecorder(dir string, m Manifest, log *slog.Logger) (*recorder, error) {
 		return nil, err
 	}
 	r := &recorder{dir: dir, log: log, manifest: m}
+	// A daemon killed mid-append leaves a torn last line; appending after it would glue the next
+	// line onto the fragment (issue #67). This runs before the first append, with no other writer.
+	for _, name := range []string{"steps.jsonl", "frames.jsonl"} {
+		if cut, err := cutTornTail(filepath.Join(dir, name)); err != nil {
+			log.Warn("cannot repair a torn line in the run record", "dir", dir, "file", name, "err", err)
+		} else if cut > 0 {
+			log.Warn("cut a torn final line off the run record", "dir", dir, "file", name, "bytes", cut)
+		}
+	}
 	return r, r.writeManifest()
 }
 

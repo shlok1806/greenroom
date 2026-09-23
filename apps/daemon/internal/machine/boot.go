@@ -192,9 +192,13 @@ func (m *Manager) startFrames(mc *Machine) {
 		cancel()
 		return
 	}
-	mc.frameCancel = cancel
+	done := make(chan struct{})
+	mc.frameCancel, mc.frameDone = cancel, done
 	m.mu.Unlock()
-	go m.recordFrames(ctx, mc)
+	go func() {
+		defer close(done)
+		m.recordFrames(ctx, mc)
+	}()
 }
 
 // Wait blocks until the machine leaves Booting or timeout passes, and

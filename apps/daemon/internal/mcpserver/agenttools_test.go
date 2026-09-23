@@ -169,6 +169,24 @@ func TestAgentSendRejectsRepliesThatPointNowhere(t *testing.T) {
 	}
 }
 
+// Issue #50: a negative replyTo on a task or note panicked in the store and, over MCP, took the
+// whole daemon down. It must be an ordinary tool error, and the server must keep answering.
+func TestAgentSendWithANegativeReplyToIsAnErrorNotACrash(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	for _, kind := range []string{"note", "task", "accept"} {
+		res := h.raw("agent_send", map[string]any{"runId": runID, "kind": kind, "text": "x", "replyTo": -5})
+		if !res.IsError || !strings.Contains(text(res), "replyTo") {
+			t.Fatalf("%s with replyTo -5 = %q (isError %v), want an error naming replyTo", kind, text(res), res.IsError)
+		}
+	}
+	var sent sendResult
+	h.call("agent_send", map[string]any{"runId": runID, "kind": "note", "text": "still here"}, &sent)
+	if sent.Seq == 0 {
+		t.Fatal("the server stopped answering after the bad call")
+	}
+}
+
 func TestTheThirdDisputeIsRefusedAsContested(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()

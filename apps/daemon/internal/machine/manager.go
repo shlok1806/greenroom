@@ -73,6 +73,7 @@ type Machine struct {
 	execs map[string]*execJob
 
 	frameCancel context.CancelFunc // guarded by Manager.mu
+	frameDone   chan struct{}      // guarded by Manager.mu; closed when the frame recorder returns
 	screen      *screenStream      // guarded by Manager.mu; the live screen, if one has started
 
 	// bootCancel stops finishBoot and bootDone closes when it returns. Both are
@@ -283,7 +284,7 @@ func (mc *Machine) publicLocked() *Machine {
 	c := *mc
 	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel, c.screen = nil, nil, nil, nil, nil, nil, nil
 	c.execs = nil
-	c.bootCancel, c.bootDone = nil, nil
+	c.bootCancel, c.bootDone, c.frameDone = nil, nil, nil
 	return &c
 }
 
@@ -509,8 +510,12 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 
 	m.mu.Lock()
 	live = m.forgetLocked(mc)
+	frames := mc.frameDone
 	m.mu.Unlock()
 	closeSessions(live)
+	if frames != nil {
+		<-frames // no frame lands in the run directory after Destroy returns
+	}
 	m.persist()
 	mc.rec.markEnded()
 	m.emitStep(runID, mc.rec.step("machine_destroy", nil, nil, err, started))

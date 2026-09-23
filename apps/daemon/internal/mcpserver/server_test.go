@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -1217,5 +1218,17 @@ func TestHostLimitErrorWithOursAndAnotherDaemonsOffersDestroyOrWait(t *testing.T
 	}
 	if strings.Contains(msg, "or stop ") {
 		t.Errorf("the error tells the agent to stop machines it did not create: %q", msg)
+	}
+}
+
+// Issue #50: a panic in a tool handler ran on the SDK's goroutine and killed the process.
+func TestAPanickingHandlerIsOneCallsError(t *testing.T) {
+	boom := recoverPanics(func(context.Context, string, mcp.Request) (mcp.Result, error) {
+		var msgs []int
+		return nil, fmt.Errorf("unreachable %d", msgs[len(msgs)-1])
+	})
+	res, err := boom(context.Background(), "tools/call", nil)
+	if res != nil || err == nil || !strings.Contains(err.Error(), "tools/call") {
+		t.Fatalf("recovered call = %v, %v; want nil and an error naming the method", res, err)
 	}
 }

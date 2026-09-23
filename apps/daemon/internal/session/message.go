@@ -86,6 +86,9 @@ func validate(m Message) error {
 	if !slices.Contains(froms, m.From) {
 		return fmt.Errorf("%s may not send a %s", m.From, m.Kind)
 	}
+	if m.ReplyTo < 0 {
+		return fmt.Errorf("replyTo must be the seq of an earlier message (1 or more), or left out; got %d", m.ReplyTo)
+	}
 	switch m.Kind {
 	case Answer, Accept, Dispute:
 		if m.ReplyTo <= 0 {

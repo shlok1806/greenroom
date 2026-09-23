@@ -67,7 +67,19 @@ func TestEndToEnd(t *testing.T) {
 	if created.RunID == "" || created.Status != machine.Booting {
 		t.Fatalf("bad create result: %+v", created)
 	}
-	defer call("machine_destroy", map[string]any{"runId": created.RunID}, nil)
+	// Not ctx: once a slow boot has spent it, destroy would fail at once and leave the VM
+	// holding one of the host's two macOS slots for the tests after this one.
+	defer func() {
+		dctx, dcancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer dcancel()
+		res, err := session.CallTool(dctx, &mcp.CallToolParams{Name: "machine_destroy", Arguments: map[string]any{"runId": created.RunID}})
+		switch {
+		case err != nil:
+			t.Errorf("machine_destroy: %v", err)
+		case res.IsError:
+			t.Errorf("machine_destroy: tool error: %s", contentText(res))
+		}
+	}()
 
 	for created.Status == machine.Booting {
 		call("machine_wait", map[string]any{"runId": created.RunID, "timeoutSeconds": 45}, &created)
