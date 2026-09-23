@@ -265,7 +265,18 @@ func (v *Verifier) describe(ctx context.Context, png []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return v.llm.Describe(ctx, v.cfg.VisionModel, jpeg, visionPrompt)
+	// The vision model sometimes answers with nothing but <unk> tokens; one
+	// more try has been enough. A second garbage answer is an error, so the
+	// reasoning model is told it could not see rather than handed noise.
+	for attempt := 0; ; attempt++ {
+		text, err := v.llm.Describe(ctx, v.cfg.VisionModel, jpeg, visionPrompt)
+		if err != nil || !strings.Contains(text, "<unk>") {
+			return text, err
+		}
+		if attempt == 1 {
+			return "", errors.New("the vision model answered with unreadable tokens twice")
+		}
+	}
 }
 
 // postInput posts one batch as the verifier and returns the tool result text,

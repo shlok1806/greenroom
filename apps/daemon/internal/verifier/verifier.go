@@ -56,11 +56,19 @@ Rules:
 - If a verdict of yours is disputed, re-examine the evidence with the objection in mind. Change your verdict if the objection holds and say why; restate it with the reason if it does not. Do not change your mind just because you were asked to.
 - If you cannot finish, report inconclusive and say what blocked you.`
 
-const visionPrompt = `This is the screen of a macOS machine under test. Describe what is on it for an engineer who cannot see it and who can only click by coordinates.
-Name the frontmost application and window. Quote any visible error text or dialog exactly.
-If a system dialog is covering the screen, say so first, because that is a fault of the machine and not of the application under test.
-List each interactive element you can see (buttons, text fields and their contents, segmented controls and each of their segments, checkboxes, steppers, menus, links) with its label, whether it looks selected, and its approximate center as fractions of the image width and height, for example: "25% segment at (0.60, 0.47), not selected".
-Be factual and brief. Do not guess at anything you cannot read.`
+// visionPrompt asks for every visible string in the frontmost window, not
+// just the controls: a demo describer named the window and "no error" and
+// left out every value, so the verifier could not check a result and had to
+// retake the shot. Measured on real TipSplit screenshots with
+// nemotron-3-nano-omni: the old prompt gave every value in 2 of 9 answers,
+// this one in 12 of 12. TestVisionPromptAsksForEveryVisibleString pins it.
+const visionPrompt = `This is the screen of a macOS machine under test. Describe it for an engineer who cannot see it and who can only click by coordinates. Answer in these five parts, in this order.
+1. System dialog: if a system dialog or alert is covering the screen, say so and quote it exactly, because that is a fault of the machine and not of the application under test. Otherwise write "none".
+2. Frontmost: the frontmost application and its window title.
+3. Window text: quote every piece of text visible in the frontmost window, exactly as shown, one per line, top to bottom: titles, labels, the contents of every field, button and segment labels, values, results, totals, and status or error messages. Copy numbers, currency and punctuation exactly. Never skip text because it looks unimportant, and never summarize it. Write "(empty)" for an empty field and "(unreadable)" for text you cannot read.
+4. Controls: each interactive element (buttons, text fields, segmented controls and each of their segments, checkboxes, steppers, menus, links) with its label, whether it looks selected, and its approximate center as fractions of the image width and height, for example: "25% segment at (0.60, 0.47), not selected".
+5. Errors: quote any visible error text exactly, or write "none".
+Be factual. Do not guess at anything you cannot read.`
 
 // Config names the endpoint and the two models.
 type Config struct {

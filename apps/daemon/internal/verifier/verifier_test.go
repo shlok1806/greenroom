@@ -32,6 +32,8 @@ type scriptedModel struct {
 	requests []map[string]any
 	vision   string
 	visions  int
+	// visionReplies, when set, answer the vision calls in order before vision does.
+	visionReplies []string
 
 	// failures is how many requests get a 500 first; they consume no reply.
 	failures int
@@ -61,9 +63,13 @@ func (s *scriptedModel) start(t *testing.T) string {
 
 		// An image request is the vision model.
 		if isVisionRequest(body) {
+			answer := s.vision
+			if s.visions < len(s.visionReplies) {
+				answer = s.visionReplies[s.visions]
+			}
 			s.visions++
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":`+quote(s.vision)+`}}],"usage":{}}`)
+			_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":`+quote(answer)+`}}],"usage":{}}`)
 			return
 		}
 		n := len(s.requests) - s.visions - 1
@@ -492,6 +498,47 @@ func TestTurnDescribesAScreenshotForABlindModel(t *testing.T) {
 	}
 	if strings.Contains(last, "image_url") {
 		t.Error("an image was sent to the reasoning model, which cannot accept one")
+	}
+}
+
+// The vision model once answered with a page of <unk> tokens. That is retried
+// once, and a second one reaches the reasoning model as an error, not as noise.
+func TestDescribeRetriesAnUnreadableAnswerOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		replies []string
+		want    string
+	}{
+		{"then readable", []string{"<unk><unk><unk>", "3. Window text:\nEach pays: $48.00"}, "Each pays: $48.00"},
+		{"twice", []string{"<unk><unk>", "<unk><unk>"}, "unreadable tokens twice"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, runID, control := ready(t)
+			writeShot(t, control)
+			model := &scriptedModel{
+				visionReplies: tc.replies,
+				replies: []string{
+					toolCall("machine_screenshot", map[string]any{}),
+					toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "done"}),
+				},
+			}
+			v := newVerifier(t, mgr, model.start(t))
+			store := openStore(t, mgr, runID)
+			postTask(t, store, "Look at the screen.")
+			if _, err := v.Turn(context.Background(), runID, store); err != nil {
+				t.Fatalf("Turn: %v", err)
+			}
+			if model.visions != 2 {
+				t.Errorf("the vision model was called %d times, want 2", model.visions)
+			}
+			last := model.request(t, model.calls())
+			if !strings.Contains(last, tc.want) {
+				t.Errorf("the reasoning model never saw %q", tc.want)
+			}
+			if strings.Contains(last, "<unk>") {
+				t.Error("unreadable tokens reached the reasoning model")
+			}
+		})
 	}
 }
 
@@ -1082,6 +1129,21 @@ func TestSystemPromptBindsConstraintsAndAimsFromTheTree(t *testing.T) {
 	}
 	if !strings.Contains(visionPrompt, "approximate center as fractions") {
 		t.Error("the vision prompt does not ask for positions")
+	}
+}
+
+// A describer that named the window and "no error" but no values made the
+// verifier retake the shot. The prompt must ask for every visible string.
+func TestVisionPromptAsksForEveryVisibleString(t *testing.T) {
+	for _, want := range []string{
+		"quote every piece of text visible in the frontmost window",
+		"the contents of every field",
+		"values, results, totals",
+		"Never skip text",
+	} {
+		if !strings.Contains(visionPrompt, want) {
+			t.Errorf("the vision prompt lacks %q", want)
+		}
 	}
 }
 
