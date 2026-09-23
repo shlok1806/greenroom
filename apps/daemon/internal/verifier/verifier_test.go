@@ -448,7 +448,8 @@ func TestTurnComputerUseIsRefusedWhileAHumanHoldsTheScreen(t *testing.T) {
 	if len(prog) != 1 || !strings.Contains(prog[0].Text, "human") {
 		t.Fatalf("progress = %+v, want an error naming the human", prog)
 	}
-	if strings.Contains(testsupport.Calls(t, control), "greenroom-input") {
+	// --json-base64 posts a batch; boot's own helper check runs the helper too.
+	if strings.Contains(testsupport.Calls(t, control), "--json-base64") {
 		t.Error("a batch reached the guest while a human held the screen")
 	}
 	if c, held := mgr.ControlState(runID); !held || c.Holder != "human" {

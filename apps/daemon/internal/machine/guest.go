@@ -9,11 +9,9 @@ import (
 	"errors"
 	"fmt"
 	imagepng "image/png"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -21,14 +19,21 @@ import (
 // recordLimit caps how much of a command's output goes into steps.jsonl.
 const recordLimit = 64 * 1024
 
-// ExecResult is a command's outcome plus timing.
+// ExecResult is a command's outcome plus timing. Stdout and Stderr keep at
+// most ExecHeadLimit plus ExecTailLimit bytes each (issue #29); the Bytes
+// fields are what the command wrote in full.
 type ExecResult struct {
-	Stdout   string  `json:"stdout"`
-	Stderr   string  `json:"stderr"`
-	ExitCode int     `json:"exitCode"`
-	TimedOut bool    `json:"timedOut,omitempty"` // the guest killed the command at its timeout; the output is what it printed until then
-	Seconds  float64 `json:"seconds"`
-	Step     int     `json:"step"` // its number in steps.jsonl
+	ExecID          string  `json:"execId,omitempty"`
+	Stdout          string  `json:"stdout"`
+	Stderr          string  `json:"stderr"`
+	StdoutBytes     int64   `json:"stdoutBytes"`
+	StderrBytes     int64   `json:"stderrBytes"`
+	StdoutTruncated bool    `json:"stdoutTruncated,omitempty"`
+	StderrTruncated bool    `json:"stderrTruncated,omitempty"`
+	ExitCode        int     `json:"exitCode"`
+	TimedOut        bool    `json:"timedOut,omitempty"` // the guest killed the command at its timeout; the output is what it printed until then
+	Seconds         float64 `json:"seconds"`
+	Step            int     `json:"step"` // its number in steps.jsonl
 }
 
 // execTimedOutExit and execTimedOutNote are how execWrapper reports a timeout.
@@ -41,36 +46,25 @@ const (
 // so the guest's watchdog, not the host, ends a command and its output comes back.
 const execHostGrace = 20 * time.Second
 
-// Exec runs command in the guest's login shell, optionally in cwd. A non-zero
-// exit is reported in ExitCode, not as an error. At timeout the guest kills the
-// command's process group (issue #28) and the result has TimedOut, exit 124 and
-// the output printed so far; the host gives up only execHostGrace later.
+// Exec runs command in the guest's login shell, optionally in cwd, and waits
+// for it. A non-zero exit is reported in ExitCode, not as an error. At timeout
+// the guest kills the command's process group (issue #28) and the result has
+// TimedOut, exit 124 and the output printed so far; the host gives up only
+// execHostGrace later. A caller that gives up ends the command's tart exec.
+// machine_exec uses ExecStart and ExecWait instead, so no call blocks for long.
 func (m *Manager) Exec(ctx context.Context, runID, command, cwd string, timeout time.Duration) (ExecResult, error) {
-	mc, err := m.get(runID)
+	j, err := m.startExec(ctx, runID, command, cwd, timeout)
 	if err != nil {
 		return ExecResult{}, err
 	}
-	if err := m.awaitReady(ctx, mc); err != nil {
-		return ExecResult{}, err
+	select {
+	case <-j.done:
+		return j.res, j.err
+	case <-ctx.Done():
+		j.cancel()
+		<-j.done
+		return j.res, j.err
 	}
-	started := time.Now()
-	guestSeconds := 0
-	if timeout > 0 {
-		guestSeconds = int(math.Ceil(timeout.Seconds()))
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout+execHostGrace)
-		defer cancel()
-	}
-	script := command
-	if cd := cdCommand(cwd); cd != "" {
-		script = cd + " && " + command
-	}
-	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", execWrapper, "greenroom-exec", script, strconv.Itoa(guestSeconds))
-	out := ExecResult{Stdout: res.Stdout, Stderr: res.Stderr, ExitCode: res.ExitCode, Seconds: time.Since(started).Seconds()}
-	out.TimedOut = err == nil && res.ExitCode == execTimedOutExit && strings.Contains(res.Stderr, execTimedOutNote)
-	out.Step = mc.rec.step("machine_exec", map[string]any{"command": command, "cwd": cwd}, truncatedForLog(out), err, started)
-	m.emitStep(mc.RunID, out.Step)
-	return out, err
 }
 
 // execWrapper runs a machine_exec command ($1) in a login zsh with its output
@@ -89,10 +83,15 @@ func (m *Manager) Exec(ctx context.Context, runID, command, cwd string, timeout 
 // running. The wrapper's own stderr goes to /dev/null so the shell's job notices
 // never reach the caller; the command's stderr is written to fd 3, which zsh and
 // the watchdog do not inherit (a child holding it would hold the call open).
+//
+// The login zsh is not interactive, so it never reads /etc/zshrc, where macOS
+// runs `disable log` so that log is /usr/bin/log and not zsh's builtin (issue
+// #40). The wrapper does the same before the command, on its first line so the
+// command's own line numbers in zsh's errors stay as they were.
 const execWrapper = `exec 3>&2 2>/dev/null
 d=$(mktemp -d /tmp/greenroom-exec.XXXXXX) || exit 125
 set -m
-/bin/zsh -lc "$1" >"$d/out" 2>"$d/err" </dev/null 3>&- &
+/bin/zsh -lc "disable log 2>/dev/null; $1" >"$d/out" 2>"$d/err" </dev/null 3>&- &
 z=$!
 w=
 if [ "${2:-0}" -gt 0 ]; then

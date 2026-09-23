@@ -153,7 +153,7 @@ func TestServerExposesExactlyItsTools(t *testing.T) {
 	}
 	want := map[string]bool{
 		"machine_create": false, "machine_wait": false, "machine_list": false,
-		"machine_sync": false, "machine_exec": false, "machine_screenshot": false,
+		"machine_sync": false, "machine_exec": false, "machine_exec_wait": false, "machine_screenshot": false,
 		"machine_destroy": false, "machine_approve_capture": false,
 		"agent_send": false, "agent_wait": false, "agent_transcript": false,
 		"machine_click": false, "machine_type": false, "machine_key": false,
@@ -445,6 +445,162 @@ func TestExecReadsATildeCwdAsTheGuestHome(t *testing.T) {
 	h.call("machine_exec", map[string]any{"runId": runID, "command": "pwd", "cwd": "~/work/app"}, nil)
 	if !strings.Contains(testsupport.Calls(t, h.control), `cd "$HOME"/'work/app'`) {
 		t.Errorf("a ~ cwd was not entered from the guest home\ncalls:\n%s", testsupport.Calls(t, h.control))
+	}
+}
+
+// Issue #29: a huge output comes back as its head and tail, with its full size, not whole.
+func TestExecBoundsItsOutputAndSaysHowMuchWasLeftOut(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	body := "HEAD-MARK\n" + strings.Repeat("x", 4<<20) + "\nTAIL-MARK\n"
+	if err := os.WriteFile(filepath.Join(h.control, "exec-stdout"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	res := h.call("machine_exec", map[string]any{"runId": runID, "command": "cat big.log"}, &out)
+	stdout, _ := out["stdout"].(string)
+	if !strings.HasPrefix(stdout, "HEAD-MARK\n") || !strings.HasSuffix(stdout, "\nTAIL-MARK\n") {
+		t.Errorf("stdout lost its head or tail: %.40q ... %.40q", stdout, stdout[max(0, len(stdout)-40):])
+	}
+	if limit := machine.ExecHeadLimit + machine.ExecTailLimit + 200; len(stdout) > limit {
+		t.Errorf("stdout is %d bytes, want at most %d", len(stdout), limit)
+	}
+	if !strings.Contains(stdout, "bytes left out") {
+		t.Error("stdout does not mark where bytes were left out")
+	}
+	if out["stdoutTruncated"] != true || out["stdoutBytes"] != float64(len(body)) {
+		t.Errorf("stdoutTruncated %v, stdoutBytes %v; want true and %d", out["stdoutTruncated"], out["stdoutBytes"], len(body))
+	}
+	if n := len(text(res)); n > 2*(machine.ExecHeadLimit+machine.ExecTailLimit) {
+		t.Errorf("the text content is %d bytes for a bounded result", n)
+	}
+	// The run record keeps the same bounded output and the full size.
+	steps, err := machine.ReadSteps(filepath.Join(h.root, "runs", runID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recorded map[string]any
+	for _, s := range steps {
+		if s.Tool == "machine_exec" {
+			recorded, _ = s.Output.(map[string]any)
+		}
+	}
+	if recorded == nil || recorded["stdoutBytes"] != float64(len(body)) {
+		t.Errorf("recorded output %v, want stdoutBytes %d", recorded["stdoutBytes"], len(body))
+	}
+}
+
+// A small output is whole and not marked truncated.
+func TestExecKeepsASmallOutputWhole(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	body := strings.Repeat("line of build output\n", 1000) // 21 KB, under the limit
+	if err := os.WriteFile(filepath.Join(h.control, "exec-stdout"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	h.call("machine_exec", map[string]any{"runId": runID, "command": "make"}, &out)
+	if out["stdout"] != body || out["stdoutBytes"] != float64(len(body)) {
+		t.Errorf("a small output did not come back whole: %d bytes, stdoutBytes %v", len(out["stdout"].(string)), out["stdoutBytes"])
+	}
+	if _, ok := out["stdoutTruncated"]; ok {
+		t.Errorf("a whole output is marked truncated: %v", out["stdoutTruncated"])
+	}
+}
+
+func TestExecDescriptionStatesItsLimitsAndTheWaitTool(t *testing.T) {
+	h := newHarness(t)
+	res, err := h.session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range res.Tools {
+		if tool.Name != "machine_exec" {
+			continue
+		}
+		for _, want := range []string{"first 8 KiB and last 24 KiB", "stdoutBytes", "machine_exec_wait", "execId", "max 50", "machine_session_start", "not interactive"} {
+			if !strings.Contains(tool.Description, want) {
+				t.Errorf("machine_exec's description does not mention %q:\n%s", want, tool.Description)
+			}
+		}
+		return
+	}
+	t.Fatal("no machine_exec tool")
+}
+
+// Issue #39: a call never blocks past waitSeconds. A command still going comes back running
+// with an execId and keeps running; machine_exec_wait collects the same result and step.
+func TestALongExecReturnsAHandleAndIsCollectedLater(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	if err := os.WriteFile(filepath.Join(h.control, "exec-sleep"), []byte("3"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	var first map[string]any
+	h.call("machine_exec", map[string]any{"runId": runID, "command": "swift build", "waitSeconds": 1}, &first)
+	if took := time.Since(started); took > 2500*time.Millisecond {
+		t.Errorf("machine_exec blocked %s, want about its 1 s wait", took)
+	}
+	if first["running"] != true || first["execId"] == "" || first["execId"] == nil {
+		t.Fatalf("a command still going came back %v, want running true with an execId", first)
+	}
+	if _, ok := first["exitCode"]; ok {
+		t.Errorf("a running command reported an exit code: %v", first)
+	}
+
+	var done map[string]any
+	for i := 0; i < 10 && (i == 0 || done["running"] == true); i++ {
+		h.call("machine_exec_wait", map[string]any{"runId": runID, "execId": first["execId"], "waitSeconds": 2}, &done)
+	}
+	if done["running"] != false || done["exitCode"] != 0.0 || done["stdout"] != "fake stdout\n" {
+		t.Fatalf("the collected result is %v, want the finished command's", done)
+	}
+	if done["step"] != first["step"] || done["execId"] != first["execId"] {
+		t.Errorf("collected step %v execId %v, want the step %v and execId %v machine_exec returned",
+			done["step"], done["execId"], first["step"], first["execId"])
+	}
+	if secs, _ := done["seconds"].(float64); secs < 3 {
+		t.Errorf("seconds = %v, want the command's whole run of about 3 s", secs)
+	}
+
+	// Collecting again gives the same answer; an unknown id is a readable error.
+	var again map[string]any
+	h.call("machine_exec_wait", map[string]any{"runId": runID, "execId": first["execId"]}, &again)
+	if again["exitCode"] != 0.0 || again["step"] != first["step"] {
+		t.Errorf("a second collect gave %v", again)
+	}
+	if res := h.raw("machine_exec_wait", map[string]any{"runId": runID, "execId": "nope"}); !res.IsError || !strings.Contains(text(res), "machine_exec") {
+		t.Errorf("an unknown execId gave %s, want an error that points to machine_exec", text(res))
+	}
+}
+
+// Issue #47: the output recorded for machine_exec and machine_ui carries the record's own seq.
+func TestExecAndUIRecordTheirOwnStepNumber(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	var exec machine.ExecResult
+	h.call("machine_exec", map[string]any{"runId": runID, "command": "echo hi"}, &exec)
+	var tree machine.UITree
+	h.call("machine_ui", map[string]any{"runId": runID}, &tree)
+
+	steps, err := machine.ReadSteps(filepath.Join(h.root, "runs", runID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for _, s := range steps {
+		if s.Tool != "machine_exec" && s.Tool != "machine_ui" {
+			continue
+		}
+		out, _ := s.Output.(map[string]any)
+		if got, _ := out["step"].(float64); int(got) != s.Seq {
+			t.Errorf("%s record seq %d has output.step %v", s.Tool, s.Seq, out["step"])
+		}
+		seen[s.Tool] = s.Seq
+	}
+	if seen["machine_exec"] != exec.Step || seen["machine_ui"] != tree.Step {
+		t.Errorf("recorded steps %v, want exec %d and ui %d as the results said", seen, exec.Step, tree.Step)
 	}
 }
 
@@ -848,7 +1004,8 @@ func TestClickIsRefusedWhileAHumanHoldsTheScreen(t *testing.T) {
 		t.Errorf("the error does not name the human holder: %q", msg)
 	}
 
-	if strings.Contains(testsupport.Calls(t, h.control), "greenroom-input") {
+	// --json-base64 posts input; boot's own helper check runs the helper too.
+	if strings.Contains(testsupport.Calls(t, h.control), "--json-base64") {
 		t.Error("a refused click still reached the guest input helper")
 	}
 
@@ -1014,5 +1171,51 @@ func TestAnUnknownModifierOrButtonIsAToolError(t *testing.T) {
 		if !res.IsError || !strings.Contains(text(res), "unknown") || !strings.Contains(text(res), "use ") {
 			t.Errorf("%s %v = %q (isError %v), want an error naming what is accepted", tool, args, text(res), res.IsError)
 		}
+	}
+}
+
+// Issue #42: VMs another greenroom daemon runs are named as such, and the error steers the
+// agent to wait and retry, never to stop a machine this daemon did not create.
+func TestHostLimitErrorNamesAnotherDaemonsMachinesAndSaysToWait(t *testing.T) {
+	h := newHarness(t)
+	other := "greenroom-20260923-073440-ca5f93d22cf5610a"
+	if err := os.WriteFile(filepath.Join(h.control, "vmnames"), []byte(other+"\nsomeones-vm\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := h.raw("machine_create", nil)
+	if !res.IsError {
+		t.Fatal("create succeeded although the host is at its machine limit")
+	}
+	msg := text(res)
+	for _, want := range []string{other + " (another greenroom daemon", "someones-vm", "wait", "call machine_create again", "do not stop"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the error does not say %q: %q", want, msg)
+		}
+	}
+	if strings.Contains(msg, "stop one of them") || strings.Contains(msg, "all started outside greenroom") {
+		t.Errorf("the error still tells the agent to stop machines it did not create: %q", msg)
+	}
+}
+
+// Issue #42: with one machine of ours at the limit, the agent may destroy its own or wait,
+// and is told not to stop the other daemon's.
+func TestHostLimitErrorWithOursAndAnotherDaemonsOffersDestroyOrWait(t *testing.T) {
+	h := newHarness(t)
+	if err := os.WriteFile(filepath.Join(h.control, "vmnames"), []byte("greenroom-20260923-074607-27de2e9c17c3c976\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.ready()
+	res := h.raw("machine_create", nil)
+	if !res.IsError {
+		t.Fatal("create succeeded although the host is at its machine limit")
+	}
+	msg := text(res)
+	for _, want := range []string{"machine_destroy", "runId ", "another greenroom daemon", "wait", "call machine_create again", "do not stop"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the error does not say %q: %q", want, msg)
+		}
+	}
+	if strings.Contains(msg, "or stop ") {
+		t.Errorf("the error tells the agent to stop machines it did not create: %q", msg)
 	}
 }

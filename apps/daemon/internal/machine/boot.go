@@ -58,6 +58,8 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 			timings["desktopPrefsError"] = perr.Error()
 			m.Log.Warn("a click on this machine's wallpaper may hide its windows", "runId", mc.RunID, "err", perr)
 		}
+		// A stale image's helper is compiled here, not in the first UI call (issue #41).
+		m.bootInputHelper(boot, mc, timings)
 	}
 	if err == nil {
 		err = phase("sshSeconds", func() error {

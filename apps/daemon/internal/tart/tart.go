@@ -186,27 +186,35 @@ func (p *Process) VNCURL(timeout time.Duration) string {
 // Exec runs a command in the guest via the guest agent. A non-zero guest exit
 // is reported in ExitCode, not as an error: errors mean tart itself failed.
 func (c *Client) Exec(ctx context.Context, name string, args ...string) (ExecResult, error) {
-	cmd := exec.CommandContext(ctx, c.Bin, append([]string{"exec", name}, args...)...)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	res := ExecResult{Stdout: stdout.String(), Stderr: stderr.String()}
+	code, err := c.ExecTo(ctx, &stdout, &stderr, name, args...)
+	return ExecResult{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: code}, err
+}
+
+// ExecTo is Exec writing the guest's output to stdout and stderr as it
+// arrives instead of holding it, so the caller decides how much memory a
+// command's output may take (issue #29). The last tailLimit bytes of stderr
+// are kept to tell tart's own failure (always its last line) from the guest's.
+func (c *Client) ExecTo(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) (exitCode int, err error) {
+	cmd := exec.CommandContext(ctx, c.Bin, append([]string{"exec", name}, args...)...)
+	tail := &tailBuffer{}
+	cmd.Stdout = stdout
+	cmd.Stderr = io.MultiWriter(stderr, tail)
+	err = cmd.Run()
 	if err == nil {
-		return res, nil
+		return 0, nil
 	}
 	if ctx.Err() != nil {
-		return res, fmt.Errorf("tart exec %s: %w", name, ctx.Err())
+		return 0, fmt.Errorf("tart exec %s: %w", name, ctx.Err())
 	}
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) {
-		return res, fmt.Errorf("tart exec %s: %w", name, err)
+		return 0, fmt.Errorf("tart exec %s: %w", name, err)
 	}
-	if isTartFailure(exitErr.ExitCode(), res.Stderr) {
-		return res, fmt.Errorf("tart exec %s: %s", name, strings.TrimSpace(res.Stderr))
+	if isTartFailure(exitErr.ExitCode(), tail.String()) {
+		return 0, fmt.Errorf("tart exec %s: %s", name, strings.TrimSpace(tail.String()))
 	}
-	res.ExitCode = exitErr.ExitCode()
-	return res, nil
+	return exitErr.ExitCode(), nil
 }
 
 // tartErrorLine matches the line tart 2.37 prints last when it fails itself:
@@ -294,6 +302,20 @@ func (s *Session) Err() error {
 		return fmt.Errorf("tart exec: %s", msg)
 	}
 	return nil
+}
+
+// ExitCode is the guest command's exit code, which tart forwards as its own.
+// ok is false while the command runs and when Err reports that tart itself
+// failed or was killed: then there is no guest exit code to give.
+func (s *Session) ExitCode() (code int, ok bool) {
+	if s.Running() || s.Err() != nil {
+		return 0, false
+	}
+	st := s.cmd.ProcessState
+	if st == nil {
+		return 0, false
+	}
+	return st.ExitCode(), true
 }
 
 // closeWait is how long Close waits for a killed session to be reaped.

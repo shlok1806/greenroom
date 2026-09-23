@@ -31,7 +31,8 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	s := mcp.NewServer(&mcp.Implementation{Name: "greenroom", Version: Version}, &mcp.ServerOptions{
 		Instructions: "greenroom gives you a disposable macOS machine. Call machine_create once and keep its runId, " +
 			"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_exec to build " +
-			"and run, machine_screenshot to look at the screen, machine_ui to find controls and their centers before " +
+			"and run (a command still going after 45 s comes back running, with an execId for machine_exec_wait), " +
+			"machine_screenshot to look at the screen, machine_ui to find controls and their centers before " +
 			"machine_click, and machine_destroy when done. " +
 			"Every run also owns one conversation: agent_send posts into it, agent_wait blocks for what comes " +
 			"back, and agent_transcript reads it. That is how you reach greenroom's verifier and how a watching " +
@@ -114,20 +115,47 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 		Command        string `json:"command" jsonschema:"Shell command, run with zsh -lc in the guest"`
 		Cwd            string `json:"cwd,omitempty" jsonschema:"Working directory in the guest: relative to the home, absolute, or starting with ~/, e.g. work/myapp"`
 		TimeoutSeconds int    `json:"timeoutSeconds,omitempty" jsonschema:"Kill the command and its children in the guest after this many seconds. Default 600. The result then has timedOut true, exit code 124, and the output printed until then."`
+		WaitSeconds    int    `json:"waitSeconds,omitempty" jsonschema:"How long this call waits for the command before returning running true with an execId. Default 45, max 50. The command keeps running either way; this is not its timeout."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_exec",
-		Description: "Run a shell command inside the machine and return stdout, stderr and the exit code. It returns " +
-			"when the shell exits: a command may leave a process running in the background (./App &), whose later " +
-			"output is not returned.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in execIn) (*mcp.CallToolResult, machine.ExecResult, error) {
+		Description: fmt.Sprintf("Run a shell command inside the machine and return stdout, stderr and the exit code. "+
+			"The shell is a login zsh that is not interactive (zsh -lc). "+
+			"One call waits at most waitSeconds (default 45, max 50, under MCP clients' 60 s limit on a call): a "+
+			"command still going then comes back with running true, no exitCode, and an execId, and it keeps "+
+			"running; collect its result with machine_exec_wait. A command returns when its shell exits: it may "+
+			"leave a process running in the background (./App &), whose later output is not returned. Output "+
+			"arrives when the command ends, never while it runs; to watch a build or type into a program, use "+
+			"machine_session_start. stdout and stderr each keep their first %d KiB and last %d KiB; when bytes "+
+			"were left out, stdoutTruncated or stderrTruncated is true, a marker line in the text says where, "+
+			"and stdoutBytes and stderrBytes give the full sizes. To see more of a big output, write it to a "+
+			"file in the guest and read parts of it (grep, tail, sed -n).",
+			machine.ExecHeadLimit/1024, machine.ExecTailLimit/1024),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in execIn) (*mcp.CallToolResult, machine.ExecStatus, error) {
 		timeout := 10 * time.Minute
 		if in.TimeoutSeconds > 0 {
 			timeout = time.Duration(in.TimeoutSeconds) * time.Second
 		}
-		res, err := mgr.Exec(ctx, in.RunID, in.Command, in.Cwd, timeout)
-		res.Seconds = round(res.Seconds)
-		return nil, res, err
+		st, err := mgr.ExecStart(ctx, in.RunID, in.Command, in.Cwd, timeout)
+		if err != nil {
+			return nil, machine.ExecStatus{}, err
+		}
+		return execResult(mgr.ExecWait(ctx, in.RunID, st.ExecID, waitTimeout(in.WaitSeconds)))
+	})
+
+	type execWaitIn struct {
+		RunID       string `json:"runId" jsonschema:"runId from machine_create"`
+		ExecID      string `json:"execId" jsonschema:"execId from a machine_exec that returned running true"`
+		WaitSeconds int    `json:"waitSeconds,omitempty" jsonschema:"How long to wait for the command to finish before answering running true again. Default 45, max 50."`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "machine_exec_wait",
+		Description: "Wait for a command machine_exec started and returned with running true. Returns the same " +
+			"result machine_exec would have: running true (call again), or running false with exitCode, stdout " +
+			"and stderr. The command's step in the run record is the step machine_exec returned. Collecting a " +
+			"result again returns it again.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in execWaitIn) (*mcp.CallToolResult, machine.ExecStatus, error) {
+		return execResult(mgr.ExecWait(ctx, in.RunID, in.ExecID, waitTimeout(in.WaitSeconds)))
 	})
 
 	type runIn struct {
@@ -204,6 +232,15 @@ func wrap(mc *machine.Machine, err error) (*mcp.CallToolResult, *machine.Machine
 		return nil, nil, err
 	}
 	return nil, mc, nil
+}
+
+// execResult adapts an exec status to a tool handler's three results.
+func execResult(st machine.ExecStatus, err error) (*mcp.CallToolResult, machine.ExecStatus, error) {
+	if err != nil {
+		return nil, machine.ExecStatus{}, err
+	}
+	st.Seconds = round(st.Seconds)
+	return nil, st, nil
 }
 
 // waitTimeout turns a caller's timeoutSeconds into a wait: defaultWait when unset, capped at maxWait.

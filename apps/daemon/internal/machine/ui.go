@@ -110,13 +110,15 @@ func (m *Manager) UI(ctx context.Context, runID, reader, app string, limit int) 
 	}
 	limit = min(limit, MaxUILimit)
 	started := time.Now()
+	seq := mc.rec.begin() // before the tree is recorded, so its step is its own (issue #47)
 	tree, err := m.readUI(ctx, mc, app, limit)
 	tree.Seconds = time.Since(started).Seconds()
+	tree.Step = seq
 	input := map[string]any{"limit": limit, "reader": reader}
 	if app != "" {
 		input["app"] = app
 	}
-	tree.Step = mc.rec.step("machine_ui", input, tree, err, started)
+	mc.rec.complete(seq, "machine_ui", input, tree, err, started)
 	if err == nil {
 		kept := tree // a copy, with its step: the caller may change what it was handed
 		mc.input.uiMu.Lock()

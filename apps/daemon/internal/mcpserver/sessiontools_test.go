@@ -247,6 +247,46 @@ func TestAFinishedSessionStopsReportingItselfRunning(t *testing.T) {
 	}
 }
 
+// Issue #62: a finished session says how its command ended, as machine_exec does.
+func TestAFinishedSessionReportsItsExitCode(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	testsupport.Flag(t, h.control, "session-exits")
+	if err := os.WriteFile(filepath.Join(h.control, "session-exit-code"), []byte("7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id := h.startSession(runID, "exit 7")
+
+	var raw map[string]any
+	for i := 0; i < 20 && (i == 0 || raw["running"] == true); i++ {
+		h.call("machine_session_read", map[string]any{"runId": runID, "sessionId": id, "waitSeconds": 1}, &raw)
+	}
+	if raw["running"] != false {
+		t.Fatalf("the session never finished: %v", raw)
+	}
+	if code, ok := raw["exitCode"].(float64); !ok || code != 7 {
+		t.Errorf("a session whose command exited 7 read back %v, want exitCode 7", raw)
+	}
+	if raw["error"] != nil {
+		t.Errorf("a non-zero exit was reported as a tart failure: %v", raw["error"])
+	}
+}
+
+// A running session has no exit code yet, and says so by leaving the field out.
+func TestARunningSessionHasNoExitCode(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	id := h.startSession(runID, "")
+	var raw map[string]any
+	h.call("machine_session_read", map[string]any{"runId": runID, "sessionId": id, "waitSeconds": 1}, &raw)
+	if raw["running"] != true {
+		t.Fatalf("the session is not running: %v", raw)
+	}
+	if _, ok := raw["exitCode"]; ok {
+		t.Errorf("a running session reported an exit code: %v", raw)
+	}
+}
+
 // tart refuses a session by exiting at once, so the caller must see it not running, with tart's reason.
 func TestASessionTartRefusesDoesNotLookHealthy(t *testing.T) {
 	h := newHarness(t)
