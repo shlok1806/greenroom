@@ -1352,3 +1352,78 @@ func TestProseVerdictMatchesOnlyVerdictShapes(t *testing.T) {
 		}
 	}
 }
+
+// truncatedReply is a reply the endpoint stopped at max_tokens: finish_reason length, no parsed tool call.
+func truncatedReply(text string) string {
+	return `{"choices":[{"message":{"role":"assistant","content":` + quote(text) +
+		`},"finish_reason":"length"}],"usage":{"prompt_tokens":3,"completion_tokens":1200}}`
+}
+
+// Issue #71: a reasoning model that spent its token budget thinking, or ran out mid tool call,
+// came back cut off; the empty or half-written message was posted as the turn's reply and the
+// verdict was lost. A cut-off step is sent back, and the model's next answer counts.
+func TestACutOffStepIsRetriedNotPostedAsTheReply(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		truncatedReply(""),
+		truncatedReply(`All checks pass.<tool_call>report_verdict<arg_key>evidence</arg_key><arg_value>["step 22", "st`),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Every width behaved.", "evidence": []string{"step 22"}}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check the pricing cards.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Ended != session.Verdict || store.Verdict().Verdict != "pass" {
+		t.Fatalf("ended %q with verdict %+v, want the pass the model meant", res.Ended, store.Verdict())
+	}
+	for _, m := range store.After(0) {
+		if m.Kind == session.Reply {
+			t.Errorf("a cut-off step was posted as a reply: %q", m.Text)
+		}
+	}
+	if !strings.Contains(model.request(t, 2), "cut off") {
+		t.Error("the model was not told its last message was cut off")
+	}
+}
+
+// When every step is cut off, the turn says so in words; it never posts a fragment.
+func TestATurnThatKeepsGettingCutOffSaysSo(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	var replies []string
+	for i := 0; i < 6; i++ {
+		replies = append(replies, truncatedReply(`<tool_call>report_verdict<arg_key>evidence`))
+	}
+	model := &scriptedModel{replies: replies}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check it.")
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatal(err)
+	}
+	last := lastMessage(t, store)
+	if last.Kind != session.Reply || strings.Contains(last.Text, "<tool_call>") || !strings.Contains(last.Text, "cut off") {
+		t.Fatalf("last message = %+v, want a reply saying the answers were cut off, with no fragment", last)
+	}
+}
+
+// Reasoning models think inside the completion budget, so 1200 tokens was used up before any answer.
+func TestChatLeavesRoomForAReasoningModel(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{prose("fine")}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check it.")
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(model.request(t, 1)), &body); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := body["max_tokens"].(float64); n < 4096 {
+		t.Errorf("max_tokens = %v, want at least 4096", body["max_tokens"])
+	}
+}

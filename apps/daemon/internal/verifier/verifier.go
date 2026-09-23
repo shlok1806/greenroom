@@ -122,6 +122,24 @@ type Brain interface {
 	Turn(ctx context.Context, runID string, store *session.Store) (TurnResult, error)
 }
 
+// cutOffNudge and cutOffReply answer a step the endpoint cut off at its token limit.
+const (
+	cutOffNudge = "[greenroom] Your last message was cut off at the output limit before it finished, so nothing " +
+		"in it was received. Answer again, shorter: call the tool you meant to call, with brief arguments " +
+		"(cite a few key steps as evidence, not every step)."
+	cutOffReply = "My answers in this turn were cut off at the model's output limit before they finished, so " +
+		"nothing was reported. Send another message and I will try again, more briefly."
+)
+
+// cutOff reports whether the endpoint stopped msg at its token limit, or msg carries a tool
+// call as text: some models write one inline and, cut short, leave "<tool_call>..." prose.
+func cutOff(msg nim.Message) bool {
+	if len(msg.ToolCalls) > 0 && msg.FinishReason != "length" {
+		return false
+	}
+	return msg.FinishReason == "length" || strings.Contains(msg.Content, "<tool_call>")
+}
+
 // Turn rebuilds the model context from the transcript, loops over tool calls
 // posting progress, and ends by posting a reply, question or verdict. An error
 // means the loop itself broke; it is also posted as an event unless the caller
@@ -166,6 +184,19 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			}
 			v.post(store, session.Message{From: session.System, Kind: session.Event, Text: "verifier turn failed: " + err.Error()})
 			return res, err
+		}
+		if cutOff(msg) {
+			// Never a reply: an empty message is a budget spent thinking, and text holding a
+			// half-written tool call is a verdict that did not arrive (issue #71). The fragment
+			// stays out of the context; the model is told to answer again, shorter.
+			res.Steps = step
+			if step == v.cfg.MaxSteps {
+				res.Ended = session.Reply
+				v.post(store, session.Message{From: session.Verifier, Kind: session.Reply, Text: cutOffReply})
+				return res, nil
+			}
+			msgs = append(msgs, nim.Message{Role: "user", Content: cutOffNudge})
+			continue
 		}
 		msgs = append(msgs, msg)
 

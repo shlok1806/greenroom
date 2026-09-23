@@ -195,6 +195,10 @@ Conversation and verifier
 - Model failures retry: `nim.RetryBackoff` (1, 2, 4, 8 s on 429/5xx/transport, honours
   `Retry-After`; a timeout is never retried), then `verifier.TurnRetryDelays` (30, 60, 120 s). After the last, the
   actor posts that it gave up. Both are package vars so tests can zero them.
+- A step the endpoint cut off (`finish_reason: length`, or text holding a `<tool_call>`) is
+  never posted: the fragment stays out of the context and the model is told to answer again,
+  shorter; on the last step the reply says the answers were cut off (issue #71). Chat asks
+  for `nim.ChatMaxTokens` (8192) because a reasoning model thinks inside that budget.
 - `project` rebuilds the verifier's own past messages (progress, reply, ask, verdict) as
   the assistant tool calls that made them, with results; never as assistant prose. A
   model imitates its history: projected as "[I reported verdict ...]" text, it answered a
