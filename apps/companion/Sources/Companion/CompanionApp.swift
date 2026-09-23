@@ -58,10 +58,14 @@ struct CompanionApp: App {
         // One window: selection lives in the store, so a second window would mirror it.
         Window("Greenroom Companion", id: "main") {
             RootView(store: store)
-                .frame(minWidth: 820, minHeight: 560)
+                .frame(minWidth: RunLayout.windowMinimum.width, minHeight: RunLayout.windowMinimum.height)
                 .task { store.start() }
         }
-        .defaultSize(width: 1320, height: 840)
+        // The spec's default, but never wider or taller than the screen it opens on: a
+        // plain `defaultSize` opened 1320 pt wide on a 1024 pt screen (issue #64).
+        .defaultWindowPlacement { _, context in
+            WindowPlacement(size: RunLayout.defaultWindowSize(visible: context.defaultDisplay.visibleRect.size))
+        }
         .commands {
             SidebarCommands()
             RunMenuCommands(store: store)

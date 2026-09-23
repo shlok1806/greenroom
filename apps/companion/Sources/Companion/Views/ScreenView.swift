@@ -32,7 +32,6 @@ struct ScreenView: View {
     /// Where the player was before evidence was opened, for "Back to verdict".
     @State private var returnPoint: (index: Int, live: Bool)?
     @State private var evidenceStep: Int?
-    @AppStorage("verdictCardExpanded") private var verdictExpanded = false
     @AppStorage("showsConversation") private var showsConversation = true
     @FocusState private var focused: Bool
 
@@ -166,7 +165,9 @@ struct ScreenView: View {
                     .padding(.horizontal, Space.l)
                     .padding(.top, Space.m)
                     .transition(.opacity.combined(with: .move(edge: .top)))
-            } else if let evidenceStep, !facts.isAlive, facts.verdict != nil {
+            } else if let evidenceStep, !facts.isAlive || returnPoint != nil, facts.verdict != nil {
+                // A live run too, once evidence was opened from the card: the way back
+                // (and Esc) must be there, not only Go Live.
                 EvidenceBar(step: evidenceStep, back: backAction, record: {
                     store.requestSeek(runId: runId, step: evidenceStep, fromVerdict: true, inSteps: true)
                 })
@@ -324,7 +325,7 @@ struct ScreenView: View {
         }
         returnPoint = nil
         evidenceStep = nil
-        verdictExpanded = true
+        // Back where the person was: the card keeps whatever they had open (its draft).
         showsConversation = true
         store.clearFocus()
     }
@@ -425,6 +426,8 @@ struct EvidenceBar: View {
             Text("Step \(step), cited by the verdict")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
             Spacer(minLength: 0)
             if let record {
                 Button("Step Record", action: record)
@@ -530,31 +533,27 @@ private struct PlayerBar: View {
                 SourceChip(state: hoverState ?? source)
             }
 
-            HStack(spacing: Space.m) {
-                Picker("Speed", selection: $player.speed) {
-                    Text("1×").tag(PlayerModel.Speed.normal)
-                    Text("4×").tag(PlayerModel.Speed.fast)
+            // In a narrow stage the legend and Go Live wrap under the position (the spec's
+            // last step for narrow windows), never pushing the stage wider than its column.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Space.m) {
+                    speed
+                    position
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    legend
+                    liveButton
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
-                .fixedSize()
-                .disabled(driving)
-                .help("Playback speed")
-
-                position
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                legend
-
-                if machineIsReady, !player.live, !driving {
-                    Button {
-                        goLive()
-                    } label: {
-                        Label("Go Live", systemImage: "forward.end.fill")
+                VStack(alignment: .leading, spacing: Space.s) {
+                    HStack(spacing: Space.m) {
+                        speed
+                        position
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .controlSize(.small)
-                    .help("Jump to the machine's screen now (\(Keys.live))")
+                    HStack(spacing: Space.m) {
+                        legend
+                        Spacer(minLength: 0)
+                        liveButton
+                    }
                 }
             }
 
@@ -567,6 +566,33 @@ private struct PlayerBar: View {
             }
         }
         .padding(.horizontal, Space.l)
+    }
+
+    private var speed: some View {
+        Picker("Speed", selection: $player.speed) {
+            Text("1×").tag(PlayerModel.Speed.normal)
+            Text("4×").tag(PlayerModel.Speed.fast)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.small)
+        .fixedSize()
+        .disabled(driving)
+        .help("Playback speed")
+    }
+
+    @ViewBuilder
+    private var liveButton: some View {
+        if machineIsReady, !player.live, !driving {
+            Button {
+                goLive()
+            } label: {
+                Label("Go Live", systemImage: "forward.end.fill")
+            }
+            .controlSize(.small)
+            .fixedSize()
+            .help("Jump to the machine's screen now (\(Keys.live))")
+        }
     }
 
     /// While hovering the track the chip previews the time under the pointer.
@@ -609,7 +635,9 @@ private struct PlayerBar: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .frame(minWidth: 0)
+                    // A small ideal width: the bar's one-line layout is chosen by what
+                    // must fit, not by how long a command is.
+                    .frame(minWidth: 0, idealWidth: 60, maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(-1)
             } else if player.frames.isEmpty {
                 Text("No frames yet").foregroundStyle(.tertiary)
@@ -764,6 +792,8 @@ private struct RecentStepRow: View {
                     .frame(width: 28, alignment: .trailing)
                 Text(entry.title)
                     .font(.callout)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                     .frame(width: 96, alignment: .leading)
                 Text(StepSummary.line(for: step))
                     .font(.caption.monospaced())

@@ -112,7 +112,11 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   the machine is destroyed (`RunFacts.verifierListens`); then the re-check is disabled and
   the card and composer say nothing will answer.
 - The verdict's drafts (the action and its reason, whether evidence was opened, the
-  accept confirmation) live in `RunStore.verdictDrafts`, per run and verdict. A draft ends
+  accept confirmation, whether the card's evidence is open) live in
+  `RunStore.verdictDrafts`, per run and verdict, never in `@AppStorage`: a saved
+  expansion opened every card and came back after a relaunch (#52). The card is capped at
+  `RunLayout.verdictCardShare` of its column; its headline (with Less) and actions stay
+  and the body between them scrolls. A draft ends
   when its verdict changes or closes, or its run leaves the list; a resync keeps it. The verdict
   flow has no sheet, alert or dialog: accepting rebuilds the card, and a sheet whose
   presenter goes away leaves the window unable to take a click. Ask inline.
@@ -123,8 +127,18 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   The well takes the picture's shape, so there is no letterbox.
 - The conversation column is a hand-made split (`ColumnDivider`), not `.inspector` as
   ADR 0001 says, nor `HSplitView`: inside `NavigationSplitView` both add hundreds of points to the window's
-  minimum width, even while hidden. Below 1000 pt `RootView` folds the sidebar, only while
-  shrinking, so a sidebar shown by hand stays.
+  minimum width, even while hidden. Widths live in `RunLayout` (stage at least 440, the
+  spec). Narrow windows give way in the spec's order: below
+  `RunLayout.sidebarFoldWidth` (1032 with the conversation) `RootView` folds the sidebar,
+  only while shrinking, so a sidebar shown by hand stays; where the conversation then has
+  no room beside the stage (`RunLayout.conversation` is nil) it gives way and the verdict
+  card moves above the stage, and asking for it folds the sidebar; the player bar's
+  second line wraps.
+- No hard minimum width on the stage: the detail's minimum adds to the window's, and
+  showing the sidebar in a narrow window then widens the window past the screen (#64).
+  The harness prints "window grew" when that happens; check its `G` (1024 x 660) shots.
+- The first window's size is `RunLayout.defaultWindowSize` of the screen's visible
+  frame (`defaultWindowPlacement`), never the bare 1320 x 840.
 - While driving, keys follow focus: the screen while it was clicked last (Command
   shortcuts included), the composer once it is clicked. "Give Back", clicked, returns the
   screen (in the bar above the picture, the player and the toolbar). Taking control from
@@ -162,5 +176,8 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 - `RunSummary.task` is optional: a daemon before it decodes, and the run reads "Run <hash>".
 - A `Text` with `.fixedSize(horizontal: false, vertical: true)` in an empty state can make
   the window grow to thousands of points tall when first laid out narrow. Let it wrap.
+  The verdict card's actions text is the same case: it gets its room from
+  `layoutPriority`, not `fixedSize`. A capped `.frame(maxHeight:)` stretches to its cap,
+  so cap only the scrolling part.
 - "Export recording" calls `GET /api/runs/{id}/recording.mp4`, which needs `ffmpeg` on the
   daemon host. Show the daemon's error.

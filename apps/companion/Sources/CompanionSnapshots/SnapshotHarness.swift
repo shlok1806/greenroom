@@ -31,6 +31,10 @@ final class SnapshotHarness {
     private static let large = Size(name: "L", width: 1440, height: 900)
     private static let medium = Size(name: "M", width: 1180, height: 760)
     private static let small = Size(name: "S", width: 900, height: 600)
+    /// The default window on a 1024 x 768 screen (every greenroom guest): its visible frame.
+    private static let guest = Size(name: "G", width: 1024, height: 660)
+    /// Just wide enough for the sidebar, the least stage and the least conversation.
+    private static let tight = Size(name: "T", width: 1040, height: 660)
 
     private struct Scenario {
         var name: String
@@ -44,6 +48,8 @@ final class SnapshotHarness {
         var baseURL: URL?
         /// Every request fails as if nothing listened, without touching any port.
         var unreachable = false
+        /// Shows the sidebar by hand after the window folded it, as a person would.
+        var showSidebar = false
     }
 
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
@@ -76,6 +82,8 @@ final class SnapshotHarness {
     private static let twoVerdicts = "20260923-005718-21979199ff319fd2"
     private static let inputRun = "20260922-235130-bb2de75cafbb2114"
     private static let longRun = "20260919-222432-ea8dfe"
+    /// A verdict citing two screenshot steps, failed steps with raw input and very long rows.
+    private static let citedRun = "20260923-124520-61ea02f4836340aa"
 
     private func scenarios() -> [Scenario] {
         let all = [Self.large, Self.medium, Self.small]
@@ -147,6 +155,25 @@ final class SnapshotHarness {
                     store.runs[index].verdict = VerdictState(seq: 16, verdict: "fail", status: .proposed)
                 }
             },
+            // A 1024 x 768 screen (issues #52, #55, #64).
+            Scenario(name: "21-guest-verdict", sizes: [Self.guest], runId: Self.citedRun),
+            Scenario(name: "22-guest-verdict-evidence", sizes: [Self.guest], runId: Self.citedRun, verdictExpanded: true),
+            Scenario(name: "23-guest-live-evidence-opened", sizes: [Self.guest, Self.tight], runId: Self.citedRun) { store in
+                Self.makeLive(store, runId: Self.citedRun, lastActivityAgo: 8)
+                store.requestSeek(runId: Self.citedRun, step: 26, fromVerdict: true)
+            },
+            Scenario(name: "24-guest-live-recent-steps", sizes: [Self.guest], runId: Self.citedRun) { store in
+                Self.makeLive(store, runId: Self.citedRun, lastActivityAgo: 8)
+            },
+            // Following live from the start, so Recent steps holds the newest (and longest) rows.
+            Scenario(name: "24b-guest-live-long-rows", sizes: [Self.guest], runId: Self.citedRun, pane: .steps) { store in
+                Self.makeLive(store, runId: Self.citedRun, lastActivityAgo: 8)
+                UserDefaults.standard.set(StagePane.screen.rawValue, forKey: "stagePane")
+            },
+            Scenario(name: "25-guest-steps", sizes: [Self.guest], runId: Self.citedRun, pane: .steps),
+            Scenario(name: "25b-guest-sidebar-by-hand", sizes: [Self.guest], runId: Self.citedRun, showSidebar: true),
+            Scenario(name: "25c-small-sidebar-by-hand", sizes: [Self.small], runId: Self.citedRun, showSidebar: true),
+            Scenario(name: "26-guest-no-conversation", sizes: [Self.guest], runId: Self.citedRun, conversation: false),
         ]
     }
 
@@ -340,7 +367,6 @@ final class SnapshotHarness {
         let defaults = UserDefaults.standard
         defaults.set(scenario.pane.rawValue, forKey: "stagePane")
         defaults.set(scenario.conversation, forKey: "showsConversation")
-        defaults.set(scenario.verdictExpanded, forKey: "verdictCardExpanded")
         defaults.set(false, forKey: "stepsErrorsOnly")
         defaults.set(scenario.runId ?? "none", forKey: "selectedRunId")
 
@@ -378,16 +404,39 @@ final class SnapshotHarness {
         // The run view reads the run when it appears; edits go on top, once.
         try await Task.sleep(for: .seconds(1.5))
         await scenario.prepare(store)
+        if scenario.verdictExpanded, let runId = scenario.runId {
+            store.updateVerdictDraft(runId) { $0.expanded = true }
+        }
         // A narrow window folds its sidebar on first layout; ask for the size again.
         window.setContentSize(NSSize(width: size.width, height: size.height))
+        if scenario.showSidebar {
+            try await Task.sleep(for: .milliseconds(500))
+            let split = Self.splitViewController(in: window.contentView)
+            if let item = split?.splitViewItems.first { item.animator().isCollapsed = false }
+            try await Task.sleep(for: .milliseconds(500))
+        }
         // Frames, artifacts and the conversation load over HTTP after the first layout.
         try await Task.sleep(for: .seconds(scenario.runId == Self.longRun ? 2.5 : 1.8))
 
+        // A window that grew past the size asked for is a layout bug (issue #64).
+        if window.frame.width > size.width + 1 || window.frame.height > size.height + 1 {
+            print("window grew: asked \(Int(size.width)) x \(Int(size.height)), got \(Int(window.frame.width)) x \(Int(window.frame.height))")
+        }
         try snapshot(window: window, to: file)
         await store.releaseAllControl()
         window.orderOut(nil)
         window.close()
         try await Task.sleep(for: .milliseconds(200))
+    }
+
+    /// The sidebar's split, found through the view tree: SwiftUI does not list it as a child controller.
+    private static func splitViewController(in view: NSView?) -> NSSplitViewController? {
+        guard let view else { return nil }
+        if let split = view as? NSSplitView, let controller = split.delegate as? NSSplitViewController { return controller }
+        for child in view.subviews {
+            if let found = splitViewController(in: child) { return found }
+        }
+        return nil
     }
 
     private func snapshot(window: NSWindow, to file: URL) throws {
