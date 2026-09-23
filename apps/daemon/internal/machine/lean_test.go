@@ -19,6 +19,8 @@ import (
 //	LEAN_DROP=<label>        launchd forgets that disable (print-disabled omits it)
 //	LEAN_IGNORE=<domain> <key>  defaults drops writes to that key, as if macOS renamed it
 //	LEAN_FAIL=<command>      that command's write exits non-zero and changes nothing
+//	LEAN_DELETE=<domain> <key>  a daemon deletes that key during the settle wait, as
+//	                         softwareupdated does on macOS 26
 //
 // Every call of a sealed-system tool (csrutil, bless, mount, nvram), and every sudo or
 // defaults write naming a path under /System, lands in the log file "sealed".
@@ -81,6 +83,10 @@ case "$1" in
 esac`,
 		"sw_vers": `case "$1" in -productVersion) echo 26.6.2 ;; -buildVersion) echo 25G83 ;; esac`,
 		"killall": `exit 0`,
+		// sleep: the settle wait, over at once; a daemon may delete a key meanwhile.
+		"sleep": `[ -n "${LEAN_DELETE:-}" ] || exit 0
+set -- $LEAN_DELETE
+rm -f "` + g.store + `/$(printf '%s' "$1" | tr '/' '_').$2"`,
 		// softwareupdate --schedule [off]
 		"softwareupdate": `S="` + g.store + `"
 [ "$1" = --schedule ] || exit 0
@@ -233,7 +239,6 @@ func TestLeanScriptNeverTouchesTheSealedSystem(t *testing.T) {
 func TestLeanScriptNamesAFailedWriteInsteadOfAborting(t *testing.T) {
 	for cmd, check := range map[string]string{
 		"mdutil":         "spotlight",
-		"softwareupdate": "softwareupdate-schedule",
 		"tmutil":         "timemachine-autobackup",
 	} {
 		t.Run(cmd, func(t *testing.T) {
@@ -246,6 +251,30 @@ func TestLeanScriptNamesAFailedWriteInsteadOfAborting(t *testing.T) {
 				t.Errorf("want exactly the one failed check %s:\n%s", check, out)
 			}
 		})
+	}
+}
+
+// On macOS 26 softwareupdated ignores --schedule off and deletes AutomaticCheckEnabled.
+// Both are best effort, so neither fails the build.
+func TestLeanScriptToleratesSoftwareUpdateCheckingStayingOn(t *testing.T) {
+	for _, env := range []string{"LEAN_FAIL=softwareupdate", "LEAN_DELETE=/Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled"} {
+		t.Run(env, func(t *testing.T) {
+			g := newLeanGuest(t)
+			out, err := g.run(t, env)
+			if err != nil || !strings.Contains(out, "lean: ok") {
+				t.Fatalf("lean script failed: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+// A Software Update key softwareupdated deletes after the write is gone by the
+// read-back, so it fails the build rather than passing on a stale read.
+func TestLeanScriptFailsWhenSoftwareUpdateDeletesAKey(t *testing.T) {
+	g := newLeanGuest(t)
+	out, err := g.run(t, "LEAN_DELETE=/Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload")
+	if err == nil || !strings.Contains(out, "check failed: softwareupdate-AutomaticDownload\n") {
+		t.Fatalf("a deleted AutomaticDownload did not fail the build: %v\n%s", err, out)
 	}
 }
 

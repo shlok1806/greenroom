@@ -144,9 +144,15 @@ sudo -n mdutil -a -i off >/dev/null || true
 # --- Game Center off. ---------------------------------------------------------------------
 defaults write com.apple.gamed Disabled -bool true
 
-# --- Software Update: no checks, downloads or installs, and no App Store auto updates. ----
-sudo -n softwareupdate --schedule off >/dev/null || true
-su_keys="AutomaticCheckEnabled AutomaticDownload AutomaticallyInstallMacOSUpdates CriticalUpdateInstall ConfigDataInstall"
+# --- Software Update: no downloads or installs, and no App Store auto updates. -----------
+# Automatic checking cannot be turned off without disabling the system daemon, which this
+# variant deliberately does not do: on macOS 26 softwareupdated ignores --schedule off and
+# deletes AutomaticCheckEnabled within seconds. Both stay as best-effort writes with no
+# read-back. SoftwareUpdateNotificationManager is disabled above and banners are off, so
+# a check has no visible effect.
+sudo -n softwareupdate --schedule off >/dev/null 2>&1 || true
+sudo -n defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled -bool false || true
+su_keys="AutomaticDownload AutomaticallyInstallMacOSUpdates CriticalUpdateInstall ConfigDataInstall"
 for key in $su_keys; do
   sudo -n defaults write /Library/Preferences/com.apple.SoftwareUpdate "$key" -bool false
 done
@@ -177,6 +183,9 @@ defaults write com.apple.SetupAssistant MiniBuddyShouldLaunchToResumeSetup -bool
 sudo -n touch /var/db/.AppleSetupDone
 
 # --- Read back. ---------------------------------------------------------------------------
+# Settle first: softwareupdated rewrites its preferences a few seconds after a write, so a
+# key it deletes must be gone by the read-back and fail the build rather than pass.
+sleep 10
 dock="$(defaults read com.apple.dock persistent-apps)"
 dock_count="$(printf '%s\n' "$dock" | grep -c '_CFURLString"' || true)"
 check dock-count is "$dock_count" 7
@@ -199,7 +208,6 @@ check siri-menu is "$(defaults read com.apple.Siri StatusMenuVisible)" 0
 check siri-voice-trigger is "$(defaults read com.apple.Siri VoiceTriggerUserEnabled)" 0
 check spotlight sh -c 'mdutil -s /System/Volumes/Data | grep -q "Indexing disabled"'
 check gamecenter is "$(defaults read com.apple.gamed Disabled)" 1
-check softwareupdate-schedule sh -c 'sudo -n softwareupdate --schedule 2>&1 | grep -q "Automatic checking for updates is turned off"'
 for key in $su_keys; do
   check "softwareupdate-$key" is "$(defaults read /Library/Preferences/com.apple.SoftwareUpdate "$key")" 0
 done
