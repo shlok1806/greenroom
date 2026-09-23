@@ -1119,30 +1119,92 @@ func TestTurnClickByElementNeedsATree(t *testing.T) {
 	}
 }
 
-// The model is told to obey a coder's constraints and to aim from the tree;
-// both were missing when a demo verifier read the source and clicked blind.
-func TestSystemPromptBindsConstraintsAndAimsFromTheTree(t *testing.T) {
-	for _, want := range []string{"hard rules", "do not rebuild or relaunch", "Before any click, call machine_ui", "wallpaper"} {
-		if !strings.Contains(systemPrompt, want) {
-			t.Errorf("the system prompt lacks %q", want)
+// deliveredText returns the text of every message with role in the nth
+// (1-based) request, as the model received it.
+func deliveredText(t *testing.T, model *scriptedModel, n int, role string) string {
+	t.Helper()
+	var req struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content any    `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(model.request(t, n)), &req); err != nil {
+		t.Fatalf("request %d: %v", n, err)
+	}
+	var b strings.Builder
+	for _, m := range req.Messages {
+		if m.Role != role {
+			continue
+		}
+		switch c := m.Content.(type) {
+		case string:
+			b.WriteString(c + "\n")
+		case []any:
+			for _, p := range c {
+				if pm, ok := p.(map[string]any); ok && pm["type"] == "text" {
+					text, _ := pm["text"].(string)
+					b.WriteString(text + "\n")
+				}
+			}
 		}
 	}
-	if !strings.Contains(visionPrompt, "approximate center as fractions") {
-		t.Error("the vision prompt does not ask for positions")
+	return b.String()
+}
+
+// The model is told to obey a coder's constraints and to aim from the tree;
+// both were missing when a demo verifier read the source and clicked blind.
+func TestTheDeliveredSystemPromptBindsConstraintsAndAimsFromTheTree(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "ok"}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Use the UI only.")
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	system := deliveredText(t, model, 1, "system")
+	for _, want := range []string{"hard rules", "do not rebuild or relaunch", "Before any click, call machine_ui", "wallpaper"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("the system prompt the model received lacks %q:\n%s", want, system)
+		}
 	}
 }
 
 // A describer that named the window and "no error" but no values made the
-// verifier retake the shot. The prompt must ask for every visible string.
-func TestVisionPromptAsksForEveryVisibleString(t *testing.T) {
+// verifier retake the shot. The prompt sent with the image must ask for every
+// visible string and for positions.
+func TestTheDeliveredVisionPromptAsksForEveryVisibleString(t *testing.T) {
+	mgr, runID, control := ready(t)
+	writeShot(t, control)
+	model := &scriptedModel{
+		vision: "3. Window text:\nEach pays: $48.00",
+		replies: []string{
+			toolCall("machine_screenshot", map[string]any{}),
+			toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "ok"}),
+		},
+	}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Look at the screen.")
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if model.visions != 1 {
+		t.Fatalf("the vision model was called %d times, want 1", model.visions)
+	}
+	vision := deliveredText(t, model, 2, "user")
 	for _, want := range []string{
 		"quote every piece of text visible in the frontmost window",
 		"the contents of every field",
 		"values, results, totals",
 		"Never skip text",
+		"approximate center as fractions",
 	} {
-		if !strings.Contains(visionPrompt, want) {
-			t.Errorf("the vision prompt lacks %q", want)
+		if !strings.Contains(vision, want) {
+			t.Errorf("the vision prompt the model received lacks %q:\n%s", want, vision)
 		}
 	}
 }
