@@ -481,29 +481,51 @@ class Bench:
         res["latency"] = self.latency(run_id)
 
         watcher.phase = "task"
-        sent, err, _ = self.mcp.call("agent_send", {"runId": run_id, "kind": "task", "text": TASK})
-        if err:
-            raise RuntimeError("agent_send: " + err)
-        sent_at = dt.datetime.fromisoformat(sent["at"].replace("Z", "+00:00"))
-        t0 = now()
-        after, verdict, questions, texts = sent["seq"], None, 0, []
-        while now() - t0 < self.a.task_timeout:
-            w, err, _ = self.mcp.call("agent_wait", {"runId": run_id, "after": after, "timeoutSeconds": 50}, timeout=90)
+        # A model outage (timeouts, 404, 429 from NIM) is not the image's fault. When the
+        # verifier gives up on a turn, wait and send the task again, and time the task
+        # from the send that got a verdict. Outages are recorded, never hidden.
+        outages, sends = [], 0
+        verdict, questions, texts = None, 0, []
+        while not verdict and sends <= self.a.outage_retries:
+            sends += 1
+            sent, err, _ = self.mcp.call("agent_send", {"runId": run_id, "kind": "task", "text": TASK})
             if err:
-                raise RuntimeError("agent_wait: " + err)
-            after = w["last"]
-            for m in w["messages"]:
-                if m["from"] != "verifier":
-                    continue
-                texts.append(m.get("text", ""))
-                if m["kind"] == "verdict":
-                    verdict = m
-                elif m["kind"] == "question":
-                    questions += 1
-                    self.mcp.call("agent_send", {"runId": run_id, "kind": "answer", "replyTo": m["seq"],
-                                                 "text": "Use your judgement from the UI alone; do not read the source."})
-            if verdict:
+                raise RuntimeError("agent_send: " + err)
+            sent_at = dt.datetime.fromisoformat(sent["at"].replace("Z", "+00:00"))
+            t0 = now()
+            after, gave_up, reasons = sent["seq"], False, []
+            questions, texts = 0, []
+            while now() - t0 < self.a.task_timeout and not verdict and not gave_up:
+                w, err, _ = self.mcp.call("agent_wait", {"runId": run_id, "after": after, "timeoutSeconds": 50},
+                                          timeout=90)
+                if err:
+                    raise RuntimeError("agent_wait: " + err)
+                after = w["last"]
+                for m in w["messages"]:
+                    text = m.get("text", "")
+                    if m["from"] == "system" and "verifier turn failed" in text:
+                        reasons.append(text[:200])
+                    if m["from"] == "system" and "verifier gave up" in text:
+                        gave_up = True
+                    if m["from"] != "verifier":
+                        continue
+                    texts.append(text)
+                    if m["kind"] == "verdict":
+                        verdict = m
+                    elif m["kind"] == "question":
+                        questions += 1
+                        self.mcp.call("agent_send", {"runId": run_id, "kind": "answer", "replyTo": m["seq"],
+                                                     "text": "Use your judgement from the UI alone; do not read the source."})
+            if gave_up or reasons:
+                outages.append({"send": sends, "gaveUp": gave_up, "seconds": round(now() - t0, 1), "errors": reasons})
+            if gave_up and not verdict:
+                log(f"  verifier model unavailable ({reasons[-1] if reasons else 'gave up'}); "
+                    f"resending in {self.a.outage_wait} s")
+                time.sleep(self.a.outage_wait)
+            elif not verdict:
                 break
+        res["sends"] = sends
+        res["modelOutages"] = outages
         res["wallSeconds"] = round(now() - t0, 1)
         res["questions"] = questions
         if not verdict:
@@ -705,6 +727,9 @@ def main():
     p.add_argument("-sample-every", dest="sample_every", type=int, default=30)
     p.add_argument("-latency-reps", dest="latency_reps", type=int, default=5)
     p.add_argument("-task-timeout", dest="task_timeout", type=int, default=900)
+    p.add_argument("-outage-retries", dest="outage_retries", type=int, default=3,
+                   help="resend the task this many times after the verifier gives up on a model outage")
+    p.add_argument("-outage-wait", dest="outage_wait", type=int, default=120)
     p.add_argument("-addr", default="127.0.0.1:7861")
     p.add_argument("-scratch", default=None, help="daemon binary and root; default /tmp/greenroom-bench-<image>")
     p.add_argument("-env-file", dest="env_file", default="/Users/shlokthakkar/projects/greenroom/.env")
