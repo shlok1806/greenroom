@@ -163,12 +163,12 @@ func WithVMPollInterval(d time.Duration) Option {
 	return func(m *Manager) { m.vmPoll = d }
 }
 
-// WithScreenIdle sets how long a live screen runs with nobody watching.
 // WithHostTimeZone replaces how boot learns the host's time zone (HostTimeZone).
 func WithHostTimeZone(fn func() string) Option {
 	return func(m *Manager) { m.hostTimeZone = fn }
 }
 
+// WithScreenIdle sets how long a live screen runs with nobody watching.
 func WithScreenIdle(d time.Duration) Option {
 	return func(m *Manager) { m.screenIdle = d }
 }

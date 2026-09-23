@@ -59,7 +59,7 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 			m.Log.Warn("a click on this machine's wallpaper may hide its windows", "runId", mc.RunID, "err", perr)
 		}
 		// The guest's clock reads the host's local time, as every time greenroom prints does
-		// (issue #78). Not fatal: a machine on UTC works.
+		// (issue #77). Not fatal: a machine on UTC works.
 		if zone := m.hostTimeZone(); zone != "" {
 			timings["timeZone"] = zone
 			if terr := phase("timeZoneSeconds", func() error { return setGuestTimeZone(ctx, m.tart, mc.Name, zone) }); terr != nil {

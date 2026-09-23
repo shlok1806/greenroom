@@ -77,7 +77,7 @@ Boot and lifecycle
   `captureAlertSeconds`, `desktopPrefsSeconds`, `timeZoneSeconds`, `inputHelperSeconds`,
   `sshSeconds`.
 - Boot puts the guest in the host's time zone (`timezone.go`, from `/etc/localtime`, step
-  keys `timeZone`, `timeZoneError`, issue #78): the image runs in UTC, and the recording's
+  keys `timeZone`, `timeZoneError`, issue #77): the image runs in UTC, and the recording's
   menu bar clock disagreed with every time the companion prints. Only a tz database name
   reaches the guest shell. Never fatal. `WithHostTimeZone` replaces the lookup in tests.
 - Boot checks the image's input helper (`helperboot.go`, issue #41). One older than
