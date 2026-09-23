@@ -1245,6 +1245,34 @@ func TestAProseVerdictIsSentBackForTheTool(t *testing.T) {
 	}
 }
 
+// On the last step there is no step left to answer a nudge, so the prose is
+// posted as a reply rather than thrown away with the cap message in its place.
+func TestAProseVerdictOnTheLastStepIsPostedAsAReply(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	var replies []string
+	for i := 0; i < 5; i++ {
+		replies = append(replies, toolCall("machine_exec", map[string]any{"command": "true"}))
+	}
+	replies = append(replies, prose("Verdict: pass. Each pays is $48.00."))
+	model := &scriptedModel{replies: replies}
+	v := newVerifier(t, mgr, model.start(t)) // MaxSteps 6
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check the total.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range store.After(0) {
+		if m.Kind == session.Reply {
+			got = append(got, m.Text)
+		}
+	}
+	if res.Ended != session.Reply || len(got) != 1 || !strings.Contains(got[0], "Each pays is $48.00") {
+		t.Errorf("ended %q with replies %q, want the model's prose as the one reply", res.Ended, got)
+	}
+}
+
 func TestProseVerdictMatchesOnlyVerdictShapes(t *testing.T) {
 	for text, want := range map[string]bool{
 		"[I reported verdict pass] ok":   true,

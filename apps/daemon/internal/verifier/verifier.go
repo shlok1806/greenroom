@@ -169,8 +169,10 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 		}
 		msgs = append(msgs, msg)
 
-		if len(msg.ToolCalls) == 0 && !nudged && proseVerdict.MatchString(msg.Content) {
-			// Once per turn: a verdict in prose would be stored as a reply.
+		if len(msg.ToolCalls) == 0 && !nudged && step < v.cfg.MaxSteps && proseVerdict.MatchString(msg.Content) {
+			// Once per turn, and only with a step left to answer it: a verdict in prose
+			// would be stored as a reply, but on the last step the nudge would throw the
+			// model's words away, so they are posted as the reply below instead.
 			nudged = true
 			msgs = append(msgs, nim.Message{Role: "user", Content: proseNudge})
 			res.Steps = step
