@@ -46,10 +46,30 @@ final class RunLayoutTests: XCTestCase {
 
     /// A 1024 pt window folds its sidebar first, so both the stage and the conversation fit.
     func testA1024WindowFoldsTheSidebarAndKeepsTheConversation() {
-        XCTAssertGreaterThan(RunLayout.sidebarFoldWidth(showsConversation: true), 1024)
+        XCTAssertGreaterThan(RunLayout.sidebarFoldWidth(sidebar: RunLayout.sidebarIdeal, showsConversation: true), 1024)
         XCTAssertEqual(RunLayout.conversation(RunLayout.conversationIdeal, in: 1024), RunLayout.conversationIdeal)
         // Without the conversation the stage fits beside the sidebar.
-        XCTAssertLessThanOrEqual(RunLayout.sidebarFoldWidth(showsConversation: false), 1024)
+        XCTAssertLessThanOrEqual(RunLayout.sidebarFoldWidth(sidebar: RunLayout.sidebarIdeal, showsConversation: false), 1024)
+    }
+
+    /// A sidebar dragged out to 380 pt in an 1100 pt window: the sidebar folds, rather than
+    /// the conversation giving way beside it.
+    func testAWideSidebarFoldsBeforeTheConversationGivesWay() {
+        let sidebar = RunLayout.sidebarMaximum
+        XCTAssertEqual(sidebar, 380)
+        XCTAssertNil(RunLayout.conversation(RunLayout.conversationIdeal, in: 1100 - sidebar - RunLayout.divider))
+        XCTAssertGreaterThan(RunLayout.sidebarFoldWidth(sidebar: sidebar, showsConversation: true), 1100)
+        XCTAssertNotNil(RunLayout.conversation(RunLayout.conversationIdeal, in: 1100))
+    }
+
+    /// At every sidebar width, a window at the fold width still fits the conversation.
+    func testTheFoldWidthLeavesRoomForTheConversationAtAnySidebarWidth() {
+        for sidebar in stride(from: 0.0, through: 500, by: 10) {
+            let fold = RunLayout.sidebarFoldWidth(sidebar: sidebar, showsConversation: true)
+            let shown = min(max(sidebar, RunLayout.sidebarMinimum), RunLayout.sidebarMaximum)
+            XCTAssertNotNil(RunLayout.conversation(RunLayout.conversationIdeal, in: fold - shown - RunLayout.divider),
+                            "sidebar \(sidebar)")
+        }
     }
 
     /// The sidebar shown by hand in a 1024 window: the conversation gives way, not the stage.

@@ -356,10 +356,12 @@ enum RunLayout {
         return min(clamp(chosen), room)
     }
 
-    /// Below this window width the sidebar folds away, so the stage keeps its minimum
-    /// and the conversation fits beside it.
-    static func sidebarFoldWidth(showsConversation: Bool) -> Double {
-        sidebarIdeal + divider + stageMinimum + (showsConversation ? divider + conversationMinimum : 0)
+    /// Below this window width the sidebar, `sidebar` wide, folds away, so the stage
+    /// keeps its minimum and the conversation fits beside it. The width is clamped to the
+    /// sidebar's own range, so an unmeasured (or folded) sidebar counts as its minimum.
+    static func sidebarFoldWidth(sidebar: Double, showsConversation: Bool) -> Double {
+        let sidebar = min(max(sidebar, sidebarMinimum), sidebarMaximum)
+        return sidebar + divider + stageMinimum + (showsConversation ? divider + conversationMinimum : 0)
     }
 
     /// The tallest the pinned verdict card may be in a column this tall; its body

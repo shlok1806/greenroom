@@ -12,10 +12,12 @@ struct RootView: View {
     /// Set when a narrow window folded the sidebar away, so widening brings it back.
     @State private var autoCollapsed = false
     @State private var windowWidth: Double = 0
+    /// The sidebar's width as last laid out, which a person may have dragged past its ideal.
+    @State private var sidebarWidth = RunLayout.sidebarIdeal
 
     /// Below this the sidebar folds away, so the stage and the conversation keep their room.
     private var foldWidth: Double {
-        RunLayout.sidebarFoldWidth(showsConversation: showsConversation)
+        RunLayout.sidebarFoldWidth(sidebar: sidebarWidth, showsConversation: showsConversation)
     }
 
     var body: some View {
@@ -24,6 +26,9 @@ struct RootView: View {
                 .navigationSplitViewColumnWidth(
                     min: RunLayout.sidebarMinimum, ideal: RunLayout.sidebarIdeal, max: RunLayout.sidebarMaximum
                 )
+                .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
+                    if width > 0 { sidebarWidth = width }
+                }
         } detail: {
             detail
         }
