@@ -6,7 +6,25 @@ are in the root `CONTEXT-MAP.md`.
 ## Glossary
 
 - **Run**: a row in the sidebar (`RunSummary`), a `RunDetail` once opened. A finished run
-  has no machine and is read-only.
+  has no machine and is read-only. Named by its **task**, the first `task` message.
+- **Stage**: the run's main column, showing the Screen or the Steps. The conversation
+  column sits beside either.
+- **Verdict card**: the current verdict pinned above the conversation, headed by its state
+  and who decided, with its evidence and the only Accept and Dispute buttons.
+- **Run facts**: the one derived state of a run the whole window shows (`RunFacts`).
+- **Phase**: booting, live, idle, ended or failed. **Idle** is a ready machine with no step
+  or message for 5 minutes. **Ended** says how: destroyed by you, destroyed by the coding
+  agent, or machine lost (its VM stopped under the run).
+- **Needs you**: a question from the verifier, a proposed verdict to review, or a
+  contested one. Pinned at the top of the sidebar.
+- **Failure**: a step whose tool call failed (its output is not a result) or whose command
+  exited non-zero.
+- **Human review**: a verdict a person accepted or rejected. One the coding agent accepted
+  has none and reads "unreviewed".
+- **Re-check**: a human `task` asking the verifier to look again at a verdict the daemon
+  will no longer let anyone close (accepted by the coding agent).
+- **Superseded evidence**: steps an earlier, replaced verdict cited; still marked on the
+  track.
 - **Message**: one line of the conversation (ADR 0006). Sender: `coder`, `human`,
   `verifier`, `system`. Kind: `task`, `note`, `reply`, `question`, `answer`, `progress`,
   `verdict`, `accept`, `dispute`, `event`. The app is the `human` seat and sends only
@@ -17,7 +35,7 @@ are in the root `CONTEXT-MAP.md`.
   the daemon. Accept and Dispute show only for `proposed` and `contested`.
 - **Frame**: one captured screen image (ADR 0008), `{at, file, step, bytes}`, listed at
   `GET /api/runs/{id}/frames` and fetched at `.../frames/{file}`.
-- **Live screen**: the Screen tab following live: the machine's H.264 stream
+- **Live screen**: the Screen stage following live: the machine's H.264 stream
   (`GET /api/runs/{id}/screen/live`, ADR 0011) while it plays, else the newest frame the
   daemon pushes (`event: frame`).
 - **Recording**: a run's frames as one mp4 (`GET /api/runs/{id}/recording.mp4`). Needs
@@ -26,7 +44,7 @@ are in the root `CONTEXT-MAP.md`.
   (`GET /api/runs/{id}/artifacts/{name}`); a screenshot step's `output.path` is the name.
 - **Control lease**: one seat's right to a machine's mouse and keys, expiring after 60 s
   of silence (ADR 0009). Taken with "Take control", renewed while driving.
-- **Driving**: the Screen tab while the app holds the lease: pinned to the newest frame,
+- **Driving**: the Screen stage while the app holds the lease: pinned to the newest frame,
   scrubber off, red badge, all input goes to the machine.
 - **Action**: `move`, `click`, `down`, `up`, `scroll`, `type`, `key`, `sleep`.
   Coordinates are fractions 0 to 1, never pixels.
@@ -48,5 +66,5 @@ are in the root `CONTEXT-MAP.md`.
 7. The event stream may drop. After a drop, and on every return to the foreground, the
    app re-reads the run list and the open run (`RunStore.resyncPlan`).
 8. Input is sent only under a held lease, and the lease is given back on every way out of
-   the Screen tab, including quit. While driving, the player is live.
+   the Screen stage (Steps, another run, a stopped machine, quit). While driving, the player is live.
 9. The app never polls for screenshots. The toolbar "Screenshot" is one request.

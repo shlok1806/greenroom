@@ -2,7 +2,11 @@
 
 SwiftPM macOS app that watches runs, speaks into their conversation and can take a
 machine's screen. Vocabulary and invariants: `CONTEXT.md`. Decisions: ADR 0006
-(messages), 0007 (the app), 0008 (recording), 0009 (control), 0011 (live screen).
+(messages), 0007 (the app), 0008 (recording), 0009 (control), 0011 (live screen), and the
+package's own `docs/adr/0001` (the run window), `0002` (one derived run state, colour
+meanings, verdict trust, the snapshot tool) and `0003` (verdict actions, one status
+vocabulary, the daemon changes the UI waits on). Design: `docs/design-spec.md` (tokens,
+states, shortcuts), `docs/design-research.md`.
 
 ## Commands
 
@@ -13,7 +17,24 @@ swift test                                   # pnpm test
 swift build -Xswiftc -warnings-as-errors     # pnpm lint
 scripts/bundle.sh                            # .build/Companion.app, ad-hoc signed
 scripts/install.sh                           # bundle, replace /Applications/Greenroom Companion.app, open
+swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
+  .build/out/Products/Debug/CompanionSnapshots   # design screenshots, see below
 ```
+
+- Targets: `Companion` is a library holding everything; `CompanionApp` is the one-line
+  `main.swift` and the only product; `CompanionSnapshots` is the design harness. Tests
+  `@testable import Companion`.
+- `CompanionSnapshots` renders every key state, light and dark, at three sizes, into
+  `<dir>`. Point it at a daemon serving copied runs (`greenroom serve -root <scratch> -tart
+  /usr/bin/false`), never at VMs. `GREENROOM_SNAPSHOTS_EMPTY_URL` (a daemon with no runs)
+  adds the welcome state; `GREENROOM_SNAPSHOTS_ONLY` filters by scenario name.
+- The harness must never show on the person's screen: it runs `.prohibited` (no Dock
+  icon), its windows sit far off every display and are never key, and it captures with
+  `cacheDisplay`. It never launches the app or a bundle. It is an executable, not a test,
+  because Xcode's `xctest` host links a newer SDK and draws a different look than the app.
+  Its windows are not key, so selection and prominent buttons draw unemphasized.
+- `swift build -c release` of the whole package fails (the harness uses `@testable`);
+  release builds take `--product Companion`, as `bundle.sh` does.
 
 - `GREENROOM_URL` overrides `http://127.0.0.1:7777` (`DaemonClient.defaultBaseURL`).
 - The app never starts the daemon.
@@ -34,19 +55,29 @@ scripts/install.sh                           # bundle, replace /Applications/Gre
     a test per rule. `ControlPilot` holds the lease and send queue; it talks through
     `ControlClient` and `PilotHost` so its tests need no daemon.
     `Views/InputSurface.swift` is the only AppKit event code.
+  - `Model/RunFacts.swift` is the one derived state per run (phase, whose turn, last
+    activity, duration, failures, whether the machine can be watched or driven). Every
+    indicator reads `RunStore.facts(_:)`; no view works out state from raw fields.
+  - `Model/RunPresentation.swift` and `Model/VerdictReview.swift` hold the pure
+    presentation rules (titles, evidence, tool names, transcript grouping, connection
+    state, who decided a verdict, checks against the record), each with a test.
+  - `Views/Theme.swift` is the design tokens (`Space`, `Radius`, `Palette`) and shared
+    components. No spacing, radius or state colour literals elsewhere.
+  - Menu commands reach the open run through focused scene values (`RunCommands`,
+    `ScreenCommands`); they never hold their own state.
 - The app only calls the API: no tart, no ssh, no run directory on disk. Missing
   capability means a new daemon route.
-- Never add a way to take the lease without a matching way to give it back (switch off,
-  tab or run change, machine not ready, quit). Quit waits up to 2 s for the release
+- Never add a way to take the lease without a matching way to give it back (Give Back,
+  leaving the Screen stage, run change, machine not ready, quit). Quit waits up to 2 s for the release
   (`AppDelegate.applicationShouldTerminate`); every way out lets go of a held button first.
 - Control that breaks under the person (input or renewal fails) is never silent:
-  `ControlPilot.endedReason` shows the daemon's words under the switch and the run is re-read.
-- While driving, Command shortcuts (Cmd-Q too) go to the guest. The "Take control" switch,
-  clicked with the mouse, is the way out.
+  `ControlPilot.endedReason` shows the daemon's words under the player and the run is re-read.
+- While driving with the screen focused, Command shortcuts (Cmd-Q too) go to the guest.
+  "Give Back", clicked with the mouse, is the way out.
 - `ScreenGeometry` is the only place a view point becomes a screen fraction.
 - `KeyTranslator`: anything with cmd/ctrl, or with no character (return, arrows, F-keys),
   is a named `key`; everything else is `type` with the produced characters.
-- Live screen (ADR 0011): streams only while the Screen tab is on screen, following live,
+- Live screen (ADR 0011): streams only while the Screen stage is on screen, following live,
   on a ready machine. Anything else stops it, and the recording shows (also whenever the
   stream is down, with a status line under the track). `ScreenStream.swift` is the pure wire
   layer; `LiveScreen` owns the connection. Frames never hop through the main actor, and the
@@ -60,10 +91,33 @@ scripts/install.sh                           # bundle, replace /Applications/Gre
 
 ## UI rules
 
-- One dense row per run, grouped by day. Status is a dot. Only status and verdict get
-  strong colour.
-- Nothing is drawn over the Screen tab's picture. Position in the recording goes under the
-  track.
+- A run is named by a short title from its task (`RunTitle.short`, made distinct with
+  `RunTitle.distinct`), never by its id. The sidebar pins "Needs You" and "Running"
+  above the days; a row is the title, start time and counts, and its state in words.
+- The verdict's Accept and Dispute live only in `VerdictCard`, pinned above the
+  conversation (or above the stage when the conversation is hidden). Its headline is the
+  state and who decided (`VerdictReview`); a verdict an agent accepted says no human
+  reviewed it. The transcript shows the live verdict as one line, never a second card.
+- Each colour means one thing (`Palette`): green pass, red failure, orange needs you,
+  teal live; driving uses the system accent. Booting and offline carry none. Every state
+  is also a word, and the words are one vocabulary (ADR 0003): the sidebar's
+  `rowStatus` and the card's `VerdictReview.state` must say the same thing.
+- A verdict's actions are only the ones the daemon's session rules accept. When it
+  refuses (an agent-accepted verdict), the card says so and offers the nearest real
+  action (a re-check task), never a button that will fail.
+- The player shows one source chip (live, connecting, recording, driving). Take Control
+  / Give Back exists once, in the toolbar.
+- Nothing is drawn over the Screen stage's picture. The driving bar sits above it, and
+  position, the step under the pointer, live state and stream errors go under the track.
+  The well takes the picture's shape, so there is no letterbox.
+- The conversation column is a hand-made split (`ColumnDivider`), not `.inspector` as
+  ADR 0001 says, nor `HSplitView`: inside `NavigationSplitView` both add hundreds of points to the window's
+  minimum width, even while hidden. Below 1000 pt `RootView` folds the sidebar, only while
+  shrinking, so a sidebar shown by hand stays.
+- While driving, keys follow focus: the screen while it was clicked last (Command
+  shortcuts included), the composer once it is clicked. "Give Back", clicked, returns the
+  screen (in the bar above the picture, the player and the toolbar). Taking control from
+  the toolbar or menu switches the stage to the Screen first.
 - Every list row has a readable summary (`StepSummary`), not raw JSON.
 - A run's clock time comes from `createdAt`, never from its id (ids are UTC).
   `Chrome.runHash` takes the id's tail for display.
@@ -94,5 +148,8 @@ scripts/install.sh                           # bundle, replace /Applications/Gre
   step number (re-read `/steps`). `machine`, `verdict`, `destroyedAt` come back as
   explicit `null`. Errors are `{"error": "..."}`; a message refused on a contested verdict
   is 409.
-- "Save recording" calls `GET /api/runs/{id}/recording.mp4`, which needs `ffmpeg` on the
+- `RunSummary.task` is optional: a daemon before it decodes, and the run reads "Run <hash>".
+- A `Text` with `.fixedSize(horizontal: false, vertical: true)` in an empty state can make
+  the window grow to thousands of points tall when first laid out narrow. Let it wrap.
+- "Export recording" calls `GET /api/runs/{id}/recording.mp4`, which needs `ffmpeg` on the
   daemon host. Show the daemon's error.
