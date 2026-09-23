@@ -111,7 +111,7 @@ struct VerdictCard: View {
                             .font(.callout.weight(.medium))
                             .foregroundStyle(check == .noEvidence ? Palette.failure : Palette.attention)
                     }
-                    evidence(verdict, claims: VerdictCheck.claimedValues(words), detailed: detailed)
+                    evidence(verdict, words: words, detailed: detailed)
                     if detailed || verdict.status == .contested {
                         disputes(verdict, messages: messages)
                     }
@@ -203,13 +203,20 @@ struct VerdictCard: View {
     // MARK: - Evidence
 
     @ViewBuilder
-    private func evidence(_ verdict: VerdictState, claims: [String], detailed: Bool) -> some View {
+    private func evidence(_ verdict: VerdictState, words: String, detailed: Bool) -> some View {
         let items = Self.byStep((verdict.evidence ?? []).map(Evidence.parse))
         if !items.isEmpty {
             if detailed {
+                // Per step when the words say which step shows what; else once, for the
+                // whole verdict, never repeated under every picture.
+                let perStep = VerdictCheck.namesSteps(words)
                 VStack(alignment: .leading, spacing: Space.m) {
+                    if !perStep {
+                        ClaimsRow(claims: VerdictCheck.claimedValues(words), label: "It claims")
+                    }
                     ForEach(items, id: \.self) { item in
-                        EvidenceRow(store: store, runId: runId, item: item, claims: claims,
+                        EvidenceRow(store: store, runId: runId, item: item,
+                                    claims: perStep ? item.step.map { VerdictCheck.claimedValues(words, atStep: $0) } ?? [] : [],
                                     show: { seek(item, inSteps: false) }, record: { seek(item, inSteps: true) })
                     }
                 }
@@ -499,23 +506,7 @@ private struct EvidenceRow: View {
                 .buttonStyle(.plain)
                 .help("Show step \(number) on the screen, full size")
             }
-            if !claims.isEmpty {
-                HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
-                    Text("It claims")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    FlowLayout(spacing: Space.xs) {
-                        ForEach(claims, id: \.self) { value in
-                            Text(value)
-                                .font(.callout.monospacedDigit().weight(.semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1)
-                                .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: Radius.chip))
-                        }
-                    }
-                }
-                .help("Values the verdict's own words say are on screen: check them against the picture")
-            }
+            ClaimsRow(claims: claims, label: "It claims here")
             if let step {
                 Text(StepExcerpt.text(step))
                     .font(.caption.monospaced())
@@ -531,6 +522,32 @@ private struct EvidenceRow: View {
         case .ok: ""
         case .exit(let code): ", exited \(code)"
         case .error: ", failed"
+        }
+    }
+}
+
+/// Values the verdict's words say are on screen, as chips; nothing when there are none.
+private struct ClaimsRow: View {
+    let claims: [String]
+    let label: String
+
+    var body: some View {
+        if !claims.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                FlowLayout(spacing: Space.xs) {
+                    ForEach(claims, id: \.self) { value in
+                        Text(value)
+                            .font(.callout.monospacedDigit().weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: Radius.chip))
+                    }
+                }
+            }
+            .help("Values the verdict's own words say are on screen: check them against the picture")
         }
     }
 }

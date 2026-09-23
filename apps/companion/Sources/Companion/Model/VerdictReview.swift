@@ -182,6 +182,49 @@ enum VerdictCheck: Hashable, Sendable {
         return nil
     }
 
+    /// The values claimed in the sentences that name `step` ("At step 26 ...", "Steps 30
+    /// and 31 ..."): what to check against that step's picture, and nothing more.
+    static func claimedValues(_ text: String, atStep step: Int) -> [String] {
+        claimedValues(sentences(text).filter { steps(namedIn: $0).contains(step) }.joined(separator: " "))
+    }
+
+    /// Whether any sentence names a step, so the values can be shown per step.
+    static func namesSteps(_ text: String) -> Bool {
+        sentences(text).contains { !steps(namedIn: $0).isEmpty }
+    }
+
+    private static func sentences(_ text: String) -> [String] {
+        var out: [String] = []
+        var current = ""
+        let characters = Array(text)
+        for (index, character) in characters.enumerated() {
+            current.append(character)
+            let next = index + 1 < characters.count ? characters[index + 1] : " "
+            // A full stop before a digit is a decimal point ("$45.00"), not the sentence's end.
+            if ".!?\n".contains(character), next == " " || next == "\n" {
+                out.append(current)
+                current = ""
+            }
+        }
+        if !current.trimmingCharacters(in: .whitespaces).isEmpty { out.append(current) }
+        return out
+    }
+
+    /// "step 26", "steps 30 and 31", "steps 4, 5 and 6".
+    private static func steps(namedIn sentence: String) -> Set<Int> {
+        guard let regex = try? NSRegularExpression(pattern: #"\bsteps?\s+(\d+(?:\s*(?:,|and|&)\s*\d+)*)"#,
+                                                   options: [.caseInsensitive]) else { return [] }
+        var out: Set<Int> = []
+        let range = NSRange(sentence.startIndex..., in: sentence)
+        for match in regex.matches(in: sentence, range: range) {
+            guard let span = Range(match.range(at: 1), in: sentence) else { continue }
+            for number in sentence[span].split(whereSeparator: { !$0.isNumber }) {
+                if let value = Int(number) { out.insert(value) }
+            }
+        }
+        return out
+    }
+
     /// Values the verdict claims to have seen: amounts, percentages and numbers with a
     /// decimal point, in order, once each. Shown beside the cited picture.
     static func claimedValues(_ text: String) -> [String] {

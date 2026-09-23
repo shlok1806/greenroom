@@ -121,6 +121,15 @@ final class StepSummaryTests: XCTestCase {
         XCTAssertEqual(StepSummary.line(for: key), "key cmd-a")
     }
 
+    /// Seen in the app under a cited machine_ui step: {"limit":200,"reader":"verifier"}.
+    func testAnEvidenceCaptionForAUIReadIsWords() {
+        let read = step("machine_ui", input: .object(["limit": .int(200), "reader": .string("verifier")]),
+                        output: .object(["app": .string("TipSplit"), "elements": .array([.object([:]), .object([:])])]))
+        XCTAssertEqual(StepExcerpt.text(read), "TipSplit, 2 elements")
+        let bare = step("machine_ui", input: .object(["limit": .int(200), "reader": .string("verifier")]))
+        XCTAssertEqual(StepExcerpt.text(bare), "frontmost app")
+    }
+
     /// Keys, scrolls and waits read as words when they record under their own name.
     func testEveryMachineToolHasATitle() {
         for tool in ["machine_key", "machine_scroll", "machine_wait", "machine_list", "machine_ui", "machine_approve_capture"] {

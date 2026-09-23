@@ -327,6 +327,20 @@ final class TitleAndWordsTests: XCTestCase {
                        ["20%", "$24.00", "$48.00", "$8.00", "1.5"])
     }
 
+    /// Seen in the app: the same "It claims 20% $24.00 ..." row under every cited step. A
+    /// step shows only the values of the sentences that name it; a verdict that names no
+    /// step has its values once, for the whole verdict.
+    func testEachCitedStepShowsOnlyTheValuesClaimedAtIt() {
+        let text = "At step 26 the bill is $180.00 with an 18% tip and the screen reads $45.00. "
+            + "At step 27, after changing the tip to 20%, it still reads $45.00. Steps 30 and 31 show $0.00."
+        XCTAssertEqual(VerdictCheck.claimedValues(text, atStep: 26), ["$180.00", "18%", "$45.00"])
+        XCTAssertEqual(VerdictCheck.claimedValues(text, atStep: 27), ["20%", "$45.00"])
+        XCTAssertEqual(VerdictCheck.claimedValues(text, atStep: 31), ["$0.00"])
+        XCTAssertEqual(VerdictCheck.claimedValues(text, atStep: 9), [])
+        XCTAssertTrue(VerdictCheck.namesSteps(text))
+        XCTAssertFalse(VerdictCheck.namesSteps("Each pays $48.00 at 20%."))
+    }
+
     func testEachDisputeCarriesTheVerifiersAnswer() {
         let at = Date()
         let messages = [

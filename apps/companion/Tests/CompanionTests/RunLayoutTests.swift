@@ -115,6 +115,29 @@ final class RunLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(size.height, column.height + 1, "the column needs \(size.height) pt")
     }
 
+    /// #52 at every size, not only 1024 x 768: a verdict citing 14 steps, its evidence open,
+    /// still fits a 1440 x 900 window's conversation column and a full-screen 2640 x 1680 one.
+    func testOpenEvidenceWithManyCitesFitsLargeWindowsToo() {
+        for column in [CGSize(width: 400, height: 780), CGSize(width: 720, height: 1560)] {
+            let store = Self.storeWithCitedVerdict(cites: 14)
+            store.updateVerdictDraft("run-1") { $0.expanded = true }
+            let host = NSHostingController(rootView: ConversationView(store: store, runId: "run-1"))
+            host.view.frame = CGRect(origin: .zero, size: column)
+            host.view.layoutSubtreeIfNeeded()
+            let size = host.sizeThatFits(in: column)
+            XCTAssertLessThanOrEqual(size.height, column.height + 1, "a \(column) column needs \(size.height) pt")
+        }
+    }
+
+    /// The key an older build saved the expansion under is removed at launch, so nothing
+    /// that ever reads it again can bring the stuck state back.
+    func testLaunchForgetsTheOldSavedExpansion() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "RunLayoutTests-\(UUID())"))
+        defaults.set(true, forKey: "verdictCardExpanded")
+        LegacyDefaults.forget(in: defaults)
+        XCTAssertNil(defaults.object(forKey: "verdictCardExpanded"))
+    }
+
     // MARK: - #52: opening the evidence is per verdict, never saved
 
     func testEvidenceStartsFoldedWhateverAnOlderBuildSaved() {
@@ -143,21 +166,22 @@ final class RunLayoutTests: XCTestCase {
     // MARK: - Fixture
 
     /// A finished run whose proposed fail verdict cites two screenshot steps.
-    private static func storeWithCitedVerdict() -> RunStore {
+    private static func storeWithCitedVerdict(cites: Int = 2) -> RunStore {
         let store = RunStore()
         let start = Date(timeIntervalSince1970: 1_000_000)
         let claims = "TipSplit builds and launches, but the split is wrong. At step 2 the bill is $180.00 with an 18% tip "
             + "and 4 people, and the screen reads Each pays: $45.00 where it should read $53.10. At step 3, after changing "
             + "the tip to 20%, it still reads $45.00, so the tip is never added."
-        let verdict = VerdictState(seq: 2, verdict: "fail", summary: claims, evidence: ["step 2", "step 3"], status: .proposed)
+        let cited = (2...(cites + 1)).map { "step \($0)" }
+        let verdict = VerdictState(seq: 2, verdict: "fail", summary: claims, evidence: cited, status: .proposed)
         store.runs = [RunSummary(runId: "run-1", createdAt: start, destroyedAt: start.addingTimeInterval(60),
                                  status: .finished, verdict: verdict)]
         store.messages["run-1"] = [
             Message(seq: 1, at: start, from: .coder, kind: .task, text: "Check TipSplit's split."),
             Message(seq: 2, at: start.addingTimeInterval(40), from: .verifier, kind: .verdict, text: claims,
-                    verdict: "fail", evidence: ["step 2", "step 3"]),
+                    verdict: "fail", evidence: cited),
         ]
-        store.steps["run-1"] = (1...3).map { seq in
+        store.steps["run-1"] = (1...(cites + 1)).map { seq in
             Step(seq: seq, at: start.addingTimeInterval(Double(seq * 10)), tool: "machine_screenshot",
                  durationMs: 800)
         }
