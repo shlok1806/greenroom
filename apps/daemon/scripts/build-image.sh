@@ -3,6 +3,8 @@
 # `greenroom prepare-image` to bake in the input helper, ssh key, screen-capture approvals and desktop
 # preferences, and stop it.
 # Clones then skip the ~27 s first-control cost. -force replaces an existing image.
+# -lean also applies the lean profile (machine/guest/lean.sh, docs/image-experiment):
+#   scripts/build-image.sh -lean -name greenroom-lean-a
 set -euo pipefail
 
 cd "$(dirname "$0")/.." # apps/daemon
@@ -10,13 +12,15 @@ cd "$(dirname "$0")/.." # apps/daemon
 base="ghcr.io/cirruslabs/macos-tahoe-base:latest" # matches defaultImage in main.go
 name="greenroom-base"
 force=""
+lean=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -base) base="$2"; shift 2 ;;
     -name) name="$2"; shift 2 ;;
     -force) force="yes"; shift ;;
-    *) echo "usage: $0 [-base <oci image>] [-name greenroom-base] [-force]" >&2; exit 2 ;;
+    -lean) lean="-lean"; shift ;;
+    *) echo "usage: $0 [-base <oci image>] [-name greenroom-base] [-lean] [-force]" >&2; exit 2 ;;
   esac
 done
 
@@ -30,6 +34,7 @@ fi
 echo "base image:  $base"
 echo "vm name:     $name"
 echo "tart:        $tart"
+if [ -n "$lean" ]; then echo "profile:     lean"; else echo "profile:     standard"; fi
 
 # tart images live under ~/.tart on /; refuse early rather than fail mid-clone.
 free_kb="$(df -k / | awk 'NR==2 {print $4}')"
@@ -94,8 +99,8 @@ if [ -z "$ready" ]; then
 fi
 echo "guest agent is up"
 
-echo "preparing the guest (compiling the input helper, installing the ssh key, pre-approving screen capture, setting desktop preferences)"
-go run . prepare-image -tart "$tart" -vm "$name"
+echo "preparing the guest (compiling the input helper, installing the ssh key, pre-approving screen capture, setting desktop preferences${lean:+, applying the lean profile})"
+go run . prepare-image -tart "$tart" -vm "$name" $lean
 
 trap - EXIT
 echo "stopping $name"

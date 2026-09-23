@@ -12,7 +12,8 @@ ghcr.io/cirruslabs/macos-tahoe-base   upstream, SIP off, TCC seeded
 Note: `apps/daemon/scripts/build-image.sh` also makes a VM named `greenroom-base`, with
 the input helper and ssh key baked in but none of the TCC, display or first-boot work
 below. The two are not merged yet. The daemon's CI and `install.sh` expect the
-`build-image.sh` one.
+`build-image.sh` one. `build-image.sh -lean -name greenroom-lean-a` builds the lean
+variant under test in `docs/image-experiment/`.
 
 ## Layout
 
