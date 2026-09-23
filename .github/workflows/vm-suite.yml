@@ -21,7 +21,7 @@ jobs:
   vm:
     name: VM suite (tart)
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 40
+    timeout-minutes: 60
     concurrency:
       group: vm-suite
       cancel-in-progress: false
@@ -31,7 +31,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Preflight - check Tart capacity and record existing VMs
+      # Other runs and the maintainer's own machines share this host, so their
+      # guests come and go. Wait for a slot instead of failing on a snapshot.
+      - name: Preflight - wait for Tart capacity and record existing VMs
         run: |
           set -euo pipefail
           if ! command -v tart >/dev/null 2>&1; then
@@ -39,8 +41,10 @@ jobs:
             exit 1
           fi
           mkdir -p "$TART_STATE_DIR"
-          tart list --format json > "$TART_STATE_DIR/before.json"
-          python3 -c '
+          deadline=$(( $(date +%s) + 900 ))
+          while :; do
+            tart list --format json > "$TART_STATE_DIR/before.json"
+            if python3 -c '
           import json, os, sys
           path = os.environ["TART_STATE_DIR"]
           with open(os.path.join(path, "before.json")) as f:
@@ -49,11 +53,22 @@ jobs:
           running = [v.get("Name", "") for v in vms if str(v.get("State", "")).lower() == "running"]
           with open(os.path.join(path, "names-before.txt"), "w") as f:
               f.write("\n".join(names))
+          with open(os.path.join(path, "running.txt"), "w") as f:
+              f.write(", ".join(running))
           if len(running) >= 2:
-              print("::error::Two macOS guests are already running under Tart (Apple allows only two on one host at a time): " + ", ".join(running) + ". Free a slot before re-running this workflow.")
               sys.exit(1)
           print("Tart capacity OK. Running guest(s) before this job: " + (", ".join(running) if running else "(none)"))
-          '
+          '; then
+              break
+            fi
+            running="$(cat "$TART_STATE_DIR/running.txt")"
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Two macOS guests have been running under Tart for 15 minutes (Apple allows only two on one host at a time): $running. Free a slot before re-running this workflow."
+              exit 1
+            fi
+            echo "Two macOS guests are running ($running); waiting for a free slot."
+            sleep 15
+          done
 
       # The image name carries the helper version, so bumping inputHelperVersion
       # bakes a fresh image here instead of silently testing a stale one.
