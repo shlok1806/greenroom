@@ -337,6 +337,12 @@ final class TitleAndWordsTests: XCTestCase {
         XCTAssertEqual(VerdictCheck.claimedValues(text, atStep: 27), ["20%", "$45.00"])
         XCTAssertEqual(VerdictCheck.claimedValues(text, atStep: 31), ["$0.00"])
         XCTAssertEqual(VerdictCheck.claimedValues(text, atStep: 9), [])
+        let serial = "Steps 4, 5, and 6 show $3.00."
+        XCTAssertEqual(VerdictCheck.claimedValues(serial, atStep: 6), ["$3.00"])
+        XCTAssertEqual(VerdictCheck.claimedValues(serial, atStep: 4), ["$3.00"])
+        let decimal = "At step 12 and 13.50 later the total is wrong."
+        XCTAssertEqual(VerdictCheck.claimedValues(decimal, atStep: 12), ["13.50"])
+        XCTAssertEqual(VerdictCheck.claimedValues(decimal, atStep: 13), [])
         XCTAssertTrue(VerdictCheck.namesSteps(text))
         XCTAssertFalse(VerdictCheck.namesSteps("Each pays $48.00 at 20%."))
     }

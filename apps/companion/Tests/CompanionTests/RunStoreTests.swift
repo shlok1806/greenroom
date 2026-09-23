@@ -554,6 +554,39 @@ final class RunStoreTests: XCTestCase {
         XCTAssertNil(store.lastError)
     }
 
+    /// #53: the first read of the list answers, then a read made for an event fails while
+    /// the stream stays open. The store must come back online without Reconnect.
+    func testALaterFailedListReadIsRetriedWhileTheStreamStaysOpen() async throws {
+        let listReads = Counter()
+        let stream = """
+        : ping
+
+        event: run
+        data: {"kind":"ready","runId":"run-1"}
+
+
+        """
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/events":
+                return StubURLProtocol.Reply(body: Data(stream.utf8), headers: ["Content-Type": "text/event-stream"], holdsOpen: true)
+            case "/api/runs":
+                listReads.add()
+                if listReads.value == 2 {
+                    return .json(#"{"error": "open /tmp/gr/runs: permission denied"}"#, status: 500)
+                }
+                return .json(#"[{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z"}]"#)
+            default:
+                return .json("{}")
+            }
+        }
+        let store = RunStore(client: client)
+        store.start()
+        defer { store.stop() }
+        try await eventually(within: .seconds(8)) { listReads.value >= 3 && store.connection == .online }
+        XCTAssertEqual(store.runs.map(\.runId), ["run-1"])
+    }
+
     /// #68: the daemon came back without the open run (the list lacks it and the run
     /// answers 404). Its old record must not stay on screen with live actions.
     func testTheOpenRunIsLetGoWhenTheDaemonComesBackWithoutIt() async {

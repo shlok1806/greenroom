@@ -117,6 +117,9 @@ final class StepSummaryTests: XCTestCase {
         XCTAssertEqual(StepSummary.line(for: click), "click 50%, 41%")
         let byElement = step("machine_click", input: .object(["element": .int(3)]))
         XCTAssertEqual(StepSummary.line(for: byElement), "click element 3")
+        // The daemon reads element 0 as no element and clicks at x and y.
+        let atPoint = step("machine_click", input: .object(["element": .int(0), "x": .double(0.5), "y": .double(0.41)]))
+        XCTAssertEqual(StepSummary.line(for: atPoint), "click 50%, 41%")
         let key = step("machine_key", input: .object(["key": .string("a"), "mods": .array([.string("cmd")])]))
         XCTAssertEqual(StepSummary.line(for: key), "key cmd-a")
     }

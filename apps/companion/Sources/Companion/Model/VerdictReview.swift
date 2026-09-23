@@ -210,9 +210,9 @@ enum VerdictCheck: Hashable, Sendable {
         return out
     }
 
-    /// "step 26", "steps 30 and 31", "steps 4, 5 and 6".
+    /// "step 26", "steps 30 and 31", "steps 4, 5 and 6", "steps 4, 5, and 6".
     private static func steps(namedIn sentence: String) -> Set<Int> {
-        guard let regex = try? NSRegularExpression(pattern: #"\bsteps?\s+(\d+(?:\s*(?:,|and|&)\s*\d+)*)"#,
+        guard let regex = try? NSRegularExpression(pattern: #"\bsteps?\s+(\d+\b(?!\.\d)(?:\s*(?:,\s*(?:and\b|&)?|\band\b|&)\s*\d+\b(?!\.\d))*)"#,
                                                    options: [.caseInsensitive]) else { return [] }
         var out: Set<Int> = []
         let range = NSRange(sentence.startIndex..., in: sentence)

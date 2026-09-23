@@ -35,7 +35,7 @@ enum StepSummary {
         case "machine_click", "machine_key", "machine_scroll":
             // The single-action tools record the action's own fields, without a type.
             if case .object(var fields)? = input {
-                if let element = number(fields["element"]) { return "click element \(Int(element))" }
+                if let element = number(fields["element"]), element != 0 { return "click element \(Int(element))" }
                 fields["type"] = .string(String(tool.dropFirst("machine_".count)))
                 return actionLine(.object(fields))
             }

@@ -143,6 +143,11 @@ final class RunStore: PilotHost {
 
     private let frameCache = FrameCache()
     private var streamTask: Task<Void, Never>?
+    /// Whether the event stream is up, so a failed read of the list is retried rather
+    /// than left until the next drop.
+    private var streamOpen = false
+    /// The one retry of the run list, while the stream is up and the last read failed.
+    private var listRetry: Task<Void, Never>?
     private var seekNonce = 0
     private var pilots: [String: ControlPilot] = [:]
     /// The newest read started for each piece, so an older answer landing late never
@@ -174,6 +179,7 @@ final class RunStore: PilotHost {
     func stop() {
         streamTask?.cancel()
         streamTask = nil
+        endListRetries()
         connected = false
     }
 
@@ -185,8 +191,9 @@ final class RunStore: PilotHost {
             connected = await resync()
             // The stream may stay open for hours; a failed read of the list must not
             // leave the window saying the daemon is down all that time.
-            let retry = Task { [weak self] in await self?.resyncUntilTheListAnswers() }
-            defer { retry.cancel() }
+            streamOpen = true
+            retryTheListIfItFailed()
+            defer { endListRetries() }
             do {
                 for try await item in client.events() {
                     switch item {
@@ -208,8 +215,22 @@ final class RunStore: PilotHost {
         }
     }
 
+    /// Starts the retry of the run list when its last read failed while the stream is up,
+    /// unless one is already running.
+    private func retryTheListIfItFailed() {
+        guard streamOpen, reachable == false, listRetry == nil else { return }
+        listRetry = Task { [weak self] in await self?.resyncUntilTheListAnswers() }
+    }
+
+    /// The stream ended, which resyncs by itself.
+    private func endListRetries() {
+        streamOpen = false
+        listRetry?.cancel()
+        listRetry = nil
+    }
+
     /// While the stream is up, resyncs on the reconnect backoff until a read of the run
-    /// list answers. Cancelled when the stream ends, which resyncs by itself.
+    /// list answers.
     private func resyncUntilTheListAnswers() async {
         var backoff = Backoff()
         while reachable != true {
@@ -217,6 +238,7 @@ final class RunStore: PilotHost {
             if Task.isCancelled { return }
             if await resync() { connected = true }
         }
+        if !Task.isCancelled { listRetry = nil }
     }
 
     // MARK: - Fetching
@@ -304,6 +326,7 @@ final class RunStore: PilotHost {
                         } else {
                             refusal = nil
                         }
+                        retryTheListIfItFailed()
                     }
                     throw error
                 }
