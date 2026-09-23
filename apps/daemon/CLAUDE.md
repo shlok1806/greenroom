@@ -194,6 +194,14 @@ Computer use (ADR 0009)
   stale image except a slow first control request. The VM suite workflow bakes and tests
   `greenroom-base-v<inputHelperVersion>` itself, so a bump rebuilds its image once. Source and input travel base64, never
   through a shell.
+- `InputAction` means what the tools say: positive `deltaY` scrolls down, positive `deltaX`
+  right. A positive CGEvent wheel scrolls up and left, so `pixels` negates both on the way to
+  the helper (issue #51) and clamps them to Int32, where the helper's conversion would trap
+  (issue #36). The helper never sees the tools' sign; the companion converts AppKit's.
+- `validateActions` refuses an unknown action type, button or modifier before a batch posts
+  anything, because the helper drops an unknown modifier and makes an unknown button a left
+  click (issue #31). Its name lists mirror `flags` and `mouseButton` in `input.swift`; change
+  them together.
 - A shortcut posts real modifier key downs and ups around the key (`press` in
   `input.swift`). A flag on the key event alone leaves the window server thinking the
   modifier is held, and the next typed text arrives as command-1, command-2.

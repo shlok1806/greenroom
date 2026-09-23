@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -293,6 +294,89 @@ func TestInputSurfacesTheHelperError(t *testing.T) {
 	_, err := mgr.Input(context.Background(), mc.RunID, "human", []InputAction{{Type: "click", X: frac(0.5), Y: frac(0.5)}})
 	if err == nil || !strings.Contains(err.Error(), "this machine refused the event") {
 		t.Fatalf("a refusing guest gave %v, want the helper's own message", err)
+	}
+}
+
+// Issue #51: InputAction's deltas mean what the tools say (positive scrolls down and right), but a
+// positive CGEvent wheel scrolls up and left, so the daemon flips them on the way to the helper.
+func TestScrollDeltasGoOutInTheHelpersSign(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	if _, err := mgr.InputAs(context.Background(), mc.RunID, HolderCoder, []InputAction{
+		{Type: "scroll", X: frac(0.3), Y: frac(0.4), DeltaX: 40, DeltaY: 300},
+	}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+	posted := postedActions(t, control)
+	if len(posted) != 1 || posted[0].DeltaY != -300 || posted[0].DeltaX != -40 {
+		t.Fatalf("a scroll down 300, right 40 went out as %+v, want deltaY -300 and deltaX -40", posted)
+	}
+	steps := readSteps(t, mc.Dir)
+	last := steps[len(steps)-1].Input.(map[string]any)["actions"].([]any)[0].(map[string]any)
+	if last["deltaY"] != 300.0 {
+		t.Errorf("the step recorded %v, want the caller's own deltaY 300", last["deltaY"])
+	}
+}
+
+// Issue #36: a delta beyond Int32 trapped the helper (exit 133, empty error). Like a coordinate off
+// the screen, it is clamped.
+func TestScrollDeltasAreClampedToWhatTheHelperCanPost(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	if _, err := mgr.InputAs(context.Background(), mc.RunID, HolderCoder, []InputAction{
+		{Type: "scroll", DeltaX: -5e9, DeltaY: 1e12},
+		{Type: "scroll", DeltaX: 1, DeltaY: -3e10},
+	}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+	posted := postedActions(t, control)
+	if len(posted) != 2 {
+		t.Fatalf("posted %+v", posted)
+	}
+	for _, a := range posted {
+		for _, d := range []float64{a.DeltaX, a.DeltaY} {
+			if math.Abs(d) > maxScrollDelta {
+				t.Errorf("a delta went out as %v, beyond +-%v", d, float64(maxScrollDelta))
+			}
+		}
+	}
+	if posted[0].DeltaY != -maxScrollDelta || posted[0].DeltaX != maxScrollDelta || posted[1].DeltaX != -1 || posted[1].DeltaY != maxScrollDelta {
+		t.Errorf("clamped deltas = %+v", posted)
+	}
+}
+
+// Issue #31: an unknown modifier was dropped and an unknown button became a left click, so cmd-Q
+// with a typo typed a q. Both are refused, naming what is accepted, before anything is posted.
+func TestUnknownModifiersAndButtonsAreRefusedBeforeAnythingIsPosted(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	for _, tc := range []struct {
+		action InputAction
+		want   string
+	}{
+		{InputAction{Type: "key", Key: "x", Mods: []string{"hyper"}}, `unknown modifier "hyper"`},
+		{InputAction{Type: "key", Key: "q", Mods: []string{"cmd", "⌘"}}, "cmd, shift, alt, ctrl, fn"},
+		{InputAction{Type: "click", X: frac(0.9), Y: frac(0.9), Button: "bogus"}, `unknown button "bogus"`},
+		{InputAction{Type: "wiggle"}, `unknown action type "wiggle"`},
+	} {
+		_, err := mgr.InputAs(context.Background(), mc.RunID, HolderCoder, []InputAction{
+			{Type: "move", X: frac(0.1), Y: frac(0.1)}, tc.action,
+		})
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%+v: err = %v, want it to contain %q", tc.action, err, tc.want)
+		}
+	}
+	if posted := postedActions(t, control); len(posted) != 0 {
+		t.Fatalf("a refused batch still posted %+v", posted)
+	}
+	// The aliases the helper has always taken still work.
+	if _, err := mgr.InputAs(context.Background(), mc.RunID, HolderCoder, []InputAction{
+		{Type: "key", Key: "a", Mods: []string{"Command", "opt", "control", "function", "meta", "option", "SHIFT"}},
+		{Type: "click", X: frac(0.5), Y: frac(0.5), Button: "center"},
+		{Type: "click", X: frac(0.5), Y: frac(0.5), Button: "Right"},
+		{Type: "Click", X: frac(0.5), Y: frac(0.5)},
+	}); err != nil {
+		t.Fatalf("aliases were refused: %v", err)
 	}
 }
 

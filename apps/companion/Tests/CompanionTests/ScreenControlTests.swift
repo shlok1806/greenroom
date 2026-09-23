@@ -192,6 +192,18 @@ final class ScreenControlTests: XCTestCase {
         XCTAssertEqual(batch.first?.deltaY, -24)
     }
 
+    /// The daemon's positive deltaY scrolls down. A wheel turned towards the person (AppKit
+    /// reports a negative scrollingDeltaY) must reach the guest as a scroll down, so the page
+    /// still follows the person's hand after the daemon's sign fix.
+    func testAWheelScrollKeepsItsDirectionOnTheWire() {
+        let down = InputBatch.scroll(x: 0.5, y: 0.5, appKitDeltaX: 0, appKitDeltaY: -12)
+        XCTAssertEqual(down.type, .scroll)
+        XCTAssertEqual(down.deltaY, 12)
+        let left = InputBatch.scroll(x: 0.5, y: 0.5, appKitDeltaX: 8, appKitDeltaY: 0)
+        XCTAssertEqual(left.deltaX, -8)
+        XCTAssertEqual(left.x, 0.5)
+    }
+
     func testScrollsInDifferentPlacesAreKeptApart() {
         let batch = InputBatch.coalesced([
             InputAction(type: .scroll, x: 0.2, y: 0.2, deltaY: -10),

@@ -801,8 +801,9 @@ func TestScrollPostsADelta(t *testing.T) {
 	if len(posted) != 1 {
 		t.Fatalf("the guest was sent %d actions, want 1: %+v", len(posted), posted)
 	}
-	if posted[0]["type"] != "scroll" || posted[0]["deltaY"] != -120.0 {
-		t.Errorf("action = %+v, want a scroll of deltaY -120", posted[0])
+	// A scroll up (negative in the tool) is a positive CGEvent wheel in the helper (issue #51).
+	if posted[0]["type"] != "scroll" || posted[0]["deltaY"] != 120.0 {
+		t.Errorf("action = %+v, want the helper's scroll up, deltaY 120", posted[0])
 	}
 }
 
@@ -997,5 +998,21 @@ func TestClickAnElementFromTheLatestUIRead(t *testing.T) {
 	}
 	if res := h.raw("machine_click", map[string]any{"runId": runID}); !res.IsError {
 		t.Error("a click with neither an element nor x and y was accepted")
+	}
+}
+
+// Issue #31: machine_key with a misspelt modifier posted the bare key and reported success.
+func TestAnUnknownModifierOrButtonIsAToolError(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	for tool, args := range map[string]map[string]any{
+		"machine_key":   {"runId": runID, "key": "q", "mods": []string{"cmnd"}},
+		"machine_click": {"runId": runID, "x": 0.9, "y": 0.9, "button": "bogus"},
+		"machine_input": {"runId": runID, "actions": []map[string]any{{"type": "key", "key": "x", "mods": []string{"hyper"}}}},
+	} {
+		res := h.raw(tool, args)
+		if !res.IsError || !strings.Contains(text(res), "unknown") || !strings.Contains(text(res), "use ") {
+			t.Errorf("%s %v = %q (isError %v), want an error naming what is accepted", tool, args, text(res), res.IsError)
+		}
 	}
 }

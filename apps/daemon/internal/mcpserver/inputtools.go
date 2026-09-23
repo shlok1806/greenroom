@@ -48,7 +48,7 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 		UIStep  int      `json:"uiStep,omitempty" jsonschema:"Optional: the step of the machine_ui read the element id comes from. The click is refused if that is not your latest read, so an id never lands on a newer tree."`
 		X       *float64 `json:"x,omitempty" jsonschema:"Horizontal position as a fraction of the screen, 0 (left) to 1 (right): an element's center from machine_ui, or a fraction of a screenshot, never a guest pixel."`
 		Y       *float64 `json:"y,omitempty" jsonschema:"Vertical position as a fraction of the screen, 0 (top) to 1 (bottom)."`
-		Button  string   `json:"button,omitempty" jsonschema:"left (default), right, or middle."`
+		Button  string   `json:"button,omitempty" jsonschema:"left (default), right, or middle. Any other name is an error."`
 		Clicks  int      `json:"clicks,omitempty" jsonschema:"2 for a double click. Default 1."`
 	}
 	type clickOut struct {
@@ -96,7 +96,7 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	type keyIn struct {
 		RunID string   `json:"runId" jsonschema:"runId from machine_create"`
 		Key   string   `json:"key" jsonschema:"A key name: a letter, digit or punctuation character, or one of return, enter, tab, space, delete, forwarddelete, escape, left, right, up, down, home, end, pageup, pagedown, capslock, help, f1-f12."`
-		Mods  []string `json:"mods,omitempty" jsonschema:"Modifiers held with the key: cmd, shift, alt, ctrl, fn."`
+		Mods  []string `json:"mods,omitempty" jsonschema:"Modifiers held with the key: cmd, shift, alt, ctrl, fn (also command, option, control, function). Any other name is an error."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_key",
@@ -110,7 +110,7 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 		RunID  string   `json:"runId" jsonschema:"runId from machine_create"`
 		X      *float64 `json:"x,omitempty" jsonschema:"Optional fraction of the screen to move the pointer to first. A scroll goes to whatever is under the pointer, so set this when you have not just clicked or moved there."`
 		Y      *float64 `json:"y,omitempty" jsonschema:"Optional fraction of the screen to move the pointer to first, paired with x."`
-		DeltaX float64  `json:"deltaX,omitempty" jsonschema:"Horizontal scroll amount, in points. Positive scrolls right."`
+		DeltaX float64  `json:"deltaX,omitempty" jsonschema:"Horizontal scroll amount, in points. Positive scrolls right, negative scrolls left."`
 		DeltaY float64  `json:"deltaY,omitempty" jsonschema:"Vertical scroll amount, in points. Positive scrolls down, negative scrolls up."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
@@ -125,13 +125,13 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 		Type   string   `json:"type" jsonschema:"One of: move, click, down, up, scroll, type, key, sleep."`
 		X      *float64 `json:"x,omitempty" jsonschema:"Fraction of the screen, 0 to 1. For move, click, down and up."`
 		Y      *float64 `json:"y,omitempty" jsonschema:"Fraction of the screen, 0 to 1. For move, click, down and up."`
-		Button string   `json:"button,omitempty" jsonschema:"left (default), right, or middle. For click, down and up."`
+		Button string   `json:"button,omitempty" jsonschema:"left (default), right, or middle. For click, down and up. Any other name is an error."`
 		Clicks int      `json:"clicks,omitempty" jsonschema:"2 for a double click. For click, down and up."`
-		DeltaX float64  `json:"deltaX,omitempty" jsonschema:"For scroll."`
-		DeltaY float64  `json:"deltaY,omitempty" jsonschema:"For scroll."`
+		DeltaX float64  `json:"deltaX,omitempty" jsonschema:"For scroll, in points. Positive scrolls right."`
+		DeltaY float64  `json:"deltaY,omitempty" jsonschema:"For scroll, in points. Positive scrolls down."`
 		Text   string   `json:"text,omitempty" jsonschema:"For type."`
 		Key    string   `json:"key,omitempty" jsonschema:"For key."`
-		Mods   []string `json:"mods,omitempty" jsonschema:"Modifiers held with key: cmd, shift, alt, ctrl, fn."`
+		Mods   []string `json:"mods,omitempty" jsonschema:"Modifiers held with key: cmd, shift, alt, ctrl, fn (also command, option, control, function). Any other name is an error."`
 		MS     int      `json:"ms,omitempty" jsonschema:"Milliseconds to wait. For sleep, capped at 5000."`
 	}
 	type inputIn struct {
