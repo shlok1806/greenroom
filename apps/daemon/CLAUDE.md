@@ -82,7 +82,9 @@ Boot and lifecycle
   it is fatal.
 - Boot also sets desktop preferences (`desktopprefs.go`, step key `desktopPrefsSeconds`,
   `desktopPrefsError`): "Click wallpaper to reveal desktop" off, so a missed click cannot
-  hide every window, and window restore at login off. Also never fatal. `prepare-image`
+  hide every window, window restore at login off, and display sleep, screensaver and
+  screen lock off (a sleeping guest display makes every capture black, with no error).
+  Also never fatal. `prepare-image`
   bakes both; `images/scripts/greenroom-tcc.sh` repeats them for the Packer image.
 - `finishBoot` writes the step before closing `ready`. `manifest.json` is written by
   temp file and rename.
@@ -113,7 +115,10 @@ Evidence
 - Every tool call records itself (input, output, error, duration). A new tool does too.
 - Frames: every `-frame-interval` (default 2 s, 0.5 s while a control lease is held,
   0 disables) into `frames/<unix-ms>.jpg` plus a line in `frames.jsonl`. A frame cites the
-  current step; it never claims a number. Capture failures are logged once, never fatal.
+  current step; it never claims a number. The first capture failure and the first recovery
+  after it are logged, never fatal. A host that sleeps (lid closed) suspends the VM: frames
+  stop for the whole sleep, and the first capture after wake can fail once with "could not
+  create image from display".
 - A guest command's non-zero exit is `ExitCode`, not an `error`. `error` means tart failed.
 - Last activity (`Manager.LastActivity`, `/api/runs` `lastActivity`, `machine_list`
   `idleSeconds`, the host-limit error) is the newest step end or message, never a frame:

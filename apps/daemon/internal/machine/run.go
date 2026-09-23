@@ -188,6 +188,11 @@ type recorder struct {
 	log            *slog.Logger
 	manifest       Manifest
 	frameErrLogged bool
+
+	// The current capture outage, if any, and whether a recovery was logged.
+	frameFails          int
+	frameFailSince      time.Time
+	frameRecoveryLogged bool
 }
 
 func newRecorder(dir string, m Manifest, log *slog.Logger) (*recorder, error) {
@@ -284,11 +289,31 @@ func (r *recorder) appendFrame(fr Frame) error {
 	return appendLine(filepath.Join(r.dir, "frames.jsonl"), line)
 }
 
-// logFrameErrOnce reports whether this is the run's first frame-capture failure.
-func (r *recorder) logFrameErrOnce() bool {
+// frameFailed counts a failed capture and reports whether it is the run's
+// first, which is the only one logged.
+func (r *recorder) frameFailed() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.frameFails == 0 {
+		r.frameFailSince = time.Now()
+	}
+	r.frameFails++
 	first := !r.frameErrLogged
 	r.frameErrLogged = true
 	return first
+}
+
+// frameCaptured ends an outage. It returns the outage the first time captures
+// come back after the logged failure, so a transient failure (a host waking
+// from sleep) does not read like a recorder that stopped for good.
+func (r *recorder) frameCaptured() (fails int, since time.Time, report bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	fails, since = r.frameFails, r.frameFailSince
+	r.frameFails = 0
+	if fails == 0 || r.frameRecoveryLogged {
+		return fails, since, false
+	}
+	r.frameRecoveryLogged = true
+	return fails, since, true
 }

@@ -22,6 +22,12 @@ func TestBootTurnsOffClickWallpaperToShowDesktop(t *testing.T) {
 			t.Errorf("boot never set %s, so window restore stays on", key)
 		}
 	}
+	// A sleeping guest display turns every frame black with no error.
+	for _, key := range []string{"pmset -a displaysleep 0 sleep 0", "com.apple.screensaver idleTime -int 0", "screenLock off"} {
+		if !strings.Contains(log, key) {
+			t.Errorf("boot never ran %q, so an idle guest can blank or lock its screen", key)
+		}
+	}
 	for _, s := range readSteps(t, mc.Dir) {
 		if s.Tool == "machine_boot" {
 			if out, _ := s.Output.(map[string]any); out["desktopPrefsSeconds"] == nil {

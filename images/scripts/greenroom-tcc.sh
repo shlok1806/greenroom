@@ -150,5 +150,10 @@ fi
 defaults write com.apple.WindowManager EnableStandardClickToShowDesktop -bool false
 defaults write NSGlobalDomain NSQuitAlwaysKeepsWindows -bool false
 defaults write com.apple.loginwindow TALLogoutSavesState -bool false
+# A guest display that sleeps turns every frame black with no error; the
+# screensaver and the lock cover the app under test.
+sudo -n pmset -a displaysleep 0 sleep 0
+defaults -currentHost write com.apple.screensaver idleTime -int 0
+sysadminctl -screenLock status 2>&1 | grep -q "screenLock is off" || sysadminctl -screenLock off -password admin
 
 echo "greenroom-tcc: done"
