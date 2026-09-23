@@ -129,7 +129,8 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   ADR 0001 says, nor `HSplitView`: inside `NavigationSplitView` both add hundreds of points to the window's
   minimum width, even while hidden. Widths live in `RunLayout` (stage at least 440, the
   spec). Narrow windows give way in the spec's order: below
-  `RunLayout.sidebarFoldWidth` (1032 with the conversation) `RootView` folds the sidebar,
+  `RunLayout.sidebarFoldWidth` (of the sidebar's measured width; 1032 for an ideal
+  sidebar with the conversation) `RootView` folds the sidebar,
   only while shrinking, so a sidebar shown by hand stays; where the conversation then has
   no room beside the stage (`RunLayout.conversation` is nil) it gives way and the verdict
   card moves above the stage, and asking for it folds the sidebar; the player bar's
