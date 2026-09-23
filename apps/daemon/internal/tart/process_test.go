@@ -24,16 +24,19 @@ func fakeBin(t *testing.T, body string) *Client {
 	return &Client{Bin: path}
 }
 
-// waitExit polls until the process reports that it stopped.
+// waitExit blocks until the process reports that it stopped. The bound is
+// generous because the VM suite runs these next to booting guests, where even
+// a one-line script can take seconds to start and exit.
 func waitExit(t *testing.T, p *Process) {
 	t.Helper()
-	for i := 0; i < 100; i++ {
-		if p.Exited() {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-p.done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the process never reported an exit")
 	}
-	t.Fatal("the process never reported an exit")
+	if !p.Exited() {
+		t.Fatal("Exited is false after the process stopped")
+	}
 }
 
 func TestProcessReportsWhatTartPrinted(t *testing.T) {
