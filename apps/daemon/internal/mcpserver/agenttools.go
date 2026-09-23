@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -34,7 +35,7 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 		Name: "agent_send",
 		Description: "Post into the run's conversation, which is how you reach greenroom's verifier. Send a task " +
 			"to set it working, then call agent_wait in a loop until it replies. A note adds context it reads on " +
-			"its next turn. Answer a question with kind answer and replyTo set to the question's seq. A verdict " +
+			"its next turn; your note never starts a turn, so send a task when you want an answer. Answer a question with kind answer and replyTo set to the question's seq. A verdict " +
 			"is a proposal: accept it, or dispute it with replyTo and the reason, and the verifier takes another " +
 			"turn. After two disputes the verdict is contested and only a human can close it. A reply is a plain " +
 			"answer, not a verdict, so keep waiting if your task is not done. Returns your message's seq.",
@@ -58,9 +59,11 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "agent_wait",
-		Description: "Block until the conversation has something newer than after, then return it. After sending " +
-			"a task, call this repeatedly with after set to last from the previous call until a verdict arrives. " +
-			"An empty messages list means nothing happened before the timeout; call again. A question needs an " +
+		Description: "Block until the conversation has something newer than after, then return it. The verifier's " +
+			"progress lines (one per tool call it makes) do not end the wait: it returns when its turn ends with a " +
+			"reply, question or verdict, when anyone else posts, or at the timeout, with everything gathered so " +
+			"far. After sending a task, call this repeatedly with after set to last from the previous call until a " +
+			"verdict arrives. An empty messages list means nothing happened before the timeout; call again. A question needs an " +
 			"agent_send of kind answer before the verifier continues; a reply is the verifier answering in words " +
 			"with no verdict, so it does not end your task. A watching human's actions show up here too, and the " +
 			"verifier answers a human's note.",
@@ -71,7 +74,7 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 		}
 		ctx, cancel := context.WithTimeout(ctx, waitTimeout(in.TimeoutSeconds))
 		defer cancel()
-		return nil, transcript(store, store.Wait(ctx, in.After), in.After), nil
+		return nil, transcript(store, waitPastProgress(ctx, store, in.After), in.After), nil
 	})
 
 	type transcriptIn struct {
@@ -91,6 +94,26 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 		}
 		return nil, transcript(store, store.After(in.After), in.After), nil
 	})
+}
+
+// waitPastProgress waits for messages after seq and keeps waiting while all of them are verifier
+// progress, so waiting for one verdict is one call rather than one per verifier step (issue #46).
+// It returns what it gathered at the timeout or when the store closes.
+func waitPastProgress(ctx context.Context, store *session.Store, seq int) []session.Message {
+	var out []session.Message
+	for {
+		msgs := store.Wait(ctx, seq)
+		out = append(out, msgs...)
+		if len(msgs) == 0 || ctx.Err() != nil {
+			return out
+		}
+		seq = msgs[len(msgs)-1].Seq
+		if slices.ContainsFunc(msgs, func(m session.Message) bool {
+			return m.From != session.Verifier || m.Kind != session.Progress
+		}) {
+			return out
+		}
+	}
 }
 
 // lastSeq is the caller's next after. It comes from the messages returned, so a reader never skips what arrived meanwhile.

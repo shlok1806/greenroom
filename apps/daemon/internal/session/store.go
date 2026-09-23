@@ -158,9 +158,9 @@ func (s *Store) checkReplyLocked(m Message) error {
 		if v.Status == Accepted {
 			return fmt.Errorf("verdict %d is already accepted", v.Seq)
 		}
-		// The coder may accept a contested verdict but not dispute it, and
-		// may not override a human's rejection.
-		if m.From == Coder && (v.Status == Rejected || (m.Kind == Dispute && v.Status != Proposed)) {
+		// The coder may close only a proposed verdict: a contested one waits for a human (ADR 0006
+		// rule 4, issue #34), and a human's rejection is not the coder's to override.
+		if m.From == Coder && v.Status != Proposed {
 			return ErrContested
 		}
 	}

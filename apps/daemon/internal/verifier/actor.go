@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,9 @@ type Actors struct {
 	mu     sync.Mutex
 	cancel map[string]context.CancelFunc
 	done   map[string]chan struct{}
+
+	// ended serializes answerEnded, so a message is told nothing will answer it once.
+	ended sync.Mutex
 }
 
 // ActorOption configures Actors beyond its required arguments.
@@ -52,8 +56,10 @@ func NewActors(b Brain, mgr *machine.Manager, reg *session.Registry, opts ...Act
 			a.Start(ev.RunID)
 		case "destroyed":
 			a.Stop(ev.RunID)
+			a.answerEnded(ev.RunID)
 		}
 	})
+	reg.Listen(a.answerEndedRuns)
 	for _, mc := range mgr.List() {
 		a.Start(mc.RunID)
 	}
@@ -72,6 +78,51 @@ func NewActors(b Brain, mgr *machine.Manager, reg *session.Registry, opts ...Act
 		a.Start(id)
 	}
 	return a
+}
+
+// destroyedNotice starts the event that answers a turn-starting message on a destroyed run.
+const destroyedNotice = "this run's machine was destroyed, so the verifier has stopped and nothing will answer this "
+
+// answerEndedRuns tells whoever starts a turn on a run whose machine is gone that nothing will
+// answer, so a coder's agent_wait returns instead of looping forever (issue #33). A run with an
+// actor, such as a failed boot, is answered by it.
+func (a *Actors) answerEndedRuns(runID string, m session.Message) {
+	if !m.StartsTurn() || a.Running(runID) {
+		return
+	}
+	// Listeners run under the store's lock, so append elsewhere.
+	go a.answerEnded(runID)
+}
+
+// answerEnded posts the destroyed notice for the last unanswered turn-starting message on a
+// destroyed run, unless it already has one. It covers messages that land after the actor is gone
+// and turns that were queued or cut short when Stop cancelled the actor.
+func (a *Actors) answerEnded(runID string) {
+	a.ended.Lock()
+	defer a.ended.Unlock()
+	man, err := machine.ReadManifest(a.mgr.RunDir(runID))
+	if err != nil || man.DestroyedAt == nil {
+		return
+	}
+	store, err := a.reg.Get(runID)
+	if err != nil {
+		return
+	}
+	msgs := store.After(0)
+	pending := lastUnanswered(msgs)
+	if pending == 0 {
+		return
+	}
+	var kind session.Kind
+	for _, m := range msgs {
+		switch {
+		case m.Seq == pending:
+			kind = m.Kind
+		case m.Seq > pending && m.From == session.System && m.Kind == session.Event && strings.HasPrefix(m.Text, destroyedNotice):
+			return
+		}
+	}
+	appendMessage(a.log, store, session.Message{From: session.System, Kind: session.Event, Text: destroyedNotice + string(kind)})
 }
 
 // Start begins an actor for runID if none is running.
@@ -159,7 +210,8 @@ func (a *Actors) runTurn(ctx context.Context, runID string, store *session.Store
 		}
 		if attempt >= attempts {
 			appendMessage(a.log, store, session.Message{From: session.System, Kind: session.Event,
-				Text: fmt.Sprintf("verifier gave up on this turn after %d attempts; send another message to try again", attempts)})
+				Text: fmt.Sprintf("verifier gave up on this turn after %d attempts; send a task, answer or dispute to try again "+
+					"(a human's note also starts a turn; a coding agent's note does not start a turn)", attempts)})
 			*seen = store.Len()
 			return
 		}

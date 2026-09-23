@@ -197,14 +197,14 @@ func TestManualTypeNeedsText(t *testing.T) {
 	}
 }
 
-func TestSummarizeRunsKeepsWholeRunes(t *testing.T) {
+func TestSummarizeKeepsWholeRunes(t *testing.T) {
 	for _, out := range []string{strings.Repeat("é", 150), "x" + strings.Repeat("é", 150)} {
-		got := summarizeRuns(1, []int{0}, out)
+		got := summarize(runTally{ran: 1, exitCodes: []int{0}, lastStdout: out})
 		if !utf8.ValidString(got) {
-			t.Errorf("summarizeRuns split a rune: %q", got)
+			t.Errorf("summarize split a rune: %q", got)
 		}
 		if !strings.HasSuffix(got, "éé") {
-			t.Errorf("summarizeRuns lost the tail: %q", got)
+			t.Errorf("summarize lost the tail: %q", got)
 		}
 	}
 }
@@ -302,7 +302,7 @@ func TestManualTurnsAreIndependent(t *testing.T) {
 		t.Fatalf("first Turn: %v", err)
 	}
 	first := lastMessage(t, store)
-	if first.Kind != session.Reply || !strings.Contains(first.Text, "ran 1 commands") {
+	if first.Kind != session.Reply || !strings.Contains(first.Text, "ran 1 command;") {
 		t.Fatalf("first turn reply = %+v, want a summary of one run", first)
 	}
 
@@ -352,5 +352,63 @@ func TestManualReadsTheUIAndClicksAnElement(t *testing.T) {
 	}
 	if !strings.Contains(progress[1].Text, `clicked [1] RadioButton/Segment "25%"`) {
 		t.Errorf("click progress = %q", progress[1].Text)
+	}
+}
+
+// Issue #66: a failed instruction ended the turn with "ran 0 commands; exit codes: ; last stdout
+// tail: ", so a person reading only the reply never learnt what went wrong.
+func TestManualReplyNamesTheInstructionThatFailed(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	store := openStore(t, mgr, runID)
+	for _, tc := range []struct{ text, want string }{
+		{"click 0.5", "click failed: click needs two numbers"},
+		{"type", "type failed: machine_type needs text"},
+		{"key", "key failed: key needs a key name"},
+		{"scroll x y", "scroll failed: scroll needs two numbers"},
+	} {
+		post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: tc.text})
+		if _, err := NewManual(mgr, testLog()).Turn(context.Background(), runID, store); err != nil {
+			t.Fatalf("Turn: %v", err)
+		}
+		last := lastMessage(t, store)
+		if last.Kind != session.Reply || !strings.Contains(last.Text, tc.want) || strings.Contains(last.Text, "ran 0") {
+			t.Errorf("%q ended with %q, want a reply saying %q", tc.text, last.Text, tc.want)
+		}
+	}
+}
+
+// Issue #66: "verdict banana" was posted as an inconclusive verdict with no summary. A verdict is
+// never guessed: an unknown outcome is refused with the grammar, and nothing is posted as a verdict.
+func TestManualRefusesAVerdictWithAnUnknownOutcome(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	store := openStore(t, mgr, runID)
+	post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "verdict banana"})
+	res, err := NewManual(mgr, testLog()).Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	if v := messagesOfKind(store, session.Verdict); len(v) != 0 {
+		t.Fatalf("an unknown outcome was posted as a verdict: %+v", v)
+	}
+	last := lastMessage(t, store)
+	if res.Ended != session.Reply || !strings.Contains(last.Text, `"banana"`) || !strings.Contains(last.Text, "verdict pass|fail|inconclusive <summary>") {
+		t.Fatalf("reply = %q, want it to quote the word and show the verdict grammar", last.Text)
+	}
+}
+
+// Issue #66: one command was "ran 1 commands; exit codes: 0; last stdout tail: hi".
+func TestManualSummaryReadsAsASentence(t *testing.T) {
+	for _, tc := range []struct {
+		t    runTally
+		want string
+	}{
+		{runTally{ran: 1, exitCodes: []int{0}, lastStdout: "hi\n"}, "ran 1 command; exit code 0; last stdout: hi"},
+		{runTally{ran: 2, exitCodes: []int{0, 3}}, "ran 2 commands; exit codes 0, 3"},
+		{runTally{steps: []int{4, 5}}, "done (steps 4, 5)"},
+		{runTally{}, "done"},
+	} {
+		if got := summarize(tc.t); got != tc.want {
+			t.Errorf("summarize(%+v) = %q, want %q", tc.t, got, tc.want)
+		}
 	}
 }

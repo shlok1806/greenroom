@@ -100,6 +100,52 @@ func TestAgentWaitUnblocksWhenTheVerifierSpeaks(t *testing.T) {
 	}
 }
 
+// Issue #46: agent_wait returned on the first new message, so every verifier progress line cost the
+// coding agent a whole turn. Progress alone keeps it waiting; the batch comes back when the turn ends.
+func TestAgentWaitGathersProgressUntilTheTurnEnds(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.call("agent_send", map[string]any{"runId": runID, "kind": "task", "text": "Check the window title."}, nil)
+
+	store := h.store(runID)
+	go func() {
+		for _, m := range []session.Message{
+			{From: session.Verifier, Kind: session.Progress, Text: "machine_ui {}"},
+			{From: session.Verifier, Kind: session.Progress, Text: "machine_click {}"},
+			{From: session.Verifier, Kind: session.Verdict, Verdict: "pass", Text: "the title is right"},
+		} {
+			time.Sleep(100 * time.Millisecond)
+			_, _ = store.Append(m)
+		}
+	}()
+
+	var got transcriptResult
+	h.call("agent_wait", map[string]any{"runId": runID, "after": 1, "timeoutSeconds": 20}, &got)
+	if len(got.Messages) != 3 || got.Messages[2].Kind != session.Verdict || got.Last != 4 {
+		t.Fatalf("wait returned %d messages ending at %d, want both progress lines and the verdict in one call: %+v",
+			len(got.Messages), got.Last, got.Messages)
+	}
+}
+
+// Progress with no end still comes back at the timeout, so a caller sees the turn is alive.
+func TestAgentWaitReturnsGatheredProgressAtTheTimeout(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.call("agent_send", map[string]any{"runId": runID, "kind": "task", "text": "Build it."}, nil)
+	if _, err := h.store(runID).Append(session.Message{From: session.Verifier, Kind: session.Progress, Text: "machine_exec {}"}); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	var got transcriptResult
+	h.call("agent_wait", map[string]any{"runId": runID, "after": 1, "timeoutSeconds": 1}, &got)
+	if len(got.Messages) != 1 || got.Messages[0].Kind != session.Progress || got.Last != 2 {
+		t.Fatalf("wait returned %+v, want the progress line", got.Messages)
+	}
+	if elapsed := time.Since(started); elapsed < 900*time.Millisecond {
+		t.Errorf("the wait returned after %v on a progress line; it should keep waiting for the turn to end", elapsed)
+	}
+}
+
 func TestAgentSendRejectsRepliesThatPointNowhere(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()

@@ -34,7 +34,10 @@ func (a *api) takeControl(w http.ResponseWriter, r *http.Request, id string) {
 		TTLSeconds int `json:"ttlSeconds"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in) // an empty body takes the default lease
-	c, fresh, err := a.mgr.TakeControl(id, humanSeat, time.Duration(in.TTLSeconds)*time.Second)
+	c, fresh, lapsed, err := a.mgr.TakeControlReporting(id, humanSeat, time.Duration(in.TTLSeconds)*time.Second)
+	if lapsed != nil && lapsed.Holder == humanSeat {
+		a.event(id, lapsedText(*lapsed))
+	}
 	if err != nil {
 		a.failControl(w, id, err)
 		return
@@ -60,10 +63,27 @@ func (a *api) releaseControl(w http.ResponseWriter, _ *http.Request, id string) 
 		a.failControl(w, id, err)
 		return
 	}
-	if held {
-		a.event(id, fmt.Sprintf("human gave the screen back after %d actions", c.Actions))
+	switch {
+	case !held || c.Holder != humanSeat:
+	case c.Lapsed(time.Now()):
+		a.event(id, lapsedText(c))
+	default:
+		a.event(id, "human gave the screen back after "+actionCount(c.Actions))
 	}
 	writeJSON(w, http.StatusOK, controlOut{})
+}
+
+// lapsedText records a human lease that expired, so the transcript never shows two takes in a row.
+func lapsedText(c machine.Control) string {
+	return fmt.Sprintf("human lost control of the screen after %s: the lease lapsed with no input or renewal for %d s",
+		actionCount(c.Actions), int(c.TTL().Seconds()))
+}
+
+func actionCount(n int) string {
+	if n == 1 {
+		return "1 action"
+	}
+	return fmt.Sprintf("%d actions", n)
 }
 
 // input posts one batch of actions; coordinates are screen fractions because the app sees a scaled frame (ADR 0009).

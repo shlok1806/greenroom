@@ -57,12 +57,13 @@ func (m *Manual) Turn(ctx context.Context, runID string, store *session.Store) (
 	return res, nil
 }
 
-// runTally is what a turn's run instructions did, for the closing reply.
+// runTally is what a turn's instructions did, for the closing reply.
 type runTally struct {
 	steps      []int
 	ran        int
 	exitCodes  []int
 	lastStdout string
+	failures   []string // "click failed: ...", one per instruction that did not run
 }
 
 func (m *Manual) follow(ctx context.Context, runID string, store *session.Store, lines []string) (int, session.Kind) {
@@ -77,6 +78,12 @@ func (m *Manual) follow(ctx context.Context, runID string, store *session.Store,
 		switch verb = strings.ToLower(verb); verb {
 		case "verdict":
 			word, summary := splitInstruction(arg)
+			if outcome := strings.ToLower(word); outcome != "pass" && outcome != "fail" && outcome != "inconclusive" {
+				// A verdict is never guessed from a typo (issue #66).
+				m.post(store, session.Message{Kind: session.Reply, Text: fmt.Sprintf(
+					"not a verdict: %q is not pass, fail or inconclusive. Use: verdict pass|fail|inconclusive <summary>", word)})
+				return steps, session.Reply
+			}
 			m.post(store, session.Message{Kind: session.Verdict, Verdict: normalVerdict(word),
 				Text: orElse(strings.TrimSpace(summary), "(no summary)"), Evidence: evidenceOf(t.steps)})
 			return steps, session.Verdict
@@ -92,13 +99,16 @@ func (m *Manual) follow(ctx context.Context, runID string, store *session.Store,
 			if step > 0 {
 				t.steps = append(t.steps, step)
 			}
+			if reason, failed := strings.CutPrefix(result, "error: "); failed {
+				t.failures = append(t.failures, verb+" failed: "+reason)
+			}
 			m.post(store, session.Message{Kind: session.Progress, Text: progressText(call, result), Step: step})
 		default: // "help" and anything unrecognised
 			m.post(store, session.Message{Kind: session.Reply, Text: manualHelp})
 			return steps, session.Reply
 		}
 	}
-	m.post(store, session.Message{Kind: session.Reply, Text: summarizeRuns(t.ran, t.exitCodes, t.lastStdout)})
+	m.post(store, session.Message{Kind: session.Reply, Text: summarize(t)})
 	return len(lines), session.Reply
 }
 
@@ -109,10 +119,10 @@ func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (
 	case "run":
 		call = callOf("machine_exec", map[string]string{"command": arg})
 		res, err := m.mgr.Exec(ctx, runID, arg, "", execTimeout)
-		t.ran++
 		if err != nil {
 			return call, "error: " + err.Error(), res.Step
 		}
+		t.ran++
 		t.exitCodes = append(t.exitCodes, res.ExitCode)
 		t.lastStdout = res.Stdout
 		return call, execResultText(res), res.Step
@@ -241,14 +251,44 @@ func evidenceOf(steps []int) []string {
 	return out
 }
 
-// summarizeRuns is the reply to a turn that ran commands without ending in a
-// verdict or question.
-func summarizeRuns(ran int, exitCodes []int, lastStdout string) string {
-	codes := make([]string, len(exitCodes))
-	for i, c := range exitCodes {
-		codes[i] = strconv.Itoa(c)
+// summarize is the reply to a turn that did not end in a verdict or question: what failed, in the
+// person's words, then what the commands did, e.g. "ran 1 command; exit code 0; last stdout: hi".
+func summarize(t runTally) string {
+	parts := append([]string{}, t.failures...)
+	if t.ran > 0 {
+		codes := make([]string, len(t.exitCodes))
+		for i, c := range t.exitCodes {
+			codes[i] = strconv.Itoa(c)
+		}
+		part := fmt.Sprintf("ran %d %s; %s %s", t.ran, plural(t.ran, "command"), plural(len(codes), "exit code"), strings.Join(codes, ", "))
+		if tail := stdoutTail(t.lastStdout); tail != "" {
+			part += "; last stdout: " + tail
+		}
+		parts = append(parts, part)
 	}
-	tail := strings.TrimSpace(lastStdout)
+	if len(parts) > 0 {
+		return strings.Join(parts, "; ")
+	}
+	if len(t.steps) == 0 {
+		return "done"
+	}
+	steps := make([]string, len(t.steps))
+	for i, s := range t.steps {
+		steps[i] = strconv.Itoa(s)
+	}
+	return fmt.Sprintf("done (%s %s)", plural(len(steps), "step"), strings.Join(steps, ", "))
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
+}
+
+// stdoutTail is the last 200 bytes of out, trimmed, never splitting a rune.
+func stdoutTail(out string) string {
+	tail := strings.TrimSpace(out)
 	if len(tail) > 200 {
 		i := len(tail) - 200
 		for i < len(tail) && !utf8.RuneStart(tail[i]) {
@@ -256,5 +296,5 @@ func summarizeRuns(ran int, exitCodes []int, lastStdout string) string {
 		}
 		tail = tail[i:]
 	}
-	return fmt.Sprintf("ran %d commands; exit codes: %s; last stdout tail: %s", ran, strings.Join(codes, ", "), tail)
+	return tail
 }

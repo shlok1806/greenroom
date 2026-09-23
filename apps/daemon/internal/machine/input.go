@@ -115,9 +115,16 @@ func helperSourceDir() string {
 // renewal, so the caller announces a handover only once. A renewal with no
 // ttl keeps the lease's own.
 func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Control, fresh bool, err error) {
+	lease, fresh, _, err = m.TakeControlReporting(runID, holder, ttl)
+	return lease, fresh, err
+}
+
+// TakeControlReporting is TakeControl that also returns the lease a fresh one replaced after it
+// lapsed, if any. Expiry is lazy, so this is the first moment anyone can say it lapsed (issue #57).
+func (m *Manager) TakeControlReporting(runID, holder string, ttl time.Duration) (lease Control, fresh bool, lapsed *Control, err error) {
 	mc, err := m.get(runID)
 	if err != nil {
-		return Control{}, false, err
+		return Control{}, false, nil, err
 	}
 	now := time.Now().UTC()
 
@@ -126,8 +133,12 @@ func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Co
 	live := current != nil && now.Before(current.Expires)
 	if live && current.Holder != holder {
 		m.mu.Unlock()
-		return *current, false, fmt.Errorf("%w: %s has it until %s",
+		return *current, false, nil, fmt.Errorf("%w: %s has it until %s",
 			ErrControlHeld, current.Holder, current.Expires.Format(time.RFC3339))
+	}
+	if current != nil && !live {
+		old := *current
+		lapsed = &old
 	}
 	fresh = !live
 	if ttl <= 0 {
@@ -146,8 +157,19 @@ func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Co
 	if fresh {
 		m.emit(LifecycleEvent{Kind: "control", RunID: runID, Machine: m.snapshot(mc)})
 	}
-	return lease, fresh, nil
+	return lease, fresh, lapsed, nil
 }
+
+// TTL is how long the lease lasts without input or renewal.
+func (c Control) TTL() time.Duration {
+	if c.ttl <= 0 {
+		return ControlTTL
+	}
+	return c.ttl
+}
+
+// Lapsed reports whether the lease had expired by now.
+func (c Control) Lapsed(now time.Time) bool { return !now.Before(c.Expires) }
 
 // ReleaseControl hands the screen back. Releasing a lease nobody holds is not
 // an error, since quit, tab change and timeout may all race to release. An
