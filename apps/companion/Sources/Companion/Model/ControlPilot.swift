@@ -44,7 +44,7 @@ final class ControlPilot {
     private(set) var screen: GuestScreen?
     private(set) var taking = false
     private(set) var releasing = false
-    /// Why control last ended without the person asking, for the Screen tab.
+    /// Why control last ended without the person asking, for the Screen stage.
     private(set) var endedReason: String?
 
     var busy: Bool { taking || releasing }

@@ -30,10 +30,50 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.runs[0].messages, 2)
     }
 
-    func testMessagesForARunThatIsNotOpenAreIgnored() {
+    func testMessagesForARunThatIsNotOpenAreNotHeld() {
         let store = store()
         XCTAssertEqual(store.apply(.message(runId: "other", message: message(1))), .nothing)
         XCTAssertNil(store.messages["other"])
+    }
+
+    /// A verdict arriving for a run nobody has open must still reach its sidebar row.
+    func testAVerdictForARunThatIsNotOpenAsksForTheRunList() {
+        let store = store()
+        store.runs.append(RunSummary(runId: "live", createdAt: Date(timeIntervalSince1970: 0), status: .ready, messages: 15))
+        let verdict = Message(seq: 16, at: Date(timeIntervalSince1970: 16), from: .verifier, kind: .verdict, text: "no",
+                              verdict: "fail")
+        XCTAssertEqual(store.apply(.message(runId: "live", message: verdict)), .run("live"))
+        XCTAssertNil(store.messages["live"])
+        XCTAssertEqual(store.run("live")?.messages, 16)
+    }
+
+    /// A detail read before the verdict existed must not hide the list's newer one.
+    func testANewerListedVerdictWinsOverAnEmptyOrOlderDetail() {
+        let store = store()
+        store.details["run-1"] = RunDetail(runId: "run-1")
+        store.runs[0].verdict = VerdictState(seq: 16, verdict: "fail", status: .proposed)
+        XCTAssertEqual(store.verdict("run-1")?.status, .proposed)
+        store.details["run-1"] = RunDetail(runId: "run-1", verdict: VerdictState(seq: 9, verdict: "pass", status: .proposed))
+        XCTAssertEqual(store.verdict("run-1")?.seq, 16)
+    }
+
+    /// A daemon without `RunSummary.task` still gets rows named by their task.
+    func testRunsWithoutATaskLearnItFromTheirTranscript() async {
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/runs": .json(#"[{"runId": "20260919-170059-65804c", "createdAt": "2026-09-19T17:00:59Z", "messages": 2}]"#)
+            default: .json(#"{"messages": [{"seq": 1, "from": "system", "kind": "event", "text": "machine is ready"}, {"seq": 2, "from": "coder", "kind": "task", "text": "Look around ~/work"}]}"#)
+            }
+        }
+        let store = RunStore(client: client)
+        await store.resync()
+        for _ in 0..<50 where store.runs.first?.task == nil {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(store.runs.first?.task, "Look around ~/work")
+        // A later read of the list keeps what was learned.
+        await store.resync()
+        XCTAssertEqual(store.runs.first?.task, "Look around ~/work")
     }
 
     func testAVerdictAsksForTheRunAgain() {
@@ -265,6 +305,29 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.steps["run-1"], [])
         XCTAssertNil(store.frames["run-1"])
         XCTAssertEqual(store.lastError, "The daemon answered 404: no frames")
+    }
+
+    func testConnectionFollowsEveryReadOfTheRunList() async {
+        let answering = StubURLProtocol.client { _ in .json(#"[{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z", "task": "Check the tip"}]"#) }
+        let store = RunStore(client: answering)
+        XCTAssertEqual(store.connection, .connecting)
+        await store.resync()
+        XCTAssertEqual(store.connection, .online)
+        XCTAssertEqual(store.runs.first?.task, "Check the tip")
+
+        let silent = RunStore(client: StubURLProtocol.client { _ in .json(#"{"error": "down"}"#, status: 503) })
+        await silent.resync()
+        XCTAssertEqual(silent.connection, .offline(hasData: false))
+        silent.runs = [RunSummary(runId: "run-1", createdAt: Date())]
+        XCTAssertEqual(silent.connection, .offline(hasData: true))
+    }
+
+    /// A run switch must never carry a lease: each run has its own pilot, lent by the
+    /// seam a test or the daemon provides.
+    func testEachRunHasItsOwnPilot() {
+        let store = RunStore()
+        XCTAssertTrue(store.pilot(for: "run-1") === store.pilot(for: "run-1"))
+        XCTAssertFalse(store.pilot(for: "run-1") === store.pilot(for: "run-2"))
     }
 
     func testAFullSelectClearsAnEarlierError() async {

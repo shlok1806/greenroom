@@ -19,12 +19,16 @@ enum Fetch: Hashable, Sendable {
     case frames(String)
 }
 
-/// Jump the Screen tab to the first frame at or after `step` (ADR 0008).
+/// Jump the Screen stage to the first frame at or after `step` (ADR 0008).
 /// `nonce` makes a repeated click on the same row seek again.
 struct SeekRequest: Hashable, Sendable {
     var runId: String
     var step: Int
     var nonce: Int
+    /// Raised from the verdict's evidence, so the stage offers the way back.
+    var fromVerdict = false
+    /// Show the step's record in Steps rather than its frame on the Screen.
+    var inSteps = false
 }
 
 /// An LRU of decoded frame images, so scrubbing never refetches a frame.
@@ -86,19 +90,37 @@ final class RunStore: PilotHost {
     var steps: [String: [Step]] = [:]
     var frames: [String: [Frame]] = [:]
     var connected = false
+    /// Whether the last read of the run list answered; nil before the first one finishes.
+    var reachable: Bool?
     var lastError: String?
     var selectedRunId: String?
     var seekRequest: SeekRequest?
 
     let client: DaemonClient
+    /// The lease routes; the daemon client unless a test lends the screen without one.
+    private let controlClient: any ControlClient
+    /// The live screen route; the daemon client unless a test stands in for it.
+    private let screenSource: any ScreenSource
+
+    /// First task messages learned from transcripts, for a daemon whose run list has no
+    /// `task` (before `RunSummary.task`). Merged into every run list read.
+    private var learnedTasks: [String: String] = [:]
+    /// Runs whose transcript is being read only to learn the task, so each is read once.
+    private var taskFetches: Set<String> = []
 
     private let frameCache = FrameCache()
     private var streamTask: Task<Void, Never>?
     private var seekNonce = 0
     private var pilots: [String: ControlPilot] = [:]
 
-    init(client: DaemonClient = DaemonClient()) {
+    init(
+        client: DaemonClient = DaemonClient(),
+        controlClient: (any ControlClient)? = nil,
+        screenSource: (any ScreenSource)? = nil
+    ) {
         self.client = client
+        self.controlClient = controlClient ?? client
+        self.screenSource = screenSource ?? client
     }
 
     // MARK: - Lifecycle
@@ -177,10 +199,21 @@ final class RunStore: PilotHost {
     private func attempt(_ fetch: Fetch) async -> Error? {
         do {
             switch fetch {
-            case .runs: runs = try await client.runs()
+            case .runs:
+                do {
+                    runs = withLearnedTasks(try await client.runs())
+                    reachable = true
+                    learnMissingTasks()
+                } catch {
+                    if !RunStore.isCancellation(error) { reachable = false }
+                    throw error
+                }
             case .detail(let runId): details[runId] = try await client.run(runId)
-            case .messages(let runId): messages[runId] = try await client.messages(runId)
-            case .steps(let runId): steps[runId] = try await client.steps(runId)
+            case .messages(let runId):
+                let held = try await client.messages(runId)
+                messages[runId] = held
+                learn(task: RunTitle.task(in: held), for: runId)
+            case .steps(let runId): steps[runId] = StepLog.normalized(try await client.steps(runId))
             case .frames(let runId): frames[runId] = try await client.frames(runId)
             }
             return nil
@@ -225,7 +258,18 @@ final class RunStore: PilotHost {
     func apply(_ event: ServerEvent) -> Followup {
         switch event {
         case .message(let runId, let message):
-            guard var held = messages[runId] else { return .nothing }
+            guard var held = messages[runId] else {
+                // Not open: the row still counts it, and a verdict changes its badge now.
+                if let index = runs.firstIndex(where: { $0.runId == runId }) {
+                    runs[index].messages += 1
+                    runs[index].lastActivity = max(runs[index].lastActivity, message.at)
+                }
+                if message.kind == .task { learn(task: message.text, for: runId) }
+                switch message.kind {
+                case .verdict, .accept, .dispute: return .run(runId)
+                default: return .nothing
+                }
+            }
             if let last = held.last, message.seq <= last.seq { return .nothing }
             held.append(message)
             messages[runId] = held
@@ -288,7 +332,7 @@ final class RunStore: PilotHost {
     func screenshot(runId: String) async {
         do {
             try await client.screenshot(runId: runId)
-            steps[runId] = try await client.steps(runId)
+            steps[runId] = StepLog.normalized(try await client.steps(runId))
             // The daemon writes the capture into the conversation. Re-read it
             // rather than trust the stream, which may be what is broken.
             await reloadTranscript(runId)
@@ -362,14 +406,14 @@ final class RunStore: PilotHost {
     /// redrawn tab keeps it and two views never both ask for it.
     func pilot(for runId: String) -> ControlPilot {
         if let held = pilots[runId] { return held }
-        let pilot = ControlPilot(runId: runId, client: client, host: self)
+        let pilot = ControlPilot(runId: runId, client: controlClient, host: self)
         pilots[runId] = pilot
         return pilot
     }
 
     /// A fresh live screen (ADR 0011); the caller starts it and must stop it.
     func liveScreen(for runId: String) -> LiveScreen {
-        LiveScreen(runId: runId, source: client)
+        LiveScreen(runId: runId, source: screenSource)
     }
 
     var holdsControl: Bool {
@@ -395,19 +439,101 @@ final class RunStore: PilotHost {
         _ = await attempt(.runs)
     }
 
-    func requestSeek(runId: String, step: Int) {
+    func requestSeek(runId: String, step: Int, fromVerdict: Bool = false, inSteps: Bool = false) {
         seekNonce += 1
-        seekRequest = SeekRequest(runId: runId, step: step, nonce: seekNonce)
+        seekRequest = SeekRequest(runId: runId, step: step, nonce: seekNonce, fromVerdict: fromVerdict, inSteps: inSteps)
+    }
+
+    /// The step the stage is pointing at, highlighted in Steps and named in the status
+    /// line. Cleared by `clearFocus` (the way back to the verdict) or a run change.
+    var focusedStep: SeekRequest? {
+        guard let request = seekRequest, request.runId == selectedRunId else { return nil }
+        return request
+    }
+
+    func clearFocus() {
+        seekRequest = nil
     }
 
     // MARK: - Derived
+
+    var connection: ConnectionState {
+        ConnectionState.derive(reachable: reachable, hasData: !runs.isEmpty)
+    }
+
+    /// Where the daemon is, as a person would type it.
+    var daemonAddress: String {
+        let url = client.baseURL
+        guard let host = url.host() else { return url.absoluteString }
+        return url.port.map { "\(host):\($0)" } ?? host
+    }
+
+    /// The one derived state every view shows for a run (companion ADR 0002). Uses the
+    /// held records when the run is open, so its row and its header agree.
+    func facts(_ runId: String, now: Date = Date()) -> RunFacts {
+        RunFacts.derive(
+            summary: run(runId),
+            detail: details[runId],
+            messages: messages[runId],
+            steps: steps[runId],
+            verdict: verdict(runId),
+            now: now
+        )
+    }
 
     func run(_ runId: String) -> RunSummary? {
         runs.first { $0.runId == runId }
     }
 
+    /// The newer of the detail's and the list's: a detail read before the verdict arrived
+    /// must not hide the one the list now has.
     func verdict(_ runId: String) -> VerdictState? {
-        details[runId]?.verdict ?? run(runId)?.verdict
+        let detail = details[runId]?.verdict
+        let listed = run(runId)?.verdict
+        guard let detail, detail.status != .none else { return listed ?? detail }
+        guard let listed else { return detail }
+        return (listed.seq ?? 0) > (detail.seq ?? 0) ? listed : detail
+    }
+
+    // MARK: - Task titles
+
+    private func withLearnedTasks(_ fetched: [RunSummary]) -> [RunSummary] {
+        fetched.map { run in
+            var run = run
+            if run.task?.isEmpty ?? true, let known = learnedTasks[run.runId] { run.task = known }
+            return run
+        }
+    }
+
+    private func learn(task: String?, for runId: String) {
+        guard let task, !task.isEmpty, learnedTasks[runId] == nil else { return }
+        learnedTasks[runId] = task
+        if let index = runs.firstIndex(where: { $0.runId == runId }), runs[index].task?.isEmpty ?? true {
+            runs[index].task = task
+        }
+    }
+
+    /// Reads, a few at a time and once each, the transcripts of runs the list did not name.
+    private func learnMissingTasks() {
+        let missing = runs.filter { ($0.task?.isEmpty ?? true) && $0.messages > 0 && !taskFetches.contains($0.runId) }
+            .map(\.runId)
+        guard !missing.isEmpty else { return }
+        taskFetches.formUnion(missing)
+        Task { [weak self] in
+            for batch in stride(from: 0, to: missing.count, by: 4).map({ Array(missing[$0..<min($0 + 4, missing.count)]) }) {
+                await withTaskGroup(of: (String, String?).self) { group in
+                    for runId in batch {
+                        group.addTask { [weak self] in
+                            let held = try? await self?.client.messages(runId)
+                            return (runId, held.flatMap { RunTitle.task(in: $0) })
+                        }
+                    }
+                    for await (runId, task) in group {
+                        self?.learn(task: task, for: runId)
+                    }
+                }
+            }
+        }
     }
 
     /// True while the verifier owes an answer (ADR 0006, "A human is always

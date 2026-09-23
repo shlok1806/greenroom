@@ -109,4 +109,52 @@ final class FrameTimelineTests: XCTestCase {
     func testAnEmptyRecordingHasNoTicks() {
         XCTAssertTrue(FrameTimeline(count: 0, width: 500).ticks(for: []).isEmpty)
     }
+
+    // MARK: - Steps and marks
+
+    func testAStepLandsOnItsFirstFrameOrTheLast() {
+        let list = frames(50, stepEvery: 10)
+        XCTAssertEqual(FrameTimeline.index(ofStep: 2, in: list), 20)
+        XCTAssertEqual(FrameTimeline.index(ofStep: 0, in: list), 0)
+        XCTAssertEqual(FrameTimeline.index(ofStep: 99, in: list), 49)
+        XCTAssertNil(FrameTimeline.index(ofStep: 1, in: []))
+    }
+
+    func testEvidenceAndFailuresAreMarkedOncePerStep() {
+        let list = frames(50, stepEvery: 10)
+        let timeline = FrameTimeline(count: list.count, width: 490)
+        let marks = timeline.marks(for: list, failed: [1, 3], evidence: [3, 4], verdict: "pass")
+        XCTAssertEqual(marks.map(\.step), [1, 3, 4])
+        XCTAssertEqual(marks.map(\.kind), [.failure, .evidence(verdict: "pass"), .evidence(verdict: "pass")])
+        XCTAssertEqual(marks[0].x, timeline.x(of: 10))
+    }
+
+    func testAOneFrameRecordingHasNoMarks() {
+        let list = frames(1)
+        XCTAssertTrue(FrameTimeline(count: 1, width: 300).marks(for: list, failed: [0], evidence: [], verdict: nil).isEmpty)
+    }
+
+    // MARK: - Squeezed idle time
+
+    /// Ten active frames then ninety idle ones: the active stretch gets most of the track.
+    func testIdleStretchesAreSqueezed() {
+        var list = frames(100, stepEvery: 1)
+        for index in 10..<100 { list[index].step = list[9].step }
+        let timeline = FrameTimeline(frames: list, width: 1000)
+        XCTAssertGreaterThan(timeline.x(of: 9), 300)
+        XCTAssertEqual(timeline.x(of: 99), 1000, accuracy: 0.001)
+    }
+
+    func testASqueezedTrackStillMapsBothWays() {
+        var list = frames(60, stepEvery: 1)
+        for index in 20..<60 { list[index].step = list[19].step }
+        let timeline = FrameTimeline(frames: list, width: 600)
+        var previous = -1.0
+        for index in list.indices {
+            let x = timeline.x(of: index)
+            XCTAssertGreaterThan(x, previous)
+            previous = x
+            XCTAssertEqual(timeline.index(atX: x), index)
+        }
+    }
 }

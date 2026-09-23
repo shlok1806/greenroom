@@ -215,6 +215,8 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     var messages: Int
     /// Optional so a daemon from before recording (ADR 0008) still decodes.
     var frames: Int?
+    /// The first task message, clipped by the daemon. Optional so an older daemon still decodes.
+    var task: String?
 
     var id: String { runId }
 
@@ -230,7 +232,8 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         verdict: VerdictState? = nil,
         lastActivity: Date? = nil,
         messages: Int = 0,
-        frames: Int? = nil
+        frames: Int? = nil,
+        task: String? = nil
     ) {
         self.runId = runId
         self.createdAt = createdAt
@@ -244,6 +247,7 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         self.lastActivity = lastActivity ?? createdAt
         self.messages = messages
         self.frames = frames
+        self.task = task
     }
 
     init(from decoder: any Decoder) throws {
@@ -260,6 +264,7 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         lastActivity = try c.decode(.lastActivity, or: createdAt)
         messages = try c.decode(.messages, or: 0)
         frames = try c.decodeIfPresent(Int.self, forKey: .frames)
+        task = try c.decodeIfPresent(String.self, forKey: .task)
     }
 }
 

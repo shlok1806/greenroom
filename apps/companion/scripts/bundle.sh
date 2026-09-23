@@ -10,7 +10,8 @@ BUILD=".build"
 APP="$BUILD/Companion.app"
 CONTENTS="$APP/Contents"
 
-swift build -c release
+# Only the app: the snapshot tool uses @testable and builds in debug alone.
+swift build -c release --product Companion
 BINARY="$(swift build -c release --show-bin-path)/Companion"
 
 rm -rf "$APP"

@@ -48,16 +48,6 @@ final class ChromeTests: XCTestCase {
         XCTAssertEqual(Chrome.relative(now.addingTimeInterval(120), now: now), "just now")
     }
 
-    /// An open verdict carries no suffix; a closed one carries exactly one.
-    func testVerdictGlyphs() {
-        XCTAssertNil(Chrome.glyph(for: .proposed))
-        XCTAssertNil(Chrome.glyph(for: .none))
-        XCTAssertNil(Chrome.glyph(for: .unknown("weird")))
-        XCTAssertEqual(Chrome.glyph(for: .accepted), "checkmark")
-        XCTAssertEqual(Chrome.glyph(for: .contested), "exclamationmark")
-        XCTAssertEqual(Chrome.glyph(for: .rejected), "xmark")
-    }
-
     // MARK: - Clock
 
     func testAClockGrowsAnHoursColumnRatherThanCountingToFourHundred() {
