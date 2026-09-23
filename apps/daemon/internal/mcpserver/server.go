@@ -84,7 +84,8 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, listOut, error) {
 		out := listOut{Machines: []listedMachine{}}
 		for _, mc := range mgr.List() {
-			last := mgr.LastActivity(mc.RunID)
+			steps, _ := machine.ReadStepLog(mc.Dir) // unreadable counts as no steps, as in /api/runs
+			last := mgr.ActivityFrom(mc.RunID, mc.CreatedAt, steps)
 			out.Machines = append(out.Machines, listedMachine{Machine: mc, LastActivity: last,
 				IdleSeconds: int(max(0, time.Since(last)).Seconds())})
 		}

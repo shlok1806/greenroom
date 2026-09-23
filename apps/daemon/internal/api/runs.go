@@ -70,7 +70,7 @@ func (a *api) summary(runID string, mc *machine.Machine) RunSummary {
 		s.CreatedAt = mc.CreatedAt
 	}
 	// Steps and messages, not frames: the recorder captures an idle machine too (machine.Manager.LastActivity).
-	s.LastActivity = a.mgr.LastActivity(runID)
+	s.LastActivity = a.mgr.ActivityFrom(runID, s.CreatedAt, steps)
 	if s.LastActivity.Before(s.CreatedAt) {
 		s.LastActivity = s.CreatedAt
 	}

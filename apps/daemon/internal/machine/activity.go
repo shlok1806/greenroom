@@ -22,19 +22,25 @@ func (m *Manager) SetMessageActivity(fn func(runID string) time.Time) {
 // reads the run directory, so it answers for finished runs too. Zero when the
 // run has no manifest, no steps and no messages.
 func (m *Manager) LastActivity(runID string) time.Time {
-	var last time.Time
+	var created time.Time
+	dir := m.RunDir(runID)
+	if man, err := ReadManifest(dir); err == nil {
+		created = man.CreatedAt
+	}
+	steps, _ := ReadStepLog(dir)
+	return m.ActivityFrom(runID, created, steps)
+}
+
+// ActivityFrom is LastActivity for a caller that has already read the run's
+// creation time and step log, so a run list parses steps.jsonl once per run.
+func (m *Manager) ActivityFrom(runID string, created time.Time, steps StepLog) time.Time {
+	last := created
 	later := func(t time.Time) {
 		if t.After(last) {
 			last = t
 		}
 	}
-	dir := m.RunDir(runID)
-	if man, err := ReadManifest(dir); err == nil {
-		later(man.CreatedAt)
-	}
-	if steps, err := ReadStepLog(dir); err == nil {
-		later(steps.Last)
-	}
+	later(steps.Last)
 	m.mu.Lock()
 	fn := m.messageActivity
 	if mc, ok := m.machines[runID]; ok {
