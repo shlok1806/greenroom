@@ -36,3 +36,14 @@ directly so they add no steps and no activity to the run.
 
 A misclick is a verifier click whose point is inside no element (containers aside) of the
 verifier's latest `machine_ui` tree.
+
+The verifier's model is remote (NVIDIA NIM) and has outages: timeouts, 404s and 429s,
+after which the verifier gives up on the turn. That says nothing about the image, so the
+bench waits `-outage-wait` (120 s) and sends the task again, up to `-outage-retries` (3)
+times. Task time and steps count from the send that got the verdict; every outage is kept
+under `task.modelOutages`.
+
+```sh
+spikes/image-bench/table.py docs/image-experiment/raw/greenroom-base.json \
+  docs/image-experiment/raw/greenroom-lean-a.json   # Markdown table, medians and each run
+```
