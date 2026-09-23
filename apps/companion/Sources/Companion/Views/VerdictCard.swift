@@ -22,6 +22,17 @@ struct VerdictCard: View {
 
     private enum Action { case reject, recheck }
 
+    /// Whose drafts the card holds. A new run or a new verdict must start them empty, so
+    /// a reason typed for one verdict cannot be posted against another.
+    struct Identity: Hashable {
+        let runId: String
+        let verdictSeq: Int?
+    }
+
+    static func identity(runId: String, verdict: VerdictState?) -> Identity {
+        Identity(runId: runId, verdictSeq: verdict?.seq)
+    }
+
     var body: some View {
         if let verdict = facts.verdict {
             card(verdict)
@@ -291,7 +302,12 @@ struct VerdictCard: View {
     /// What each action does, in the daemon's own terms (session rules, ADR 0006).
     private func explanation(_ verdict: VerdictState, unreviewed: Bool, outcome: String) -> String {
         if unreviewed {
-            return "The daemon does not let a person reopen a verdict the coding agent accepted. "
+            let rule = "The daemon does not let a person reopen a verdict the coding agent accepted. "
+            if !facts.isAlive {
+                return rule + "This run has ended, so the verifier answers a re-check from the record: "
+                    + "the steps, pictures and conversation it already has."
+            }
+            return rule
                 + "A re-check asks the verifier to look again with your reason; you can accept or reject what it proposes next."
         }
         if verdict.status == .contested {

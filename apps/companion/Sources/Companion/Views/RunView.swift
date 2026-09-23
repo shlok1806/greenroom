@@ -73,6 +73,7 @@ struct RunView: View {
                 // Hidden conversation: the verdict must still be read, not shrink to a chip.
                 if !showsConversation {
                     VerdictCard(store: store, runId: runId, facts: facts, compact: true)
+                        .id(VerdictCard.identity(runId: runId, verdict: facts.verdict))
                         .padding(.horizontal, Space.l)
                         .padding(.top, Space.m)
                 }

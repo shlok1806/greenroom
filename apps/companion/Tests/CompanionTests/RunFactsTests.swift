@@ -273,6 +273,13 @@ final class TitleAndWordsTests: XCTestCase {
         XCTAssertNil(VerdictCheck.readsLike("The tip is correct. However Each pays shows $8.00 instead of $48.00."))
     }
 
+    func testReadsLikeCountsWholeWordsOnce() {
+        XCTAssertNil(VerdictCheck.readsLike("The app launched correctly."), "one word counted twice")
+        XCTAssertEqual(VerdictCheck.readsLike("The total is incorrectly shown, the tip is wrong."), "fail")
+        XCTAssertNil(VerdictCheck.readsLike("The networks and frameworks load; it bypasses the cache."))
+        XCTAssertEqual(VerdictCheck.readsLike("It doesn\u{2019}t update and the label is missing."), "fail")
+    }
+
     func testClaimedValuesAreTheNumbersInTheWords() {
         XCTAssertEqual(VerdictCheck.claimedValues("Tip 20% of 120 = $24.00; Each pays $48.00, not $8.00. Ratio 1.5, $24.00 again"),
                        ["20%", "$24.00", "$48.00", "$8.00", "1.5"])

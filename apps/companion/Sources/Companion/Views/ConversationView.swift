@@ -41,6 +41,7 @@ struct ConversationView: View {
             header
             Divider()
             VerdictCard(store: store, runId: runId, facts: store.facts(runId))
+                .id(VerdictCard.identity(runId: runId, verdict: store.verdict(runId)))
                 .padding(Space.m)
                 .background(Color(nsColor: .windowBackgroundColor))
             Divider()

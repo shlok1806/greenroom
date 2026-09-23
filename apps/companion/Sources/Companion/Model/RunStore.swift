@@ -486,13 +486,20 @@ final class RunStore: PilotHost {
     }
 
     /// The newer of the detail's and the list's: a detail read before the verdict arrived
-    /// must not hide the one the list now has.
+    /// must not hide the one the list now has. Accepting or rejecting keeps the seq, so on
+    /// a tie the closed copy is the newer one.
     func verdict(_ runId: String) -> VerdictState? {
         let detail = details[runId]?.verdict
         let listed = run(runId)?.verdict
         guard let detail, detail.status != .none else { return listed ?? detail }
         guard let listed else { return detail }
-        return (listed.seq ?? 0) > (detail.seq ?? 0) ? listed : detail
+        let listedSeq = listed.seq ?? 0, detailSeq = detail.seq ?? 0
+        if listedSeq != detailSeq { return listedSeq > detailSeq ? listed : detail }
+        return Self.isClosed(listed.status) && !Self.isClosed(detail.status) ? listed : detail
+    }
+
+    private static func isClosed(_ status: VerdictStatus) -> Bool {
+        status == .accepted || status == .rejected
     }
 
     // MARK: - Task titles

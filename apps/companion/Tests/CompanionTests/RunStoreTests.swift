@@ -260,6 +260,30 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.verdict("run-1")?.status, .accepted)
     }
 
+    func testAClosedVerdictWinsATieOnSeq() {
+        let store = store()
+        store.details["run-1"] = RunDetail(
+            runId: "run-1",
+            verdict: VerdictState(seq: 5, verdict: "pass", status: .proposed)
+        )
+        store.runs[0].verdict = VerdictState(seq: 5, verdict: "pass", status: .accepted, acceptedBy: .human)
+        XCTAssertEqual(store.verdict("run-1")?.status, .accepted)
+
+        store.runs[0].verdict = VerdictState(seq: 5, verdict: "pass", status: .proposed)
+        store.details["run-1"]?.verdict = VerdictState(seq: 5, verdict: "pass", status: .rejected)
+        XCTAssertEqual(store.verdict("run-1")?.status, .rejected)
+    }
+
+    func testVerdictCardDraftsBelongToOneRunAndOneVerdict() {
+        let verdict = VerdictState(seq: 7, verdict: "fail", status: .proposed)
+        let same = VerdictCard.identity(runId: "run-1", verdict: verdict)
+        XCTAssertEqual(same, VerdictCard.identity(runId: "run-1", verdict: VerdictState(seq: 7, verdict: "fail", status: .accepted)),
+                       "accepting must not wipe the card mid-action")
+        XCTAssertNotEqual(same, VerdictCard.identity(runId: "run-2", verdict: verdict), "a draft carried into the next run")
+        XCTAssertNotEqual(same, VerdictCard.identity(runId: "run-1", verdict: VerdictState(seq: 9, verdict: "pass", status: .proposed)),
+                          "a draft carried onto a new verdict")
+    }
+
     func testCancellationIsNotAFailure() {
         XCTAssertTrue(RunStore.isCancellation(CancellationError()))
         XCTAssertTrue(RunStore.isCancellation(DaemonError.cancelled))

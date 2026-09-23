@@ -117,16 +117,30 @@ enum VerdictCheck: Hashable, Sendable {
         return out
     }
 
-    private static let passWords = ["correct", "correctly", "matches", "match the expected", "as expected", "works", "passes"]
-    private static let failWords = ["incorrect", "instead of", "wrong", "does not", "doesn't", "fails", "failed", "broken", "missing", "not shown", "rather than"]
+    private static let passWords: Set<String> = ["correct", "correctly", "matches", "match the expected", "as expected", "works", "passes"]
+    private static let failWords: Set<String> = [
+        "incorrect", "incorrectly", "instead of", "wrong", "does not", "doesn't", "fails", "failed", "broken",
+        "missing", "not shown", "rather than",
+    ]
+
+    private static let leanPattern: NSRegularExpression? = {
+        let phrases = passWords.union(failWords).sorted { $0.count != $1.count ? $0.count > $1.count : $0 < $1 }
+        let alternatives = phrases.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
+        return try? NSRegularExpression(pattern: "\\b(?:\(alternatives))\\b")
+    }()
 
     /// "pass" or "fail" when the words lean clearly one way, else nil. A lean needs two
-    /// more hits than the other side, so a mixed account stays unflagged.
+    /// more hits than the other side, so a mixed account stays unflagged. Whole words and
+    /// phrases only, each counted once: "correctly" is one hit, "networks" is none.
     static func readsLike(_ text: String) -> String? {
-        let lower = " " + text.lowercased() + " "
-        func hits(_ words: [String]) -> Int { words.reduce(0) { $0 + lower.components(separatedBy: $1).count - 1 } }
-        let pass = hits(passWords) - hits(["incorrect"])
-        let fail = hits(failWords)
+        guard let regex = leanPattern else { return nil }
+        let lower = text.lowercased().replacingOccurrences(of: "\u{2019}", with: "'")
+        var pass = 0, fail = 0
+        for match in regex.matches(in: lower, range: NSRange(lower.startIndex..., in: lower)) {
+            guard let span = Range(match.range, in: lower) else { continue }
+            let phrase = String(lower[span])
+            if passWords.contains(phrase) { pass += 1 } else if failWords.contains(phrase) { fail += 1 }
+        }
         if pass >= fail + 2 { return "pass" }
         if fail >= pass + 2 { return "fail" }
         return nil
