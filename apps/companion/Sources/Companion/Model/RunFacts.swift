@@ -51,6 +51,9 @@ struct RunFacts: Equatable, Sendable {
     var verdict: VerdictState?
     /// The machine exists and is ready: the only case the screen can be streamed or driven.
     var machineReady: Bool
+    /// The daemon's verifier still reads this run's conversation. It stops only when the
+    /// machine is destroyed (`verifier.Actors`); a failed or lost machine keeps it.
+    var verifierListens: Bool
 
     static let idleAfter: TimeInterval = 5 * 60
 
@@ -121,6 +124,9 @@ struct RunFacts: Equatable, Sendable {
         case .ended, .failed: alive = false
         }
 
+        var destroyed = destroyedAt != nil
+        if case .ended(.destroyed) = phase { destroyed = true }
+
         let failures = (steps ?? []).filter { $0.outcome.isFailure }.map(\.seq)
         return RunFacts(
             phase: phase,
@@ -133,7 +139,8 @@ struct RunFacts: Equatable, Sendable {
             failures: failures,
             messageCount: messages?.count ?? summary?.messages ?? 0,
             verdict: openVerdict,
-            machineReady: machine?.status == .ready
+            machineReady: machine?.status == .ready,
+            verifierListens: !destroyed
         )
     }
 

@@ -273,6 +273,19 @@ final class TitleAndWordsTests: XCTestCase {
         XCTAssertNil(VerdictCheck.readsLike("The tip is correct. However Each pays shows $8.00 instead of $48.00."))
     }
 
+    /// The daemon stops a run's verifier only when its machine is destroyed.
+    func testTheVerifierListensUntilTheMachineIsDestroyed() {
+        let created = Date(timeIntervalSince1970: 0)
+        func facts(_ summary: RunSummary) -> RunFacts {
+            RunFacts.derive(summary: summary, detail: nil, messages: nil, steps: nil, verdict: nil, now: created)
+        }
+        XCTAssertTrue(facts(RunSummary(runId: "r", createdAt: created, status: .ready)).verifierListens)
+        XCTAssertTrue(facts(RunSummary(runId: "r", createdAt: created, status: .failed)).verifierListens)
+        var destroyed = RunSummary(runId: "r", createdAt: created, status: .finished)
+        destroyed.destroyedAt = created
+        XCTAssertFalse(facts(destroyed).verifierListens)
+    }
+
     func testReadsLikeCountsWholeWordsOnce() {
         XCTAssertNil(VerdictCheck.readsLike("The app launched correctly."), "one word counted twice")
         XCTAssertEqual(VerdictCheck.readsLike("The total is incorrectly shown, the tip is wrong."), "fail")

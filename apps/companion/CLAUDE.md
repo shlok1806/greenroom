@@ -86,7 +86,9 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 - `LiveScreenHostView` puts the display layer on `ScreenGeometry.fitted`, so the video
   and `InputSurface` share one letterbox. Do not size the layer any other way.
 - Stream errors: back off 1, 2, 4 ... 10 s, re-read everything open, reconnect. The
-  backoff resets once a connection opens. URLSession holds an SSE response until the first
+  backoff resets once a connection opens. A resync drops what is held for runs that are
+  not open (the daemon may have restarted with other data), and a read that lands after
+  a newer one of the same piece is discarded. URLSession holds an SSE response until the first
   bytes (the daemon's 15 s ping), so "Live" follows the resync, not the stream opening.
 
 ## UI rules
@@ -104,7 +106,13 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   `rowStatus` and the card's `VerdictReview.state` must say the same thing.
 - A verdict's actions are only the ones the daemon's session rules accept. When it
   refuses (an agent-accepted verdict), the card says so and offers the nearest real
-  action (a re-check task), never a button that will fail.
+  action (a re-check task), never a button that will fail. The verifier stops only when
+  the machine is destroyed (`RunFacts.verifierListens`); then the re-check is disabled and
+  the card and composer say nothing will answer.
+- The verdict's drafts (the action and its reason, whether evidence was opened, the
+  accept confirmation) live in `RunStore.verdictDrafts`, per run and verdict. The verdict
+  flow has no sheet, alert or dialog: accepting rebuilds the card, and a sheet whose
+  presenter goes away leaves the window unable to take a click. Ask inline.
 - The player shows one source chip (live, connecting, recording, driving). Take Control
   / Give Back exists once, in the toolbar.
 - Nothing is drawn over the Screen stage's picture. The driving bar sits above it, and

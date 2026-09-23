@@ -740,6 +740,7 @@ private struct Composer: View {
 
     /// Who reads it and when, for the state the run is in.
     private var hint: String {
+        if !facts.verifierListens { return "The verifier stopped when the machine was destroyed; nothing will answer" }
         if kind == .task { return "The verifier starts on it and reports back here" }
         switch facts.phase {
         case .booting: return "The verifier answers once the machine is up"

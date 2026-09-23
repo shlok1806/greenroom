@@ -12,15 +12,17 @@ struct VerdictCard: View {
     var compact = false
 
     @AppStorage("verdictCardExpanded") private var expanded = false
-    @State private var acting: Action?
-    @State private var reason = ""
     @State private var sending = false
-    @State private var confirmingAccept = false
-    /// Accepting without having looked asks first.
-    @State private var openedEvidence = false
     @FocusState private var reasonFocused: Bool
 
-    private enum Action { case reject, recheck }
+    /// Kept by the store: accepting rebuilds this card, and no draft or confirmation may
+    /// live in a view that goes away under it. No sheet, alert or dialog in this flow.
+    private var draft: VerdictDraft { store.verdictDraft(runId) }
+
+    private var reason: Binding<String> {
+        Binding(get: { store.verdictDraft(runId).reason },
+                set: { text in store.updateVerdictDraft(runId) { $0.reason = text } })
+    }
 
     /// Whose drafts the card holds. A new run or a new verdict must start them empty, so
     /// a reason typed for one verdict cannot be posted against another.
@@ -108,16 +110,6 @@ struct VerdictCard: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Verdict, \(review.state), \(Chrome.outcomeTitle(verdict.verdict))")
-        .confirmationDialog(
-            "Accept \(Chrome.outcomeTitle(verdict.verdict)) without opening its evidence?",
-            isPresented: $confirmingAccept,
-            titleVisibility: .visible
-        ) {
-            Button("Accept \(Chrome.outcomeTitle(verdict.verdict))") { accept(verdict) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("You have not opened any step or screenshot this verdict cites. Accepting closes the verdict for good.")
-        }
     }
 
     /// State and decider first: that is what decides whether to trust the rest.
@@ -216,7 +208,7 @@ struct VerdictCard: View {
 
     private func seek(_ item: Evidence, inSteps: Bool) {
         guard let step = item.step else { return }
-        openedEvidence = true
+        store.updateVerdictDraft(runId) { $0.openedEvidence = true }
         store.requestSeek(runId: runId, step: step, fromVerdict: true, inSteps: inSteps)
     }
 
@@ -264,10 +256,13 @@ struct VerdictCard: View {
     private func actions(_ verdict: VerdictState, review: VerdictReview) -> some View {
         let outcome = Chrome.outcomeTitle(verdict.verdict)
         let unreviewed = verdict.status == .accepted && !review.humanReviewed
+        let draft = draft
         if verdict.status.isOpen || unreviewed {
             VStack(alignment: .leading, spacing: Space.s) {
-                if let acting {
-                    reasonForm(verdict, action: acting, outcome: outcome)
+                if let action = draft.action {
+                    reasonForm(action: action, outcome: outcome)
+                } else if draft.confirmingAccept, verdict.status.isOpen {
+                    acceptConfirmation(outcome: outcome)
                 } else {
                     Text(explanation(verdict, unreviewed: unreviewed, outcome: outcome))
                         .font(.callout)
@@ -277,16 +272,17 @@ struct VerdictCard: View {
                     HStack(spacing: Space.s) {
                         if unreviewed {
                             Spacer(minLength: 0)
-                            Button("Ask for a Re-check...") { acting = .recheck }
-                                .help("Send the verifier your reason to check again")
+                            Button("Ask for a Re-check...") { store.updateVerdictDraft(runId) { $0.action = .recheck } }
+                                .disabled(!facts.verifierListens)
+                                .help(facts.verifierListens
+                                    ? "Send the verifier your reason to check again"
+                                    : "The verifier stopped with the machine; nothing can answer")
                         } else {
-                            Button("Reject...") { acting = .reject }
+                            Button("Reject...") { store.updateVerdictDraft(runId) { $0.action = .reject } }
                                 .disabled(sending)
                                 .help("Close it as rejected, with your reason")
                             Spacer(minLength: Space.l)
-                            Button("Accept \(outcome)") {
-                                if openedEvidence || (verdict.evidence ?? []).isEmpty { accept(verdict) } else { confirmingAccept = true }
-                            }
+                            Button("Accept \(outcome)") { run { await store.requestAccept(runId: runId) } }
                             .buttonStyle(.borderedProminent)
                             .disabled(sending)
                             .help("Agree with this \(outcome.lowercased()) verdict. This closes it.")
@@ -303,6 +299,9 @@ struct VerdictCard: View {
     private func explanation(_ verdict: VerdictState, unreviewed: Bool, outcome: String) -> String {
         if unreviewed {
             let rule = "The daemon does not let a person reopen a verdict the coding agent accepted. "
+            if !facts.verifierListens {
+                return rule + "The verifier stopped when this run's machine was destroyed, so nothing can answer a re-check."
+            }
             if !facts.isAlive {
                 return rule + "This run has ended, so the verifier answers a re-check from the record: "
                     + "the steps, pictures and conversation it already has."
@@ -318,10 +317,30 @@ struct VerdictCard: View {
             + "after that only a person can close its verdicts. The coding agent sees both in the conversation."
     }
 
-    private func reasonForm(_ verdict: VerdictState, action: Action, outcome: String) -> some View {
+    /// Asked in the card, not in a dialog: accepting redraws the card, and a sheet whose
+    /// presenter goes away leaves the window unable to take a click.
+    private func acceptConfirmation(outcome: String) -> some View {
+        VStack(alignment: .leading, spacing: Space.s) {
+            Label("You have not opened any step or screenshot this verdict cites. Accepting closes the verdict for good.",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.callout)
+                .foregroundStyle(Palette.attention)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("Cancel") { store.updateVerdictDraft(runId) { $0.confirmingAccept = false } }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Accept \(outcome) anyway") { run { await store.acceptVerdict(runId: runId) } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(sending)
+            }
+        }
+    }
+
+    private func reasonForm(action: VerdictDraft.Action, outcome: String) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
             TextField(action == .reject ? "Why is it wrong? Cite a step or screenshot." : "What should the verifier check again?",
-                      text: $reason, axis: .vertical)
+                      text: reason, axis: .vertical)
                 .lineLimit(2...6)
                 .textFieldStyle(.plain)
                 .focused($reasonFocused)
@@ -330,43 +349,22 @@ struct VerdictCard: View {
                 .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Palette.hairline))
                 .onAppear { reasonFocused = true }
             HStack {
-                Button("Cancel") { acting = nil }
+                Button("Cancel") { store.updateVerdictDraft(runId) { $0.action = nil } }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button(action == .reject ? "Reject \(outcome)" : "Send Re-check") { act(verdict, action) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(sending || reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button(action == .reject ? "Reject \(outcome)" : "Send Re-check") {
+                    run { await store.sendVerdictAction(runId: runId) }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(sending || draft.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
 
-    private func accept(_ verdict: VerdictState) {
-        guard let seq = verdict.seq else { return }
+    private func run(_ work: @escaping @MainActor () async -> Void) {
         sending = true
         Task {
-            await store.send(runId: runId, kind: .accept, text: "accepted", replyTo: seq)
-            sending = false
-        }
-    }
-
-    private func act(_ verdict: VerdictState, _ action: Action) {
-        let text = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, let seq = verdict.seq else { return }
-        sending = true
-        Task {
-            let sent: Bool
-            switch action {
-            case .reject:
-                sent = await store.send(runId: runId, kind: .dispute, text: text, replyTo: seq)
-            case .recheck:
-                // A task starts a verifier turn; no reply-to, since the accepted verdict is closed.
-                sent = await store.send(runId: runId, kind: .task,
-                                        text: "Re-check the \(Chrome.outcomeTitle(verdict.verdict).lowercased()) verdict (message \(seq)) before it is trusted: \(text)")
-            }
-            if sent {
-                reason = ""
-                acting = nil
-            }
+            await work()
             sending = false
         }
     }
