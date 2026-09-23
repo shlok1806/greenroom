@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,43 +76,89 @@ func TestPrepareGuestApprovesScreenCapture(t *testing.T) {
 	}
 }
 
+// ageApprovalCheck makes the next capture check the approvals again.
+func ageApprovalCheck(t *testing.T, mgr *Manager, runID string) {
+	t.Helper()
+	live, err := mgr.get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live.input.approval.mu.Lock()
+	live.input.approval.checked = time.Now().Add(-2 * captureApprovalCheck)
+	live.input.approval.mu.Unlock()
+}
+
 // Boot has just written the approvals, so the first captures do not check again;
 // once the check interval has passed (by the wall clock, so a host sleep counts),
-// the next capture refreshes them first.
-func TestCapturesRefreshTheApprovalsAtMostOnceAMinute(t *testing.T) {
+// the next capture checks first. A current record is only read, never rewritten.
+func TestCapturesCheckTheApprovalsAtMostOnceAMinute(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	if err := os.WriteFile(filepath.Join(control, "shot.b64"), []byte(pngBase64(t)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	mc := readyMachine(t, mgr)
-	live, err := mgr.get(mc.RunID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	refreshes := func() int { return strings.Count(testsupport.Calls(t, control), "sh refresh") }
+	count := func(s string) int { return strings.Count(testsupport.Calls(t, control), s) }
+	writes := count("sh write")
 
 	if _, _, err := mgr.Screenshot(context.Background(), mc.RunID); err != nil {
 		t.Fatal(err)
 	}
-	if n := refreshes(); n != 0 {
-		t.Errorf("a capture right after boot refreshed the approvals %d times, want 0", n)
+	if n := count("sh check"); n != 0 {
+		t.Errorf("a capture right after boot checked the approvals %d times, want 0", n)
 	}
 
-	live.input.approval.mu.Lock()
-	live.input.approval.checked = time.Now().Add(-2 * captureApprovalCheck)
-	live.input.approval.mu.Unlock()
+	ageApprovalCheck(t, mgr, mc.RunID)
 	for i := 0; i < 3; i++ {
 		if _, _, err := mgr.Screenshot(context.Background(), mc.RunID); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if n := refreshes(); n != 1 {
-		t.Errorf("three captures after the interval refreshed %d times, want 1", n)
+	if n := count("sh check"); n != 1 {
+		t.Errorf("three captures after the interval checked %d times, want 1", n)
+	}
+	if n := count("sh write"); n != writes {
+		t.Errorf("a current record was rewritten (%d writes, want %d): that kills replayd for nothing", n, writes)
 	}
 	log := testsupport.Calls(t, control)
-	if r, shot := strings.LastIndex(log, "sh refresh"), strings.LastIndex(log, "screencapture"); r > shot {
-		t.Error("the refresh ran after the capture it should protect")
+	if c, shot := strings.LastIndex(log, "sh check"), strings.LastIndex(log, "screencapture"); c > shot {
+		t.Error("the check ran after the capture it should protect")
 	}
+}
+
+// Killing replayd stops ScreenCaptureKit, so a rewrite ends a running live
+// stream first with a reason, and a fresh helper serves the next viewer. A check
+// that finds the record current leaves the stream alone.
+func TestAStaleApprovalEndsTheLiveStreamWithAReasonBeforeTheWrite(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	if err := os.WriteFile(filepath.Join(control, "shot.b64"), []byte(pngBase64(t)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mc := readyMachine(t, mgr)
+	w := watchScreen(t, mgr, mc.RunID)
+	expectOpening(t, w)
+
+	ageApprovalCheck(t, mgr, mc.RunID)
+	if _, _, err := mgr.Screenshot(context.Background(), mc.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if !streamOf(mgr, mc.RunID).running() {
+		t.Fatal("a check that found the record current ended the live stream")
+	}
+
+	testsupport.Flag(t, control, "capture-approval-stale")
+	writes := strings.Count(testsupport.Calls(t, control), "sh write")
+	ageApprovalCheck(t, mgr, mc.RunID)
+	if _, _, err := mgr.Screenshot(context.Background(), mc.RunID); err != nil {
+		t.Fatal(err)
+	}
+	waitClosed(t, w)
+	if err := w.Err(); err == nil || !strings.Contains(err.Error(), "re-approved") || !strings.Contains(err.Error(), "reconnect") {
+		t.Errorf("the viewer ended with %v, want the re-approval named and a reconnect", err)
+	}
+	if n := strings.Count(testsupport.Calls(t, control), "sh write"); n != writes+1 {
+		t.Errorf("a stale record was not rewritten (%d writes, want %d)", n, writes+1)
+	}
+	expectOpening(t, watchScreen(t, mgr, mc.RunID))
 }
 
 // A failed refresh never fails the capture.
@@ -146,6 +193,17 @@ func TestApproveCaptureRecordsAStepAndReturnsTheClient(t *testing.T) {
 	}
 	if _, _, err := mgr.ApproveCapture(context.Background(), mc.RunID, "/Applications/Shot"); err == nil {
 		t.Error("a path that is not an .app bundle was accepted")
+	}
+
+	// Approving kills replayd, so a running live stream ends with a reason first.
+	w := watchScreen(t, mgr, mc.RunID)
+	expectOpening(t, w)
+	if _, _, err := mgr.ApproveCapture(context.Background(), mc.RunID, "work/Shot.app"); err != nil {
+		t.Fatal(err)
+	}
+	waitClosed(t, w)
+	if err := w.Err(); err == nil || !strings.Contains(err.Error(), "reconnect") {
+		t.Errorf("the viewer ended with %v, want a reconnect", err)
 	}
 }
 
@@ -280,35 +338,50 @@ func TestCaptureApprovalsWriteReplacesAStaleRecordAndRestartsReplayd(t *testing.
 	}
 }
 
-// refresh leaves a record replayd keeps current alone, and rewrites one that was
-// reset or aged past a week by a clock jump or a long host sleep.
-func TestCaptureApprovalsRefreshRewritesOnlyAStaleRecord(t *testing.T) {
+// check only reads: it exits 0 for a record replayd keeps current and 3 for one
+// that was reset or aged past a week by a clock jump or a long host sleep.
+func TestCaptureApprovalsCheckOnlyReads(t *testing.T) {
 	h := newScriptHome(t)
 	h.run("write")
+	_ = os.Remove(filepath.Join(h.home, "pgrep.log"))
+	check := func() int {
+		t.Helper()
+		cmd := exec.Command("/bin/sh", "-c", captureApprovalsScript, "sh", "check")
+		cmd.Env = append(os.Environ(), "HOME="+h.home, "PATH="+h.bin+":/bin:/usr/bin:/usr/sbin")
+		out, err := cmd.CombinedOutput()
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return exit.ExitCode()
+		} else if err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		return 0
+	}
+	if code := check(); code != 0 {
+		t.Errorf("check of a fresh write = %d, want 0", code)
+	}
 	// replayd sets LastUsed to now on every capture.
 	now := time.Now().UTC()
 	h.record(h.agent, now.Add(-time.Hour).Format("2006-01-02 15:04:05 +0000"), far)
-	if looked, killed, _ := h.run("refresh"); looked || killed {
-		t.Errorf("refresh touched replayd (pgrep %v, killed %v) with a record used an hour ago", looked, killed)
+	if code := check(); code != 0 {
+		t.Errorf("check of a record used an hour ago = %d, want 0", code)
 	}
-
-	h.record(h.agent, now.Add(-40*24*time.Hour).Format("2006-01-02 15:04:05 +0000"), far)
-	if looked, killed, _ := h.run("refresh"); !looked || !killed {
-		t.Errorf("refresh left a record last used 40 days ago (pgrep %v, killed %v)", looked, killed)
+	old := now.Add(-40 * 24 * time.Hour).Format("2006-01-02 15:04:05 +0000")
+	h.record(h.agent, old, far)
+	if code := check(); code != captureStale {
+		t.Errorf("check of a record last used 40 days ago = %d, want %d", code, captureStale)
 	}
-	if got := h.field(h.agent, "kScreenCaptureApprovalLastUsed"); got != far {
-		t.Errorf("after refresh LastUsed = %q, want %q", got, far)
+	if got := h.field(h.agent, "kScreenCaptureApprovalLastUsed"); got != old {
+		t.Errorf("check wrote LastUsed = %q; it must only read", got)
 	}
-
-	// replayd reset the record entirely.
 	if out, err := exec.Command("defaults", "delete", h.plist, h.agent).CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if looked, killed, _ := h.run("refresh"); !looked || !killed {
-		t.Error("refresh left a missing record missing")
+	if code := check(); code != captureStale {
+		t.Errorf("check of a missing record = %d, want %d", code, captureStale)
 	}
-	if got := h.field(h.agent, "kScreenCaptureApprovalLastUsed"); got != far {
-		t.Errorf("after refresh LastUsed = %q, want %q", got, far)
+	if calls, _ := os.ReadFile(filepath.Join(h.home, "pgrep.log")); len(calls) > 0 {
+		t.Errorf("check looked for replayd: %q", calls)
 	}
 }
 

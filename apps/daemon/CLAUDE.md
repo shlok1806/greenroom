@@ -71,7 +71,7 @@ Boot and lifecycle
   `readyTimeout` (3 min). A timeout names the last probe error.
 - `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`,
   `captureAlertSeconds`, `desktopPrefsSeconds`, `sshSeconds`.
-- Boot writes replayd's screen-capture approvals (`capturealert.go`) before ready, so
+- Boot writes replayd's screen-capture approvals (`capturealert.go`, ADR 0013) before ready, so
   before the frame recorder's first capture and the live helper. Without them macOS 15+
   shows "tart-guest-agent is requesting to bypass the system private window picker" over
   the screen. The alert is decided by `kScreenCaptureApprovalLastUsed` alone, which
@@ -79,10 +79,14 @@ Boot and lifecycle
   boot writes LastUsed, LastAlerted and the hint date in 3024 unconditionally (a baked
   record is as old as the image), for tart-guest-agent and sshd-keygen-wrapper, paths
   resolved each boot. replayd caches the file, so it is stopped across the write and
-  killed after. Captures (`captureScreen`, the live helper) run `ensureCaptureApproval`
-  first, which rewrites a reset or aged record at most once a minute by the wall clock
-  (the monotonic clock stops while the host sleeps). `machine_approve_capture` writes a
-  record for an app under test, keyed by its bundle URL. A failure is logged and recorded as
+  killed after, then kickstarted and waited for (until it is back every capture fails
+  with "could not create image from display"). `ensureCaptureApproval` runs before each
+  screenshot and frame and when a live stream starts, never during one, at most once a
+  minute by the wall clock (the monotonic clock stops while the host sleeps). Its check
+  only reads; a reset or aged record is rewritten. Killing replayd stops every
+  ScreenCaptureKit session, so a rewrite, and `machine_approve_capture` (a record for an
+  app under test, keyed by its bundle URL), end a running live stream first with a
+  reason; viewers reconnect. Both hold `input.approval.mu`, so writes never overlap. A failure is logged and recorded as
   `captureAlertError`, never fatal: the machine works under the alert. In `PrepareGuest`
   it is fatal.
 - Boot also sets desktop preferences (`desktopprefs.go`, step key `desktopPrefsSeconds`,
@@ -140,6 +144,11 @@ Exec
   on the host does not help: tart itself stays up. Output a background child writes
   after the shell exits is lost. zsh `-c` runs `a && b &` with `a` in the foreground;
   that is zsh, not us.
+- The timeout is enforced in the guest (ADR 0014, issue #28): the wrapper puts zsh in its
+  own process group (`set -m`) and a watchdog TERMs it at the timeout, KILLs it 5 s later.
+  The result keeps the output so far, exit 124, `timedOut`. The host waits the timeout
+  plus `execHostGrace`. The wrapper's stderr is `/dev/null` (job notices); the command's
+  goes out through fd 3, which children must not inherit (`3>&-`).
 - A `cwd` or sync `dest` of `~` or `~/x` means the guest home (`homeRelative`). Both are
   otherwise shell-quoted, so a tilde would never expand and rsync would make a dir `~`.
 

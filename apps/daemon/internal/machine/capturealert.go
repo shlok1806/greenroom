@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -35,12 +36,16 @@ import (
 //     stopped. Until launchd has it back, every capture fails with "could not create
 //     image from display" (2 to 4 s measured), so the script kickstarts it and waits
 //     for it, up to 10 s: launchd throttles a job killed again within seconds.
+//   - Killing replayd also stops every ScreenCaptureKit session, so the live helper
+//     (--serve) exits. A write therefore ends a running live stream first, with a
+//     reason; viewers reconnect to a fresh helper (the companion does on its own).
 //
 // Modes (the script's first argument):
 //   - write: both clients, unconditionally. Boot and prepare-image. A baked image's
 //     LastUsed is as old as the image, so a record that looks done is not skipped.
-//   - refresh: rewrite only if replayd reset a record, or a clock jump aged LastUsed
-//     past a week. Run before captures by ensureCaptureApproval.
+//   - check: read only. Exit 0 if both records are current, 3 if replayd reset one
+//     or a clock jump aged LastUsed past a week. Never touches replayd, so it is
+//     safe under a running live stream. ensureCaptureApproval writes only after a 3.
 //   - app <path>: an application under test that captures the screen itself
 //     (machine_approve_capture). A relative path is taken from the guest home.
 //
@@ -64,9 +69,7 @@ agent="$(realpath "$(command -v tart-guest-agent || echo /opt/homebrew/bin/tart-
 keygen="$(realpath /usr/libexec/sshd-keygen-wrapper)" || exit 1
 case "$mode" in
   write) set -- "$agent" "$keygen" ;;
-  refresh)
-    fresh "$agent" && fresh "$keygen" && exit 0
-    set -- "$agent" "$keygen" ;;
+  check) fresh "$agent" && fresh "$keygen" && exit 0; exit 3 ;;
   app)
     case "$1" in /*) app="$1" ;; *) app="$HOME/$1" ;; esac
     [ -d "$app" ] || { echo "no application bundle at $app" >&2; exit 1; }
@@ -118,10 +121,16 @@ type captureApproval struct {
 	warned  bool
 }
 
+// captureStale is the check mode's exit for a record that must be rewritten.
+const captureStale = 3
+
 // ensureCaptureApproval re-approves screen capture if replayd reset its record, at
-// most once per captureApprovalCheck per machine. It runs before a capture, so a
-// record that aged out while the host slept is back before the capture that would
-// alert. A failure is logged once per machine and never fails the capture.
+// most once per captureApprovalCheck per machine. It runs before a screenshot, a
+// frame, and when a live stream starts (never during one), so a record that aged
+// out while the host slept is back before the capture that would alert. The check
+// is read only; only a stale record is rewritten, which ends a running live stream
+// first (see captureApprovalsScript). A failure is logged once per machine and
+// never fails the capture.
 func (m *Manager) ensureCaptureApproval(ctx context.Context, mc *Machine) {
 	a := &mc.input.approval
 	a.mu.Lock()
@@ -133,9 +142,31 @@ func (m *Manager) ensureCaptureApproval(ctx context.Context, mc *Machine) {
 		return
 	}
 	a.checked = now
-	if _, err := execChecked(ctx, m.tart, mc.Name, "/bin/sh", "-c", captureApprovalsScript, "sh", "refresh"); err != nil && !a.warned {
+	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", captureApprovalsScript, "sh", "check")
+	switch {
+	case err == nil && res.ExitCode == 0:
+		return
+	case err == nil && res.ExitCode == captureStale:
+		m.endLiveScreenFor(mc, "screen capture is being re-approved (replayd reset its record)")
+		err = approveScreenCapture(ctx, m.tart, mc.Name)
+	case err == nil:
+		err = fmt.Errorf("check the approvals: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	if err != nil && !a.warned {
 		a.warned = true
 		m.Log.Warn("cannot refresh the screen-capture approvals; the guest may show a capture alert", "runId", mc.RunID, "err", err)
+	}
+}
+
+// endLiveScreenFor ends a running live stream before replayd is killed, which would
+// stop its capture anyway, so viewers get a reason rather than a helper crash.
+func (m *Manager) endLiveScreenFor(mc *Machine, reason string) {
+	m.mu.Lock()
+	s := mc.screen
+	m.mu.Unlock()
+	if s != nil && s.running() {
+		m.Log.Info("ending the live screen; viewers reconnect", "runId", mc.RunID, "reason", reason)
+		s.end(errors.New("the live screen restarted: " + reason + "; reconnect to resume"))
 	}
 }
 
@@ -175,6 +206,12 @@ func (m *Manager) approveApp(ctx context.Context, mc *Machine, app string) (stri
 	if !strings.HasSuffix(strings.TrimRight(app, "/"), ".app") {
 		return "", fmt.Errorf("app %q must be the path of an .app bundle in the guest", app)
 	}
+	// One writer at a time: a concurrent check-and-write would kill replayd while this
+	// writes, and replayd's cached write-back could drop the record despite the read-back.
+	a := &mc.input.approval
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	m.endLiveScreenFor(mc, "an app under test is being approved for screen capture")
 	// The path is an argument, never part of the script text.
 	res, err := execChecked(ctx, m.tart, mc.Name, "/bin/sh", "-c", captureApprovalsScript, "sh", "app", app)
 	if err != nil {

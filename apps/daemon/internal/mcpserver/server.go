@@ -147,7 +147,8 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 			"recorder), so macOS does not cover the screen with \"<App> is requesting to bypass the system private " +
 			"window picker\" when it starts capturing. Call it after the app is built and before it first captures. " +
 			"Not needed for machine_screenshot or the live screen: greenroom approves its own capture. The approval " +
-			"is by bundle path; a bare executable outside an .app cannot be approved this way.",
+			"is by bundle path; a bare executable outside an .app cannot be approved this way. It restarts macOS's " +
+			"capture service, which ends a running live screen stream; viewers reconnect to a fresh one.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in approveIn) (*mcp.CallToolResult, approveOut, error) {
 		client, step, err := mgr.ApproveCapture(ctx, in.RunID, in.App)
 		return nil, approveOut{Client: client, Step: step}, err

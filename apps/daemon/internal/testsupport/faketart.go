@@ -14,7 +14,7 @@ import (
 // Every invocation is appended to <control>/calls.log. Files in the control directory switch behavior:
 //
 //	fail-clone, fail-run, fail-ip, fail-exec, fail-stop, fail-delete, fail-keyinstall,
-//	fail-capture-approval, fail-desktop-prefs
+//	fail-capture-approval, fail-desktop-prefs (capture-approval-stale: the approval check reports a stale record)
 //	                    the matching operation exits 1 with a message
 //	exec-exit-<n>       `tart exec` exits n
 //	exec-codes          `tart exec` exits with the next line of this file (consumed), then 0
@@ -102,6 +102,8 @@ case "$sub" in
     case "$*" in
       *ScreenCaptureApprovals*)
         [ -f "$C/fail-capture-approval" ] && { echo "defaults: cannot write" >&2; exit 1; }
+        # The check mode exits 3 for a stale record.
+        case "$*" in *" sh check") [ -f "$C/capture-approval-stale" ] && exit 3 ;; esac
         # "app <path>" prints the bundle URL replayd keys the record by.
         case "$*" in *" sh app "*) for last; do :; done; echo "file:///Users/admin/${last#/}/" ;; esac
         exit 0 ;;
