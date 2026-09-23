@@ -142,6 +142,19 @@ final class RunStoreTests: XCTestCase {
         XCTAssertFalse(RunStore.verifierIsWorking([note], verifierListens: false))
     }
 
+    /// #79: the daemon's own word that nobody will answer ends the wait, whatever the machine.
+    func testTheDaemonSayingNobodyWillAnswerEndsTheWait() {
+        let task = message(1, kind: .task, from: .coder)
+        let none = Message(seq: 2, at: Date(timeIntervalSince1970: 2), from: .system, kind: .event,
+                           text: "no verifier is configured on this daemon (set NVIDIA_API_KEY in .env); nobody will answer this task")
+        XCTAssertFalse(RunStore.awaitingVerifier([task, none]))
+        let gone = Message(seq: 2, at: Date(timeIntervalSince1970: 2), from: .system, kind: .event,
+                           text: "this run's machine was destroyed, so the verifier has stopped and nothing will answer this task")
+        XCTAssertFalse(RunStore.awaitingVerifier([task, gone]))
+        let ready = Message(seq: 2, at: Date(timeIntervalSince1970: 2), from: .system, kind: .event, text: "machine is ready")
+        XCTAssertTrue(RunStore.awaitingVerifier([task, ready]))
+    }
+
     func testAwaitingVerifier() {
         func note(_ seq: Int, from: MessageFrom) -> Message { message(seq, kind: .note, from: from) }
 
