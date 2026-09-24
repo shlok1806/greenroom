@@ -287,8 +287,6 @@ func (v *Verifier) describe(ctx context.Context, png []byte) (string, error) {
 	}
 }
 
-// postInput posts one batch as the verifier and returns the tool result text,
-// "step N\n<done>" on success, and the step it recorded.
 // screenTakenPrefix starts the tool result for input refused because someone else holds the
 // screen; Turn counts these (issue #97).
 const screenTakenPrefix = "error: the screen is taken: "
@@ -299,6 +297,8 @@ func screenTakenResult(err error) string {
 		"back, or reply that you are waiting. Never report a verdict because of this: it says nothing about the app."
 }
 
+// postInput posts one batch as the verifier and returns the tool result text,
+// "step N\n<done>" on success, and the step it recorded.
 func postInput(ctx context.Context, mgr *machine.Manager, runID, done string, actions ...machine.InputAction) (string, int) {
 	// Per call, never per turn (ADR 0009, issue #11).
 	res, err := mgr.InputAs(ctx, runID, machine.HolderVerifier, actions)
