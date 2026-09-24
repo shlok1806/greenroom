@@ -220,9 +220,9 @@ func (m *Manager) SessionStart(ctx context.Context, runID, command string) (Sess
 // has exited and the file is read to its end, then closes s.ended. It reads
 // through short non-tty `tart exec` calls, the path machine_exec uses.
 func (m *Manager) follow(ctx context.Context, mc *Machine, s *PTYSession) {
-	defer close(s.ended)
 	defer s.out.touch() // a waiting read sees the end at once
-	var off int64       // guest file offset of the next byte wanted
+	defer close(s.ended)
+	var off int64 // guest file offset of the next byte wanted
 	pause := time.Duration(0)
 	failures := 0
 	exit := s.proc.Done() // wakes the follower once, when the command exits
@@ -315,19 +315,19 @@ func (m *Manager) readGuestSession(ctx context.Context, mc *Machine, s *PTYSessi
 	return len(data), len(data) >= sessionBufferLimit, nil
 }
 
-// cleanupGuestSession ends the guest side of a session and removes its file.
-// A failure is logged: the handle is forgotten either way.
-func (m *Manager) cleanupGuestSession(mc *Machine, s *PTYSession) {
+// cleanupGuestSession ends the guest side of sessions and removes their files,
+// all in one guest exec. A failure is logged: the handles are forgotten either way.
+func (m *Manager) cleanupGuestSession(mc *Machine, ids ...string) {
 	ctx, cancel := context.WithTimeout(context.Background(), sessionCloseTimeout)
 	defer cancel()
 	var stderr bytes.Buffer
-	code, err := m.tart.ExecTo(ctx, io.Discard, &stderr, mc.Name, "/bin/sh", "-c", sessionCloseScript,
-		"greenroom-session-close", s.ID)
+	args := append([]string{"/bin/sh", "-c", sessionCloseScript, "greenroom-session-close"}, ids...)
+	code, err := m.tart.ExecTo(ctx, io.Discard, &stderr, mc.Name, args...)
 	if err == nil && code != 0 {
 		err = fmt.Errorf("exit %d: %s", code, strings.TrimSpace(stderr.String()))
 	}
 	if err != nil {
-		m.Log.Warn("cannot end a session in the guest; its command may still run", "run", mc.RunID, "session", s.ID, "err", err)
+		m.Log.Warn("cannot end a session in the guest; its command may still run", "run", mc.RunID, "sessions", ids, "err", err)
 	}
 }
 
@@ -337,9 +337,13 @@ func (m *Manager) cleanupGuestSession(mc *Machine, s *PTYSession) {
 // full machine needs their slots.
 func (m *Manager) reserveSession(mc *Machine, s *PTYSession) error {
 	ended, err := m.reserveSessionLocked(mc, s)
-	for _, old := range ended {
-		_ = old.stop() // already exited; this only reaps the host process
-		m.cleanupGuestSession(mc, old)
+	if len(ended) > 0 {
+		ids := make([]string, 0, len(ended))
+		for _, old := range ended {
+			_ = old.stop() // already exited; this only reaps the host process
+			ids = append(ids, old.ID)
+		}
+		go m.cleanupGuestSession(mc, ids...) // only removes files; the start does not wait on the guest
 	}
 	return err
 }
@@ -535,7 +539,7 @@ func (m *Manager) SessionClose(ctx context.Context, runID, sessionID string) (Se
 	started := time.Now()
 	if s := m.dropSession(mc, sessionID); s != nil && s.proc != nil {
 		s.stopFollower()
-		m.cleanupGuestSession(mc, s) // ends the guest command, so tart exits on its own
+		m.cleanupGuestSession(mc, s.ID) // ends the guest command, so tart exits on its own
 		err = s.stop()
 	}
 	out := SessionCloseResult{SessionID: sessionID}

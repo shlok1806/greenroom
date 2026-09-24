@@ -11,11 +11,15 @@ package machine
 // <id> <command>`. It runs as the long-lived `tart exec -i`, whose stdin is the
 // session's input. `exec` keeps the pid, so the pid file names `script`.
 // `script -F` flushes the file on every write; its own stdout, the same bytes,
-// goes nowhere. It exits with the command's status, which tart forwards.
+// goes nowhere. It exits with the command's status, which tart forwards. A
+// session closed before the wrapper ran leaves a `.closed` tombstone, and the
+// wrapper then starts nothing: it checks after writing its pid, so a close
+// either sees the pid or the wrapper sees the tombstone.
 const sessionWrapper = `f="${TMPDIR:-/tmp}/greenroom-session.$1"
 umask 077
+echo $$ > "$f.pid" || exit 125
+if [ -e "$f.closed" ]; then rm -f "$f" "$f.pid" "$f.closed"; exit 125; fi
 : > "$f" || exit 125
-echo $$ > "$f.pid"
 exec /usr/bin/script -q -F "$f" /bin/sh -c '
 stty rows ` + sessionRowsCols + ` 2>/dev/null
 case "$TERM" in ""|dumb) TERM=xterm-256color ;; esac
@@ -42,16 +46,28 @@ exit 0`
 // sessionReadMissing is sessionReadScript's exit code for a file not there yet.
 const sessionReadMissing = 3
 
-// sessionCloseScript ends a session and removes its files: `/bin/sh -c
-// sessionCloseScript greenroom-session-close <id>`. It hangs up script and
-// every process whose controlling terminal is the session's pty (named by
-// script's child), then KILLs what is left after 3 s. macOS pgrep has no -s
-// and its -t matches nothing for a ttys name, so `ps -t` lists them. The pid
-// is checked to still be script, so a reused pid is never signalled. Killing
-// the host `tart exec` alone reaches none of this.
-const sessionCloseScript = `f="${TMPDIR:-/tmp}/greenroom-session.$1"
+// sessionCloseScript ends sessions and removes their files: `/bin/sh -c
+// sessionCloseScript greenroom-session-close <id>...`. For each id it leaves a
+// tombstone, waits up to 3 s for a wrapper still in /bin/sh to exec script,
+// then hangs up script and every process whose controlling terminal is the
+// session's pty (named by script's child), and KILLs what is left after 3 s.
+// macOS pgrep has no -s and its -t matches nothing for a ttys name, so `ps -t`
+// lists them. The pid is checked to still be script, so a reused pid is never
+// signalled. The tombstone stays while no wrapper has passed its check, so a
+// wrapper that starts later exits at once. Killing the host `tart exec` alone
+// reaches none of this.
+const sessionCloseScript = `for id; do
+f="${TMPDIR:-/tmp}/greenroom-session.$id"
+: > "$f.closed"
 p=$(cat "$f.pid" 2>/dev/null)
-case "$(ps -o comm= -p "${p:-0}" 2>/dev/null)" in
+comm() { ps -o comm= -p "${p:-0}" 2>/dev/null; }
+i=0
+while [ -n "$p" ] && [ "$i" -lt 30 ]; do
+  case "$(comm)" in *script|"") break ;; esac
+  sleep 0.1
+  i=$((i + 1))
+done
+case "$(comm)" in
 *script)
   c=$(pgrep -P "$p" | head -n 1)
   t=
@@ -67,5 +83,9 @@ case "$(ps -o comm= -p "${p:-0}" 2>/dev/null)" in
   done
   kill -KILL $(on_tty) "$p" 2>/dev/null ;;
 esac
-rm -f "$f" "$f.pid"
+rm -f "$f"
+if [ -n "$p" ]; then
+  case "$(comm)" in *sh) ;; *) rm -f "$f.pid" "$f.closed" ;; esac
+fi
+done
 exit 0`

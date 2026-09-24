@@ -232,3 +232,44 @@ func TestClosingASessionEndsItsProcessesAndRemovesItsFiles(t *testing.T) {
 		t.Errorf("close signalled pid %d, which was not the session's script: %v", other.Process.Pid, err)
 	}
 }
+
+// A close that arrives before the wrapper has run leaves a tombstone, so the
+// wrapper starts nothing and leaves no files behind.
+func TestASessionClosedBeforeItsWrapperRunsStartsNothing(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/script"); err != nil {
+		t.Skip("no /usr/bin/script")
+	}
+	tmp := t.TempDir()
+	env := append(os.Environ(), "TMPDIR="+tmp)
+	marker := filepath.Join(tmp, "ran")
+	closer := exec.Command("/bin/sh", "-c", sessionCloseScript, "greenroom-session-close", "early1", "early2")
+	closer.Env = env
+	if out, err := closer.CombinedOutput(); err != nil {
+		t.Fatalf("close: %v: %s", err, out)
+	}
+	for _, id := range []string{"early1", "early2"} {
+		wrapper := exec.Command("/bin/sh", "-c", sessionWrapper, "greenroom-session", id, "touch "+marker+"; sleep 300")
+		wrapper.Env = env
+		wrapper.Stdin = strings.NewReader("")
+		done := make(chan error, 1)
+		if err := wrapper.Start(); err != nil {
+			t.Fatal(err)
+		}
+		go func() { done <- wrapper.Wait() }()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			_ = wrapper.Process.Kill()
+			t.Fatalf("session %s started its command after it was closed", id)
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Errorf("session %s ran its command after it was closed (%v)", id, err)
+		}
+		base := filepath.Join(tmp, "greenroom-session."+id)
+		for _, f := range []string{base, base + ".pid", base + ".closed"} {
+			if _, err := os.Stat(f); !os.IsNotExist(err) {
+				t.Errorf("%s survived (%v)", filepath.Base(f), err)
+			}
+		}
+	}
+}
