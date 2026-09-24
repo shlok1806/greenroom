@@ -95,7 +95,7 @@ func CheckImage(ctx context.Context, o ImageCheck) (ImageCheckResult, error) {
 	}
 	defer deleteVM(c, vm, o.Log)
 
-	proc, err := c.Start(vm, filepath.Join(o.OutDir, "tart-run.log"), false)
+	proc, err := c.Start(vm, filepath.Join(o.OutDir, "tart-run.log"))
 	if err != nil {
 		return res, err
 	}
