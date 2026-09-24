@@ -36,7 +36,8 @@ clt="$(pkgutil --pkg-info=com.apple.pkg.CLTools_Executables 2>/dev/null | sed -n
 put commandLineTools -string "${clt:-none}"
 put swiftVersion -string "$(swift --version 2>&1 | head -n 1)"
 
-# probe <name> <import> <test source>: writes <name> (bool) and <name>Error (first error line).
+# probe <name> <test source> <pass line>: writes <name> (bool) and <name>Error (first error line).
+# <name> is true only when swift test exits 0 and prints that the probe's own test passed.
 probe() {
   name="$1"; dir="$work/$1"
   mkdir -p "$dir/Sources/Lib" "$dir/Tests/LibTests"
@@ -50,19 +51,21 @@ let package = Package(name: "Probe", targets: [
 EOF
   echo 'public func two() -> Int { 2 }' > "$dir/Sources/Lib/Lib.swift"
   printf '%s\n' "$2" > "$dir/Tests/LibTests/LibTests.swift"
-  if (cd "$dir" && swift test > "$dir/log" 2>&1) && grep -q -i -E "passed|0 failures" "$dir/log"; then
+  if (cd "$dir" && swift test > "$dir/log" 2>&1) && grep -q -F "$3" "$dir/log"; then
     put "$name" -bool true
   else
     put "$name" -bool false
-    put "${name}Error" -string "$({ grep -m 1 'no such module' "$dir/log" || grep -m 1 'error:' "$dir/log"; } | sed 's/^.*error: //' | cut -c1-200)"
+    put "${name}Error" -string "$({ grep -m 1 'no such module' "$dir/log" || grep -m 1 'error:' "$dir/log" || echo "error: swift test did not run the probe's test"; } | sed 's/^.*error: //' | cut -c1-200)"
   fi
 }
 probe xctest 'import XCTest
 @testable import Lib
-final class LibTests: XCTestCase { func testTwo() { XCTAssertEqual(two(), 2) } }'
+final class LibTests: XCTestCase { func testTwo() { XCTAssertEqual(two(), 2) } }' \
+  "Test Case '-[LibTests.LibTests testTwo]' passed"
 probe swiftTesting 'import Testing
 @testable import Lib
-@Test func two2() { #expect(two() == 2) }'
+@Test func two2() { #expect(two() == 2) }' \
+  'Test two2() passed'
 
 put note -string "swift test runs only the frameworks marked true here. Never delete or exclude a project's own tests to get a green run; report that the toolchain cannot run them."
 

@@ -81,8 +81,9 @@ Boot and lifecycle
 - Boot reads the image's toolchain manifest (`base.go`, `ToolchainPath`, ADR 0019) into
   `Machine.Toolchain` as the image wrote it, `{"known":false}` when absent. The daemon never
   interprets it and never assumes a toolchain. Error key `toolchainError`, never fatal.
-- Boot checks the desktop once (`desktopcheck.go`, ADR 0018): `greenroom-input --desktop`
-  lists on-screen windows and regular apps, compared with the allowlist the image gate uses.
+- Boot checks the desktop once (`desktopcheck.go`, ADR 0018), after the login settles (Dock
+  and Finder up, Finder running 12 s, since loginwindow relaunches apps about then):
+  `greenroom-input --desktop` lists on-screen windows and regular apps, compared with the allowlist the image gate uses.
   The result is `Machine.Desktop` (and `desktopFindings` in the step). It surfaces, never
   sweeps: nothing in the daemon closes a window or quits an app it did not open, and a boot
   `pkill` of an app the image starts is not a fix (issue #60). Fix the image instead.

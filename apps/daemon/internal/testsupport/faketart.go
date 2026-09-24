@@ -14,7 +14,7 @@ import (
 // Every invocation is appended to <control>/calls.log. Files in the control directory switch behavior:
 //
 //	fail-clone, fail-run, fail-ip, fail-exec, fail-stop, fail-delete, fail-keyinstall,
-//	fail-capture-approval, fail-desktop-prefs, fail-lean, fail-base, fail-toolchain, fail-softwareupdate
+//	fail-capture-approval, fail-desktop-prefs, fail-desktop-login, fail-lean, fail-base, fail-toolchain, fail-softwareupdate
 //	                    (capture-approval-stale: the approval check reports a stale record)
 //	                    the matching operation exits 1 with a message
 //	toolchain.json      what the image's toolchain manifest holds; the manifest script writes
@@ -144,6 +144,9 @@ case "$sub" in
       *greenroom-check-reboot*)
         echo "{ sec = $(date +%s)$$ }" > "$C/boottime"; exit 0 ;;
       *greenroom-check-login*) exit 0 ;;
+      *greenroom-desktop-login*)
+        [ -f "$C/fail-desktop-login" ] && { echo "no login session after 30 s" >&2; exit 1; }
+        exit 0 ;;
       *": greenroom-check-"*)
         for f in "$C"/fail-check-*; do
           [ -e "$f" ] || continue

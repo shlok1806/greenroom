@@ -131,8 +131,34 @@ func readDesktop(ctx context.Context, c *tart.Client, vm string) (Desktop, error
 	return d, nil
 }
 
-// checkDesktop is boot's desktop phase: one read, reported, never acted on.
+// awaitLoginScript waits up to 30 s for the login session (Dock and Finder), then until
+// Finder has run for 12 s: loginwindow relaunches its persistent apps and login items raise
+// their prompts about a dozen seconds after login, which can be after the guest agent
+// answers. A machine that logged in long ago does not wait. It only waits and reads.
+const awaitLoginScript = `: greenroom-desktop-login
+i=0
+while ! { pgrep -x Dock >/dev/null && pgrep -x Finder >/dev/null; } && [ $i -lt 120 ]; do sleep 0.25; i=$((i+1)); done
+pid="$(pgrep -x Finder | head -n 1)"
+[ -n "$pid" ] || { echo "no login session after 30 s" >&2; exit 1; }
+age="$(ps -o etime= -p "$pid" | awk -F'[-:]' '{s=0; for (i=1; i<=NF; i++) s=s*60+$i; print s}')"
+[ "${age:-0}" -lt 12 ] && sleep $((12 - ${age:-0}))
+exit 0
+`
+
+// awaitDesktopLogin runs awaitLoginScript in the guest.
+func awaitDesktopLogin(ctx context.Context, c *tart.Client, vm string) error {
+	if _, err := execChecked(ctx, c, vm, "/bin/sh", "-c", awaitLoginScript); err != nil {
+		return fmt.Errorf("wait for the login session: %w", err)
+	}
+	return nil
+}
+
+// checkDesktop is boot's desktop phase: once the login has settled, one read, reported,
+// never acted on. A login that does not settle is logged and the desktop is read anyway.
 func (m *Manager) checkDesktop(ctx context.Context, mc *Machine) *DesktopReport {
+	if err := awaitDesktopLogin(ctx, m.tart, mc.Name); err != nil {
+		m.Log.Warn("reading this machine's desktop before its login settled", "runId", mc.RunID, "err", err)
+	}
 	d, err := readDesktop(ctx, m.tart, mc.Name)
 	if err != nil {
 		m.Log.Warn("cannot check this machine's desktop for dialogs", "runId", mc.RunID, "err", err)
