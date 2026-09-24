@@ -120,6 +120,10 @@ final class DesignDataTests: XCTestCase {
                 selection, highContrast ? 7 : 4.5, "\(file) selection \(selection)")
 
             for (role, slot) in roles {
+                guard theme.palette.indices.contains(slot) else {
+                    XCTFail("\(file) \(role) slot \(slot) outside \(theme.palette.count) colours")
+                    continue
+                }
                 let colour = try XCTUnwrap(Self.rgb(theme.palette[slot]))
                 let ratio = Self.contrast(colour, background)
                 let needed = highContrast ? 7 : (role == "dim" ? 3 : 4.5)
