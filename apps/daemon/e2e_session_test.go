@@ -1,7 +1,8 @@
 //go:build tart
 
-// Proves on a real VM that a session's command sees a real terminal (builds branch on isatty) and that
-// shell state survives between calls. The fake-tart suite can only check what the daemon asks tart for.
+// Proves on a real VM that a session's command sees a real terminal (builds branch on isatty), that
+// shell state survives between calls, that ^C interrupts, and that a 3 MB flood finishes without
+// wedging the machine (issue #30). The fake-tart suite can only check what the daemon asks tart for.
 // Boots one VM. Run with:
 //
 //	go test -tags tart -run TestEndToEndSession -v -timeout 12m .
@@ -9,6 +10,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -112,6 +115,23 @@ func TestEndToEndSession(t *testing.T) {
 		t.Errorf("a failing command did not report its status as output:\n%s", out)
 	}
 
+	// ^C reaches the terminal's line discipline and interrupts the foreground command.
+	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "sleep 120\n"); err != nil {
+		t.Fatalf("SessionSend: %v", err)
+	}
+	time.Sleep(time.Second)
+	interrupted := time.Now()
+	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "\x03"); err != nil {
+		t.Fatalf("SessionSend: %v", err)
+	}
+	if _, err := mgr.SessionSend(ctx, runID, start.SessionID, "echo \"INTER\"\"RUPTED\"\n"); err != nil {
+		t.Fatalf("SessionSend: %v", err)
+	}
+	out = collect(ctx, t, mgr, runID, start.SessionID, "INTERRUPTED", 30*time.Second)
+	if !strings.Contains(out, "INTERRUPTED") || time.Since(interrupted) > 20*time.Second {
+		t.Errorf("^C did not interrupt sleep 120 (%s); output was:\n%s", time.Since(interrupted), out)
+	}
+
 	if _, err := mgr.SessionClose(ctx, runID, start.SessionID); err != nil {
 		t.Fatalf("SessionClose: %v", err)
 	}
@@ -119,6 +139,109 @@ func TestEndToEndSession(t *testing.T) {
 		t.Error("reading a closed session succeeded")
 	} else if !strings.Contains(err.Error(), "no session") {
 		t.Errorf("closed session error was %q, want it to name the missing session", err)
+	}
+
+	floodSession(ctx, t, mgr, runID)
+	closeKillsSession(ctx, t, mgr, runID, true)
+	closeKillsSession(ctx, t, mgr, runID, false)
+}
+
+// closeKillsSession proves machine_session_close ends the session's guest
+// processes and removes its files. Killing the host tart exec reaches none of
+// them. With settle false the close races the guest wrapper, which must then
+// start nothing.
+func closeKillsSession(ctx context.Context, t *testing.T, mgr *machine.Manager, runID string, settle bool) {
+	t.Helper()
+	secs := 377
+	if !settle {
+		secs = 388
+	}
+	probe := fmt.Sprintf("pgrep -fl 'slee[p] %d' || echo NO\"\"NE", secs)
+	start, err := mgr.SessionStart(ctx, runID, fmt.Sprintf("sleep %d", secs))
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if settle {
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			res, err := mgr.Exec(ctx, runID, probe, "", 20*time.Second)
+			if err == nil && !strings.Contains(res.Stdout, "NONE") {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("sleep %d never started in the guest: %+v %v", secs, res, err)
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	t0 := time.Now()
+	if _, err := mgr.SessionClose(ctx, runID, start.SessionID); err != nil {
+		t.Fatalf("SessionClose: %v", err)
+	}
+	t.Logf("close (settled=%v) took %.1fs", settle, time.Since(t0).Seconds())
+	// A wrapper that lost the race could still start after close returned.
+	time.Sleep(5 * time.Second)
+	res, err := mgr.Exec(ctx, runID, probe+"; ls \"${TMPDIR:-/tmp}\"/greenroom-session."+start.SessionID+"* 2>/dev/null; true", "", 20*time.Second)
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	t.Logf("after close (settled=%v): %q", settle, res.Stdout)
+	if !strings.Contains(res.Stdout, "NONE") {
+		t.Errorf("sleep %d survived machine_session_close: %q", secs, res.Stdout)
+	}
+	if strings.Contains(res.Stdout, "greenroom-session.") {
+		t.Errorf("session files survived machine_session_close: %q", res.Stdout)
+	}
+}
+
+// floodSession is issue #30: a session printing 3 MB at full speed stalled
+// tart's tty stream after ~200 KB and made every other guest call fail. It
+// must finish, and machine_exec must answer while it runs.
+func floodSession(ctx context.Context, t *testing.T, mgr *machine.Manager, runID string) {
+	t.Helper()
+	started := time.Now()
+	flood, err := mgr.SessionStart(ctx, runID, `yes | head -c 3000000; echo "DO""NE"`)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	alive := make(chan error, 1)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		execCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		t0 := time.Now()
+		res, err := mgr.Exec(execCtx, runID, "echo alive", "", 20*time.Second)
+		if err == nil && !strings.Contains(res.Stdout, "alive") {
+			err = errors.New("printed " + res.Stdout)
+		}
+		t.Logf("machine_exec during the flood took %.1fs", time.Since(t0).Seconds())
+		alive <- err
+	}()
+
+	var tail string
+	var total int64
+	finished := false
+	for time.Since(started) < 90*time.Second {
+		res, err := mgr.SessionRead(ctx, runID, flood.SessionID, 5*time.Second)
+		if err != nil {
+			t.Fatalf("SessionRead: %v", err)
+		}
+		total += int64(len(res.Output)) + res.Dropped
+		tail = (tail + res.Output)[max(0, len(tail)+len(res.Output)-64):]
+		if !res.Running && res.Pending == 0 {
+			finished = true
+			break
+		}
+	}
+	t.Logf("flood: %d bytes read or dropped in %.1fs", total, time.Since(started).Seconds())
+	if !finished || !strings.Contains(tail, "DONE") {
+		t.Errorf("the flood did not finish with DONE within 90 s; last output %q", tail)
+	}
+	if err := <-alive; err != nil {
+		t.Errorf("machine_exec failed while a session flooded: %v", err)
+	}
+	if _, err := mgr.SessionClose(ctx, runID, flood.SessionID); err != nil {
+		t.Errorf("SessionClose: %v", err)
 	}
 }
 

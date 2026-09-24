@@ -16,7 +16,7 @@ first real term settles). **documented** means `CONTEXT.md` exists.
 | session   | `apps/daemon/internal/session/`       | A run's conversation: messages, verdicts (ADR 0006)         | code       |
 | verifier  | `apps/daemon/internal/verifier/`      | greenroom's own agent, NIM or manual (ADR 0005)             | code       |
 | nim       | `apps/daemon/internal/nim/`           | Client for NVIDIA NIM's OpenAI-compatible API               | code       |
-| tart      | `apps/daemon/internal/tart/`          | Tart CLI wrapper, pinned version, host pty                  | code       |
+| tart      | `apps/daemon/internal/tart/`          | Tart CLI wrapper, pinned version, long-lived execs          | code       |
 | companion | `apps/companion/`                     | macOS app: watch runs, see the screen, talk, take control   | documented |
 | images    | `images/`                             | Packer image layers and first-boot scripts                  | code       |
 

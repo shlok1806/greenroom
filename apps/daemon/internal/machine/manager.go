@@ -522,7 +522,7 @@ func (m *Manager) liveLocked(mc *Machine) bool {
 
 // forgetLocked is the only way a machine leaves the map. The caller must pass
 // the returned sessions to closeSessions after releasing m.mu.
-func (m *Manager) forgetLocked(mc *Machine) []*tart.Session {
+func (m *Manager) forgetLocked(mc *Machine) []*PTYSession {
 	if m.machines[mc.RunID] == mc {
 		delete(m.machines, mc.RunID)
 	}
@@ -531,7 +531,7 @@ func (m *Manager) forgetLocked(mc *Machine) []*tart.Session {
 
 // detachLocked stops the frame recorder and the live screen, and detaches the
 // sessions. It is safe to repeat.
-func (m *Manager) detachLocked(mc *Machine) []*tart.Session {
+func (m *Manager) detachLocked(mc *Machine) []*PTYSession {
 	if mc.frameCancel != nil {
 		mc.frameCancel()
 	}
@@ -539,10 +539,10 @@ func (m *Manager) detachLocked(mc *Machine) []*tart.Session {
 		mc.screen.end(errors.New("the live screen ended: the machine is gone"))
 		mc.screen = nil
 	}
-	live := make([]*tart.Session, 0, len(mc.sessions))
+	live := make([]*PTYSession, 0, len(mc.sessions))
 	for _, s := range mc.sessions {
 		if s.proc != nil {
-			live = append(live, s.proc)
+			live = append(live, s)
 		}
 	}
 	mc.sessions = nil
@@ -554,9 +554,11 @@ func (m *Manager) detachLocked(mc *Machine) []*tart.Session {
 	return live
 }
 
-func closeSessions(live []*tart.Session) {
-	for _, p := range live {
-		_ = p.Close()
+// closeSessions ends each session's follower and host `tart exec`. The guest
+// side goes with the VM.
+func closeSessions(live []*PTYSession) {
+	for _, s := range live {
+		_ = s.stop()
 	}
 }
 

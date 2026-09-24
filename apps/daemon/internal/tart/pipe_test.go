@@ -73,9 +73,13 @@ func TestClosingAPipeKillsItsGroup(t *testing.T) {
 	pipeGrace = 50 * time.Millisecond
 	t.Cleanup(func() { pipeGrace = orig })
 
-	p, err := sessionBin(t, "trap '' HUP; sleep 60 & wait").StartPipe("vm", "x")
+	p, err := sessionBin(t, "trap '' HUP; sleep 60 & echo started; wait").StartPipe("vm", "x")
 	if err != nil {
 		t.Fatalf("StartPipe: %v", err)
+	}
+	// Close only once sleep is forked: a group kill racing the fork can miss the new child.
+	if line, err := bufio.NewReader(p.Stdout()).ReadString('\n'); err != nil || line != "started\n" {
+		t.Fatalf("read %q, %v; want the start marker", line, err)
 	}
 	pid := p.cmd.Process.Pid
 	if err := p.Close(); err != nil {

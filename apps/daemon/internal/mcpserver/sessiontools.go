@@ -26,9 +26,7 @@ func addSessionTools(s *mcp.Server, mgr *machine.Manager) {
 			"directory and variables, a REPL, a debugger, a build you want to watch, a server left running. " +
 			"Because there is a real tty, builds behave exactly as they do for a developer. Returns a sessionId; " +
 			"send input with machine_session_send, collect output with machine_session_read, and finish with " +
-			"machine_session_close. A command that prints very fast (hundreds of KB at once, like yes or cat of a " +
-			"big file) can stall tart's terminal stream and make every other tool on this machine fail until the " +
-			"session is closed; send bulk output to a file, or use machine_exec, which is bounded.",
+			"machine_session_close.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in startIn) (*mcp.CallToolResult, machine.SessionStartResult, error) {
 		res, err := mgr.SessionStart(ctx, in.RunID, in.Command)
 		return nil, res, err
@@ -62,8 +60,7 @@ func addSessionTools(s *mcp.Server, mgr *machine.Manager) {
 			"trailing carriage return or an unfinished terminal code is held until the next byte arrives, so an " +
 			"empty read with a small pending means nothing more is ready yet. running says whether the command " +
 			"is still going. Terminal colour and cursor codes are stripped, and the run record cites the byte " +
-			"range of every read. The daemon keeps only the last 1 MiB of output and the guest stores none: if " +
-			"you fall behind, the oldest bytes are lost and dropped says how many. Once running is false, exitCode " +
+			"range of every read. Only the last 1 MiB of output is kept for reading: if you fall behind, the oldest bytes are lost and dropped says how many. Once running is false, exitCode " +
 			"is how the command ended (0 for success), as in machine_exec; a command that exits non-zero is not " +
 			"an error. error says why tart itself ended a session, and then there is no exitCode.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in readIn) (*mcp.CallToolResult, machine.SessionReadResult, error) {

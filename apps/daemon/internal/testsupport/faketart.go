@@ -28,15 +28,16 @@ import (
 //	screen              "<width>x<height>" the input helper reports (default 1024x768)
 //	shot.b64            base64 PNG a screenshot returns
 //	ui.json             what the input helper's --ui-base64 prints (default: Finder, no elements)
-//	fail-session        an interactive session (`exec -i -t`) refuses to start
+//	fail-session        an interactive session (`exec -i ... greenroom-session`) exits 1 at once
 //	fail-serve          the live screen helper (`exec -i ... --serve`) fails to start
-//	session-exits       a session prints session-output, if present, and exits at once, with the code in
-//	                    session-exit-code (default 0)
+//	session-exits       a session's output file holds session-output, if present, and it exits at once,
+//	                    with the code in session-exit-code (default 0)
 //	tart-version        what `tart --version` prints (default tart.PinnedVersion)
 //	list-empty          `tart list` returns []
 //	vmnames, vmname     `tart list` reports these VMs running (default: one unrelated VM)
 //
-// The script writes session-stdin ("tty <rows> <cols>" or "pipe") and stopped (after stop or delete).
+// The script writes session-stdin ("tty <rows> <cols>" or "pipe"), a session's files
+// (greenroom-session.<id> and .pid, ADR 0017) and stopped (after stop or delete).
 // `--serve` runs the fake live screen helper; its own control files are listed in fakescreen.go.
 func FakeTart(t *testing.T) (bin string, control string) {
 	t.Helper()
@@ -53,6 +54,8 @@ func FakeTart(t *testing.T) (bin string, control string) {
 
 	script := `#!/bin/sh
 C="` + control + `"
+# The fake guest's temp dir, where session files land (the real guest uses its own TMPDIR or /tmp).
+export TMPDIR="$C"
 printf '%s\n' "$*" >> "$C/calls.log"
 sub="$1"; shift
 case "$sub" in
@@ -82,8 +85,10 @@ case "$sub" in
         [ -f "$C/fail-serve" ] && { echo "Error: VM is not running" >&2; exit 1; }
         exec env ` + fakeScreenEnv + `="$C" "` + self + `" ;;
     esac
-    # A session is "exec -i -t <name> <command>", modelled by cat. Real "tart exec -t" dies when its
-    # stdin is not a terminal, so record what the daemon handed us.
+    # A session is "exec -i <name> /bin/sh -c <wrapper> greenroom-session <id> <command>" (ADR 0017).
+    # It is modelled by the real script(1) running cat behind a host pty, writing the file the real
+    # read and close commands below use, so it echoes like the guest. The command is never run.
+    # Record whether the daemon handed tart a pipe or a terminal: it must be a pipe now.
     if [ "$1" = "-i" ] || [ "$1" = "-t" ]; then
       if [ -t 0 ]; then
         printf 'tty %s\n' "$(stty size < /dev/tty 2>/dev/null || stty size 2>/dev/null)" > "$C/session-stdin"
@@ -91,15 +96,22 @@ case "$sub" in
         echo "pipe" > "$C/session-stdin"
       fi
       [ -f "$C/fail-session" ] && { echo "Error: VM is not running" >&2; exit 1; }
+      f="$TMPDIR/greenroom-session.$7"
+      : > "$f"
+      echo $$ > "$f.pid"
       if [ -f "$C/session-exits" ]; then
-        cat "$C/session-output" 2>/dev/null
+        cat "$C/session-output" > "$f" 2>/dev/null
         code=$(cat "$C/session-exit-code" 2>/dev/null)
         exit "${code:-0}"
       fi
-      exec cat
+      exec /usr/bin/script -q -F "$f" /bin/cat > /dev/null
     fi
     if [ -f "$C/agent-down" ]; then echo "Error: is the Tart Guest Agent running?" >&2; exit 1; fi
     [ -f "$C/fail-exec" ] && { echo "Error: VM is not running" >&2; exit 1; }
+    # A session's output reads and its close run for real on the host (machine/sessionguest.go).
+    case "$*" in
+      *greenroom-session-read*|*greenroom-session-close*) shift; exec "$@" ;;
+    esac
     case "$*" in
       *authorized_keys*) [ -f "$C/fail-keyinstall" ] && { echo "Error: cannot write" >&2; exit 1; } ;;
     esac

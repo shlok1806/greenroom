@@ -212,49 +212,49 @@ func isTartFailure(code int, stderr string) bool {
 	return tartErrorLine.MatchString(strings.TrimSpace(s[strings.LastIndexByte(s, '\n')+1:]))
 }
 
-// Session is a long-lived `tart exec -i -t` child giving a guest command a
-// real terminal. It must run behind a host pty, never pipes: see openPTY.
+// Session is a long-lived `tart exec -i` child on plain pipes that carries a
+// guest session's input (ADR 0017). tart's own tty mode (`-t`) is not used:
+// in tart 2.37.0 a pty's output streaming through tart stalls and wedges the
+// guest agent (issue #30), so the guest makes its own pty and the output comes
+// back another way. The command's stdout goes to the host's /dev/null.
 type Session struct {
 	*child
-	master *os.File
-	stderr bytes.Buffer // tart's own complaints, not the guest's output
+	stdin     *os.File
+	stderr    tailBuffer // tart's own complaints, not the guest's output
+	closeOnce sync.Once
+	closeErr  error
 }
 
-// StartSession runs command in the guest behind a pty until it exits or Close
-// is called. tart's flags must precede the VM name or it treats them as part
-// of the command.
+// StartSession runs command in the guest with its stdin on a pipe until it
+// exits or Close is called. tart's flags must precede the VM name or it
+// treats them as part of the command.
 func (c *Client) StartSession(name string, command ...string) (*Session, error) {
-	master, slave, err := openPTY()
+	inR, inW, err := os.Pipe()
 	if err != nil {
-		return nil, fmt.Errorf("tart exec -i -t %s: %w", name, err)
+		return nil, fmt.Errorf("tart exec -i %s: %w", name, err)
 	}
-
-	cmd := exec.Command(c.Bin, append([]string{"exec", "-i", "-t", name}, command...)...)
-	s := &Session{master: master}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, &s.stderr
-	// A new session with the pty as controlling terminal makes tart a group
-	// leader, so Close can kill everything it started.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
-
+	s := &Session{stdin: inW}
+	cmd := exec.Command(c.Bin, append([]string{"exec", "-i", name}, command...)...)
+	cmd.Stdin, cmd.Stderr = inR, &s.stderr
+	// Its own process group, so Close can kill everything it started.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	s.child, err = startChild(cmd, nil)
-	// Drop the parent's slave so the master sees EOF when the command exits.
-	_ = slave.Close()
+	_ = inR.Close() // the child's end
 	if err != nil {
-		_ = master.Close()
-		return nil, fmt.Errorf("tart exec -i -t %s: %w", name, err)
+		_ = inW.Close()
+		return nil, fmt.Errorf("tart exec -i %s: %w", name, err)
 	}
 	return s, nil
 }
 
-// Output is the command's terminal output, including the pty's echo of what
-// was written. The caller must drain it; nothing else does.
-func (s *Session) Output() io.Reader { return ptyReader{s.master} }
-
-// Write sends bytes to the command's terminal input.
-func (s *Session) Write(p []byte) (int, error) { return s.master.Write(p) }
+// Write sends bytes to the command's stdin.
+func (s *Session) Write(p []byte) (int, error) { return s.stdin.Write(p) }
 
 // Running reports whether the command is still going.
 func (s *Session) Running() bool { return !s.exited() }
+
+// Done closes once the process has exited.
+func (s *Session) Done() <-chan struct{} { return s.done }
 
 // Err explains why a finished session stopped, if tart itself failed. tart
 // forwards the guest's exit code, so a non-zero exit is a result; tart being
@@ -298,18 +298,21 @@ func (s *Session) ExitCode() (code int, ok bool) {
 // closeWait is how long Close waits for a killed session to be reaped.
 var closeWait = 5 * time.Second
 
-// Close kills the command's process group, unless it has already exited,
-// then releases the terminal.
+// Close kills the host process group, unless it has already exited, and
+// closes stdin. It does not reach the guest: killing `tart exec` leaves the
+// guest command running, so ending it is the caller's job. Safe to repeat.
 func (s *Session) Close() error {
-	killErr := s.kill()
-	var waitErr error
-	select {
-	case <-s.done:
-	case <-time.After(closeWait):
-		waitErr = fmt.Errorf("tart exec (pid %d) still running %s after kill", s.cmd.Process.Pid, closeWait)
-	}
-	// Closing the master last lets the reader drain the command's final output.
-	return errors.Join(killErr, waitErr, s.master.Close())
+	s.closeOnce.Do(func() {
+		killErr := s.kill()
+		var waitErr error
+		select {
+		case <-s.done:
+		case <-time.After(closeWait):
+			waitErr = fmt.Errorf("tart exec -i (pid %d) still running %s after kill", s.cmd.Process.Pid, closeWait)
+		}
+		s.closeErr = errors.Join(killErr, waitErr, s.stdin.Close())
+	})
+	return s.closeErr
 }
 
 // child is a started tart process leading its own process group, which can

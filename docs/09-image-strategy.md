@@ -102,6 +102,9 @@ ghcr.io/cirruslabs/macos-tahoe-base   upstream, SIP off, TCC seeded
 - Homebrew tap is dead at 2.32.1. Install from the signed release (`apps/daemon/CLAUDE.md`).
 - `tart exec -t` crashes without a terminal on the **host** side. Give it a host pty with
   a non-zero window size. `EIO` on the master means the child exited.
+- `tart exec -t` output stalls after 100 to 250 KB of fast output and wedges the guest
+  agent until the exec ends (issue #30). A guest `script` writing straight to a non-tty
+  `tart exec` stalls too, less often. Sessions no longer use either (ADR 0017).
 
 ## 3. Identity: seed disk
 
