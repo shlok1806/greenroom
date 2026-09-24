@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -141,6 +142,56 @@ func TestEndToEndSession(t *testing.T) {
 	}
 
 	floodSession(ctx, t, mgr, runID)
+	closeKillsSession(ctx, t, mgr, runID, true)
+	closeKillsSession(ctx, t, mgr, runID, false)
+}
+
+// closeKillsSession proves machine_session_close ends the session's guest
+// processes and removes its files. Killing the host tart exec reaches none of
+// them. With settle false the close races the guest wrapper, which must then
+// start nothing.
+func closeKillsSession(ctx context.Context, t *testing.T, mgr *machine.Manager, runID string, settle bool) {
+	t.Helper()
+	secs := 377
+	if !settle {
+		secs = 388
+	}
+	probe := fmt.Sprintf("pgrep -fl 'slee[p] %d' || echo NO\"\"NE", secs)
+	start, err := mgr.SessionStart(ctx, runID, fmt.Sprintf("sleep %d", secs))
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if settle {
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			res, err := mgr.Exec(ctx, runID, probe, "", 20*time.Second)
+			if err == nil && !strings.Contains(res.Stdout, "NONE") {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("sleep %d never started in the guest: %+v %v", secs, res, err)
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	t0 := time.Now()
+	if _, err := mgr.SessionClose(ctx, runID, start.SessionID); err != nil {
+		t.Fatalf("SessionClose: %v", err)
+	}
+	t.Logf("close (settled=%v) took %.1fs", settle, time.Since(t0).Seconds())
+	// A wrapper that lost the race could still start after close returned.
+	time.Sleep(5 * time.Second)
+	res, err := mgr.Exec(ctx, runID, probe+"; ls \"${TMPDIR:-/tmp}\"/greenroom-session."+start.SessionID+"* 2>/dev/null; true", "", 20*time.Second)
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	t.Logf("after close (settled=%v): %q", settle, res.Stdout)
+	if !strings.Contains(res.Stdout, "NONE") {
+		t.Errorf("sleep %d survived machine_session_close: %q", secs, res.Stdout)
+	}
+	if strings.Contains(res.Stdout, "greenroom-session.") {
+		t.Errorf("session files survived machine_session_close: %q", res.Stdout)
+	}
 }
 
 // floodSession is issue #30: a session printing 3 MB at full speed stalled

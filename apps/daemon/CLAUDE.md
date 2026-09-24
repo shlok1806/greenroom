@@ -12,7 +12,7 @@ go test ./...                                   # no VM; fake tart
 go test -race ./...                             # before touching boot, recorder or sessions
 go test ./internal/machine -run TestFoo
 go test -tags tart -run TestEndToEnd -v -timeout 10m .         # real VM
-go test -tags tart -run TestEndToEndSession -v -timeout 12m .  # guest pty, ^C and a 3 MB flood in a real VM
+go test -tags tart -run TestEndToEndSession -v -timeout 12m .  # guest pty, ^C, a 3 MB flood and close in a real VM
 go test -tags tart -count=1 -timeout 20m ./...  # whole VM suite, as CI runs it
 golangci-lint run ./...
 
@@ -337,6 +337,11 @@ Interactive sessions (`machine_session_*`)
 - Close runs `sessionCloseScript` (HUP then KILL to script and everything on its pty,
   remove the files) before killing the host exec: killing `tart exec` never reaches the
   guest. Destroy only ends host processes; the VM takes the rest.
+- A close can beat the wrapper (start returns once the host exec spawns). Close leaves a
+  `<file>.closed` tombstone; the wrapper writes its pid, then checks it and starts nothing.
+  Keep that order in both scripts, or a racing close orphans the command.
+- Evicting ended sessions at the 16-session cap cleans their guest files in one background
+  exec, so `machine_session_start` never waits on the guest for it.
 - The size (40x120) is fixed at start; there is no resize from the host.
 - Output buffer is the last 1 MiB, read by absolute offset; reads cap at 256 KiB and
   report `dropped` and `pending`. `cleanTTY` strips escapes on the way out.
