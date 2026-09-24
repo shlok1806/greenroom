@@ -229,15 +229,17 @@ osascript -e 'tell application "Safari" to do JavaScript "1+1" in document 1'`},
 // exerciseWatchdog runs $1 in its own process group and kills the whole group after 30 s
 // (exit 124), as machine_exec's wrapper does: tart exec returns only when every holder of
 // the guest's pipes has exited, so killing the shell alone left a blocked osascript holding
-// the call open. macOS has no timeout(1).
-const exerciseWatchdog = `set -m
-/bin/sh -c "$1" &
+// the call open. The shell's job notices go to /dev/null and the call's stderr through fd 3,
+// as in execWrapper. macOS has no timeout(1).
+const exerciseWatchdog = `exec 3>&2 2>/dev/null
+set -m
+/bin/sh -c "$1" 2>&3 3>&- &
 p=$!
-(sleep 30; : > /tmp/greenroom-check-timedout; kill -KILL -"$p") >/dev/null 2>&1 </dev/null &
+(sleep 30; : > /tmp/greenroom-check-timedout; kill -KILL -"$p") >/dev/null 2>&1 </dev/null 3>&- &
 w=$!
 wait "$p"; s=$?
 kill -KILL "$w" 2>/dev/null
-[ -f /tmp/greenroom-check-timedout ] && { rm -f /tmp/greenroom-check-timedout; echo "timed out after 30 s" >&2; s=124; }
+[ -f /tmp/greenroom-check-timedout ] && { rm -f /tmp/greenroom-check-timedout; echo "timed out after 30 s" >&3; s=124; }
 exit $s`
 
 // checkPass exercises the machine, waits Linger, and looks.
