@@ -1,7 +1,8 @@
 # 0002. One derived run state, colours with one meaning, verdicts headed by who decided
 
 Date: 2026-09-22
-Status: accepted. Refines ADR 0001; the three-column window stands.
+Status: accepted. Refines ADR 0001. Amended by 0004 (colour table) and 0005 (failure
+navigation keys).
 
 ## Context
 

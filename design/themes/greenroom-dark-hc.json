@@ -1,0 +1,27 @@
+{
+  "name": "Greenroom Dark High Contrast",
+  "background": "#000000",
+  "foreground": "#ffffff",
+  "cursor-color": "#ffffff",
+  "cursor-text": "#000000",
+  "selection-background": "#ffffff",
+  "selection-foreground": "#000000",
+  "palette": [
+    "#000000",
+    "#ff8f87",
+    "#7fe08a",
+    "#ffd866",
+    "#9cc4ff",
+    "#f0a8ff",
+    "#6fe6e8",
+    "#e6e6e6",
+    "#a8a8a8",
+    "#ffb0aa",
+    "#a8f0b0",
+    "#ffe699",
+    "#bcd8ff",
+    "#f6c6ff",
+    "#a0f0f2",
+    "#ffffff"
+  ]
+}

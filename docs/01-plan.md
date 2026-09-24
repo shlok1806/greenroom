@@ -49,7 +49,8 @@ In rough priority order.
    `Manager` holds a concrete `*tart.Client`.
 7. Open issues: #7 (GPU crash dialog in graphics mode; graphics retired by ADR 0016,
    so it can close as won't fix), #22 (nothing installs `packer`),
-   #23 (transcript wastes a wide window).
+   #23 (transcript wastes a wide window; layout decided in companion ADR 0004, not built
+   yet).
 
 Not planned: fleet, multi-host, PR posting, warm machines (resume is not faster than cold
 boot on the base image; see `10-build-transport.md`).
