@@ -12,15 +12,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        // Every window that shows, and whenever its screen changes, is kept on its screen.
+        // The run window is fitted to its screen the first time it shows after launch, when
+        // macOS may have restored it off screen, and whenever it moves to another screen.
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didChangeScreenNotification] {
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let number = (note.object as? NSWindow)?.windowNumber
                 MainActor.assumeIsolated {
-                    if let number, let window = NSApp.window(withWindowNumber: number) { Self.keepOnScreen(window) }
+                    guard let self, let number, let window = NSApp.window(withWindowNumber: number),
+                          Self.isRunWindow(window) else { return }
+                    if name == NSWindow.didBecomeKeyNotification {
+                        guard !self.fittedAfterLaunch else { return }
+                        self.fittedAfterLaunch = true
+                    }
+                    Self.keepOnScreen(window)
                 }
             }
         }
+    }
+
+    private var fittedAfterLaunch = false
+
+    /// The `main` scene's window. Sheets, panels, alerts and popovers are smaller than the
+    /// run window's minimum and must keep their own size.
+    static func isRunWindow(_ window: NSWindow) -> Bool {
+        guard let id = window.identifier?.rawValue, id == "main" || id.hasPrefix("main-") else { return false }
+        return !(window is NSPanel) && window.sheetParent == nil
+            && window.styleMask.contains(.titled) && window.styleMask.contains(.resizable)
     }
 
     /// Fits a restored window that is wider or taller than its screen back onto it (#64).

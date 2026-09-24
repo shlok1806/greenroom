@@ -31,7 +31,8 @@ scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-lean] [-force]
 
 `usage()` prints each subcommand's flag set, so `greenroom` with no arguments lists every flag.
 `-verifier` defaults to `GREENROOM_VERIFIER`, then `nim`. `nim` without `NVIDIA_API_KEY`
-runs with no verifier and says so in each run's transcript.
+runs with no verifier and says so in each run's transcript, after every message that starts a
+turn (`noVerifierNotice` + kind), so a client never waits for an answer.
 
 HTTP has no authentication. `api.LocalOnly` wraps every route: 403 unless `Host` is loopback
 (DNS rebinding) and any `Origin` is loopback (cross-site). Writes under `/api` with a body

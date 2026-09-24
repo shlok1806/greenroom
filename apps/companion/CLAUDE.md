@@ -151,6 +151,9 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   The harness prints "window grew" when that happens; check its `G` (1024 x 660) shots.
 - The first window's size is `RunLayout.defaultWindowSize` of the screen's visible
   frame (`defaultWindowPlacement`), never the bare 1320 x 840.
+- `AppDelegate` fits only the `main` scene's window (`isRunWindow`) to its screen, the
+  first time it becomes key after launch and on every screen change. Sheets, panels
+  and alerts are smaller than `RunLayout.windowMinimum` and would be grown to it.
 - While driving, keys follow focus: the screen while it was clicked last (Command
   shortcuts included), the composer once it is clicked. "Give Back", clicked, returns the
   screen (in the bar above the picture, the player and the toolbar). Taking control from

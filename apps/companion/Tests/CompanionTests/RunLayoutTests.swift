@@ -31,6 +31,26 @@ final class RunLayoutTests: XCTestCase {
         XCTAssertEqual(RunLayout.fitted(frame: fine, visible: visible), fine)
     }
 
+    /// Only the run window is fitted; a smaller panel or dialog would be grown to its minimum.
+    func testOnlyTheRunWindowIsKeptOnScreen() {
+        func window(_ id: String?, _ style: NSWindow.StyleMask = [.titled, .resizable], panel: Bool = false) -> NSWindow {
+            let rect = CGRect(x: 0, y: 0, width: 260, height: 150)
+            let window = panel
+                ? NSPanel(contentRect: rect, styleMask: style, backing: .buffered, defer: true)
+                : NSWindow(contentRect: rect, styleMask: style, backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            window.identifier = id.map { NSUserInterfaceItemIdentifier($0) }
+            return window
+        }
+        XCTAssertTrue(AppDelegate.isRunWindow(window("main")))
+        XCTAssertTrue(AppDelegate.isRunWindow(window("main-AppWindow-1")))
+        XCTAssertFalse(AppDelegate.isRunWindow(window(nil)))
+        XCTAssertFalse(AppDelegate.isRunWindow(window("mainly")))
+        XCTAssertFalse(AppDelegate.isRunWindow(window("main", panel: true)))
+        XCTAssertFalse(AppDelegate.isRunWindow(window("main", [.titled])))
+        XCTAssertFalse(AppDelegate.isRunWindow(window("main", [.borderless])))
+    }
+
     func testDefaultWindowIsNeverUnderTheMinimum() {
         XCTAssertEqual(RunLayout.defaultWindowSize(visible: CGSize(width: 800, height: 500)),
                        RunLayout.windowMinimum)
