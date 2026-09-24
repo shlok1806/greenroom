@@ -1619,6 +1619,9 @@ func TestAHumanOnTheScreenEndsTheTurnWithAQuestionNotAVerdict(t *testing.T) {
 	if got := store.Verdict(); got.Verdict != "fail" {
 		t.Errorf("verdict = %+v, want the standing fail kept", got)
 	}
+	if last := lastMessage(t, store); !strings.Contains(last.Text, "verdict still stands") {
+		t.Errorf("question = %q, want it to say the fail still stands", last.Text)
+	}
 	if n := len(messagesOfKind(store, session.Progress)); n > 2 {
 		t.Errorf("%d clicks were tried while the human held the screen, want at most 2", n)
 	}
@@ -1643,5 +1646,60 @@ func TestAnInconclusiveCausedByTheLeaseIsAQuestion(t *testing.T) {
 	}
 	if res.Ended != session.Question || store.Verdict().Status != session.None {
 		t.Fatalf("ended %q with verdict %+v, want a question and no verdict", res.Ended, store.Verdict())
+	}
+	if last := lastMessage(t, store); strings.Contains(last.Text, "verdict still stands") {
+		t.Errorf("question = %q, but there is no verdict to stand", last.Text)
+	}
+}
+
+// Once the human gives the screen back mid-turn, an inconclusive is the model's own verdict.
+func TestAnInconclusiveAfterTheScreenIsGivenBackIsAVerdict(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
+		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "The build crashed on launch."}),
+	}}
+	model.onReasoning = func(n int) {
+		if n == 2 {
+			if _, _, err := mgr.ReleaseControl(runID, "human"); err != nil {
+				t.Errorf("ReleaseControl: %v", err)
+			}
+		}
+	}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Click it.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Verdict(); res.Ended != session.Verdict || got.Verdict != "inconclusive" || got.Summary != "The build crashed on launch." {
+		t.Fatalf("ended %q with verdict %+v, want the model's inconclusive posted", res.Ended, got)
+	}
+}
+
+// The coding agent holding the screen is asked to finish, not told to press Give Back.
+func TestTheQuestionNamesTheCodingAgentWhenItHoldsTheScreen(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	if _, _, err := mgr.TakeControl(runID, machine.HolderCoder, 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
+		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Click it.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := lastMessage(t, store)
+	if res.Ended != session.Question || !strings.Contains(last.Text, "coding agent") || strings.Contains(last.Text, "Give Back") {
+		t.Fatalf("ended %q with %q, want a question addressed to the coding agent", res.Ended, last.Text)
 	}
 }
