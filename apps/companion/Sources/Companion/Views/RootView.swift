@@ -70,14 +70,20 @@ struct RootView: View {
             OfflineView(store: store)
                 .toolbar(removing: .title)
                 .toolbar { emptyToolbar }
+        case .refused(let words, hasData: false):
+            RefusedView(store: store, words: words)
+                .toolbar(removing: .title)
+                .toolbar { emptyToolbar }
         case .connecting where store.runs.isEmpty:
             ConnectingView(address: store.daemonAddress)
                 .toolbar(removing: .title)
                 .toolbar { emptyToolbar }
         default:
             VStack(spacing: 0) {
-                if case .offline = store.connection {
-                    OfflineBanner(store: store)
+                switch store.connection {
+                case .offline: OfflineBanner(store: store, words: nil)
+                case .refused(let words, _): OfflineBanner(store: store, words: words)
+                case .connecting, .online: EmptyView()
                 }
                 if let runId = store.selectedRunId {
                     RunView(store: store, runId: runId, pane: $pane, showsConversation: $showsConversation,
@@ -185,18 +191,78 @@ private struct OfflineView: View {
     }
 }
 
-/// Runs are still readable while the daemon is away; one quiet line says they may be stale.
+/// The daemon is running and answered with an error: its words, never "start it".
+private struct RefusedView: View {
+    let store: RunStore
+    let words: String
+
+    @State private var retrying = false
+
+    var body: some View {
+        VStack(spacing: Space.l) {
+            Image(systemName: "exclamationmark.octagon")
+                .font(.system(size: 34))
+                .foregroundStyle(.secondary)
+            VStack(spacing: Space.xs) {
+                Text("The greenroom daemon refused the request")
+                    .font(.title3.weight(.semibold))
+                Text("The daemon at \(store.daemonAddress) is running and answered with an error:")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Text(words)
+                .font(.callout.monospaced())
+                .textSelection(.enabled)
+                .multilineTextAlignment(.center)
+            if let advice = ConnectionState.advice(for: words) {
+                Text(advice)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Button {
+                retrying = true
+                Task {
+                    await store.resync()
+                    retrying = false
+                }
+            } label: {
+                if retrying {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("Try Again")
+                }
+            }
+            .disabled(retrying)
+            .keyboardShortcut(.defaultAction)
+        }
+        .frame(maxWidth: 420)
+        .padding(Space.xxl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Runs are still readable while the daemon is away or refusing; one quiet line says
+/// they may be stale, and why in the daemon's words when it gave any.
 private struct OfflineBanner: View {
     let store: RunStore
+    /// The daemon's error when it answered with one; nil when nothing answered.
+    let words: String?
+
+    private var text: String {
+        if let words { return "\(words.hasSuffix(".") ? words : words + ".") This is what was last loaded." }
+        return "The daemon at \(store.daemonAddress) is not answering. This is what was last loaded."
+    }
 
     var body: some View {
         HStack(spacing: Space.s) {
             Image(systemName: "bolt.horizontal.circle")
                 .foregroundStyle(.secondary)
-            Text("The daemon at \(store.daemonAddress) is not answering. This is what was last loaded.")
+            Text(text)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .help(store.lastError ?? "")
+                .help(words ?? store.lastError ?? "")
             Spacer(minLength: Space.s)
             Button("Reconnect") { Task { await store.resync() } }
                 .controlSize(.small)
@@ -288,6 +354,13 @@ private struct NoSelectionView: View {
                 .foregroundStyle(.secondary)
             Text("No run open")
                 .font(.title3.weight(.semibold))
+            if let gone = store.goneRun {
+                Text("\u{201C}\(gone)\u{201D} is no longer on the daemon at \(store.daemonAddress).")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+            }
             if let suggestion {
                 let facts = store.facts(suggestion.runId)
                 Button(facts.needsYou ? "Open the Run That Needs You" : facts.isAlive ? "Open the Running Run" : "Open the Newest Run") {

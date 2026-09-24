@@ -134,6 +134,14 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.details["run-1"]?.status, .ready)
     }
 
+    /// Seen in the app on a destroyed run: a note sent there showed "Verifier is working"
+    /// under a composer saying nothing will answer.
+    func testNobodyIsWorkingOnARunWhoseVerifierStopped() {
+        let note = message(1, kind: .note, from: .human)
+        XCTAssertTrue(RunStore.verifierIsWorking([note], verifierListens: true))
+        XCTAssertFalse(RunStore.verifierIsWorking([note], verifierListens: false))
+    }
+
     func testAwaitingVerifier() {
         func note(_ seq: Int, from: MessageFrom) -> Message { message(seq, kind: .note, from: from) }
 
@@ -495,11 +503,143 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.connection, .online)
         XCTAssertEqual(store.runs.first?.task, "Check the tip")
 
-        let silent = RunStore(client: StubURLProtocol.client { _ in .json(#"{"error": "down"}"#, status: 503) })
+        let silent = RunStore(client: StubURLProtocol.client { _ in .unreachable })
         await silent.resync()
         XCTAssertEqual(silent.connection, .offline(hasData: false))
         silent.runs = [RunSummary(runId: "run-1", createdAt: Date())]
         XCTAssertEqual(silent.connection, .offline(hasData: true))
+    }
+
+    /// #54: an HTTP error status is the daemon answering, in its own words, not a daemon
+    /// that is absent.
+    func testAnHTTPErrorIsTheDaemonAnsweringInItsOwnWords() async {
+        let refusing = RunStore(client: StubURLProtocol.client { _ in
+            .json("forbidden: Host must be a loopback address", status: 403)
+        })
+        await refusing.resync()
+        XCTAssertEqual(refusing.connection,
+                       .refused("The daemon answered 403: forbidden: Host must be a loopback address", hasData: false))
+        refusing.runs = [RunSummary(runId: "run-1", createdAt: Date())]
+        XCTAssertEqual(refusing.connection,
+                       .refused("The daemon answered 403: forbidden: Host must be a loopback address", hasData: true))
+
+        let absent = RunStore(client: StubURLProtocol.client { _ in .unreachable })
+        await absent.resync()
+        XCTAssertEqual(absent.connection, .offline(hasData: false))
+    }
+
+    /// #53: one failed read of the list, then an event stream that stays open, must not
+    /// leave the window saying the daemon is not answering.
+    func testAFailedListReadIsRetriedWhileTheStreamStaysOpen() async throws {
+        let listReads = Counter()
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/events":
+                return .openStream
+            case "/api/runs":
+                listReads.add()
+                if listReads.value == 1 {
+                    return .json(#"{"error": "open /tmp/gr/runs: permission denied"}"#, status: 500)
+                }
+                return .json(#"[{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z"}]"#)
+            default:
+                return .json("{}")
+            }
+        }
+        let store = RunStore(client: client)
+        store.start()
+        defer { store.stop() }
+        try await eventually(within: .seconds(8)) { store.connection == .online }
+        XCTAssertEqual(store.runs.map(\.runId), ["run-1"])
+        XCTAssertNil(store.lastError)
+    }
+
+    /// #53: the first read of the list answers, then a read made for an event fails while
+    /// the stream stays open. The store must come back online without Reconnect.
+    func testALaterFailedListReadIsRetriedWhileTheStreamStaysOpen() async throws {
+        let listReads = Counter()
+        let stream = """
+        : ping
+
+        event: run
+        data: {"kind":"ready","runId":"run-1"}
+
+
+        """
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/events":
+                return StubURLProtocol.Reply(body: Data(stream.utf8), headers: ["Content-Type": "text/event-stream"], holdsOpen: true)
+            case "/api/runs":
+                listReads.add()
+                if listReads.value == 2 {
+                    return .json(#"{"error": "open /tmp/gr/runs: permission denied"}"#, status: 500)
+                }
+                return .json(#"[{"runId": "run-1", "createdAt": "2026-09-18T10:00:00Z"}]"#)
+            default:
+                return .json("{}")
+            }
+        }
+        let store = RunStore(client: client)
+        store.start()
+        defer { store.stop() }
+        try await eventually(within: .seconds(8)) { listReads.value >= 3 && store.connection == .online }
+        XCTAssertEqual(store.runs.map(\.runId), ["run-1"])
+    }
+
+    /// #68: the daemon came back without the open run (the list lacks it and the run
+    /// answers 404). Its old record must not stay on screen with live actions.
+    func testTheOpenRunIsLetGoWhenTheDaemonComesBackWithoutIt() async {
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/runs": .json(#"[{"runId": "run-x", "createdAt": "2026-09-18T10:00:00Z"}]"#)
+            default: .json(#"{"error": "no run run-y"}"#, status: 404)
+            }
+        }
+        let store = RunStore(client: client)
+        store.runs = [RunSummary(runId: "run-y", createdAt: Date(timeIntervalSince1970: 0), status: .ready, task: "Check the tip")]
+        store.selectedRunId = "run-y"
+        store.details["run-y"] = RunDetail(runId: "run-y", verdict: VerdictState(seq: 3, verdict: "pass", status: .proposed))
+        store.messages["run-y"] = [message(1, kind: .task)]
+        store.steps["run-y"] = []
+        store.frames["run-y"] = []
+
+        await store.resync()
+
+        XCTAssertEqual(store.runs.map(\.runId), ["run-x"])
+        XCTAssertNil(store.selectedRunId)
+        XCTAssertNil(store.details["run-y"])
+        XCTAssertNil(store.messages["run-y"])
+        XCTAssertNil(store.steps["run-y"])
+        XCTAssertNil(store.frames["run-y"])
+        XCTAssertNil(store.verdict("run-y"))
+        XCTAssertEqual(store.goneRun, "Check the tip")
+        // The notice says what happened; the 404s behind it are not an error.
+        XCTAssertNil(store.lastError)
+        XCTAssertEqual(store.connection, .online)
+
+        // Opening another run clears the notice.
+        store.selectedRunId = "run-x"
+        XCTAssertNil(store.goneRun)
+    }
+
+    /// A list that lacks the open run while the run itself still answers (a list read
+    /// before the run existed) keeps it open.
+    func testAnOpenRunTheDaemonStillHasStaysOpen() async {
+        let client = StubURLProtocol.client { request in
+            switch request.url?.path(percentEncoded: true) {
+            case "/api/runs": .json("[]")
+            case "/api/runs/run-y": .json(#"{"runId": "run-y", "createdAt": "2026-09-18T10:00:00Z"}"#)
+            case "/api/runs/run-y/messages": .json(#"{"messages": []}"#)
+            default: .json("[]")
+            }
+        }
+        let store = RunStore(client: client)
+        store.selectedRunId = "run-y"
+        await store.resync()
+        XCTAssertEqual(store.selectedRunId, "run-y")
+        XCTAssertEqual(store.details["run-y"]?.runId, "run-y")
+        XCTAssertNil(store.goneRun)
     }
 
     /// A run switch must never carry a lease: each run has its own pilot, lent by the

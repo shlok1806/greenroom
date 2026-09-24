@@ -92,6 +92,17 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   not open (the daemon may have restarted with other data), and a read that lands after
   a newer one of the same piece is discarded. URLSession holds an SSE response until the first
   bytes (the daemon's 15 s ping), so "Live" follows the resync, not the stream opening.
+  While the stream is open, any failed read of the run list (a resync, Try Again, or the
+  `perform(.runs)` an event triggers) starts the resync retry on the same backoff until the
+  list answers (`retryTheListIfItFailed`; one at a time, cancelled when the stream ends),
+  or the window would say "not answering" for as long as the stream lives.
+- Connection state follows the last list read (`ConnectionState`): `offline` only when
+  nothing answered; an HTTP error status is `refused`, shown in the daemon's words, never as
+  "not running". The composer is disabled only while `offline`.
+- The open run leaves when the daemon comes back without it: a resync whose fresh list lacks
+  it and whose detail read answers 404 clears the selection, drops what was held and sets
+  `RunStore.goneRun`, which "No run open" names. A list alone is not enough (a list read from
+  before the run existed misses it too).
 
 ## UI rules
 
@@ -144,7 +155,21 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   shortcuts included), the composer once it is clicked. "Give Back", clicked, returns the
   screen (in the bar above the picture, the player and the toolbar). Taking control from
   the toolbar or menu switches the stage to the Screen first.
-- Every list row has a readable summary (`StepSummary`), not raw JSON.
+- Every list row has a readable summary (`StepSummary`), not raw JSON, and every
+  `machine_*` tool a title (`ToolCatalog`). Input keys the daemon records for itself
+  (`reader` on `machine_ui`) never show. A tool-call row whose step is not held reads its
+  progress message through the same rules (`StepSummary.line(ofProgress:)`).
+- Only `RunView` sets a `.navigationTitle` (the run's short title); with no run open the
+  window is "Greenroom Companion". A title on a pane (the conversation) names the whole window.
+- Composer keys: Return and Cmd-Return send; Shift-Return and Option-Return insert a line
+  break at the cursor through the active field editor (a newline written into the binding
+  while the field is edited is overwritten by the editor); the binding and `selection`
+  path is only the fallback with no key window, as in tests. Left to the vertical
+  `TextField`, Shift-Return ends editing and selects the whole draft, so the next key
+  erases it.
+- The verdict card's words about Reject depend on `RunFacts.verifierListens`
+  (`VerdictReview.explanation`, and the rejected note): on a destroyed run nothing looks
+  again, so nothing may say it will.
 - A run's clock time comes from `createdAt`, never from its id (ids are UTC).
   `Chrome.runHash` takes the id's tail for display.
 - Durations go through `Chrome.clock`, or an 8-hour run reads "476:12".
@@ -175,6 +200,13 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   explicit `null`. Errors are `{"error": "..."}`; a message refused on a contested verdict
   is 409.
 - `RunSummary.task` is optional: a daemon before it decodes, and the run reads "Run <hash>".
+- `ScrollViewReader.scrollTo` in a `LazyVStack` finds a row it has not built only by its
+  `ForEach` identity (Steps: the `Step`), never by an `.id` set inside the row. Scroll to
+  the identity first, then to the inner id once the row exists (`StepsView.reveal`).
+- `HostedViewTests` host real views in an off-display, never-key `NSWindow` (title, scroll
+  position, keys into a field editor). The app is `.prohibited`, so there is no key window:
+  code that needs one (`NSApp.sendAction(_:to: nil ...)`, `NSApp.keyWindow`) does nothing there,
+  so it needs a fallback those tests exercise (the composer's Shift-Return).
 - A `Text` with `.fixedSize(horizontal: false, vertical: true)` in an empty state can make
   the window grow to thousands of points tall when first laid out narrow. Let it wrap.
   The verdict card's actions text is the same case: it gets its room from

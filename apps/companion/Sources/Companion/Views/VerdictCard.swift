@@ -80,7 +80,7 @@ struct VerdictCard: View {
 
     private func card(_ verdict: VerdictState) -> some View {
         let messages = store.messages[runId] ?? []
-        let review = VerdictReview.of(verdict, messages: messages)
+        let review = VerdictReview.of(verdict, messages: messages, verifierListens: facts.verifierListens)
         let checks = VerdictCheck.checks(verdict, messages: messages, steps: store.steps[runId])
         let tint = Palette.outcome(verdict.verdict)
         let words = TranscriptText.clean(text(verdict))
@@ -111,7 +111,7 @@ struct VerdictCard: View {
                             .font(.callout.weight(.medium))
                             .foregroundStyle(check == .noEvidence ? Palette.failure : Palette.attention)
                     }
-                    evidence(verdict, claims: VerdictCheck.claimedValues(words), detailed: detailed)
+                    evidence(verdict, words: words, detailed: detailed)
                     if detailed || verdict.status == .contested {
                         disputes(verdict, messages: messages)
                     }
@@ -203,13 +203,20 @@ struct VerdictCard: View {
     // MARK: - Evidence
 
     @ViewBuilder
-    private func evidence(_ verdict: VerdictState, claims: [String], detailed: Bool) -> some View {
+    private func evidence(_ verdict: VerdictState, words: String, detailed: Bool) -> some View {
         let items = Self.byStep((verdict.evidence ?? []).map(Evidence.parse))
         if !items.isEmpty {
             if detailed {
+                // Per step when the words say which step shows what; else once, for the
+                // whole verdict, never repeated under every picture.
+                let perStep = VerdictCheck.namesSteps(words)
                 VStack(alignment: .leading, spacing: Space.m) {
+                    if !perStep {
+                        ClaimsRow(claims: VerdictCheck.claimedValues(words), label: "It claims")
+                    }
                     ForEach(items, id: \.self) { item in
-                        EvidenceRow(store: store, runId: runId, item: item, claims: claims,
+                        EvidenceRow(store: store, runId: runId, item: item,
+                                    claims: perStep ? item.step.map { VerdictCheck.claimedValues(words, atStep: $0) } ?? [] : [],
                                     show: { seek(item, inSteps: false) }, record: { seek(item, inSteps: true) })
                     }
                 }
@@ -301,7 +308,8 @@ struct VerdictCard: View {
                 } else if draft.confirmingAccept, verdict.status.isOpen {
                     acceptConfirmation(outcome: outcome)
                 } else {
-                    Text(explanation(verdict, unreviewed: unreviewed, outcome: outcome))
+                    Text(VerdictReview.explanation(verdict, unreviewed: unreviewed,
+                                                   verifierListens: facts.verifierListens, alive: facts.isAlive))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     // Mac order: the primary action last, on the right, apart from the other.
@@ -329,28 +337,6 @@ struct VerdictCard: View {
             .controlSize(.regular)
             .padding(.top, Space.xxs)
         }
-    }
-
-    /// What each action does, in the daemon's own terms (session rules, ADR 0006).
-    private func explanation(_ verdict: VerdictState, unreviewed: Bool, outcome: String) -> String {
-        if unreviewed {
-            let rule = "The daemon does not let a person reopen a verdict the coding agent accepted. "
-            if !facts.verifierListens {
-                return rule + "The verifier stopped when this run's machine was destroyed, so nothing can answer a re-check."
-            }
-            if !facts.isAlive {
-                return rule + "This run has ended, so the verifier answers a re-check from the record: "
-                    + "the steps, pictures and conversation it already has."
-            }
-            return rule
-                + "A re-check asks the verifier to look again with your reason; you can accept or reject what it proposes next."
-        }
-        if verdict.status == .contested {
-            return "Accept closes it with this \(outcome.lowercased()) verdict. Reject closes it as rejected. "
-                + "Either way the coding agent and the verifier read your decision in the conversation."
-        }
-        return "Accept closes it with this \(outcome.lowercased()) verdict. Reject sends your reason to the verifier, which looks again; "
-            + "after that only a person can close its verdicts. The coding agent sees both in the conversation."
     }
 
     /// Asked in the card, not in a dialog: accepting redraws the card, and a sheet whose
@@ -520,23 +506,7 @@ private struct EvidenceRow: View {
                 .buttonStyle(.plain)
                 .help("Show step \(number) on the screen, full size")
             }
-            if !claims.isEmpty {
-                HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
-                    Text("It claims")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    FlowLayout(spacing: Space.xs) {
-                        ForEach(claims, id: \.self) { value in
-                            Text(value)
-                                .font(.callout.monospacedDigit().weight(.semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1)
-                                .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: Radius.chip))
-                        }
-                    }
-                }
-                .help("Values the verdict's own words say are on screen: check them against the picture")
-            }
+            ClaimsRow(claims: claims, label: "It claims here")
             if let step {
                 Text(StepExcerpt.text(step))
                     .font(.caption.monospaced())
@@ -552,6 +522,32 @@ private struct EvidenceRow: View {
         case .ok: ""
         case .exit(let code): ", exited \(code)"
         case .error: ", failed"
+        }
+    }
+}
+
+/// Values the verdict's words say are on screen, as chips; nothing when there are none.
+private struct ClaimsRow: View {
+    let claims: [String]
+    let label: String
+
+    var body: some View {
+        if !claims.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                FlowLayout(spacing: Space.xs) {
+                    ForEach(claims, id: \.self) { value in
+                        Text(value)
+                            .font(.callout.monospacedDigit().weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: Radius.chip))
+                    }
+                }
+            }
+            .help("Values the verdict's own words say are on screen: check them against the picture")
         }
     }
 }

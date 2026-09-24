@@ -205,6 +205,35 @@ final class VerdictReviewTests: XCTestCase {
         XCTAssertFalse(review.closed)
     }
 
+    /// #58: the verifier stops with a destroyed machine, so Reject cannot promise a
+    /// second look there.
+    func testOnADestroyedRunRejectPromisesNoSecondLook() {
+        let proposed = VerdictState(seq: 4, verdict: "fail", status: .proposed)
+        let listening = VerdictReview.explanation(proposed, unreviewed: false, verifierListens: true, alive: true)
+        XCTAssertTrue(listening.contains("looks again"), listening)
+
+        let stopped = VerdictReview.explanation(proposed, unreviewed: false, verifierListens: false, alive: false)
+        XCTAssertFalse(stopped.contains("looks again"), stopped)
+        XCTAssertTrue(stopped.contains("nothing will look again"), stopped)
+
+        let contested = VerdictState(seq: 4, verdict: "fail", status: .contested)
+        let contestedStopped = VerdictReview.explanation(contested, unreviewed: false, verifierListens: false, alive: false)
+        XCTAssertFalse(contestedStopped.contains("the verifier read"), contestedStopped)
+    }
+
+    func testARejectionOnADestroyedRunSaysNobodyWasAskedToLookAgain() {
+        let rejected = VerdictState(seq: 4, verdict: "pass", status: .rejected)
+        let dispute = Message(seq: 5, at: at, from: .human, kind: .dispute, text: "wrong", replyTo: 4)
+        XCTAssertEqual(VerdictReview.of(rejected, messages: [dispute], verifierListens: true, timeOfDay: clock).note,
+                       "The verifier was asked to look again.")
+        XCTAssertEqual(VerdictReview.of(rejected, messages: [dispute], verifierListens: false, timeOfDay: clock).note,
+                       "The verifier stopped with the machine, so nothing will look again.")
+        // Rejected while it still listened, and it answered: that look happened.
+        let answer = Message(seq: 6, at: at, from: .verifier, kind: .reply, text: "Looked again.")
+        XCTAssertEqual(VerdictReview.of(rejected, messages: [dispute, answer], verifierListens: false, timeOfDay: clock).note,
+                       "The verifier was asked to look again.")
+    }
+
     func testChecksComeFromTheRecord() {
         let steps = [Step(seq: 9, at: at, tool: "machine_screenshot"), Step(seq: 16, at: at, tool: "machine_exec", error: "boom")]
         let verdict = VerdictState(seq: 4, verdict: "pass", evidence: ["step 9", "step 16", "step 40"], status: .proposed)
@@ -296,6 +325,26 @@ final class TitleAndWordsTests: XCTestCase {
     func testClaimedValuesAreTheNumbersInTheWords() {
         XCTAssertEqual(VerdictCheck.claimedValues("Tip 20% of 120 = $24.00; Each pays $48.00, not $8.00. Ratio 1.5, $24.00 again"),
                        ["20%", "$24.00", "$48.00", "$8.00", "1.5"])
+    }
+
+    /// Seen in the app: the same "It claims 20% $24.00 ..." row under every cited step. A
+    /// step shows only the values of the sentences that name it; a verdict that names no
+    /// step has its values once, for the whole verdict.
+    func testEachCitedStepShowsOnlyTheValuesClaimedAtIt() {
+        let text = "At step 26 the bill is $180.00 with an 18% tip and the screen reads $45.00. "
+            + "At step 27, after changing the tip to 20%, it still reads $45.00. Steps 30 and 31 show $0.00."
+        XCTAssertEqual(VerdictCheck.claimedValues(text, atStep: 26), ["$180.00", "18%", "$45.00"])
+        XCTAssertEqual(VerdictCheck.claimedValues(text, atStep: 27), ["20%", "$45.00"])
+        XCTAssertEqual(VerdictCheck.claimedValues(text, atStep: 31), ["$0.00"])
+        XCTAssertEqual(VerdictCheck.claimedValues(text, atStep: 9), [])
+        let serial = "Steps 4, 5, and 6 show $3.00."
+        XCTAssertEqual(VerdictCheck.claimedValues(serial, atStep: 6), ["$3.00"])
+        XCTAssertEqual(VerdictCheck.claimedValues(serial, atStep: 4), ["$3.00"])
+        let decimal = "At step 12 and 13.50 later the total is wrong."
+        XCTAssertEqual(VerdictCheck.claimedValues(decimal, atStep: 12), ["13.50"])
+        XCTAssertEqual(VerdictCheck.claimedValues(decimal, atStep: 13), [])
+        XCTAssertTrue(VerdictCheck.namesSteps(text))
+        XCTAssertFalse(VerdictCheck.namesSteps("Each pays $48.00 at 20%."))
     }
 
     func testEachDisputeCarriesTheVerifiersAnswer() {

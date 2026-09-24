@@ -116,8 +116,16 @@ final class RunStore: PilotHost {
     var connected = false
     /// Whether the last read of the run list answered; nil before the first one finishes.
     var reachable: Bool?
+    /// The daemon's words when it answered that read with an HTTP error: it is running
+    /// and refused, which is not the same as nothing answering.
+    var refusal: String?
     var lastError: String?
-    var selectedRunId: String?
+    var selectedRunId: String? {
+        didSet { if selectedRunId != nil, goneRun != nil { goneRun = nil } }
+    }
+    /// The title of the run that was open when the daemon came back without it, until
+    /// another run is opened.
+    private(set) var goneRun: String?
     var seekRequest: SeekRequest?
     private(set) var verdictDrafts: [String: VerdictDraft] = [:]
 
@@ -135,6 +143,11 @@ final class RunStore: PilotHost {
 
     private let frameCache = FrameCache()
     private var streamTask: Task<Void, Never>?
+    /// Whether the event stream is up, so a failed read of the list is retried rather
+    /// than left until the next drop.
+    private var streamOpen = false
+    /// The one retry of the run list, while the stream is up and the last read failed.
+    private var listRetry: Task<Void, Never>?
     private var seekNonce = 0
     private var pilots: [String: ControlPilot] = [:]
     /// The newest read started for each piece, so an older answer landing late never
@@ -166,6 +179,7 @@ final class RunStore: PilotHost {
     func stop() {
         streamTask?.cancel()
         streamTask = nil
+        endListRetries()
         connected = false
     }
 
@@ -175,6 +189,11 @@ final class RunStore: PilotHost {
             // URLSession holds an SSE response back until the first bytes (a
             // ping, up to 15 s), so a daemon that just answered counts as live.
             connected = await resync()
+            // The stream may stay open for hours; a failed read of the list must not
+            // leave the window saying the daemon is down all that time.
+            streamOpen = true
+            retryTheListIfItFailed()
+            defer { endListRetries() }
             do {
                 for try await item in client.events() {
                     switch item {
@@ -196,6 +215,32 @@ final class RunStore: PilotHost {
         }
     }
 
+    /// Starts the retry of the run list when its last read failed while the stream is up,
+    /// unless one is already running.
+    private func retryTheListIfItFailed() {
+        guard streamOpen, reachable == false, listRetry == nil else { return }
+        listRetry = Task { [weak self] in await self?.resyncUntilTheListAnswers() }
+    }
+
+    /// The stream ended, which resyncs by itself.
+    private func endListRetries() {
+        streamOpen = false
+        listRetry?.cancel()
+        listRetry = nil
+    }
+
+    /// While the stream is up, resyncs on the reconnect backoff until a read of the run
+    /// list answers.
+    private func resyncUntilTheListAnswers() async {
+        var backoff = Backoff()
+        while reachable != true {
+            try? await Task.sleep(for: .seconds(backoff.next()))
+            if Task.isCancelled { return }
+            if await resync() { connected = true }
+        }
+        if !Task.isCancelled { listRetry = nil }
+    }
+
     // MARK: - Fetching
 
     /// The run list always, plus every piece of the selected run. Run after
@@ -209,16 +254,37 @@ final class RunStore: PilotHost {
     /// True when the daemon answered the run list.
     @discardableResult
     func resync() async -> Bool {
-        var failures: [Error] = []
+        let selected = selectedRunId
+        let title = selected.map { RunTitle.short(task: run($0)?.task ?? RunTitle.task(in: messages[$0] ?? []), runId: $0) }
+        var failures: [(fetch: Fetch, error: Error)] = []
         var reached = true
-        for fetch in RunStore.resyncPlan(selected: selectedRunId) {
+        for fetch in RunStore.resyncPlan(selected: selected) {
             guard let error = await attempt(fetch) else { continue }
-            failures.append(error)
+            failures.append((fetch, error))
             if fetch == .runs { reached = false }
         }
-        if reached { forgetUnselected() }
-        settle(failures)
+        if reached {
+            if let selected, let title, selectedRunId == selected, isGone(selected, failures: failures) {
+                // The daemon came back without the open run: showing its old record, or
+                // inventing one, would let a person act on a run that does not exist.
+                selectedRunId = nil
+                goneRun = title
+                failures.removeAll { $0.fetch != .runs }
+            }
+            forgetUnselected()
+        }
+        settle(failures.map(\.error))
         return reached
+    }
+
+    /// Gone only when both say so: the fresh list lacks it and the run itself answers
+    /// 404. A list read from before the run existed misses it too, but the run answers.
+    private func isGone(_ runId: String, failures: [(fetch: Fetch, error: Error)]) -> Bool {
+        guard run(runId) == nil else { return false }
+        return failures.contains { failure in
+            guard failure.fetch == .detail(runId), case DaemonError.status(404, _)? = failure.error as? DaemonError else { return false }
+            return true
+        }
     }
 
     /// The daemon may have restarted with other data, so what is held for runs that are
@@ -249,9 +315,19 @@ final class RunStore: PilotHost {
                     let listed = Set(runs.map(\.runId))
                     verdictDrafts = verdictDrafts.filter { listed.contains($0.key) }
                     reachable = true
+                    refusal = nil
                     learnMissingTasks()
                 } catch {
-                    if !RunStore.isCancellation(error) { reachable = false }
+                    if !RunStore.isCancellation(error) {
+                        reachable = false
+                        // An HTTP error status is an answer, in the daemon's own words.
+                        if case DaemonError.status? = error as? DaemonError {
+                            refusal = (error as? LocalizedError)?.errorDescription
+                        } else {
+                            refusal = nil
+                        }
+                        retryTheListIfItFailed()
+                    }
                     throw error
                 }
             case .detail(let runId):
@@ -576,7 +652,7 @@ final class RunStore: PilotHost {
     // MARK: - Derived
 
     var connection: ConnectionState {
-        ConnectionState.derive(reachable: reachable, hasData: !runs.isEmpty)
+        ConnectionState.derive(reachable: reachable, refusal: refusal, hasData: !runs.isEmpty)
     }
 
     /// Where the daemon is, as a person would type it.
@@ -665,6 +741,13 @@ final class RunStore: PilotHost {
                 }
             }
         }
+    }
+
+    /// Whether the transcript shows "Verifier is working": it owes an answer and can still
+    /// give one. A destroyed run's verifier has stopped, so its last human message waits
+    /// for nothing, whatever the daemon posted after it.
+    nonisolated static func verifierIsWorking(_ messages: [Message], verifierListens: Bool) -> Bool {
+        verifierListens && awaitingVerifier(messages)
     }
 
     /// True while the verifier owes an answer (ADR 0006, "A human is always

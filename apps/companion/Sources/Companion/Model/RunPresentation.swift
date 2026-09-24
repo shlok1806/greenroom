@@ -83,6 +83,11 @@ enum ToolCatalog {
         case "machine_input": Entry(title: "Input", symbol: "cursorarrow.click")
         case "machine_click": Entry(title: "Click", symbol: "cursorarrow.click")
         case "machine_type": Entry(title: "Type", symbol: "keyboard")
+        case "machine_key": Entry(title: "Key", symbol: "keyboard")
+        case "machine_scroll": Entry(title: "Scroll", symbol: "scroll")
+        case "machine_ui": Entry(title: "Read UI", symbol: "list.bullet.indent")
+        case "machine_approve_capture": Entry(title: "Approve capture", symbol: "checkmark.shield")
+        case "machine_list": Entry(title: "List machines", symbol: "list.bullet")
         case "machine_destroy": Entry(title: "Destroy", symbol: "trash")
         case let name where name.hasPrefix("machine_session"): Entry(title: "Session", symbol: "apple.terminal")
         default: Entry(title: tool.isEmpty ? "Tool" : tool, symbol: "wrench.and.screwdriver")
@@ -234,15 +239,28 @@ enum ConnectionState: Equatable, Sendable {
     /// No read has finished yet.
     case connecting
     case online
-    /// The last read failed. `hasData` says whether runs are still on screen.
+    /// The last read got no answer. `hasData` says whether runs are still on screen.
     case offline(hasData: Bool)
+    /// The daemon answered the last read with an HTTP error: it is running and refused,
+    /// in these words. Never "not running".
+    case refused(String, hasData: Bool)
 
-    /// `reachable` is nil before the first read finishes.
-    static func derive(reachable: Bool?, hasData: Bool) -> ConnectionState {
+    /// `reachable` is nil before the first read finishes; `refusal` is the daemon's
+    /// words when that read failed with an HTTP status.
+    static func derive(reachable: Bool?, refusal: String? = nil, hasData: Bool) -> ConnectionState {
         switch reachable {
         case nil: .connecting
         case true?: .online
-        case false?: .offline(hasData: hasData)
+        case false?: refusal.map { .refused($0, hasData: hasData) } ?? .offline(hasData: hasData)
         }
+    }
+
+    /// What to do about a refusal the daemon's words alone do not explain. `api.LocalOnly`
+    /// refuses any Host that is not a loopback name, which a `GREENROOM_URL` with a LAN or
+    /// bridge address always sends.
+    static func advice(for words: String) -> String? {
+        guard words.localizedCaseInsensitiveContains("loopback") else { return nil }
+        return "The daemon only answers requests addressed to 127.0.0.1 or localhost. "
+            + "Reach it through a loopback address, for example a port forward, and set GREENROOM_URL to that."
     }
 }

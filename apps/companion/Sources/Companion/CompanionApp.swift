@@ -45,7 +45,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 public enum CompanionMain {
     @MainActor
     public static func run() {
+        LegacyDefaults.forget(in: .standard)
         CompanionApp.main()
+    }
+}
+
+/// Settings an older build saved that this one must not inherit.
+enum LegacyDefaults {
+    /// `verdictCardExpanded` opened every verdict card's evidence and survived relaunch
+    /// (#52). Nothing reads it now; removing it keeps a stuck install from carrying it on.
+    static let keys = ["verdictCardExpanded"]
+
+    static func forget(in defaults: UserDefaults) {
+        for key in keys { defaults.removeObject(forKey: key) }
     }
 }
 

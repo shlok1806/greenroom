@@ -1,0 +1,214 @@
+import AppKit
+import SwiftUI
+import XCTest
+
+@testable import Companion
+
+/// The real views in a real `NSWindow`, for rules only AppKit can show: the window's
+/// title, where a list scrolled, what a key did to a text field. The window sits far off
+/// every display, and xctest never becomes a Dock app (as in `LiveScreenTests`).
+@MainActor
+final class HostedViewTests: XCTestCase {
+    private var windows: [NSWindow] = []
+
+    override func tearDown() async throws {
+        for window in windows {
+            window.orderOut(nil)
+            window.close()
+        }
+        windows = []
+    }
+
+    private func host(_ view: some View, size: CGSize = CGSize(width: 1200, height: 700)) -> NSWindow {
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        let window = OffDisplayWindow(
+            contentRect: CGRect(origin: OffDisplayWindow.origin, size: size),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.title = "Greenroom Companion"
+        let host = NSHostingController(rootView: view)
+        host.sceneBridgingOptions = [.toolbars, .title]
+        window.contentViewController = host
+        window.setContentSize(size)
+        window.setFrameOrigin(OffDisplayWindow.origin)
+        window.orderFrontRegardless()
+        windows.append(window)
+        return window
+    }
+
+    private nonisolated static let created = "2026-09-18T10:00:00Z"
+
+    /// Answers every route for one run, `run-1`, with `steps` steps. Messages the app
+    /// posts are handed to `posted`.
+    private func client(steps: Int = 0, failing: Set<Int> = [], posted: (@Sendable (Data) -> Void)? = nil) -> DaemonClient {
+        let stepList = (1...max(steps, 1)).prefix(steps).map { seq in
+            failing.contains(seq)
+                ? #"{"seq": \#(seq), "at": "\#(Self.created)", "tool": "machine_exec", "input": {"command": "false"}, "error": "exit 1"}"#
+                : #"{"seq": \#(seq), "at": "\#(Self.created)", "tool": "machine_exec", "input": {"command": "echo \#(seq)"}, "output": {"exitCode": 0}}"#
+        }.joined(separator: ",")
+        return StubURLProtocol.client { request in
+            switch (request.httpMethod ?? "GET", request.url?.path(percentEncoded: true) ?? "") {
+            case ("GET", "/api/runs"):
+                return .json(#"[{"runId": "run-1", "createdAt": "\#(Self.created)", "status": "finished", "task": "Check the tip splitter", "steps": \#(steps)}]"#)
+            case ("GET", "/api/runs/run-1"):
+                return .json(#"{"runId": "run-1", "createdAt": "\#(Self.created)", "status": "finished"}"#)
+            case ("GET", "/api/runs/run-1/messages"):
+                return .json(#"{"messages": [{"seq": 1, "at": "\#(Self.created)", "from": "coder", "kind": "task", "text": "Check the tip splitter"}]}"#)
+            case ("GET", "/api/runs/run-1/steps"):
+                return .json("[\(stepList)]")
+            case ("POST", "/api/runs/run-1/messages"):
+                if let body = request.httpBody ?? request.httpBodyStream.map(Self.read) { posted?(body) }
+                return .json("{}")
+            default:
+                return .json("[]")
+            }
+        }
+    }
+
+    private nonisolated static func read(_ stream: InputStream) -> Data {
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            guard count > 0 else { break }
+            data.append(buffer, count: count)
+        }
+        return data
+    }
+
+    private func settle(_ seconds: Double = 0.6) async throws {
+        try await Task.sleep(for: .seconds(seconds))
+    }
+
+    /// Waits up to `limit` for `condition`; the assertion after it says what went wrong.
+    private func waitUntil(within limit: Duration = .seconds(4), _ condition: () -> Bool) async {
+        try? await eventually(within: limit, condition)
+    }
+
+    // MARK: - #61 the window's title
+
+    /// The one window is named by the open run (or the app), never by a pane in it.
+    func testTheWindowIsNamedByTheOpenRunNotItsConversation() async throws {
+        UserDefaults.standard.set(true, forKey: "showsConversation")
+        let store = RunStore(client: client())
+        await store.resync()
+        store.selectedRunId = "run-1"
+        let window = host(RootView(store: store))
+        await waitUntil { window.title == "Check the tip splitter" }
+        XCTAssertEqual(window.title, "Check the tip splitter")
+    }
+
+    /// Not a regression of #61 (the conversation is not shown then), but the other half
+    /// of its rule.
+    func testWithNoRunOpenTheWindowIsTheApp() async throws {
+        UserDefaults.standard.set("none", forKey: "selectedRunId")
+        let store = RunStore(client: client())
+        await store.resync()
+        let window = host(RootView(store: store))
+        try await settle()
+        XCTAssertNil(store.selectedRunId)
+        XCTAssertEqual(window.title, "Greenroom Companion")
+    }
+
+    // MARK: - #59 scrolling the Steps list to a step
+
+    private func scrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView, scroll.documentView != nil { return scroll }
+        for child in view.subviews {
+            if let found = scrollView(in: child) { return found }
+        }
+        return nil
+    }
+
+    /// Next Failure and every link to a step scroll the list to it, however far down.
+    func testRevealingAStepScrollsTheListToIt() async throws {
+        UserDefaults.standard.set(false, forKey: "stepsErrorsOnly")
+        let store = RunStore(client: client(steps: 300, failing: [207]))
+        await store.resync()
+        store.selectedRunId = "run-1"
+        await store.select("run-1")
+        XCTAssertEqual(store.steps["run-1"]?.count, 300)
+        let window = host(StepsView(store: store, runId: "run-1").frame(width: 900, height: 600),
+                          size: CGSize(width: 900, height: 600))
+        try await settle()
+        let scroll = try XCTUnwrap(scrollView(in: try XCTUnwrap(window.contentView)))
+        XCTAssertLessThan(scroll.documentVisibleRect.minY, 100, "starts at the top")
+
+        store.requestSeek(runId: "run-1", step: 207, inSteps: true)
+        let half = try XCTUnwrap(scroll.documentView).bounds.height * 0.5
+        await waitUntil { scroll.documentVisibleRect.minY > half }
+        let visible = scroll.documentVisibleRect
+        let document = try XCTUnwrap(scroll.documentView).bounds
+        // Step 207 of 300 sits well down the list; the view must have moved there.
+        XCTAssertGreaterThan(visible.minY, document.height * 0.5, "the list stayed at \(visible) of \(document)")
+    }
+
+    // MARK: - #65 Shift-Return in the composer
+
+    private func textView(in view: NSView) -> NSView? {
+        if view is NSTextView || view is NSTextField, view.acceptsFirstResponder { return view }
+        for child in view.subviews {
+            if let found = textView(in: child) { return found }
+        }
+        return nil
+    }
+
+    private func key(_ window: NSWindow, return modifiers: NSEvent.ModifierFlags) throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+            isARepeat: false, keyCode: 36
+        ))
+        window.sendEvent(event)
+    }
+
+    /// The design spec's keyboard table: Return sends, Shift-Return is a new line. The
+    /// message the daemon receives is both lines.
+    func testShiftReturnStartsANewLineAndReturnSendsBoth() async throws {
+        let sent = Box()
+        let store = RunStore(client: client(posted: { sent.set($0) }))
+        await store.resync()
+        await store.select("run-1")
+        let window = host(ConversationView(store: store, runId: "run-1").frame(width: 420, height: 700),
+                          size: CGSize(width: 420, height: 700))
+        try await settle()
+        let field = try XCTUnwrap(textView(in: try XCTUnwrap(window.contentView)))
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(window.firstResponder as? NSTextView, "no field editor")
+
+        // A person's keys arrive a run loop turn or more apart.
+        editor.insertText("line one", replacementRange: editor.selectedRange())
+        try await settle(0.2)
+        try key(window, return: .shift)
+        try await settle(0.2)
+        editor.insertText("line two", replacementRange: editor.selectedRange())
+        await waitUntil { editor.string == "line one\nline two" }
+        XCTAssertEqual(editor.string, "line one\nline two")
+
+        try key(window, return: [])
+        try await eventually { sent.value != nil }
+        let body = try JSONSerialization.jsonObject(with: try XCTUnwrap(sent.value)) as? [String: Any]
+        XCTAssertEqual(body?["text"] as? String, "line one\nline two")
+    }
+}
+
+/// Stays where it is put, far off every display; AppKit would otherwise pull a titled
+/// window back on screen. Never key, like the snapshot harness's.
+private final class OffDisplayWindow: NSWindow {
+    static let origin = CGPoint(x: -30_000, y: -30_000)
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+private final class Box: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data: Data?
+    var value: Data? { lock.withLock { data } }
+    func set(_ new: Data) { lock.withLock { data = new } }
+}

@@ -15,7 +15,8 @@ struct VerdictReview: Equatable, Sendable {
     /// Whether this verdict is the final word.
     var closed: Bool
 
-    static func of(_ verdict: VerdictState, messages: [Message], timeOfDay: (Date) -> String = Chrome.shortTime) -> VerdictReview {
+    static func of(_ verdict: VerdictState, messages: [Message], verifierListens: Bool = true,
+                   timeOfDay: (Date) -> String = Chrome.shortTime) -> VerdictReview {
         let closing = messages.last { ($0.kind == .accept || $0.kind == .dispute) && $0.replyTo == verdict.seq }
         let when = closing.map { " at \(timeOfDay($0.at))" } ?? ""
         let disputes = verdict.disputes == 1 ? "once" : "\(verdict.disputes) times"
@@ -46,16 +47,51 @@ struct VerdictReview: Equatable, Sendable {
                 closed: false
             )
         case .rejected:
+            // The verifier stops with a destroyed machine; unless it answered the
+            // rejection before that, nothing is looking again.
+            let answered = closing.map { dispute in
+                messages.contains { $0.from == .verifier && $0.kind != .progress && $0.seq > dispute.seq }
+            } ?? false
             return VerdictReview(
                 state: "You rejected",
                 decision: when.isEmpty ? "" : String(when.dropFirst()),
                 humanReviewed: true,
-                note: "The verifier was asked to look again.",
+                note: verifierListens || answered
+                    ? "The verifier was asked to look again."
+                    : "The verifier stopped with the machine, so nothing will look again.",
                 closed: true
             )
         case .none, .unknown:
             return VerdictReview(state: "No verdict", decision: "", humanReviewed: false, note: nil, closed: false)
         }
+    }
+
+    /// What each action does, in the daemon's own terms (session rules, ADR 0006).
+    static func explanation(_ verdict: VerdictState, unreviewed: Bool, verifierListens: Bool, alive: Bool) -> String {
+        let outcome = Chrome.outcomeTitle(verdict.verdict)
+        if unreviewed {
+            let rule = "The daemon does not let a person reopen a verdict the coding agent accepted. "
+            if !verifierListens {
+                return rule + "The verifier stopped when this run's machine was destroyed, so nothing can answer a re-check."
+            }
+            if !alive {
+                return rule + "This run has ended, so the verifier answers a re-check from the record: "
+                    + "the steps, pictures and conversation it already has."
+            }
+            return rule
+                + "A re-check asks the verifier to look again with your reason; you can accept or reject what it proposes next."
+        }
+        let accept = "Accept closes it with this \(outcome.lowercased()) verdict. "
+        if !verifierListens {
+            return accept + "Reject closes it as rejected with your reason. The verifier stopped when this run's machine "
+                + "was destroyed, so nothing will look again. The coding agent sees your decision in the conversation."
+        }
+        if verdict.status == .contested {
+            return accept + "Reject closes it as rejected. "
+                + "Either way the coding agent and the verifier read your decision in the conversation."
+        }
+        return accept + "Reject sends your reason to the verifier, which looks again; "
+            + "after that only a person can close its verdicts. The coding agent sees both in the conversation."
     }
 
     private static func name(_ from: MessageFrom?) -> String {
@@ -144,6 +180,49 @@ enum VerdictCheck: Hashable, Sendable {
         if pass >= fail + 2 { return "pass" }
         if fail >= pass + 2 { return "fail" }
         return nil
+    }
+
+    /// The values claimed in the sentences that name `step` ("At step 26 ...", "Steps 30
+    /// and 31 ..."): what to check against that step's picture, and nothing more.
+    static func claimedValues(_ text: String, atStep step: Int) -> [String] {
+        claimedValues(sentences(text).filter { steps(namedIn: $0).contains(step) }.joined(separator: " "))
+    }
+
+    /// Whether any sentence names a step, so the values can be shown per step.
+    static func namesSteps(_ text: String) -> Bool {
+        sentences(text).contains { !steps(namedIn: $0).isEmpty }
+    }
+
+    private static func sentences(_ text: String) -> [String] {
+        var out: [String] = []
+        var current = ""
+        let characters = Array(text)
+        for (index, character) in characters.enumerated() {
+            current.append(character)
+            let next = index + 1 < characters.count ? characters[index + 1] : " "
+            // A full stop before a digit is a decimal point ("$45.00"), not the sentence's end.
+            if ".!?\n".contains(character), next == " " || next == "\n" {
+                out.append(current)
+                current = ""
+            }
+        }
+        if !current.trimmingCharacters(in: .whitespaces).isEmpty { out.append(current) }
+        return out
+    }
+
+    /// "step 26", "steps 30 and 31", "steps 4, 5 and 6", "steps 4, 5, and 6".
+    private static func steps(namedIn sentence: String) -> Set<Int> {
+        guard let regex = try? NSRegularExpression(pattern: #"\bsteps?\s+(\d+\b(?!\.\d)(?:\s*(?:,\s*(?:and\b|&)?|\band\b|&)\s*\d+\b(?!\.\d))*)"#,
+                                                   options: [.caseInsensitive]) else { return [] }
+        var out: Set<Int> = []
+        let range = NSRange(sentence.startIndex..., in: sentence)
+        for match in regex.matches(in: sentence, range: range) {
+            guard let span = Range(match.range(at: 1), in: sentence) else { continue }
+            for number in sentence[span].split(whereSeparator: { !$0.isNumber }) {
+                if let value = Int(number) { out.insert(value) }
+            }
+        }
+        return out
     }
 
     /// Values the verdict claims to have seen: amounts, percentages and numbers with a

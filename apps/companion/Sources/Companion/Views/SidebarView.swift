@@ -51,7 +51,7 @@ struct SidebarView: View {
             switch store.connection {
             case .connecting:
                 ProgressView().controlSize(.small)
-            case .offline:
+            case .offline, .refused:
                 Text("Not connected")
                     .font(.callout)
                     .foregroundStyle(.secondary)
