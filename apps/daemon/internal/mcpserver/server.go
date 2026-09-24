@@ -187,8 +187,8 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_screenshot",
 		Description: "Capture the machine's screen. Returns a JPEG to look at, the path of the lossless PNG saved in " +
-			"the run directory, and the image's size in pixels. The guest has a Retina display, so the image is " +
-			"larger than the desktop it shows; scale says by how much. Aim clicks as a fraction of this image " +
+			"the run directory, and the image's size in pixels. scale is image pixels per desktop point: 1 on the " +
+			"default image (1024x768), more on a HiDPI guest, where the image is larger than the desktop. Aim clicks as a fraction of this image " +
 			"(x divided by width, y divided by height), never in pixels: machine_click takes 0 to 1.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, machine.Shot, error) {
 		pngBytes, out, err := mgr.Screenshot(ctx, in.RunID)
