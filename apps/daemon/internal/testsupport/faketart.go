@@ -121,6 +121,11 @@ case "$sub" in
         exit 0 ;;
     esac
     case "$*" in
+      *settimezone*)
+        [ -f "$C/fail-timezone" ] && { echo "systemsetup: not permitted" >&2; exit 1; }
+        exit 0 ;;
+    esac
+    case "$*" in
       *EnableStandardClickToShowDesktop*)
         [ -f "$C/fail-desktop-prefs" ] && { echo "defaults: cannot write" >&2; exit 1; }
         exit 0 ;;

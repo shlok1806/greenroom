@@ -74,7 +74,12 @@ Boot and lifecycle
   guest 127.0.0.1:22 (probed via `tart exec`). The waiting phases each get their own
   `readyTimeout` (3 min). A timeout names the last probe error.
 - `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`,
-  `captureAlertSeconds`, `desktopPrefsSeconds`, `inputHelperSeconds`, `sshSeconds`.
+  `captureAlertSeconds`, `desktopPrefsSeconds`, `timeZoneSeconds`, `inputHelperSeconds`,
+  `sshSeconds`.
+- Boot puts the guest in the host's time zone (`timezone.go`, from `TZ` or `/etc/localtime`, step
+  keys `timeZone`, `timeZoneError`, issue #77): the image runs in UTC, and the recording's
+  menu bar clock disagreed with every time the companion prints. Only a tz database name
+  reaches the guest shell. Never fatal. `WithHostTimeZone` replaces the lookup in tests.
 - Boot checks the image's input helper (`helperboot.go`, issue #41). One older than
   `inputHelperVersion` is logged with the fix (`build-image.sh -force`), recorded as
   `inputHelperStale` and `inputHelperFound`, and compiled before ready, so the first UI
@@ -372,7 +377,7 @@ Clones of `greenroom-base` skip the ~28 s first-control compile.
 
 - `WithTartBin` points at the fake tart in `internal/testsupport/faketart.go`. It records
   every call; control files turn on failures. The list is in that file's header comment, plus
-  `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-lean`, `ui.json` (what `--ui-base64`
+  `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-timezone`, `fail-lean`, `ui.json` (what `--ui-base64`
   prints), `tart-version` (fake a version mismatch), `exec-sleep` and `exec-stdout` (a slow or
   loud machine_exec), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session got a pty.

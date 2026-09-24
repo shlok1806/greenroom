@@ -79,7 +79,7 @@ func TestFrameRecorderCapturesFrames(t *testing.T) {
 	dir := mgr.RunDir(mc.RunID)
 
 	var frames []Frame
-	waitFor(t, time.Second, func() bool {
+	waitFor(t, 10*time.Second, func() bool { // each capture is a process; a loaded host is slow
 		var err error
 		frames, err = ReadFrames(dir)
 		if err != nil {
@@ -121,7 +121,7 @@ func TestFrameRecorderStopsAfterDestroy(t *testing.T) {
 	mc := readyMachine(t, mgr)
 	dir := mgr.RunDir(mc.RunID)
 
-	waitFor(t, time.Second, func() bool {
+	waitFor(t, 10*time.Second, func() bool { // each capture is a process; a loaded host is slow
 		frames, err := ReadFrames(dir)
 		if err != nil {
 			t.Fatalf("ReadFrames: %v", err)

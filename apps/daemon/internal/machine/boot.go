@@ -58,6 +58,15 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 			timings["desktopPrefsError"] = perr.Error()
 			m.Log.Warn("a click on this machine's wallpaper may hide its windows", "runId", mc.RunID, "err", perr)
 		}
+		// The guest's clock reads the host's local time, as every time greenroom prints does
+		// (issue #77). Not fatal: a machine on UTC works.
+		if zone := m.hostTimeZone(); zone != "" {
+			timings["timeZone"] = zone
+			if terr := phase("timeZoneSeconds", func() error { return setGuestTimeZone(ctx, m.tart, mc.Name, zone) }); terr != nil {
+				timings["timeZoneError"] = terr.Error()
+				m.Log.Warn("this machine's clock may not show the host's time zone", "runId", mc.RunID, "err", terr)
+			}
+		}
 		// A stale image's helper is compiled here, not in the first UI call (issue #41).
 		m.bootInputHelper(boot, mc, timings)
 	}
