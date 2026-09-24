@@ -51,7 +51,7 @@ type ImageCheckResult struct {
 	Passes []ImageCheckPass `json:"passes"`
 }
 
-// CheckImage is the dialog gate (ADR 0016): a clone of a clone of the image, booted
+// CheckImage is the dialog gate (ADR 0018): a clone of a clone of the image, booted
 // headless, used the way clients use a machine (a screencapture through tart exec, an
 // event posted by the input helper, Apple Events to System Events and to Safari, including
 // `do JavaScript`), then 5 s later its on-screen windows and running apps are compared with

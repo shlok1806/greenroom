@@ -15,7 +15,7 @@
 7. Per-run machines are **plain local clones**, not `clone --stacked`.
 8. The daemon runs a **pinned tart** (2.37.0), not whatever is on `PATH`. Done.
 
-### Superseded (2026-09-24, ADR 0016 and ADR 0017)
+### Superseded (2026-09-24, ADR 0018 and ADR 0019)
 
 - Decisions 2 and 4 are replaced: there is one recipe, `apps/daemon/scripts/build-image.sh`
   (`prepare-image`), with a base layer (every fix that needs no click: replayd approvals,
@@ -135,7 +135,7 @@ ghcr.io/cirruslabs/macos-tahoe-base   upstream, SIP off, TCC seeded
   agent until the exec ends (issue #30). A guest `script` writing straight to a non-tty
   `tart exec` stalls too, less often. Sessions no longer use either (ADR 0017).
 
-## 3. Identity: seed disk (removed by ADR 0016; kept as measurements)
+## 3. Identity: seed disk (removed by ADR 0018; kept as measurements)
 
 - The guest Data volume is not encrypted and can be mounted and edited offline, but
   without host `sudo` files land as uid 501 and launchd rejects non-`root:wheel`

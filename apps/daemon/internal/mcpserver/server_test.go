@@ -354,7 +354,7 @@ func TestWaitReachesReadyAndReportsBootSeconds(t *testing.T) {
 	}
 }
 
-// ADR 0017: ready carries what the image measured about its toolchain, as the image wrote
+// ADR 0019: ready carries what the image measured about its toolchain, as the image wrote
 // it, and says unknown for an image that wrote nothing.
 func TestWaitReportsTheImagesToolchain(t *testing.T) {
 	h := newHarness(t)
@@ -376,7 +376,7 @@ func TestWaitReportsTheImagesToolchain(t *testing.T) {
 	}
 }
 
-// ADR 0016: ready says what was on the screen besides the desktop, and nothing closes it.
+// ADR 0018: ready says what was on the screen besides the desktop, and nothing closes it.
 func TestWaitSurfacesUnexpectedWindowsAndNeverClosesThem(t *testing.T) {
 	h := newHarness(t)
 	var mc machine.Machine

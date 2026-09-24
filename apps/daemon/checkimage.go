@@ -32,7 +32,7 @@ func checkFlags() (*flag.FlagSet, *checkOpts) {
 	return fs, o
 }
 
-// checkImage is the dialog gate (ADR 0016) that scripts/build-image.sh runs last. It prints
+// checkImage is the dialog gate (ADR 0018) that scripts/build-image.sh runs last. It prints
 // a report, keeps screenshots of both passes, and fails on any finding.
 func checkImage(args []string) error {
 	fs, o := checkFlags()

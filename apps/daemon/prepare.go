@@ -28,7 +28,7 @@ func prepareFlags() (*flag.FlagSet, *prepareOpts) {
 	return fs, o
 }
 
-// prepareImage makes a running VM an image (scripts/build-image.sh, issue #12, ADR 0016): the input helper,
+// prepareImage makes a running VM an image (scripts/build-image.sh, issue #12, ADR 0018): the input helper,
 // the daemon's ssh key, the base profile and toolchain manifest, the lean profile with -lean, and Software
 // Update off last. The VM belongs to no run, so no Manager is involved.
 func prepareImage(args []string) error {
@@ -57,7 +57,7 @@ func prepareImage(args []string) error {
 			return err
 		}
 	}
-	// Last, after lean.sh, which still talks to softwareupdated (ADR 0016).
+	// Last, after lean.sh, which still talks to softwareupdated (ADR 0018).
 	if err := machine.DisableSoftwareUpdate(ctx, tartBin, o.vm, log); err != nil {
 		return err
 	}

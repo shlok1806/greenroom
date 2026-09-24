@@ -1,4 +1,4 @@
-# 0016. One image recipe, base and lean layers, and a dialog gate on every build
+# 0018. One image recipe, base and lean layers, and a dialog gate on every build
 
 Date: 2026-09-24
 Status: accepted
@@ -70,7 +70,9 @@ Every one of these is invisible to a build that does not look at the screen.
      first alone is not enough: the second starts the same daemon after a reboot. The gate
      checks both are disabled and softwareupdated is not running, after a reboot.
 4. **A boot-time kill is not a fix.** No `pkill Terminal` or window sweep at boot, even as
-   a fallback. If a cause cannot be found, the gate keeps failing on it.
+   a fallback. If a cause cannot be found, the gate keeps failing on it. The boot and
+   prepare-image Terminal quit from PR #91 (`terminal.go`) is removed for this reason: the
+   build fixes the cause, and a stray app on an older image shows up in `desktop` instead.
 5. **The dialog gate.** `build-image.sh` ends with `greenroom check-image`: a clone of a
    clone of the new image, booted `--no-graphics`, exercised the way clients use a
    machine (screencapture through `tart exec`, a posted event through the input helper,

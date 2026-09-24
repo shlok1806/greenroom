@@ -17,7 +17,7 @@
 // accessibility tree of the frontmost (or a named) application (ADR 0012).
 // --desktop writes what is on the screen and what is running: every on-screen
 // window (CGWindowListCopyWindowInfo) and every regular application
-// (NSWorkspace), for the dialog check (desktopcheck.go, ADR 0016).
+// (NSWorkspace), for the dialog check (desktopcheck.go, ADR 0018).
 // Coordinates are points on the main display, both ways; the daemon turns
 // the fractions the companion sends into points before it gets here, and the
 // frames this reports into fractions after.

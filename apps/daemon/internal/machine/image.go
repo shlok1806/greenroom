@@ -19,7 +19,7 @@ const prepareTimeout = 12 * time.Minute
 // InputHelperVersion is the helper version PrepareGuest bakes into an image.
 func InputHelperVersion() int { return inputHelperVersion }
 
-// PrepareGuest turns a running VM into a base image candidate (issue #12, ADR 0016): it
+// PrepareGuest turns a running VM into a base image candidate (issue #12, ADR 0018): it
 // bakes in the input helper and the ssh key with the same idempotent scripts
 // a machine's own boot and first control request run, the base profile
 // (guest/base.sh) and the toolchain manifest (guest/toolchain.sh). The caller ends

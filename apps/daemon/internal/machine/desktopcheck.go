@@ -9,7 +9,7 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
 
-// The dialog check (ADR 0016). A fresh machine should show the desktop and nothing else:
+// The dialog check (ADR 0018). A fresh machine should show the desktop and nothing else:
 // no permission prompt, crash dialog, update nag or app nobody opened. The image build
 // fails on anything else (CheckImage), and boot reports it in the machine's desktop field.
 // The runtime surfaces, never sweeps: nothing here closes a window or quits an app.

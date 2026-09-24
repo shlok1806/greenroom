@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build a greenroom image, the only recipe there is (ADR 0016): clone the default OCI image,
+# Build a greenroom image, the only recipe there is (ADR 0018): clone the default OCI image,
 # boot it, run `greenroom prepare-image` (input helper, ssh key, screen-capture approvals,
 # desktop preferences, the base profile in machine/guest/base.sh, the toolchain manifest,
 # Software Update off), stop it, and then run the dialog gate, `greenroom check-image`, on a

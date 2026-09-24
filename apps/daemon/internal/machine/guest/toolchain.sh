@@ -1,7 +1,7 @@
 #!/bin/sh
 # : greenroom-toolchain-manifest
 # toolchain.sh: measure the image's Swift toolchain and write /usr/local/greenroom/toolchain.json
-# (ADR 0017, issue #44). Runs in the guest as the admin user through `greenroom prepare-image`.
+# (ADR 0019, issue #44). Runs in the guest as the admin user through `greenroom prepare-image`.
 # Every field is measured: a tiny XCTest package and a tiny swift-testing package are built
 # and run with a plain `swift test`, with no extra search paths, exactly as an agent would.
 # The daemon passes the file through to machine_wait as it is.

@@ -1,7 +1,7 @@
 #!/bin/sh
 # : greenroom-base-profile
 # base.sh: every fix a greenroom image needs so that nothing on a fresh machine waits for a
-# click (ADR 0016, issues #25 and #60). Runs in the guest as the auto-logged-in admin user,
+# click (ADR 0018, issues #25 and #60). Runs in the guest as the auto-logged-in admin user,
 # through `greenroom prepare-image`, for the base and the lean image alike. The screen-capture
 # approvals and desktop preferences are separate scripts that boot also runs
 # (capturealert.go, desktopprefs.go); Software Update is disabled last, by prepare-image

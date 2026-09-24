@@ -13,14 +13,14 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
 
-// baseScript is the base image profile (ADR 0016): Apple Events rows, Safari's JavaScript
+// baseScript is the base image profile (ADR 0018): Apple Events rows, Safari's JavaScript
 // from Apple Events, crash dialogs off, and loginwindow's relaunch list cut to Finder. It
 // reads every setting back and exits non-zero naming each failed check.
 //
 //go:embed guest/base.sh
 var baseScript string
 
-// toolchainScript measures the image's Swift toolchain and writes ToolchainPath (ADR 0017).
+// toolchainScript measures the image's Swift toolchain and writes ToolchainPath (ADR 0019).
 //
 //go:embed guest/toolchain.sh
 var toolchainScript string
@@ -97,7 +97,7 @@ func readToolchain(ctx context.Context, c *tart.Client, vmName string) (map[stri
 	return obj, nil
 }
 
-// DisableSoftwareUpdate is the last step of every image build (ADR 0016): lean.sh still
+// DisableSoftwareUpdate is the last step of every image build (ADR 0018): lean.sh still
 // talks to softwareupdated, so it runs after the lean profile. It ends with sync.
 func DisableSoftwareUpdate(ctx context.Context, tartBin, vmName string, log *slog.Logger) error {
 	if strings.TrimSpace(tartBin) == "" || strings.TrimSpace(vmName) == "" {

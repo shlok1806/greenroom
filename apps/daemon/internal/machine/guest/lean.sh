@@ -148,7 +148,7 @@ defaults write com.apple.gamed Disabled -bool true
 # Automatic checking cannot be turned off by preference: on macOS 26 softwareupdated ignores
 # --schedule off and deletes AutomaticCheckEnabled within seconds. Both stay as best-effort
 # writes with no read-back. The base layer disables softwareupdated itself, after this
-# script (base.go, DisableSoftwareUpdate, ADR 0016).
+# script (base.go, DisableSoftwareUpdate, ADR 0018).
 sudo -n softwareupdate --schedule off >/dev/null 2>&1 || true
 sudo -n defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled -bool false || true
 su_keys="AutomaticDownload AutomaticallyInstallMacOSUpdates CriticalUpdateInstall ConfigDataInstall"

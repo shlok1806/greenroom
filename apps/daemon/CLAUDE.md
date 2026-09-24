@@ -78,10 +78,10 @@ Boot and lifecycle
 - `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`,
   `captureAlertSeconds`, `desktopPrefsSeconds`, `timeZoneSeconds`, `inputHelperSeconds`,
   `toolchainSeconds`, `desktopSeconds`, `sshSeconds`.
-- Boot reads the image's toolchain manifest (`base.go`, `ToolchainPath`, ADR 0017) into
+- Boot reads the image's toolchain manifest (`base.go`, `ToolchainPath`, ADR 0019) into
   `Machine.Toolchain` as the image wrote it, `{"known":false}` when absent. The daemon never
   interprets it and never assumes a toolchain. Error key `toolchainError`, never fatal.
-- Boot checks the desktop once (`desktopcheck.go`, ADR 0016): `greenroom-input --desktop`
+- Boot checks the desktop once (`desktopcheck.go`, ADR 0018): `greenroom-input --desktop`
   lists on-screen windows and regular apps, compared with the allowlist the image gate uses.
   The result is `Machine.Desktop` (and `desktopFindings` in the step). It surfaces, never
   sweeps: nothing in the daemon closes a window or quits an app it did not open, and a boot
@@ -391,7 +391,7 @@ mkdir -p ~/.local/tart-$V && tar xzf tart.tar.gz -C ~/.local/tart-$V
 
 ## Image
 
-The only image recipe (ADR 0016, `images/README.md`). `scripts/build-image.sh` clones the
+The only image recipe (ADR 0018, `images/README.md`). `scripts/build-image.sh` clones the
 default image to `<name>-building`, boots it, runs `prepare-image` (`machine.PrepareGuest`:
 input helper, ssh key, screen-capture approvals, desktop preferences, `guest/base.sh`,
 `guest/toolchain.sh`; then `-lean`'s `guest/lean.sh`; then `DisableSoftwareUpdate` last,

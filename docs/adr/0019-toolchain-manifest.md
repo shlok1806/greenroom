@@ -1,4 +1,4 @@
-# 0017. The image reports its toolchain; the daemon passes it on
+# 0019. The image reports its toolchain; the daemon passes it on
 
 Date: 2026-09-24
 Status: accepted

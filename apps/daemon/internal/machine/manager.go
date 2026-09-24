@@ -53,11 +53,11 @@ type Machine struct {
 	CreatedAt   time.Time `json:"createdAt"`
 	Dir         string    `json:"dir"`
 
-	// Toolchain is the image's toolchain manifest (ADR 0017), passed through as the image
+	// Toolchain is the image's toolchain manifest (ADR 0019), passed through as the image
 	// wrote it at ToolchainPath, or {"known":false}. Set at ready.
 	Toolchain map[string]any `json:"toolchain,omitempty"`
 	// Desktop is what the screen showed at ready: any window or app a fresh machine should
-	// not have (ADR 0016). Reported, never closed. Set at ready.
+	// not have (ADR 0018). Reported, never closed. Set at ready.
 	Desktop *DesktopReport `json:"desktop,omitempty"`
 
 	// Control is the screen-control lease (ADR 0009). It is replaced, never

@@ -1,6 +1,6 @@
 # images
 
-How greenroom's VM images are made. There is one recipe (ADR 0016):
+How greenroom's VM images are made. There is one recipe (ADR 0018):
 `apps/daemon/scripts/build-image.sh`, which runs `greenroom prepare-image`
 (`machine.PrepareGuest`, guest scripts in `apps/daemon/internal/machine/guest/`) and then the
 dialog gate, `greenroom check-image`. Why the image is built this way:
@@ -64,7 +64,7 @@ At runtime the daemon runs the same window check once before ready and returns i
 ## Toolchain manifest
 
 `/usr/local/greenroom/toolchain.json` in the guest, written at build time by running a tiny
-XCTest package and a tiny swift-testing package with `swift test` (ADR 0017). The daemon
+XCTest package and a tiny swift-testing package with `swift test` (ADR 0019). The daemon
 returns it as `toolchain` in `machine_wait`, as the image wrote it; an image without it
 reports `{"known": false}`. The current images have the Command Line Tools only: no Xcode,
 no XCTest, and swift-testing does not build without extra search paths, which we do not add.

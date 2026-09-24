@@ -9,7 +9,7 @@ Working instructions for agents in this repo. What greenroom is and how to run i
 - `apps/companion` - SwiftPM macOS app. See its `CLAUDE.md` and `CONTEXT.md`.
 - `design/` - themes and tokens for the companion (and a web dashboard later). See its `README.md`.
 - `images/` - how the VM images are built (README only; the recipe is
-  `apps/daemon/scripts/build-image.sh`, ADR 0016).
+  `apps/daemon/scripts/build-image.sh`, ADR 0018).
 - `packages/` - empty; TypeScript packages only when one is needed.
 - `docs/` - notes `00`-`10`, ADRs in `docs/adr/`.
 - `spikes/` - throwaway measurement scripts. Nothing imports them.
