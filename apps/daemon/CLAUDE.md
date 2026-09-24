@@ -247,6 +247,12 @@ Computer use (ADR 0009)
   `machine_input` step. Expiry is lazy, so a human lease that lapsed is posted ("human lost
   control of the screen after N actions") when the human takes the screen again
   (`TakeControlReporting`) or lets go of it, never as a second "took control" (issue #57).
+  A lease nobody renews (its Companion quit or crashed) is also cleared when it runs out:
+  `armLapseLocked` keeps one timer per machine, and `checkLapse` emits a `control` event with
+  `Lapsed`, which `internal/api` posts for a human lease. Snapshots never show a lease past
+  its expiry. `POST /control {"renew": true}` (`RenewControl`) extends a held lease and never
+  takes a new one: 409 when the seat no longer holds it, so a second window of the same seat
+  cannot undo a Give Back (issue #100).
 - The verifier takes the lease per call, not per turn, via `Manager.InputAs`. A human
   holding it is a readable error, not a failure. The actor marks each turn with
   `SetVerifierTurn`, and while one is open the coder's `InputAs` is refused with words

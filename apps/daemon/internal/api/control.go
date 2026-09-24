@@ -31,9 +31,19 @@ func (a *api) screenshot(w http.ResponseWriter, r *http.Request, id string) {
 
 func (a *api) takeControl(w http.ResponseWriter, r *http.Request, id string) {
 	var in struct {
-		TTLSeconds int `json:"ttlSeconds"`
+		TTLSeconds int  `json:"ttlSeconds"`
+		Renew      bool `json:"renew"` // extend the lease this seat holds; never take a new one (issue #100)
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in) // an empty body takes the default lease
+	if in.Renew {
+		c, err := a.mgr.RenewControl(id, humanSeat)
+		if err != nil {
+			a.failControl(w, id, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, controlOut{Control: &c})
+		return
+	}
 	c, fresh, lapsed, err := a.mgr.TakeControlReporting(id, humanSeat, time.Duration(in.TTLSeconds)*time.Second)
 	if lapsed != nil && lapsed.Holder == humanSeat {
 		a.event(id, lapsedText(*lapsed))

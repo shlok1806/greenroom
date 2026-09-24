@@ -113,6 +113,12 @@ final class DaemonClient: Sendable {
         try decode(ControlResponse.self, from: await post(runPath(runId, "control")))
     }
 
+    /// Extends the held lease; 409 when this seat no longer holds it (given back or lapsed).
+    func renewControl(runId: String) async throws -> ControlResponse {
+        struct Body: Encodable { var renew = true }
+        return try decode(ControlResponse.self, from: await post(runPath(runId, "control"), body: Body()))
+    }
+
     func releaseControl(runId: String) async throws {
         var request = URLRequest(url: try url(runPath(runId, "control")))
         request.httpMethod = "DELETE"

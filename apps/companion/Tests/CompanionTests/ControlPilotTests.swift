@@ -7,6 +7,7 @@ import XCTest
 private actor FakeControlClient: ControlClient {
     enum Call: Equatable {
         case take
+        case renew
         case release
         case input([InputAction])
     }
@@ -46,6 +47,12 @@ private actor FakeControlClient: ControlClient {
         if holdTake {
             await withCheckedContinuation { held.append($0) }
         }
+        guard !takeAnswers.isEmpty else { return Self.lease }
+        return try takeAnswers.removeFirst().get()
+    }
+
+    func renewControl(runId: String) async throws -> ControlResponse {
+        calls.append(.renew)
         guard !takeAnswers.isEmpty else { return Self.lease }
         return try takeAnswers.removeFirst().get()
     }
@@ -154,6 +161,23 @@ final class ControlPilotTests: XCTestCase {
             [move(0.1)],
             [move(0.3), InputAction(type: .type, text: "ab")],
         ])
+    }
+
+    /// #100: another window of the same seat gave the screen back; the renewal must not take a
+    /// fresh lease behind the person's back. It renews, and a refused renewal ends driving
+    /// with the daemon's words.
+    func testARenewalNeverTakesTheScreenAgain() async {
+        let pilot = pilot(renewal: .milliseconds(50))
+        await client.answerTakes([
+            .success(FakeControlClient.lease),
+            .failure(.status(code: 409, body: "no control: the screen was given back or its lease lapsed; take control again to drive")),
+        ])
+        await pilot.take()
+        await until { !pilot.active }
+        let calls = await client.calls
+        XCTAssertEqual(calls.filter { $0 == .take }.count, 1, "the renewal took the screen again: \(calls)")
+        XCTAssertTrue(calls.contains(.renew))
+        XCTAssertEqual(pilot.endedReason, "no control: the screen was given back or its lease lapsed; take control again to drive")
     }
 
     func testAFailedRenewalStopsDrivingAndGivesTheScreenBack() async {

@@ -152,6 +152,7 @@ func (m *Manager) TakeControlReporting(runID, holder string, ttl time.Duration) 
 		lease.Since, lease.Actions = current.Since, current.Actions
 	}
 	mc.Control = &lease
+	m.armLapseLocked(mc)
 	m.mu.Unlock()
 
 	if fresh {
@@ -229,7 +230,65 @@ func (m *Manager) claimActions(mc *Machine, holder string, n int) error {
 	}
 	next.Expires = now.Add(next.ttl)
 	mc.Control = &next
+	m.armLapseLocked(mc)
 	return nil
+}
+
+// armLapseLocked makes sure mc's lease is cleared, and its lapse announced, once it runs out
+// with nobody renewing it: a holder that dies never touches it again (issue #57).
+func (m *Manager) armLapseLocked(mc *Machine) {
+	if mc.Control == nil {
+		return
+	}
+	d := time.Until(mc.Control.Expires) + 20*time.Millisecond
+	if mc.lapse == nil {
+		mc.lapse = time.AfterFunc(d, func() { m.checkLapse(mc) })
+		return
+	}
+	mc.lapse.Reset(d)
+}
+
+// checkLapse clears a lease that ran out and emits a "control" event carrying it.
+func (m *Manager) checkLapse(mc *Machine) {
+	m.mu.Lock()
+	current := mc.Control
+	if current == nil {
+		m.mu.Unlock()
+		return
+	}
+	if time.Now().UTC().Before(current.Expires) {
+		m.armLapseLocked(mc) // renewed meanwhile
+		m.mu.Unlock()
+		return
+	}
+	old := *current
+	mc.Control = nil
+	m.mu.Unlock()
+	m.emit(LifecycleEvent{Kind: "control", RunID: mc.RunID, Machine: m.snapshot(mc), Lapsed: &old})
+}
+
+// RenewControl extends holder's live lease and never takes a new one, so a seat that lost the
+// screen (given back by another window of the same seat, or lapsed) is told so (issue #100).
+func (m *Manager) RenewControl(runID, holder string) (Control, error) {
+	mc, err := m.get(runID)
+	if err != nil {
+		return Control{}, err
+	}
+	now := time.Now().UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current := mc.Control
+	if current == nil || !now.Before(current.Expires) || current.Holder != holder {
+		return Control{}, fmt.Errorf("%w: the screen was given back or its lease lapsed; take control again to drive", ErrNoControl)
+	}
+	next := *current
+	if next.ttl <= 0 {
+		next.ttl = ControlTTL
+	}
+	next.Expires = now.Add(next.ttl)
+	mc.Control = &next
+	m.armLapseLocked(mc)
+	return next, nil
 }
 
 // ScreenOf returns the guest's display size, installing the input helper on
