@@ -16,7 +16,7 @@ import (
 // ~175 KB JPEG.
 const maxVisionWidth = 1024
 
-// shotGeometry states the picture's size (and Retina scale, if known) so a
+// shotGeometry states the picture's size (and its scale, if known) so a
 // brain gives click fractions of the picture, not guessed desktop pixels.
 func shotGeometry(shot machine.Shot) string {
 	if shot.Width <= 0 || shot.Height <= 0 {
