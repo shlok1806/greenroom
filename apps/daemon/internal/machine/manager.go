@@ -112,7 +112,9 @@ type Manager struct {
 	sshProbe         func(ctx context.Context, vmName, addr string) error
 	onWatch          func(vncURL string)
 	screenIdle       time.Duration
-	hostTimeZone     func() string // the zone boot puts the guest in; "" skips it
+	turnMu           sync.Mutex
+	verifierTurns    map[string]bool // runs whose verifier is in a turn (SetVerifierTurn)
+	hostTimeZone     func() string   // the zone boot puts the guest in; "" skips it
 	screenBuffer     int
 	screenInputSlack time.Duration
 	messageActivity  func(runID string) time.Time // guarded by mu; see SetMessageActivity

@@ -197,7 +197,9 @@ func (a *Actors) loop(ctx context.Context, runID string, store *session.Store, d
 func (a *Actors) runTurn(ctx context.Context, runID string, store *session.Store, seen *int) {
 	attempts := len(TurnRetryDelays) + 1
 	for attempt := 1; ; attempt++ {
+		a.mgr.SetVerifierTurn(runID, true)
 		_, err := a.brain.Turn(ctx, runID, store)
+		a.mgr.SetVerifierTurn(runID, false)
 		if err == nil || ctx.Err() != nil {
 			*seen = store.Len()
 			return

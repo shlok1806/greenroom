@@ -287,6 +287,12 @@ func (m *Manager) InputAs(ctx context.Context, runID, holder string, actions []I
 	if err != nil {
 		return InputResult{}, err
 	}
+	// The lease is per call, so it never spans a verifier turn: without this the coder's clicks
+	// landed between the verifier's and each corrupted what the other checked (issue #82).
+	if holder == HolderCoder && m.inVerifierTurn(runID) {
+		return InputResult{}, errors.New("greenroom's verifier is in the middle of a turn on this machine and is using " +
+			"the screen; wait for its reply or verdict with agent_wait, or send a note, then try again")
+	}
 	mc.input.asMu.Lock()
 	defer mc.input.asMu.Unlock()
 	current, fresh, err := m.TakeControl(runID, holder, 0)
@@ -325,6 +331,13 @@ func validateActions(actions []InputAction) error {
 		}
 		if !buttonNames[strings.ToLower(a.Button)] {
 			return fmt.Errorf("action %d: unknown button %q; %s", i+1, a.Button, buttonHelp)
+		}
+		switch strings.ToLower(a.Type) {
+		case "click", "down", "up", "move":
+			// The helper posts at the pointer when a coordinate is missing (issue #85).
+			if a.X == nil || a.Y == nil {
+				return fmt.Errorf("action %d: %s needs x and y, fractions of the screen 0 to 1 (to click an element, use machine_click with element)", i+1, a.Type)
+			}
 		}
 		for _, mod := range a.Mods {
 			if !modifierNames[strings.ToLower(mod)] {
@@ -477,4 +490,25 @@ func readScreen(ctx context.Context, c *tart.Client, vm string) (Screen, error) 
 		return Screen{}, fmt.Errorf("the machine reports a %dx%d screen", out.Screen.Width, out.Screen.Height)
 	}
 	return out.Screen, nil
+}
+
+// SetVerifierTurn records whether greenroom's verifier is in a turn on runID. The actor sets it
+// around each turn; while it is open the coding agent's input is refused (issue #82).
+func (m *Manager) SetVerifierTurn(runID string, open bool) {
+	m.turnMu.Lock()
+	defer m.turnMu.Unlock()
+	if m.verifierTurns == nil {
+		m.verifierTurns = map[string]bool{}
+	}
+	if open {
+		m.verifierTurns[runID] = true
+	} else {
+		delete(m.verifierTurns, runID)
+	}
+}
+
+func (m *Manager) inVerifierTurn(runID string) bool {
+	m.turnMu.Lock()
+	defer m.turnMu.Unlock()
+	return m.verifierTurns[runID]
 }

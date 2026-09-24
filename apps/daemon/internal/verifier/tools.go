@@ -1,6 +1,7 @@
 package verifier
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -247,7 +248,14 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 		var in struct {
 			Actions []machine.InputAction `json:"actions"`
 		}
-		if err := json.Unmarshal(args, &in); err != nil || len(in.Actions) == 0 {
+		// Unknown fields are an error the model can correct: "element" inside a batch was dropped
+		// and the click went to the pointer (issue #85). machine_click takes an element.
+		dec := json.NewDecoder(bytes.NewReader(args))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&in); err != nil {
+			return "error: machine_input: " + err.Error() + " (each action takes type, x, y, button, clicks, deltaX, deltaY, text, key, mods, ms; to click an element, call machine_click with element)", 0
+		}
+		if len(in.Actions) == 0 {
 			return "error: machine_input needs a non-empty actions array", 0
 		}
 		return postInput(ctx, v.mgr, runID, fmt.Sprintf("posted %d actions", len(in.Actions)), in.Actions...)

@@ -104,7 +104,8 @@ Boot and lifecycle
   it is fatal.
 - Boot also sets desktop preferences (`desktopprefs.go`, step key `desktopPrefsSeconds`,
   `desktopPrefsError`): "Click wallpaper to reveal desktop" off, so a missed click cannot
-  hide every window, window restore at login off, and display sleep, screensaver and
+  hide every window, window restore at login off, automatic text substitutions off (issue
+  #81: "a  b" was typed as "a. b"), and display sleep, screensaver and
   screen lock off (a sleeping guest display makes every capture black, with no error).
   Also never fatal. `prepare-image`
   bakes both; `images/scripts/greenroom-tcc.sh` repeats them for the Packer image.
@@ -232,7 +233,13 @@ Computer use (ADR 0009)
   control of the screen after N actions") when the human takes the screen again
   (`TakeControlReporting`) or lets go of it, never as a second "took control" (issue #57).
 - The verifier takes the lease per call, not per turn, via `Manager.InputAs`. A human
-  holding it is a readable error, not a failure.
+  holding it is a readable error, not a failure. The actor marks each turn with
+  `SetVerifierTurn`, and while one is open the coder's `InputAs` is refused with words
+  pointing at `agent_wait` (issue #82): per-call leases let both drive the same app. A human
+  is never refused for it.
+- `validateActions` also refuses a click, down, up or move without both `x` and `y`: the
+  helper would post it at the pointer (issue #85). The verifier's `machine_input` decodes with
+  `DisallowUnknownFields`, so an `element` in a batch is an error, not a click at the pointer.
 - Coordinates are fractions 0 to 1. Only the manager converts to points (`ScreenOf`), and
   back for the UI tree; out-of-range is clamped. `machine.Shot` carries `width`, `height`,
   `scale`; never hardcode Retina 2 (the tahoe guest is 1024x768 at scale 1).

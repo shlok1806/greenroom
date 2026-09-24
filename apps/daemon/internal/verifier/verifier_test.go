@@ -1435,3 +1435,28 @@ func TestChatLeavesRoomForAReasoningModel(t *testing.T) {
 		t.Errorf("max_tokens = %v, want at least 4096", body["max_tokens"])
 	}
 }
+
+// Issue #85: an "element" inside a machine_input batch was dropped and the click went to the
+// pointer, reported as "posted 3 actions". The model gets an error it can act on instead.
+func TestMachineInputRefusesFieldsItDoesNotKnow(t *testing.T) {
+	mgr, runID, control := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_input", map[string]any{"actions": []map[string]any{
+			{"type": "click", "element": 2}, {"type": "type", "text": "Call mom"},
+		}}),
+		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "Could not add."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Add a todo.")
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	prog := messagesOfKind(store, session.Progress)
+	if len(prog) != 1 || !strings.Contains(prog[0].Text, "element") || !strings.Contains(prog[0].Text, "machine_click") {
+		t.Fatalf("progress = %+v, want an error naming the unknown field and machine_click", prog)
+	}
+	if strings.Contains(testsupport.Calls(t, control), "--json-base64") {
+		t.Error("the batch was posted")
+	}
+}
