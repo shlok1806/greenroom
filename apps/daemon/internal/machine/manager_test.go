@@ -546,6 +546,52 @@ func TestLoadStateReattachesARunningMachine(t *testing.T) {
 	}
 }
 
+// A daemon from before ADR 0016 wrote vncUrl into state.json; it must still load.
+func TestLoadStateReattachesAMachineWithALegacyVNCURL(t *testing.T) {
+	bin, control := testsupport.FakeTart(t)
+	root := t.TempDir()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	first, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mc := readyMachine(t, first)
+	if err := os.WriteFile(filepath.Join(control, "vmname"), []byte(mc.Name), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(root, "state.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []map[string]any
+	if err := json.Unmarshal(data, &entries); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		e["vncUrl"] = "vnc://:secret@127.0.0.1:5900"
+	}
+	if data, err = json.Marshal(entries); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := NewManager(root, log, WithTartBin(bin), WithReadyTimeout(10*time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0))
+	if err != nil {
+		t.Fatalf("the second manager did not start: %v", err)
+	}
+	got := second.List()
+	if len(got) != 1 || got[0].RunID != mc.RunID || got[0].Status != Ready {
+		t.Fatalf("a state.json with vncUrl did not reattach: %+v", got)
+	}
+	if aside, _ := filepath.Glob(filepath.Join(root, "state.json.corrupt-*")); len(aside) != 0 {
+		t.Errorf("a state.json with vncUrl was moved aside as corrupt: %v", aside)
+	}
+}
+
 func TestLoadStateDropsAMachineThatNoLongerRuns(t *testing.T) {
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
