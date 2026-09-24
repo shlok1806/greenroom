@@ -59,3 +59,22 @@ func envValue(raw string) string {
 	}
 	return v
 }
+
+// defaultVisionModel describes screenshots for the verifier when GREENROOM_VISION_MODEL is unset
+// (ADR 0018, superseding ADR 0005's describer): it read every labelled screen with no failed call
+// and no invented value offline, and gave more verdicts with fewer failed turns in the realistic
+// suite than nemotron-3-nano-omni.
+const defaultVisionModel = "moonshotai/kimi-k3"
+
+// visionModel is the describer to use for a GREENROOM_VISION_MODEL value: the default when it is
+// unset or blank, nothing (the verifier works without seeing the screen) for "none".
+func visionModel(raw string) string {
+	v := strings.TrimSpace(raw)
+	switch {
+	case v == "":
+		return defaultVisionModel
+	case strings.EqualFold(v, "none"):
+		return ""
+	}
+	return v
+}

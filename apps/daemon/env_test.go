@@ -65,3 +65,19 @@ func TestLoadEnvFileWithoutAFileIsFine(t *testing.T) {
 		t.Errorf("a missing file failed: %v", err)
 	}
 }
+
+// ADR 0018: with GREENROOM_VISION_MODEL unset the verifier sees the screen through kimi-k3, the
+// describer both evaluations chose; a set value wins, and "none" turns seeing off.
+func TestVisionModelDefaultsToTheEvaluatedDescriber(t *testing.T) {
+	for raw, want := range map[string]string{
+		"":                  "moonshotai/kimi-k3",
+		"  ":                "moonshotai/kimi-k3",
+		"meta/other-vision": "meta/other-vision",
+		"none":              "",
+		"NONE":              "",
+	} {
+		if got := visionModel(raw); got != want {
+			t.Errorf("visionModel(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}

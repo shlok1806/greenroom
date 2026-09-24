@@ -152,7 +152,7 @@ func serve(args []string) error {
 			log.Info("verifier disabled", "reason", "no NVIDIA_API_KEY in environment or "+o.envFile)
 			break
 		}
-		model, vision := os.Getenv("GREENROOM_VERIFIER_MODEL"), os.Getenv("GREENROOM_VISION_MODEL")
+		model, vision := os.Getenv("GREENROOM_VERIFIER_MODEL"), visionModel(os.Getenv("GREENROOM_VISION_MODEL"))
 		v, err := verifier.New(mgr, verifier.Config{
 			BaseURL:     os.Getenv("NVIDIA_BASE_URL"),
 			APIKey:      key,
