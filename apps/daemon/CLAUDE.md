@@ -14,6 +14,7 @@ go test ./internal/machine -run TestFoo
 go test -tags tart -run TestEndToEnd -v -timeout 10m .         # real VM
 go test -tags tart -run TestEndToEndSession -v -timeout 12m .  # guest pty, ^C, a 3 MB flood and close in a real VM
 go test -tags tart -count=1 -timeout 45m ./...  # whole VM suite, as CI runs it
+# every e2e test clones the local GREENROOM_BASE_IMAGE (default greenroom-base), never pulls Cirrus
 golangci-lint run ./...
 
 go run . serve                                  # 127.0.0.1:7777, root ~/.greenroom

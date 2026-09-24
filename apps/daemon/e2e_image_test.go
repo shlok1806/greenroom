@@ -1,7 +1,8 @@
 //go:build tart
 
 // Proves a clone of the image scripts/build-image.sh prepared skips the helper compile (issue #12).
-// Needs that image (GREENROOM_BASE_IMAGE, default greenroom-base). Run with:
+// Needs that image (GREENROOM_BASE_IMAGE, default greenroom-base), as every e2e test here does:
+// they clone it rather than pull the Cirrus base, which a low-disk host has no room for. Run with:
 //
 //	go test -tags tart -run TestPreparedImageNeedsNoCompile -v -timeout 12m .
 package main
@@ -26,8 +27,7 @@ func greenroomBaseImage() string {
 	return "greenroom-base"
 }
 
-// noCompileCeiling bounds a prepared image's first ScreenOf; an unprepared one compiles for ~27-30s
-// (TestEndToEndInput logs the live baseline).
+// noCompileCeiling bounds a prepared image's first ScreenOf; an unprepared one compiles for ~27-30s.
 const noCompileCeiling = 10 * time.Second
 
 func TestPreparedImageNeedsNoCompile(t *testing.T) {
