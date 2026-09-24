@@ -121,6 +121,11 @@ case "$sub" in
         exit 0 ;;
     esac
     case "$*" in
+      *com.apple.Terminal.savedState*)
+        [ -f "$C/fail-terminal" ] && { echo "Terminal is still running" >&2; exit 1; }
+        exit 0 ;;
+    esac
+    case "$*" in
       *settimezone*)
         [ -f "$C/fail-timezone" ] && { echo "systemsetup: not permitted" >&2; exit 1; }
         exit 0 ;;

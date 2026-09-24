@@ -77,6 +77,12 @@ Boot and lifecycle
 - `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`,
   `captureAlertSeconds`, `desktopPrefsSeconds`, `timeZoneSeconds`, `inputHelperSeconds`,
   `sshSeconds`.
+- Boot quits the Terminal the image starts at login and removes its saved state
+  (`terminal.go`, step keys `terminalSeconds`, `terminalError`, issue #60); `prepare-image`
+  runs the same so a rebuilt image has no saved window to restore. What relaunches Terminal
+  is not a System Events login item, and `osascript` or `sfltool dumpbtm` over `tart exec`
+  hang (they wait for an Automation or admin prompt nobody answers), so boot does it on every
+  machine rather than trusting the image. Never fatal. Fake tart flag `fail-terminal`.
 - Boot puts the guest in the host's time zone (`timezone.go`, from `TZ` or `/etc/localtime`, step
   keys `timeZone`, `timeZoneError`, issue #77): the image runs in UTC, and the recording's
   menu bar clock disagreed with every time the companion prints. Only a tz database name
@@ -390,7 +396,7 @@ Clones of `greenroom-base` skip the ~28 s first-control compile.
 
 - `WithTartBin` points at the fake tart in `internal/testsupport/faketart.go`. It records
   every call; control files turn on failures. The list is in that file's header comment, plus
-  `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-timezone`, `fail-lean`, `ui.json` (what `--ui-base64`
+  `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-timezone`, `fail-terminal`, `fail-lean`, `ui.json` (what `--ui-base64`
   prints), `tart-version` (fake a version mismatch), `exec-sleep` and `exec-stdout` (a slow or
   loud machine_exec), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session got a pty.
