@@ -26,7 +26,6 @@ const (
 
 	// GuestWorkDir is where a project lands, relative to the guest home. It is
 	// pinned because SwiftPM caches break when moved (docs/10-build-transport.md).
-	// images/scripts/firstboot.sh clones to the same path; change both.
 	GuestWorkDir = "work"
 
 	readyTimeout = 3 * time.Minute
@@ -53,6 +52,13 @@ type Machine struct {
 	BootSeconds float64   `json:"bootSeconds,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	Dir         string    `json:"dir"`
+
+	// Toolchain is the image's toolchain manifest (ADR 0017), passed through as the image
+	// wrote it at ToolchainPath, or {"known":false}. Set at ready.
+	Toolchain map[string]any `json:"toolchain,omitempty"`
+	// Desktop is what the screen showed at ready: any window or app a fresh machine should
+	// not have (ADR 0016). Reported, never closed. Set at ready.
+	Desktop *DesktopReport `json:"desktop,omitempty"`
 
 	// Control is the screen-control lease (ADR 0009). It is replaced, never
 	// edited in place, so snapshots can share it.
