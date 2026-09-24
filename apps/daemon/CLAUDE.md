@@ -325,7 +325,7 @@ Interactive sessions (`machine_session_*`)
 
 - A session is a host `tart exec -i` child (plain pipes, never `-t`) keyed by
   `(runId, sessionId)`, never a guest pid. Not in `state.json`; a restart drops them.
-- The pty is made in the guest (ADR 0016, issue #30): `sessionWrapper` runs `script -q -F`
+- The pty is made in the guest (ADR 0017, issue #30): `sessionWrapper` runs `script -q -F`
   into `${TMPDIR:-/tmp}/greenroom-session.<id>` with its stdout to `/dev/null`. Output must
   never stream through tart: `tart exec -t`, and even guest `script` writing to a non-tty
   exec's stdout, stalls on fast output and wedges every guest call on the machine. The

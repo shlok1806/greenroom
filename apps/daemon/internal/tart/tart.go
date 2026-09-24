@@ -236,7 +236,7 @@ func isTartFailure(code int, stderr string) bool {
 }
 
 // Session is a long-lived `tart exec -i` child on plain pipes that carries a
-// guest session's input (ADR 0016). tart's own tty mode (`-t`) is not used:
+// guest session's input (ADR 0017). tart's own tty mode (`-t`) is not used:
 // in tart 2.37.0 a pty's output streaming through tart stalls and wedges the
 // guest agent (issue #30), so the guest makes its own pty and the output comes
 // back another way. The command's stdout goes to the host's /dev/null.

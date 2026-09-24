@@ -141,7 +141,7 @@ func TestASessionEchoesWhatIsTypedAtIt(t *testing.T) {
 	}
 }
 
-// Issue #30, ADR 0016: tart's own tty mode stalls on fast output and wedges the machine, so a
+// Issue #30, ADR 0017: tart's own tty mode stalls on fast output and wedges the machine, so a
 // session must reach tart as `exec -i <vm>` on a plain pipe, never `-t`, and never a host pty. The
 // terminal is made in the guest by the wrapper.
 func TestASessionNeverAsksTartForATerminal(t *testing.T) {

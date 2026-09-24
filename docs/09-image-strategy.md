@@ -104,7 +104,7 @@ ghcr.io/cirruslabs/macos-tahoe-base   upstream, SIP off, TCC seeded
   a non-zero window size. `EIO` on the master means the child exited.
 - `tart exec -t` output stalls after 100 to 250 KB of fast output and wedges the guest
   agent until the exec ends (issue #30). A guest `script` writing straight to a non-tty
-  `tart exec` stalls too, less often. Sessions no longer use either (ADR 0016).
+  `tart exec` stalls too, less often. Sessions no longer use either (ADR 0017).
 
 ## 3. Identity: seed disk
 

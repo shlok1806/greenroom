@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// These run the session's guest scripts (ADR 0016) for real in a host shell:
+// These run the session's guest scripts (ADR 0017) for real in a host shell:
 // the host is macOS, with the same /usr/bin/script, stat, pgrep and pkill as
 // the guest. The login zsh reads no dotfiles of this host's user.
 

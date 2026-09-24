@@ -37,7 +37,7 @@ import (
 //	vmnames, vmname     `tart list` reports these VMs running (default: one unrelated VM)
 //
 // The script writes session-stdin ("tty <rows> <cols>" or "pipe"), a session's files
-// (greenroom-session.<id> and .pid, ADR 0016) and stopped (after stop or delete).
+// (greenroom-session.<id> and .pid, ADR 0017) and stopped (after stop or delete).
 // `--serve` runs the fake live screen helper; its own control files are listed in fakescreen.go.
 func FakeTart(t *testing.T) (bin string, control string) {
 	t.Helper()
@@ -85,7 +85,7 @@ case "$sub" in
         [ -f "$C/fail-serve" ] && { echo "Error: VM is not running" >&2; exit 1; }
         exec env ` + fakeScreenEnv + `="$C" "` + self + `" ;;
     esac
-    # A session is "exec -i <name> /bin/sh -c <wrapper> greenroom-session <id> <command>" (ADR 0016).
+    # A session is "exec -i <name> /bin/sh -c <wrapper> greenroom-session <id> <command>" (ADR 0017).
     # It is modelled by the real script(1) running cat behind a host pty, writing the file the real
     # read and close commands below use, so it echoes like the guest. The command is never run.
     # Record whether the daemon handed tart a pipe or a terminal: it must be a pipe now.

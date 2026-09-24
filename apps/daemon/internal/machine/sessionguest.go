@@ -1,6 +1,6 @@
 package machine
 
-// Guest side of an interactive session (ADR 0016). The pty lives in the guest,
+// Guest side of an interactive session (ADR 0017). The pty lives in the guest,
 // made by `script`; its output goes to a guest file that the daemon reads with
 // short non-tty `tart exec` calls. Output never streams through tart: a pty's
 // output streaming through tart 2.37.0 stalls and wedges the guest agent

@@ -153,7 +153,7 @@ func TestAFinishedSessionExplainsATartFailureOnly(t *testing.T) {
 	}
 }
 
-// Issue #30, ADR 0016: a session reaches tart as `exec -i <vm> <command>` on a
+// Issue #30, ADR 0017: a session reaches tart as `exec -i <vm> <command>` on a
 // plain pipe, never `-t` and never a terminal, and what is written arrives on
 // the command's stdin.
 func TestASessionIsANonTTYExecOnAPipe(t *testing.T) {

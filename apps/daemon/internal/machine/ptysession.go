@@ -1,6 +1,6 @@
 package machine
 
-// Interactive sessions (ADR 0016): each command runs behind a real pty made in
+// Interactive sessions (ADR 0017): each command runs behind a real pty made in
 // the guest, because build tools branch on isatty(). Input goes through one
 // long-lived non-tty `tart exec -i`; output comes back from a guest file
 // through short `tart exec` reads (sessionguest.go), never streamed through

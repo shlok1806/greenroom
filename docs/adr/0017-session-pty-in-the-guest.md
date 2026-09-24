@@ -1,4 +1,4 @@
-# 0016. Sessions run their pty in the guest; output comes back through a guest file
+# 0017. Sessions run their pty in the guest; output comes back through a guest file
 
 Date: 2026-09-24
 Status: accepted
