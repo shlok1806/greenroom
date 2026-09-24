@@ -57,6 +57,7 @@ func TestPreparedImageNeedsNoCompile(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	waitForAFreeSlot(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 

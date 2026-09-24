@@ -22,6 +22,7 @@ import (
 )
 
 func TestEndToEndSession(t *testing.T) {
+	waitForAFreeSlot(t)
 	root := t.TempDir()
 	mgr, err := machine.NewManager(root, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err != nil {

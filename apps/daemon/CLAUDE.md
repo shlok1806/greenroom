@@ -13,7 +13,7 @@ go test -race ./...                             # before touching boot, recorder
 go test ./internal/machine -run TestFoo
 go test -tags tart -run TestEndToEnd -v -timeout 10m .         # real VM
 go test -tags tart -run TestEndToEndSession -v -timeout 12m .  # guest pty, ^C, a 3 MB flood and close in a real VM
-go test -tags tart -count=1 -timeout 20m ./...  # whole VM suite, as CI runs it
+go test -tags tart -count=1 -timeout 45m ./...  # whole VM suite, as CI runs it
 golangci-lint run ./...
 
 go run . serve                                  # 127.0.0.1:7777, root ~/.greenroom
