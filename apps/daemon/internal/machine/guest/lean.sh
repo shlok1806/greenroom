@@ -145,11 +145,10 @@ sudo -n mdutil -a -i off >/dev/null || true
 defaults write com.apple.gamed Disabled -bool true
 
 # --- Software Update: no downloads or installs, and no App Store auto updates. -----------
-# Automatic checking cannot be turned off without disabling the system daemon, which this
-# variant deliberately does not do: on macOS 26 softwareupdated ignores --schedule off and
-# deletes AutomaticCheckEnabled within seconds. Both stay as best-effort writes with no
-# read-back. SoftwareUpdateNotificationManager is disabled above and banners are off, so
-# a check has no visible effect.
+# Automatic checking cannot be turned off by preference: on macOS 26 softwareupdated ignores
+# --schedule off and deletes AutomaticCheckEnabled within seconds. Both stay as best-effort
+# writes with no read-back. The base layer disables softwareupdated itself, after this
+# script (base.go, DisableSoftwareUpdate, ADR 0016).
 sudo -n softwareupdate --schedule off >/dev/null 2>&1 || true
 sudo -n defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled -bool false || true
 su_keys="AutomaticDownload AutomaticallyInstallMacOSUpdates CriticalUpdateInstall ConfigDataInstall"

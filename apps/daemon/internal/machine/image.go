@@ -12,15 +12,18 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
 
-// prepareTimeout fits a swiftc compile plus the key install and verification.
-const prepareTimeout = 4 * time.Minute
+// prepareTimeout fits a swiftc compile, the base profile, two small `swift test` runs for
+// the toolchain manifest, and the key install and verification.
+const prepareTimeout = 12 * time.Minute
 
 // InputHelperVersion is the helper version PrepareGuest bakes into an image.
 func InputHelperVersion() int { return inputHelperVersion }
 
-// PrepareGuest turns a running VM into a base image candidate (issue #12): it
+// PrepareGuest turns a running VM into a base image candidate (issue #12, ADR 0016): it
 // bakes in the input helper and the ssh key with the same idempotent scripts
-// a machine's own boot and first control request run. It takes no Manager
+// a machine's own boot and first control request run, the base profile
+// (guest/base.sh) and the toolchain manifest (guest/toolchain.sh). The caller ends
+// the build with DisableSoftwareUpdate, after any lean profile. It takes no Manager
 // because the VM it prepares is never a run's machine.
 func PrepareGuest(ctx context.Context, tartBin, vmName, pubKey string, log *slog.Logger) error {
 	if strings.TrimSpace(tartBin) == "" {
@@ -59,11 +62,17 @@ func PrepareGuest(ctx context.Context, tartBin, vmName, pubKey string, log *slog
 		return fmt.Errorf("in %s: %w", vmName, err)
 	}
 
-	// Not fatal here either: an image that still starts Terminal is fixed at every boot.
-	log.Info("quitting Terminal and clearing its saved state", "vm", vmName)
-	if _, err := quitTerminal(ctx, c, vmName); err != nil {
-		log.Warn("Terminal may still start at login in this image; boot quits it", "vm", vmName, "err", err)
+	log.Info("applying the base profile (Apple Events, Safari JavaScript, crash dialogs, apps at login)", "vm", vmName)
+	if err := applyBaseProfile(ctx, c, vmName); err != nil {
+		return fmt.Errorf("in %s: %w", vmName, err)
 	}
+
+	log.Info("measuring the toolchain", "vm", vmName, "path", ToolchainPath)
+	toolchain, err := writeToolchainManifest(ctx, c, vmName)
+	if err != nil {
+		return fmt.Errorf("in %s: %w", vmName, err)
+	}
+	log.Info("toolchain", "vm", vmName, "manifest", toolchain)
 
 	log.Info("verifying the input helper answers", "vm", vmName)
 	screen, err := verifyHelper(ctx, c, vmName)
