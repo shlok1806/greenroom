@@ -66,7 +66,6 @@ struct VerdictReview: Equatable, Sendable {
         }
     }
 
-    /// What each action does, in the daemon's own terms (session rules, ADR 0006).
     /// The newest task sent after the verdict at `seq` that no later verdict answers: what the
     /// verifier is checking now. The card's verdict is then about an older state (issue #89).
     static func newerTask(than seq: Int?, in messages: [Message]) -> Message? {
@@ -87,6 +86,7 @@ struct VerdictReview: Equatable, Sendable {
             + "than what the verifier is checking now. Its verdict on that task will replace this one."
     }
 
+    /// What each action does, in the daemon's own terms (session rules, ADR 0006).
     static func explanation(_ verdict: VerdictState, unreviewed: Bool, verifierListens: Bool, alive: Bool) -> String {
         let outcome = Chrome.outcomeTitle(verdict.verdict)
         if unreviewed {

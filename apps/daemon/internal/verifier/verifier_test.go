@@ -1533,3 +1533,54 @@ func TestANoteAfterAVerdictIsStillAnsweredWithAReply(t *testing.T) {
 		t.Fatalf("last = %+v after %d calls, want one reply", last, model.calls())
 	}
 }
+
+// A reply sent back for an open task shares its message with other calls: every call id still
+// gets a tool message in the next request, since a strict endpoint refuses an unanswered one.
+func TestASentBackReplyAnswersEveryCallOfItsMessage(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	reply, _ := json.Marshal(map[string]any{"text": "Looks fine."})
+	exec, _ := json.Marshal(map[string]any{"command": "true"})
+	both := `{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[` +
+		`{"id":"c1","type":"function","function":{"name":"reply","arguments":` + quote(string(reply)) + `}},` +
+		`{"id":"c2","type":"function","function":{"name":"machine_exec","arguments":` + quote(string(exec)) + `}}` +
+		`]}}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`
+	model := &scriptedModel{replies: []string{
+		both,
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "fine"}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check it.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Ended != session.Verdict {
+		t.Fatalf("ended %q, want the verdict", res.Ended)
+	}
+	var req struct {
+		Messages []struct {
+			Role       string `json:"role"`
+			ToolCallID string `json:"tool_call_id"`
+			Content    string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(model.request(t, 2)), &req); err != nil {
+		t.Fatal(err)
+	}
+	answers := map[string]string{}
+	for _, m := range req.Messages {
+		if m.Role == "tool" {
+			answers[m.ToolCallID] = m.Content
+		}
+	}
+	if !strings.Contains(answers["c1"], "still open") {
+		t.Errorf("the reply call got %q, want the open-task nudge", answers["c1"])
+	}
+	if !strings.Contains(answers["c2"], "Not run") {
+		t.Errorf("the machine_exec call got %q, want it answered as dropped", answers["c2"])
+	}
+	if progress := messagesOfKind(store, session.Progress); len(progress) != 0 {
+		t.Errorf("a dropped call ran: %+v", progress)
+	}
+}

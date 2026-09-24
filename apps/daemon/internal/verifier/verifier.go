@@ -146,6 +146,10 @@ const openTaskNudge = "[greenroom] Not posted: a task in this conversation is st
 	"one task is open, one verdict covering the newest build or state answers them all; say in the summary " +
 	"what it covers. Use reply only for a message that is not a task."
 
+// droppedWithReply answers each call that shared a message with a reply sent back by openTaskNudge.
+const droppedWithReply = "[greenroom] Not run: the reply in this message was sent back, so its other " +
+	"calls were dropped; call them again if you still need them."
+
 // hasOpenTask reports whether a task from the coder or a human came after the latest verdict.
 func hasOpenTask(msgs []session.Message) bool {
 	open := false
@@ -244,14 +248,17 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			return res, nil
 		}
 
-		for _, call := range msg.ToolCalls {
+		for i, call := range msg.ToolCalls {
 			if end, ok := endingMessage(call); ok && end.Kind == session.Reply && !taskNudged &&
 				step < v.cfg.MaxSteps && hasOpenTask(store.After(0)) {
 				// A task in this turn is still open, often because a message arrived mid-turn
 				// and the model answered that instead (issue #89). Not posted; asked once for
-				// the verdict. Every other call of this message is dropped with it.
+				// the verdict. Every other call of this message is dropped with it, and answered.
 				taskNudged = true
 				msgs = append(msgs, nim.Message{Role: "tool", ToolCallID: call.ID, Content: openTaskNudge})
+				for _, rest := range msg.ToolCalls[i+1:] {
+					msgs = append(msgs, nim.Message{Role: "tool", ToolCallID: rest.ID, Content: droppedWithReply})
+				}
 				break
 			}
 			if end, ok := endingMessage(call); ok {
