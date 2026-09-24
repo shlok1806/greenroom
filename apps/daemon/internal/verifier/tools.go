@@ -14,7 +14,7 @@ import (
 
 const maxToolOutput = 6000 // characters of guest output fed back to the model
 
-const humanDriving = "A human may be driving the machine; if so this comes back as an error naming them, and the machine is unharmed."
+const humanDriving = "A human may be driving the machine; if so this comes back as an error naming them, and the machine is unharmed. Then ask them for the screen or reply that you are waiting; never retry at once, and never report a verdict because of it."
 
 func str(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
 func num(desc string) map[string]any { return map[string]any{"type": "number", "description": desc} }
@@ -289,9 +289,22 @@ func (v *Verifier) describe(ctx context.Context, png []byte) (string, error) {
 
 // postInput posts one batch as the verifier and returns the tool result text,
 // "step N\n<done>" on success, and the step it recorded.
+// screenTakenPrefix starts the tool result for input refused because someone else holds the
+// screen; Turn counts these (issue #97).
+const screenTakenPrefix = "error: the screen is taken: "
+
+func screenTakenResult(err error) string {
+	return screenTakenPrefix + err.Error() + ". Do not retry input now: it fails the same way while they hold it. " +
+		"You may still look (machine_ui, machine_screenshot). End the turn with ask, asking them to give the screen " +
+		"back, or reply that you are waiting. Never report a verdict because of this: it says nothing about the app."
+}
+
 func postInput(ctx context.Context, mgr *machine.Manager, runID, done string, actions ...machine.InputAction) (string, int) {
 	// Per call, never per turn (ADR 0009, issue #11).
 	res, err := mgr.InputAs(ctx, runID, machine.HolderVerifier, actions)
+	if errors.Is(err, machine.ErrScreenTaken) {
+		return screenTakenResult(err), res.Step
+	}
 	if err != nil {
 		return "error: " + err.Error(), res.Step
 	}

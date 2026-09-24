@@ -248,7 +248,11 @@ Computer use (ADR 0009)
   control of the screen after N actions") when the human takes the screen again
   (`TakeControlReporting`) or lets go of it, never as a second "took control" (issue #57).
 - The verifier takes the lease per call, not per turn, via `Manager.InputAs`. A human
-  holding it is a readable error, not a failure. The actor marks each turn with
+  holding it is a readable error, not a failure. It is `machine.ScreenTakenError` (`ErrScreenTaken`); the
+  verifier's tool result then says not to retry, and `Turn` ends the turn with a question
+  asking for the screen on the next input attempt while it is still held, or when the model
+  reports `inconclusive` after a refusal, so a standing verdict is never replaced by one
+  about the lease (issue #97). The actor marks each turn with
   `SetVerifierTurn`, and while one is open the coder's `InputAs` is refused with words
   pointing at `agent_wait` (issue #82): per-call leases let both drive the same app. A human
   is never refused for it.

@@ -1584,3 +1584,64 @@ func TestASentBackReplyAnswersEveryCallOfItsMessage(t *testing.T) {
 		t.Errorf("a dropped call ran: %+v", progress)
 	}
 }
+
+// Issue #97: while a human held the screen the verifier retried clicks in a tight loop, then
+// reported "inconclusive: a human is driving", which replaced its real fail verdict. The second
+// refusal ends the turn with a question, no refused input reaches the manager twice, and a lease
+// refusal never becomes a verdict.
+func TestAHumanOnTheScreenEndsTheTurnWithAQuestionNotAVerdict(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check the split.")
+	post(t, store, session.Message{From: session.Verifier, Kind: session.Verdict, Verdict: "fail", Text: "Each pays is $45.00, not $53.10."})
+	if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	var replies []string
+	for i := 0; i < 5; i++ {
+		replies = append(replies, toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}))
+	}
+	replies = append(replies, toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "A human is driving."}))
+	model := &scriptedModel{replies: replies}
+	v := newVerifier(t, mgr, model.start(t))
+	postTask(t, store, "Click 20% and report Each pays.")
+
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Ended != session.Question {
+		t.Fatalf("ended %q, want a question asking for the screen", res.Ended)
+	}
+	if last := lastMessage(t, store); !strings.Contains(last.Text, "screen") {
+		t.Errorf("question = %q, want it to ask for the screen", last.Text)
+	}
+	if got := store.Verdict(); got.Verdict != "fail" {
+		t.Errorf("verdict = %+v, want the standing fail kept", got)
+	}
+	if n := len(messagesOfKind(store, session.Progress)); n > 2 {
+		t.Errorf("%d clicks were tried while the human held the screen, want at most 2", n)
+	}
+}
+
+// A model that reports inconclusive right after one refusal is turned into the same question.
+func TestAnInconclusiveCausedByTheLeaseIsAQuestion(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
+		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "A human is driving."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Click it.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Ended != session.Question || store.Verdict().Status != session.None {
+		t.Fatalf("ended %q with verdict %+v, want a question and no verdict", res.Ended, store.Verdict())
+	}
+}
