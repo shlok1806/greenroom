@@ -97,3 +97,24 @@ func verifyHelper(ctx context.Context, c *tart.Client, vmName string) (Screen, e
 	}
 	return readScreen(ctx, c, vmName)
 }
+
+// PreferredImages are the local images a bare `greenroom serve` uses, first found first, the same
+// order scripts/install.sh picks for the launchd daemon: the lean image, then the prepared base.
+var PreferredImages = []string{"greenroom-lean-a", "greenroom-base"}
+
+// PreferredImage is the first of PreferredImages that tart has locally, else fallback. A tart that
+// cannot list its VMs gets the fallback too.
+func (m *Manager) PreferredImage(ctx context.Context, fallback string) string {
+	vms, err := m.tart.List(ctx)
+	if err != nil {
+		return fallback
+	}
+	for _, want := range PreferredImages {
+		for _, vm := range vms {
+			if vm.Source == "local" && vm.Name == want {
+				return want
+			}
+		}
+	}
+	return fallback
+}
