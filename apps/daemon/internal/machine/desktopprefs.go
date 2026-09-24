@@ -20,6 +20,10 @@ import (
 //     was shut down, such as a Terminal window over the app under test. Off
 //     for every app and for the next login. It cannot undo this boot's
 //     restore, which happened at login; baked by prepare-image, it prevents it.
+//   - Automatic text substitutions are off: typed text is posted a key at a time, so "Add
+//     period with double-space" turned "a  b" into "a. b", and smart quotes, dashes,
+//     spelling correction and capitals rewrote what an agent typed (issue #81). Apps that
+//     are already running keep their old setting until they relaunch.
 //   - The display never sleeps, the screensaver never starts, and the screen
 //     never locks. A guest display that sleeps turns every frame and
 //     screenshot black with no error (measured: displaysleep 1, 60 s idle,
@@ -33,12 +37,18 @@ import (
 const desktopPrefsScript = `set -e
 defaults write com.apple.WindowManager EnableStandardClickToShowDesktop -bool false
 defaults write NSGlobalDomain NSQuitAlwaysKeepsWindows -bool false
+defaults write NSGlobalDomain NSAutomaticPeriodSubstitutionEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticQuoteSubstitutionEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticDashSubstitutionEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticSpellingCorrectionEnabled -bool false
+defaults write NSGlobalDomain NSAutomaticCapitalizationEnabled -bool false
 defaults write com.apple.loginwindow TALLogoutSavesState -bool false
 sudo -n pmset -a displaysleep 0 sleep 0
 defaults -currentHost write com.apple.screensaver idleTime -int 0
 sysadminctl -screenLock status 2>&1 | grep -q "screenLock is off" || sysadminctl -screenLock off -password admin
 [ "$(defaults read com.apple.WindowManager EnableStandardClickToShowDesktop)" = 0 ]
 [ "$(defaults read NSGlobalDomain NSQuitAlwaysKeepsWindows)" = 0 ]
+[ "$(defaults read NSGlobalDomain NSAutomaticPeriodSubstitutionEnabled)" = 0 ]
 [ "$(defaults read com.apple.loginwindow TALLogoutSavesState)" = 0 ]
 [ "$(pmset -g | awk '$1=="displaysleep"{print $2}')" = 0 ]
 [ "$(pmset -g | awk '$1=="sleep"{print $2}')" = 0 ]

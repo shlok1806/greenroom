@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
@@ -283,5 +284,52 @@ func TestActorGivesUpAndSaysSo(t *testing.T) {
 	// It gave up on the turn, not on the run: the next message still works.
 	if !actors.Running(runID) {
 		t.Error("the actor died with the turn")
+	}
+}
+
+// coderProbeBrain tries the coding agent's input in the middle of its turn and records the result.
+type coderProbeBrain struct {
+	mgr *machine.Manager
+	err chan error
+}
+
+func (b coderProbeBrain) Turn(ctx context.Context, runID string, _ *session.Store) (TurnResult, error) {
+	x, y := 0.5, 0.5
+	_, err := b.mgr.InputAs(ctx, runID, machine.HolderCoder, []machine.InputAction{{Type: "click", X: &x, Y: &y}})
+	b.err <- err
+	return TurnResult{}, nil
+}
+
+// Issue #82: the actor marks each verifier turn, so the coder's input is refused while it runs
+// and accepted again once it ends.
+func TestActorRefusesCoderInputForTheLengthOfATurn(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	brain := coderProbeBrain{mgr: mgr, err: make(chan error, 1)}
+	reg := session.NewRegistry(mgr.Root, 2)
+	NewActors(brain, mgr, reg)
+	store, err := reg.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	postTask(t, store, "Check the app.")
+	select {
+	case err := <-brain.err:
+		if err == nil || !strings.Contains(err.Error(), "agent_wait") {
+			t.Fatalf("coder input during the turn = %v, want a refusal naming agent_wait", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the turn never started")
+	}
+	x, y := 0.5, 0.5
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, err := mgr.InputAs(context.Background(), runID, machine.HolderCoder, []machine.InputAction{{Type: "click", X: &x, Y: &y}})
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("coder input after the turn = %v, want it accepted", err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
