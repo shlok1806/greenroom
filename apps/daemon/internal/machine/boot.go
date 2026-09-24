@@ -58,6 +58,15 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 			timings["desktopPrefsError"] = perr.Error()
 			m.Log.Warn("a click on this machine's wallpaper may hide its windows", "runId", mc.RunID, "err", perr)
 		}
+		// The image starts Terminal at login (issue #60); nothing of the run is open yet. Not
+		// fatal: a stray Terminal only clutters the screen.
+		var quit bool
+		if qerr := phase("terminalSeconds", func() (err error) { quit, err = quitTerminal(ctx, m.tart, mc.Name); return err }); qerr != nil {
+			timings["terminalError"] = qerr.Error()
+			m.Log.Warn("a Terminal the image started may still be on this machine's screen", "runId", mc.RunID, "err", qerr)
+		} else {
+			timings["terminalQuit"] = quit
+		}
 		// The guest's clock reads the host's local time, as every time greenroom prints does
 		// (issue #77). Not fatal: a machine on UTC works.
 		if zone := m.hostTimeZone(); zone != "" {

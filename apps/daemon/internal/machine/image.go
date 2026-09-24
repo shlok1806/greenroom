@@ -59,6 +59,12 @@ func PrepareGuest(ctx context.Context, tartBin, vmName, pubKey string, log *slog
 		return fmt.Errorf("in %s: %w", vmName, err)
 	}
 
+	// Not fatal here either: an image that still starts Terminal is fixed at every boot.
+	log.Info("quitting Terminal and clearing its saved state", "vm", vmName)
+	if _, err := quitTerminal(ctx, c, vmName); err != nil {
+		log.Warn("Terminal may still start at login in this image; boot quits it", "vm", vmName, "err", err)
+	}
+
 	log.Info("verifying the input helper answers", "vm", vmName)
 	screen, err := verifyHelper(ctx, c, vmName)
 	if err != nil {
