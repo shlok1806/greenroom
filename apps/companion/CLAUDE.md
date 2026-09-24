@@ -3,10 +3,18 @@
 SwiftPM macOS app that watches runs, speaks into their conversation and can take a
 machine's screen. Vocabulary and invariants: `CONTEXT.md`. Decisions: ADR 0006
 (messages), 0007 (the app), 0008 (recording), 0009 (control), 0011 (live screen), and the
-package's own `docs/adr/0001` (the run window), `0002` (one derived run state, colour
-meanings, verdict trust, the snapshot tool) and `0003` (verdict actions, one status
-vocabulary, the daemon changes the UI waits on). Design: `docs/design-spec.md` (tokens,
-states, shortcuts), `docs/design-research.md`.
+package's own `docs/adr/0001` (the run window, superseded by 0004), `0002` (one derived
+run state, colour meanings, verdict trust, the snapshot tool), `0003` (verdict actions, one
+status vocabulary, the daemon changes the UI waits on), `0004` (the glyph-native interface
+on a character grid), `0005` (keys and the action registry), `0006` (motion, signature
+moments, click marks) and `0007` (the dependency allowlist). Design: `docs/design-spec.md`
+(grid, voices, roles, layout, motion, states, keys), `docs/design-research.md`. Design
+data: `design/themes/*.json` and `design/tokens.json` at the repo root.
+
+The views still draw the round-2 window (system styles, `NavigationSplitView`,
+`Theme.swift`). ADR 0004 to 0006 describe the glyph-native window being built layer by
+layer; until a layer lands, the rules below that name round-2 types describe the code as
+it is, and the new rules apply to everything built from now on.
 
 ## Commands
 
@@ -42,8 +50,18 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 
 ## Rules
 
-- No `.xcodeproj`, no third-party dependencies. Swift 6 language mode, strict concurrency;
-  do not opt out.
+- No `.xcodeproj`. Swift 6 language mode, strict concurrency; do not opt out.
+- Dependencies are an allowlist (ADR 0007): Apple and swiftlang packages that build in
+  Swift 6 mode with no warnings; swift-markdown (parse only), swift-collections,
+  swift-async-algorithms and SwiftTerm. Anything else needs its own companion ADR (why,
+  licence, Swift 6 mode, exit plan) before it goes into `Package.swift`. Rejected:
+  Textual and MarkdownUI (they break the grid), animation libraries, Highlightr.
+- Beautiful UI's components are ported as behaviour, credited under MIT in the app's
+  acknowledgements; no code from it is copied into the Mac app (ADR 0007).
+- `design/` is the source of colours, faces, cell metrics, motion timings and layout
+  thresholds. `DesignDataTests` gates it: every role maps to a slot, every theme meets
+  its contrast (4.5:1 text and roles, 3:1 dim; 7:1 for all in `-hc` themes). Change a
+  colour in the JSON, never in Swift.
 - Layering: `Views -> RunStore -> DaemonClient -> HTTP`.
   - Views never build URLs, decode JSON or keep their own copy of a run.
   - `Model/RunStore.swift` is the single `@Observable @MainActor` source of truth.
@@ -106,6 +124,25 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 
 ## UI rules
 
+- The grid (ADR 0004): every size, gutter, inset and pane edge is whole cells from
+  `GridMetrics`; no point values in views. All text is monospace at one size; headings are
+  bold or coloured, never larger. Borders are box-drawing glyphs. The live screen is the
+  only thing off the grid, framed as a window cut into it.
+- Voices: Neon for chrome and the coder, Xenon for the verifier, Radon (fallback Argon)
+  for the human, Krypton for machine and tool output. Read faces from `tokens.json`
+  `type`. A voice is never the only sign of who spoke; the sender is named in words.
+- Colour is an ANSI theme; views use roles, never slots or hex: pass (2), failure (1),
+  attention (3), live (6), driving (5), dim (8). Hue only for meaning; emphasis is weight
+  or inverse video. Every state is also a word. Bright slots never carry meaning.
+- Every key is an action in the one registry (ADR 0005). The hint bar, `?` help, Cmd-K
+  and the menu bar read it; a test fails on a shortcut declared anywhere else. Nothing
+  destructive has a bare key. Accept and dispute send after a 5 s undo. A typing context
+  swallows bare keys; driving sends every key to the guest and only a click exits.
+- Motion uses only the vocabulary in ADR 0006 and `tokens.json` `motion`. Motion never
+  blocks input; effects never own content; accessibility sees the final state; Reduce
+  Motion makes every change instant.
+- Click marks (transient, `m` toggles; static on a paused step) are the only thing drawn
+  over the screen's picture.
 - A run is named by a short title from its task (`RunTitle.short`, made distinct with
   `RunTitle.distinct`), never by its id. The sidebar pins "Needs You" and "Running"
   above the days; a row is the title, start time and counts, and its state in words.
@@ -113,8 +150,9 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   conversation (or above the stage when the conversation is hidden). Its headline is the
   state and who decided (`VerdictReview`); a verdict an agent accepted says no human
   reviewed it. The transcript shows the live verdict as one line, never a second card.
-- Each colour means one thing (`Palette`): green pass, red failure, orange needs you,
-  teal live; driving uses the system accent. Booting and offline carry none. Every state
+- Each colour means one thing. Until the theme layer lands, `Palette` maps them to
+  system colours (green pass, red failure, orange needs you, teal live, the system accent
+  for driving); after it, the roles above. Booting and offline carry none. Every state
   is also a word, and the words are one vocabulary (ADR 0003): the sidebar's
   `rowStatus` and the card's `VerdictReview.state` must say the same thing.
 - A verdict's actions are only the ones the daemon's session rules accept. When it
@@ -137,7 +175,7 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   presenter goes away leaves the window unable to take a click. Ask inline.
 - The player shows one source chip (live, connecting, recording, driving). Take Control
   / Give Back exists once, in the toolbar.
-- Nothing is drawn over the Screen stage's picture. The driving bar sits above it, and
+- Nothing but click marks is drawn over the Screen stage's picture. The driving bar sits above it, and
   position, the step under the pointer, live state and stream errors go under the track.
   The well takes the picture's shape, so there is no letterbox.
 - The conversation column is a hand-made split (`ColumnDivider`), not `.inspector` as

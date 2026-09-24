@@ -1,7 +1,10 @@
 # 0001. One run window: the stage, the conversation beside it, the verdict pinned on top
 
 Date: 2026-09-22
-Status: accepted
+Status: superseded by 0004
+
+ADR 0004 replaces the three-column `NavigationSplitView` and the system-colours-only
+style with a glyph-native window on a character grid.
 
 ## Context
 

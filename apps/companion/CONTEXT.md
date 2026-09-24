@@ -7,8 +7,8 @@ are in the root `CONTEXT-MAP.md`.
 
 - **Run**: a row in the sidebar (`RunSummary`), a `RunDetail` once opened. A finished run
   has no machine and is read-only. Named by its **task**, the first `task` message.
-- **Stage**: the run's main column, showing the Screen or the Steps. The conversation
-  column sits beside either.
+- **Stage**: the run's main column: the Screen, with the Steps as a timeline under it on a
+  wide window (tabs in the round-2 window). The conversation column sits beside it.
 - **Verdict card**: the current verdict pinned above the conversation, headed by its state
   and who decided, with its evidence and the only Accept and Dispute buttons.
 - **Run facts**: the one derived state of a run the whole window shows (`RunFacts`).
@@ -45,11 +45,27 @@ are in the root `CONTEXT-MAP.md`.
 - **Control lease**: one seat's right to a machine's mouse and keys, expiring after 60 s
   of silence (ADR 0009). Taken with "Take control", renewed while driving.
 - **Driving**: the Screen stage while the app holds the lease: pinned to the newest frame,
-  scrubber off, red badge, all input goes to the machine.
+  scrubber off, driving role (magenta, ADR 0004), all input goes to the machine.
 - **Action**: `move`, `click`, `down`, `up`, `scroll`, `type`, `key`, `sleep`.
   Coordinates are fractions 0 to 1, never pixels.
 - **Batch**: actions sent in one request, one step in the evidence. The queue is trimmed
   while a request is in flight (`InputBatch.coalesced`).
+- **Cell**: one character position on the window's grid, sized from the base face
+  (`design/tokens.json` `cell`). Every size and edge is whole cells (ADR 0004).
+- **Voice**: who is speaking, shown by a Monaspace face: chrome and coder (Neon),
+  verifier (Xenon), human (Radon, fallback Argon), machine (Krypton).
+- **Theme**: an ANSI palette (background, foreground, 16 slots, cursor, selection) in
+  Ghostty's keys, `design/themes/*.json`. A **slot** is one of its 16 colours (0 to 15).
+  A **role** is a meaning mapped to a slot: pass, failure, attention, live, driving, dim.
+- **Cursor**: the block `█` in inverse video. Marks keyboard focus, and the agent's
+  current step or message (blinks while it thinks).
+- **Hint bar**: the bottom row of the grid listing the keys that work in the current
+  context; `?` expands it into full help.
+- **Action registry**: the one list of actions (name, key, context, enabled) that the hint
+  bar, help, Cmd-K palette and menu bar read (ADR 0005).
+- **Zoom**: one pane filling the window (`z`), restored by `z` again.
+- **Click mark**: a cell-shaped mark over the screen where the agent clicked or typed:
+  about 800 ms while playing, static on a paused step, toggled by `m` (ADR 0006).
 
 ## Invariants
 

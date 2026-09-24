@@ -7,6 +7,7 @@ Working instructions for agents in this repo. What greenroom is and how to run i
 
 - `apps/daemon` - Go daemon `greenroom`. See its `CLAUDE.md`.
 - `apps/companion` - SwiftPM macOS app. See its `CLAUDE.md` and `CONTEXT.md`.
+- `design/` - themes and tokens for the companion (and a web dashboard later). See its `README.md`.
 - `images/` - Packer recipes and guest scripts for the VM image.
 - `packages/` - empty; TypeScript packages only when one is needed.
 - `docs/` - notes `00`-`10`, ADRs in `docs/adr/`.

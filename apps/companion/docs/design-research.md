@@ -213,7 +213,57 @@ The sizes in the brief are all correct. Note Caption 2 is Medium weight, not Reg
   to a span, "Fit" resets; labels appear progressively with zoom.
   [responsive timeline](https://langfuse.com/changelog/2026-08-28-responsive-timeline), [timeline view](https://langfuse.com/changelog/2024-06-12-timeline-view)
 
+## 5. Beautiful UI: the reference component inventory
+
+Added 2026-09-24 for the glyph-native redesign (ADR 0004).
+
+- **What it is.** A set of copy-paste interface primitives for agent products: thinking
+  and reasoning states, streaming answers, approvals, tool-call and task status, tables,
+  prompt bars, and a harness that composes them into an agent chat. One file per
+  primitive on a shared token stylesheet. Site: [beautifului.dev](https://www.beautifului.dev);
+  repo: [github.com/slev12397/beautiful-ui](https://github.com/slev12397/beautiful-ui).
+- **Licence.** MIT, copyright (c) 2026 Shane Levine (by Turbo). The one exception is
+  `SidebarNav`, which imports `@central-icons-react`, a paid icon set with a licence check
+  on install.
+- **Stack.** React, Next.js (App Router), Tailwind CSS v4, Motion. Components install
+  through a shadcn-style registry (`npx shadcn add https://www.beautifului.dev/r/<name>.json`)
+  that resolves each one's building blocks, npm packages and CSS.
+- **Look.** Inter and JetBrains Mono, cool blue-tinted neutrals, one blue accent, radii 6
+  to 14, layered shadows.
+
+What we port into the Mac app, as behaviour in our grid, type and theme (spec,
+Components):
+
+| Primitive | Behaviour worth taking | Ours |
+| --- | --- | --- |
+| Thinking trace | spinner on the running step, muted checks when done; the trace runs once, settles, stays expandable | steps timeline |
+| Tool Chips | one compact line per tool call with its state | transcript tool-call lines |
+| Approval Card | the decision in plain words, evidence under it, actions named by what they do | verdict card, question card |
+| Agent Screen | resting framed capture; "Open" to a full viewer; "Teach a task" starts recording; a red REC badge while it records; a connecting state in the frame | screen window, `z` zoom, take control |
+| Task Rows | running, failed and done rows | run rows |
+| Loading State (Drive) | a 3 x 3 pixel grid with a chevron wavefront on a 650 ms cycle, a shimmering label, a live elapsed timer in tabular mono; reduced motion freezes the grid and the timer still ticks | the boot and working loader, drawn with `█` and `░` |
+| Search | command-palette list, live filter, a real empty state | Cmd-K |
+| Streaming Text | streaming at the real rate, inline citations, follow-ups | verifier replies with evidence chips |
+| Code Block | code and a unified diff | tool output, diffs |
+
+What we reject for the Mac app, and why:
+
+- **Its visual style** (Inter, rounded cards, shadows, blue accent). The companion is
+  glyph-native: one monospace size, box-drawing borders, an ANSI theme, hue only for
+  meaning. A blue accent would be a hue with no meaning.
+- **Its code.** It is React; the Mac app is SwiftUI. We port behaviour, not source, and
+  take no code dependency.
+- **Primitives with no run to show** (Insight, Recommendation and Fine-tune cards,
+  Flowchart, Records and Filter tables). Nothing in a run needs them yet.
+
+For the later web dashboard the answer differs: use its React components directly
+through the registry (MIT), themed from `design/`, and swap `SidebarNav`'s paid
+`@central-icons-react` icons for a free set (Lucide or Iconoir). See companion ADR 0007.
+
 ## Takeaways for the companion
+
+These are the round-2 takeaways (2026-09-22). ADR 0004 replaces the three-column shape,
+system colours and glass (1, 3, 4, 9); the rest carry into the glyph-native spec.
 
 1. Keep the three-column shape: sidebar of runs (Today, Yesterday, Earlier; max two
    levels), detail with the live screen, and a trailing `.inspector` for verdict and
