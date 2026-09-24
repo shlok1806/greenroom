@@ -1,7 +1,8 @@
 # 0003. What a person can do with each verdict, and one set of words for its state
 
 Date: 2026-09-22
-Status: accepted. Builds on ADR 0002.
+Status: accepted. Builds on ADR 0002. Amended by 0004 (the driving colour, where Take
+Control lives).
 
 ## Context
 
