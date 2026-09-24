@@ -16,10 +16,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // macOS may have restored it off screen, and whenever it moves to another screen.
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didChangeScreenNotification] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let number = (note.object as? NSWindow)?.windowNumber
+                // NSWindow is Sendable; windowNumber is read on the main actor, below.
+                let window = note.object as? NSWindow
                 MainActor.assumeIsolated {
-                    guard let self, let number, let window = NSApp.window(withWindowNumber: number),
-                          Self.isRunWindow(window) else { return }
+                    guard let self, let window, Self.isRunWindow(window) else { return }
                     if name == NSWindow.didBecomeKeyNotification {
                         guard !self.fittedAfterLaunch else { return }
                         self.fittedAfterLaunch = true

@@ -244,6 +244,7 @@ final class VerdictReviewTests: XCTestCase {
                        [.noEvidence])
     }
 
+    @MainActor
     func testAStepAndItsScreenshotAreOnePieceOfEvidence() {
         let items = ["step 13", "/runs/x/013-screenshot.png", "the tip reads $24"].map(Evidence.parse)
         XCTAssertEqual(VerdictCard.byStep(items), [.step(13), .text("the tip reads $24")])
