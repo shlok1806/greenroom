@@ -508,7 +508,11 @@ final class RunStore: PilotHost {
         guard let action = draft.action, !text.isEmpty, let verdict = verdict(runId), let seq = verdict.seq else { return false }
         switch action {
         case .reject: guard verdict.status.isOpen else { return false }
-        case .recheck: guard verdict.status == .accepted else { return false }
+        case .recheck:
+            // A newer task is the verifier's current work; a re-check of the older verdict
+            // would pull the turn away from it (issue #89).
+            guard verdict.status == .accepted,
+                  VerdictReview.newerTask(than: seq, in: messages[runId] ?? []) == nil else { return false }
         }
         let sent: Bool
         switch action {

@@ -301,6 +301,12 @@ struct VerdictCard: View {
         let outcome = Chrome.outcomeTitle(verdict.verdict)
         let unreviewed = verdict.status == .accepted && !review.humanReviewed
         let draft = draft
+        let newer = VerdictReview.newerTask(than: verdict.seq, in: store.messages[runId] ?? [])
+        if let newer {
+            Label(VerdictReview.staleNote(verdictSeq: verdict.seq, newerTask: newer), systemImage: "clock.arrow.circlepath")
+                .font(.callout)
+                .foregroundStyle(Palette.attention)
+        }
         if verdict.status.isOpen || unreviewed {
             VStack(alignment: .leading, spacing: Space.s) {
                 if let action = draft.action {
@@ -317,8 +323,10 @@ struct VerdictCard: View {
                         if unreviewed {
                             Spacer(minLength: 0)
                             Button("Ask for a Re-check...") { store.updateVerdictDraft(runId) { $0.action = .recheck } }
-                                .disabled(!facts.verifierListens)
-                                .help(facts.verifierListens
+                                .disabled(!facts.verifierListens || newer != nil)
+                                .help(newer != nil
+                                    ? "The verifier is checking a newer task; its verdict will replace this one"
+                                    : facts.verifierListens
                                     ? "Send the verifier your reason to check again"
                                     : "The verifier stopped with the machine; nothing can answer")
                         } else {

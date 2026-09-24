@@ -217,6 +217,11 @@ Conversation and verifier
   never posted: the fragment stays out of the context and the model is told to answer again,
   shorter; on the last step the reply says the answers were cut off (issue #71). Chat asks
   for `nim.ChatMaxTokens` (8192) because a reasoning model thinks inside that budget.
+- A task owes a verdict: while a coder or human task has no verdict after it
+  (`hasOpenTask`), a turn that tries to end in `reply` (tool or prose) is sent back once
+  with `openTaskNudge` for `report_verdict` or `ask`. A message arriving mid-turn made the
+  model answer it and leave the task without a verdict (issue #89). Once per turn, never on
+  the last step, so a model that replies again is heard.
 - `project` rebuilds the verifier's own past messages (progress, reply, ask, verdict) as
   the assistant tool calls that made them, with results; never as assistant prose. A
   model imitates its history: projected as "[I reported verdict ...]" text, it answered a
