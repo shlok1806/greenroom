@@ -1,17 +1,22 @@
 package machine
 
-// Interactive sessions: one `tart exec -i -t` child per session, kept alive
-// between tool calls behind a real pty, because build tools branch on
-// isatty(). The handle is a host process the daemon owns, never a guest pid.
-// A command failing inside a session is output, not an error.
+// Interactive sessions (ADR 0016): each command runs behind a real pty made in
+// the guest, because build tools branch on isatty(). Input goes through one
+// long-lived non-tty `tart exec -i`; output comes back from a guest file
+// through short `tart exec` reads (sessionguest.go), never streamed through
+// tart. The handle is a host process the daemon owns, never a guest pid. A
+// command failing inside a session is output, not an error.
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +40,21 @@ const (
 	maxSessionWait = 50 * time.Second
 )
 
+// How the follower paces its reads of the guest file. A full chunk means more
+// is waiting, so it reads again at once; after data it looks again soon; with
+// nothing new it backs off to sessionFollowIdle. A send or a read wakes it.
+// Package vars so tests can shorten them.
+var (
+	sessionFollowBusy    = 50 * time.Millisecond
+	sessionFollowIdleMin = 250 * time.Millisecond
+	sessionFollowIdle    = 2 * time.Second
+	sessionFollowTimeout = 30 * time.Second // one guest read
+	sessionCloseTimeout  = 15 * time.Second // the guest cleanup on close
+	// sessionFollowGiveUp is how many failed reads in a row after the command
+	// exits end the session without its last output (the guest is gone).
+	sessionFollowGiveUp = 5
+)
+
 // PTYSession is one interactive command inside a guest, addressed by (runId, id).
 type PTYSession struct {
 	ID        string    `json:"id"`
@@ -44,8 +64,51 @@ type PTYSession struct {
 	proc *tart.Session
 	out  *stream
 
+	poke         chan struct{}      // wakes the follower; buffered 1
+	ended        chan struct{}      // closed once the command exited and its output is all in out
+	stopFollower context.CancelFunc // ends the follower early (close, machine gone)
+	followErr    error              // why the last output could not be read; written before ended closes
+
 	mu     sync.Mutex // serializes writes, and each read with its offset update; never held while waiting
 	offset int64      // how far reads have consumed; guarded by mu
+}
+
+func newPTYSession(id, command string, started time.Time) *PTYSession {
+	return &PTYSession{
+		ID: id, Command: command, StartedAt: started.UTC(),
+		out:   newStream(sessionBufferLimit),
+		poke:  make(chan struct{}, 1),
+		ended: make(chan struct{}),
+	}
+}
+
+// wake asks the follower to read the guest file now.
+func (s *PTYSession) wake() {
+	select {
+	case s.poke <- struct{}{}:
+	default:
+	}
+}
+
+// running is true until the command has exited and all its output is read.
+func (s *PTYSession) running() bool {
+	select {
+	case <-s.ended:
+		return false
+	default:
+		return true
+	}
+}
+
+// stop ends the follower and the host `tart exec`. It does not reach the guest.
+func (s *PTYSession) stop() error {
+	if s.stopFollower != nil {
+		s.stopFollower()
+	}
+	if s.proc == nil {
+		return nil
+	}
+	return s.proc.Close()
 }
 
 // SessionStartResult names the session a caller keeps to reach the command again.
@@ -109,8 +172,8 @@ func (m *Manager) session(runID, sessionID string) (*Machine, *PTYSession, error
 	return mc, s, nil
 }
 
-// SessionStart runs command in the guest behind a pty and returns the id that
-// reaches it again. The command outlives this call.
+// SessionStart runs command in the guest behind a guest-side pty and returns
+// the id that reaches it again. The command outlives this call.
 func (m *Manager) SessionStart(ctx context.Context, runID, command string) (SessionStartResult, error) {
 	mc, err := m.get(runID)
 	if err != nil {
@@ -128,14 +191,14 @@ func (m *Manager) SessionStart(ctx context.Context, runID, command string) (Sess
 	}
 	started := time.Now()
 
-	s := &PTYSession{ID: id, Command: command, StartedAt: started.UTC(), out: newStream(sessionBufferLimit)}
+	s := newPTYSession(id, command, started)
 	// Reserve before starting so concurrent starts cannot pass the cap.
 	if err := m.reserveSession(mc, s); err != nil {
 		return SessionStartResult{}, err
 	}
-	proc, err := m.tart.StartSession(mc.Name, "/bin/zsh", "-lc", command)
+	proc, err := m.tart.StartSession(mc.Name, "/bin/sh", "-c", sessionWrapper, "greenroom-session", id, command)
 	if err == nil && !m.attachSession(mc, s, proc) {
-		_ = proc.Close() // the machine went while tart was starting
+		_ = proc.Close() // the machine went while tart was starting; its VM goes with it
 		err = fmt.Errorf("no machine for run %q", runID)
 	}
 	var out SessionStartResult
@@ -143,7 +206,6 @@ func (m *Manager) SessionStart(ctx context.Context, runID, command string) (Sess
 		m.dropSession(mc, id)
 	} else {
 		out = SessionStartResult{SessionID: id, Command: command, TTY: true}
-		go s.out.pump(proc.Output()) // must drain or the command blocks
 	}
 	out.Step = mc.rec.step("machine_session_start",
 		map[string]any{"sessionId": id, "command": command}, out, err, started)
@@ -154,19 +216,135 @@ func (m *Manager) SessionStart(ctx context.Context, runID, command string) (Sess
 	return out, nil
 }
 
+// follow copies the session's guest file into its window until the command
+// has exited and the file is read to its end, then closes s.ended. It reads
+// through short non-tty `tart exec` calls, the path machine_exec uses.
+func (m *Manager) follow(ctx context.Context, mc *Machine, s *PTYSession) {
+	defer close(s.ended)
+	defer s.out.touch() // a waiting read sees the end at once
+	var off int64       // guest file offset of the next byte wanted
+	pause := time.Duration(0)
+	failures := 0
+	exit := s.proc.Done() // wakes the follower once, when the command exits
+	for {
+		if pause > 0 {
+			t := time.NewTimer(pause)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				s.followErr = errors.New("the session was closed")
+				return
+			case <-s.poke:
+			case <-exit:
+				exit = nil
+			case <-t.C:
+			}
+			t.Stop()
+		} else if ctx.Err() != nil {
+			s.followErr = errors.New("the session was closed")
+			return
+		}
+		exited := !s.proc.Running() // before the read, so the read sees everything
+		n, full, err := m.readGuestSession(ctx, mc, s, &off)
+		switch {
+		case err != nil:
+			failures++
+			if exited && failures >= sessionFollowGiveUp {
+				s.followErr = fmt.Errorf("the last output could not be read: %w", err)
+				return
+			}
+			if failures == 1 {
+				m.Log.Warn("cannot read a session's output; retrying", "run", mc.RunID, "session", s.ID, "err", err)
+			}
+			pause = min(sessionFollowIdle, sessionFollowIdleMin<<min(failures, 4))
+			continue
+		case exited && n == 0:
+			return // everything the command printed is in the window
+		case full:
+			pause = 0
+		case n > 0:
+			pause = sessionFollowBusy
+		case pause < sessionFollowIdleMin:
+			pause = sessionFollowIdleMin
+		default:
+			pause = min(pause*2, sessionFollowIdle)
+		}
+		if failures > 0 {
+			m.Log.Info("reading a session's output again", "run", mc.RunID, "session", s.ID)
+		}
+		failures = 0
+	}
+}
+
+// readGuestSession appends what the guest file holds past *off to the window,
+// skipping ahead (and counting it dropped) when the guest is more than a
+// window ahead. It reports how many bytes arrived and whether the read was
+// capped, which means more is waiting.
+func (m *Manager) readGuestSession(ctx context.Context, mc *Machine, s *PTYSession, off *int64) (n int, full bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, sessionFollowTimeout)
+	defer cancel()
+	var stdout, stderr bytes.Buffer
+	code, err := m.tart.ExecTo(ctx, &stdout, &stderr, mc.Name, "/bin/sh", "-c", sessionReadScript,
+		"greenroom-session-read", s.ID, strconv.FormatInt(*off, 10), strconv.Itoa(sessionBufferLimit))
+	if err != nil {
+		return 0, false, err
+	}
+	if code == sessionReadMissing {
+		return 0, false, nil // not created yet, or tart failed before the wrapper ran
+	}
+	if code != 0 {
+		return 0, false, fmt.Errorf("reading the session file exited %d: %s", code, strings.TrimSpace(stderr.String()))
+	}
+	out := stdout.Bytes()
+	nl := bytes.IndexByte(out, '\n')
+	if nl < 0 {
+		return 0, false, fmt.Errorf("reading the session file printed no offset: %q", truncateForRecord(string(out)))
+	}
+	start, perr := strconv.ParseInt(string(out[:nl]), 10, 64)
+	if perr != nil || start < *off {
+		return 0, false, fmt.Errorf("reading the session file printed a bad offset %q", out[:nl])
+	}
+	data := out[nl+1:]
+	if start > *off {
+		s.out.skip(start - *off)
+	}
+	if len(data) > 0 {
+		_, _ = s.out.Write(data)
+	}
+	*off = start + int64(len(data))
+	return len(data), len(data) >= sessionBufferLimit, nil
+}
+
+// cleanupGuestSession ends the guest side of a session and removes its file.
+// A failure is logged: the handle is forgotten either way.
+func (m *Manager) cleanupGuestSession(mc *Machine, s *PTYSession) {
+	ctx, cancel := context.WithTimeout(context.Background(), sessionCloseTimeout)
+	defer cancel()
+	var stderr bytes.Buffer
+	code, err := m.tart.ExecTo(ctx, io.Discard, &stderr, mc.Name, "/bin/sh", "-c", sessionCloseScript,
+		"greenroom-session-close", s.ID)
+	if err == nil && code != 0 {
+		err = fmt.Errorf("exit %d: %s", code, strings.TrimSpace(stderr.String()))
+	}
+	if err != nil {
+		m.Log.Warn("cannot end a session in the guest; its command may still run", "run", mc.RunID, "session", s.ID, "err", err)
+	}
+}
+
 // reserveSession holds a slot for s, refusing a machine that already left the
 // map so a start racing Destroy cannot leave an unreachable process. Only
 // running sessions count toward the cap; ended ones stay readable until a
 // full machine needs their slots.
 func (m *Manager) reserveSession(mc *Machine, s *PTYSession) error {
 	ended, err := m.reserveSessionLocked(mc, s)
-	for _, p := range ended {
-		_ = p.Close() // already exited; this only releases the pty
+	for _, old := range ended {
+		_ = old.stop() // already exited; this only reaps the host process
+		m.cleanupGuestSession(mc, old)
 	}
 	return err
 }
 
-func (m *Manager) reserveSessionLocked(mc *Machine, s *PTYSession) (ended []*tart.Session, err error) {
+func (m *Manager) reserveSessionLocked(mc *Machine, s *PTYSession) (ended []*PTYSession, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.machines[mc.RunID] != mc {
@@ -177,8 +355,8 @@ func (m *Manager) reserveSessionLocked(mc *Machine, s *PTYSession) (ended []*tar
 	}
 	if len(mc.sessions) >= maxSessionsPerMachine {
 		for id, old := range mc.sessions {
-			if old.proc != nil && !old.proc.Running() {
-				ended = append(ended, old.proc)
+			if old.proc != nil && !old.running() {
+				ended = append(ended, old)
 				delete(mc.sessions, id)
 			}
 		}
@@ -191,15 +369,18 @@ func (m *Manager) reserveSessionLocked(mc *Machine, s *PTYSession) (ended []*tar
 	return ended, nil
 }
 
-// attachSession gives a reserved session its process, or reports false if
-// the machine (and the reservation) went in the meantime.
+// attachSession gives a reserved session its process and starts copying its
+// output, or reports false if the machine (and the reservation) went in the
+// meantime. Under m.mu, so detachLocked always sees the follower to stop.
 func (m *Manager) attachSession(mc *Machine, s *PTYSession, proc *tart.Session) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if mc.sessions[s.ID] != s {
 		return false
 	}
-	s.proc = proc
+	ctx, cancel := context.WithCancel(context.Background())
+	s.proc, s.stopFollower = proc, cancel
+	go m.follow(ctx, mc, s)
 	return true
 }
 
@@ -230,6 +411,7 @@ func (m *Manager) SessionSend(ctx context.Context, runID, sessionID, data string
 		err = fmt.Errorf("write to session %s: %w", sessionID, werr)
 	}
 	s.mu.Unlock()
+	s.wake() // the answer (and the echo) is coming
 
 	out := SessionSendResult{SessionID: sessionID}
 	if err == nil {
@@ -259,6 +441,7 @@ func (m *Manager) SessionRead(ctx context.Context, runID, sessionID string, wait
 	wait = min(wait, maxSessionWait)
 	started := time.Now()
 
+	s.wake()
 	out, err := s.readUntil(ctx, wait)
 	out.Step = mc.rec.step("machine_session_read",
 		map[string]any{"sessionId": sessionID, "fromByte": out.FromByte}, truncatedRead(out), err, started)
@@ -301,7 +484,7 @@ func (s *PTYSession) readUntil(ctx context.Context, wait time.Duration) (Session
 		if done {
 			return out, nil
 		}
-		// The poll catches the command ending, which writes nothing.
+		// The follower touches the stream when the session ends; the poll is a backstop.
 		pause := sessionPollInterval
 		if !first.IsZero() {
 			pause = sessionSettle
@@ -317,7 +500,7 @@ func (s *PTYSession) readUntil(ctx context.Context, wait time.Duration) (Session
 }
 
 func (s *PTYSession) readOnce() SessionReadResult {
-	running := s.proc.Running()
+	running := s.running()
 	text, next, pending, dropped := s.out.readText(s.offset, sessionReadLimit, running)
 	out := SessionReadResult{
 		SessionID: s.ID,
@@ -329,10 +512,14 @@ func (s *PTYSession) readOnce() SessionReadResult {
 		Running:   running,
 	}
 	if !running {
+		// ended is closed, so the process has exited and followErr is final.
 		if err := s.proc.Err(); err != nil {
 			out.Error = err.Error()
 		} else if code, ok := s.proc.ExitCode(); ok {
 			out.ExitCode = &code
+		}
+		if s.followErr != nil {
+			out.Error = strings.TrimPrefix(out.Error+"; "+s.followErr.Error(), "; ")
 		}
 	}
 	return out
@@ -347,7 +534,9 @@ func (m *Manager) SessionClose(ctx context.Context, runID, sessionID string) (Se
 	}
 	started := time.Now()
 	if s := m.dropSession(mc, sessionID); s != nil && s.proc != nil {
-		err = s.proc.Close()
+		s.stopFollower()
+		m.cleanupGuestSession(mc, s) // ends the guest command, so tart exits on its own
+		err = s.stop()
 	}
 	out := SessionCloseResult{SessionID: sessionID}
 	out.Step = mc.rec.step("machine_session_close",
@@ -393,9 +582,24 @@ func (s *stream) changed() <-chan struct{} {
 	return s.wake
 }
 
-// pump copies output into the window until the stream ends; Running reports the end.
-func (s *stream) pump(r io.Reader) {
-	_, _ = io.CopyBuffer(s, r, make([]byte, 32*1024))
+// skip counts n bytes as written without keeping them, emptying the window:
+// the source was more than a window ahead. Readers see them as dropped.
+func (s *stream) skip(n int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.written += n
+	s.buf = s.buf[:0]
+	s.start = s.written
+	close(s.wake)
+	s.wake = make(chan struct{})
+}
+
+// touch wakes waiting readers without writing, so they see a change of state.
+func (s *stream) touch() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	close(s.wake)
+	s.wake = make(chan struct{})
 }
 
 // read returns at most limit bytes from off, where to continue, how much is

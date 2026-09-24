@@ -12,7 +12,7 @@ go test ./...                                   # no VM; fake tart
 go test -race ./...                             # before touching boot, recorder or sessions
 go test ./internal/machine -run TestFoo
 go test -tags tart -run TestEndToEnd -v -timeout 10m .         # real VM
-go test -tags tart -run TestEndToEndSession -v -timeout 12m .  # real pty in a real VM
+go test -tags tart -run TestEndToEndSession -v -timeout 12m .  # guest pty, ^C and a 3 MB flood in a real VM
 go test -tags tart -count=1 -timeout 20m ./...  # whole VM suite, as CI runs it
 golangci-lint run ./...
 
@@ -323,11 +323,21 @@ Sync
 
 Interactive sessions (`machine_session_*`)
 
-- A session is a host `tart exec -i -t` child keyed by `(runId, sessionId)`, never a guest
-  pid. Not in `state.json`; a restart drops them.
-- `tart exec -t` must get a host pty (`internal/tart/pty.go`), never a pipe, or tart
-  crashes on `TIOCGWINSZ`. Set the window size before start; close the slave after
-  start; `EIO` on the master is clean EOF.
+- A session is a host `tart exec -i` child (plain pipes, never `-t`) keyed by
+  `(runId, sessionId)`, never a guest pid. Not in `state.json`; a restart drops them.
+- The pty is made in the guest (ADR 0016, issue #30): `sessionWrapper` runs `script -q -F`
+  into `${TMPDIR:-/tmp}/greenroom-session.<id>` with its stdout to `/dev/null`. Output must
+  never stream through tart: `tart exec -t`, and even guest `script` writing to a non-tty
+  exec's stdout, stalls on fast output and wedges every guest call on the machine. The
+  long-lived exec carries only input.
+- A follower goroutine per session copies the file into the window with short `tart exec`
+  reads (`sessionReadScript`), skipping to the last 1 MiB when the guest is further ahead
+  (counted as `dropped`). A send or read wakes it; idle it polls every 2 s. `running` goes
+  false only after the file is read to its end (`PTYSession.ended`).
+- Close runs `sessionCloseScript` (HUP then KILL to script and everything on its pty,
+  remove the files) before killing the host exec: killing `tart exec` never reaches the
+  guest. Destroy only ends host processes; the VM takes the rest.
+- The size (40x120) is fixed at start; there is no resize from the host.
 - Output buffer is the last 1 MiB, read by absolute offset; reads cap at 256 KiB and
   report `dropped` and `pending`. `cleanTTY` strips escapes on the way out.
 - A finished session's read carries `exitCode` (tart forwards the guest's), absent while
@@ -402,7 +412,11 @@ Clones of `greenroom-base` skip the ~28 s first-control compile.
   `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-timezone`, `fail-terminal`, `fail-lean`, `ui.json` (what `--ui-base64`
   prints), `tart-version` (fake a version mismatch), `exec-sleep` and `exec-stdout` (a slow or
   loud machine_exec), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
-  `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session got a pty.
+  `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session reaches tart on a
+  pipe. It models a session with the host's real `script` running `cat`, and runs the real
+  session read and close scripts, with `TMPDIR` set to the control dir.
+- `internal/machine/sessionguest_test.go` runs the session wrapper, read and close scripts
+  for real on the host (same `script`, `stat`, `ps` as the guest).
 - The fake tart runs `exec -i ... --serve` as the fake live screen helper by re-executing
   the test binary (`testsupport/fakescreen.go`, gated by an env var in its `init`). Its control
   files are listed there; `testsupport.ServeStarts` counts starts.

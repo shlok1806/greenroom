@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -140,36 +141,15 @@ func TestASessionEchoesWhatIsTypedAtIt(t *testing.T) {
 	}
 }
 
-// Builds branch on isatty(), so the session must get a real terminal; -i -t must precede the VM name.
-func TestASessionAsksTartForATerminal(t *testing.T) {
+// Issue #30, ADR 0016: tart's own tty mode stalls on fast output and wedges the machine, so a
+// session must reach tart as `exec -i <vm>` on a plain pipe, never `-t`, and never a host pty. The
+// terminal is made in the guest by the wrapper.
+func TestASessionNeverAsksTartForATerminal(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
-	h.startSession(runID, "swift build")
+	id := h.startSession(runID, "swift build")
 
 	// The forked child logs its call a moment after start returns.
-	var line string
-	for i := 0; i < 50 && line == ""; i++ {
-		for _, c := range strings.Split(testsupport.Calls(t, h.control), "\n") {
-			if strings.HasPrefix(c, "exec -i -t ") {
-				line = c
-			}
-		}
-		if line == "" {
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
-	if line == "" {
-		t.Fatalf("no `tart exec -i -t` call was made; calls were:\n%s", testsupport.Calls(t, h.control))
-	}
-	if !strings.Contains(line, "swift build") {
-		t.Errorf("the session did not carry the command: %q", line)
-	}
-	rest := strings.TrimPrefix(line, "exec -i -t ")
-	if !strings.HasPrefix(rest, "greenroom-") {
-		t.Errorf("the VM name does not follow the flags: %q", line)
-	}
-
-	// Real `tart exec -t` dies when its stdin is a pipe, so the daemon must hand it a sized host pty.
 	var stdin string
 	for i := 0; i < 50 && stdin == ""; i++ {
 		if b, err := os.ReadFile(filepath.Join(h.control, "session-stdin")); err == nil {
@@ -178,11 +158,92 @@ func TestASessionAsksTartForATerminal(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
-	if !strings.HasPrefix(stdin, "tty") {
-		t.Fatalf("tart was given %q for stdin, want a terminal", stdin)
+	if stdin != "pipe" {
+		t.Fatalf("tart was given %q for stdin, want a pipe", stdin)
 	}
-	if !strings.Contains(stdin, "40 120") {
-		t.Errorf("the terminal reported size %q, want the 40x120 the daemon sets", stdin)
+	calls := testsupport.Calls(t, h.control)
+	var start string
+	for _, c := range strings.Split(calls, "\n") {
+		if strings.HasPrefix(c, "exec -i ") && !strings.HasSuffix(c, " --serve") {
+			start = c
+		}
+		if strings.HasPrefix(c, "exec -t ") || strings.HasPrefix(c, "exec -i -t ") {
+			t.Errorf("a session asked tart for a terminal: %q", c)
+		}
+	}
+	if !strings.HasPrefix(strings.TrimPrefix(start, "exec -i "), "greenroom-") {
+		t.Errorf("the VM name does not follow -i: %q", start)
+	}
+	if !strings.Contains(calls, "greenroom-session "+id+" swift build") {
+		t.Errorf("the session did not carry its id and command; calls were:\n%s", calls)
+	}
+}
+
+// A session's output lives in a guest file until close, and closing must end the command there too:
+// killing the host `tart exec` alone leaves the guest command running.
+func TestClosingASessionEndsItsGuestSide(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	id := h.startSession(runID, "")
+	h.call("machine_session_send", map[string]any{"runId": runID, "sessionId": id, "data": "CLOSEME\n"}, nil)
+	if got := h.readSession(runID, id); !strings.Contains(got.Output, "CLOSEME") {
+		t.Fatalf("the session gave no output before close: %q", got.Output)
+	}
+	file := filepath.Join(h.control, "greenroom-session."+id)
+	pid, err := os.ReadFile(file + ".pid")
+	if err != nil {
+		t.Fatalf("the session left no pid file: %v", err)
+	}
+
+	h.call("machine_session_close", map[string]any{"runId": runID, "sessionId": id}, nil)
+
+	for _, f := range []string{file, file + ".pid"} {
+		if _, err := os.Stat(f); !os.IsNotExist(err) {
+			t.Errorf("%s is still there after close (%v)", filepath.Base(f), err)
+		}
+	}
+	if !strings.Contains(testsupport.Calls(t, h.control), "greenroom-session-close "+id) {
+		t.Error("close never ran the guest cleanup")
+	}
+	// The guest-side script(1) is a host process under the fake tart.
+	if out, _ := exec.Command("ps", "-o", "comm=", "-p", strings.TrimSpace(string(pid))).Output(); strings.Contains(string(out), "script") {
+		t.Errorf("the session's script(1) (pid %s) still runs after close", strings.TrimSpace(string(pid)))
+	}
+}
+
+// A command that prints far faster than anyone reads must neither stall nor hide its end: the reader
+// learns what was dropped and still gets the last bytes and the exit.
+func TestAFloodingSessionSkipsToItsEndAndSaysWhatItDropped(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	flood := strings.Repeat("y\n", 1_500_000) + "DONE\n" // 3 MB, three windows
+	if err := os.WriteFile(filepath.Join(h.control, "session-output"), []byte(flood), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testsupport.Flag(t, h.control, "session-exits")
+	id := h.startSession(runID, "yes | head -c 3000000; echo DONE")
+
+	var all strings.Builder
+	var dropped int64
+	var last machine.SessionReadResult
+	for i := 0; i < 40 && (i == 0 || last.Running || last.Pending > 0); i++ {
+		last = machine.SessionReadResult{} // omitted fields must not keep the previous read's values
+		h.call("machine_session_read", map[string]any{"runId": runID, "sessionId": id, "waitSeconds": 2}, &last)
+		all.WriteString(last.Output)
+		dropped += last.Dropped
+	}
+	if last.Running {
+		t.Fatal("the flooding session never finished")
+	}
+	if !strings.HasSuffix(all.String(), "DONE\n") {
+		t.Errorf("the last output was lost; it ends %q", all.String()[max(0, all.Len()-20):])
+	}
+	if dropped == 0 {
+		t.Error("3 MB passed through a 1 MiB window and nothing was reported dropped")
+	}
+	if got := int64(all.Len()) + dropped; got != int64(len(flood)) {
+		t.Errorf("read %d bytes and dropped %d, which is %d; the command printed %d",
+			all.Len(), dropped, got, len(flood))
 	}
 }
 

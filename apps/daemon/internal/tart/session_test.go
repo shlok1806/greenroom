@@ -153,8 +153,49 @@ func TestAFinishedSessionExplainsATartFailureOnly(t *testing.T) {
 	}
 }
 
+// Issue #30, ADR 0016: a session reaches tart as `exec -i <vm> <command>` on a
+// plain pipe, never `-t` and never a terminal, and what is written arrives on
+// the command's stdin.
+func TestASessionIsANonTTYExecOnAPipe(t *testing.T) {
+	dir := t.TempDir()
+	args, got := filepath.Join(dir, "args"), filepath.Join(dir, "stdin")
+	s, err := sessionBin(t, `printf '%s\n' "$*" > `+args+`; [ -t 0 ] && exit 9; [ -t 1 ] && exit 8; exec cat > `+got).
+		StartSession("vm", "/bin/sh", "-c", "wrapper")
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	if _, err := s.Write([]byte("typed\n")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		b, _ := os.ReadFile(got)
+		if string(b) == "typed\n" {
+			break
+		}
+		if !s.Running() {
+			code, _ := s.ExitCode()
+			t.Fatalf("the stand-in tart exited %d (9: stdin was a terminal, 8: stdout was)", code)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("stdin got %q, want what was written", b)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Errorf("a second Close failed: %v", err)
+	}
+	a, _ := os.ReadFile(args)
+	if strings.TrimSpace(string(a)) != "exec -i vm /bin/sh -c wrapper" {
+		t.Errorf("tart got %q", a)
+	}
+}
+
 // tart dying of a signal is a failure whatever it prints. The Swift trap is
-// what `tart exec -t` hits without a terminal.
+// what tart 2.37.0's `exec -t` hit without a terminal.
 func TestASessionWhoseTartCrashesExplainsWhy(t *testing.T) {
 	for _, c := range []struct{ name, body, want string }{
 		{"swift trap",

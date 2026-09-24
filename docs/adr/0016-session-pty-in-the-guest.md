@@ -64,6 +64,9 @@ rare stall takes the whole machine down. It was not taken.
 
 ## Consequences
 
+- The issue's repro through MCP on the same machine: `DONE` after 1.2 to 3.4 s over four
+  runs (30 MB in 14.5 s, 100 MB in 35 s, both paced by the client reading 256 KiB a call),
+  and every concurrent `machine_exec echo alive` answered in 0.2 to 0.7 s.
 - No window resize from the host: the size is fixed at start (it already was).
 - Output reaches a reader up to the poll interval late (at most 2 s when idle, much less
   while output flows or right after a send).
