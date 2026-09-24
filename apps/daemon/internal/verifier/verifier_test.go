@@ -1453,7 +1453,7 @@ func TestMachineInputRefusesFieldsItDoesNotKnow(t *testing.T) {
 		t.Fatalf("Turn: %v", err)
 	}
 	prog := messagesOfKind(store, session.Progress)
-	if len(prog) != 1 || !strings.Contains(prog[0].Text, "element") || !strings.Contains(prog[0].Text, "machine_click") {
+	if len(prog) != 1 || !strings.Contains(prog[0].Text, `unknown field "element"`) || !strings.Contains(prog[0].Text, "machine_click") {
 		t.Fatalf("progress = %+v, want an error naming the unknown field and machine_click", prog)
 	}
 	if strings.Contains(testsupport.Calls(t, control), "--json-base64") {
