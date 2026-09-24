@@ -1,112 +1,92 @@
 # images
 
-Packer recipes and guest scripts for greenroom's VM images. Why it is built this way:
+How greenroom's VM images are made. There is one recipe (ADR 0016):
+`apps/daemon/scripts/build-image.sh`, which runs `greenroom prepare-image`
+(`machine.PrepareGuest`, guest scripts in `apps/daemon/internal/machine/guest/`) and then the
+dialog gate, `greenroom check-image`. Why the image is built this way:
 [`docs/09-image-strategy.md`](../docs/09-image-strategy.md).
 
 ```
 ghcr.io/cirruslabs/macos-tahoe-base   upstream, SIP off, TCC seeded
-  └── greenroom-base                  greenroom-base.pkr.hcl
-        └── greenroom-xcode<N>        greenroom-xcode.pkr.hcl (written, never built)
+  └── greenroom-base                  build-image.sh              BASE: everything that needs no click
+        (greenroom-lean-a)            build-image.sh -lean        LEAN: base plus hiding (the daemon's default)
 ```
 
-Note: `apps/daemon/scripts/build-image.sh` also makes a VM named `greenroom-base`, with
-the input helper and ssh key baked in but none of the TCC, display or first-boot work
-below. The two are not merged yet. The daemon's CI and `install.sh` expect the
-`build-image.sh` one. `build-image.sh -lean -name greenroom-lean-a` builds the lean
-variant from `docs/image-experiment/`; `install.sh` prefers it over `greenroom-base` when
-both exist.
+## Layers
 
-## Layout
+| Layer | Script | What it adds |
+| --- | --- | --- |
+| base | `input.go` (helper), `capturealert.go`, `desktopprefs.go`, `guest/base.sh`, `guest/toolchain.sh`, `base.go` (Software Update) | Input helper, ssh key, replayd screen-capture approvals, desktop preferences, Apple Events rows, Safari JavaScript from Apple Events, crash dialogs off, loginwindow relaunch list cut to Finder, toolchain manifest, Software Update disabled |
+| lean | `guest/lean.sh` | Only hiding: Dock trimmed to the core apps, other apps' user agents disabled, widgets and banners (`notificationcenterui`), Siri, indexing, setup and Time Machine prompts off |
 
-| Path | What |
-| --- | --- |
-| `greenroom-base.pkr.hcl` | Base layer build |
-| `greenroom-xcode.pkr.hcl` | Xcode layer build |
-| `scripts/greenroom-tcc.sh` | TCC rows for our binaries, screen-capture alert fix (replayd approvals), desktop preferences |
-| `scripts/firstboot.sh` | Reads the seed disk, personalizes the VM |
-| `scripts/smoke-test.sh` | Fails the build if screenshots or input do not work |
-| `data/com.greenroom.firstboot.plist` | LaunchDaemon for `firstboot.sh` |
-| `data/expected-simulator-runtimes.txt` | Empty until the first Xcode build fills it |
-| `make-seed.sh` | Builds a per-VM seed disk |
+Base is a complete image on its own; lean adds nothing a base machine needs to work.
 
-## Prerequisites
+## Build
 
-- Apple silicon, macOS 27 or newer.
-- Tart 2.37.0 from the signed release, not Homebrew (install steps in
-  `apps/daemon/CLAUDE.md`). Keep it in step with `tart.PinnedVersion`.
-- Packer: `brew install hashicorp/tap/packer`.
-- Disk: the pulled base is ~28 GB; the Xcode layer needs ~200 GB free.
-- `export TART_NO_AUTO_PRUNE=1`, or a clone can evict the 27 GB cached base.
-- If ssh to a guest fails with `No route to host`, allow local network for Ethernet
-  ranges, then reboot:
-
-  ```sh
-  sudo defaults write com.apple.network.local-network \
-    AllowedEthernetLocalNetworkAddresses -array "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16"
-  ```
-
-## Build the base layer
+Prerequisites: Apple silicon, Tart 2.37.0 from the signed release (install steps in
+`apps/daemon/CLAUDE.md`), Go, `jq`, the Cirrus base pulled (`tart pull
+ghcr.io/cirruslabs/macos-tahoe-base:latest`, ~27 GB), at least 10 GB free, and two free VM
+slots over the build (the build VM, then the gate's clone, one at a time).
 
 ```sh
-tart pull ghcr.io/cirruslabs/macos-tahoe-base:latest     # ~27 GB, ~15 min
-packer init  images/greenroom-base.pkr.hcl
-packer build -var "ssh_pubkey=$(cat ~/.greenroom/id_ed25519.pub)" images/greenroom-base.pkr.hcl
+cd apps/daemon
+scripts/build-image.sh                                  # greenroom-base
+scripts/build-image.sh -lean -name greenroom-lean-a     # the daemon's default
+scripts/build-image.sh -name greenroom-base -force      # rebuild in place
 ```
 
-Variables: `base_image`, `vm_name` (default `greenroom-base`), `ssh_pubkey`, `display`
-(default `1512x982`). The build fails if the smoke test fails, on purpose: TCC never
-errors, it just returns black frames.
+The image is built as `<name>-building` and renamed only when the gate passes; a failed
+build or gate deletes it, exits 1, and leaves an existing `<name>` untouched. It takes
+about 8 minutes: ~2 to prepare, ~5 for the gate.
 
-## Run a personalized machine
+## The dialog gate
 
-```sh
-tart clone greenroom-base run-123
-./images/make-seed.sh /tmp/run-123-seed.dmg \
-  --hostname gr-run-123 --repo git@github.com:acme/app.git --branch fix-123 \
-  --authorized-keys ~/.greenroom/id_ed25519.pub --env /tmp/run-123.env
-tart run --no-graphics --suspendable --disk "/tmp/run-123-seed.dmg:ro" run-123
-until tart exec run-123 true 2>/dev/null; do sleep 1; done   # 19-48 s
-```
+`greenroom check-image -image <name> [-out <dir>]` (run by the build, also usable alone on
+any local image, which it never boots or changes itself):
 
-Poll `tart exec`, not `tart ip` (IP answers ~20 s before the guest agent).
+1. Clones the image, clones the clone, boots the second headless.
+2. Waits for login (Finder), then 20 s for what login starts.
+3. Uses it as clients do: `screencapture` through `tart exec`, a posted event through the
+   input helper, an Apple Event to System Events, Safari's `get bounds` and `do JavaScript`
+   (each under a 30 s watchdog, so a prompt fails the call instead of hanging it).
+4. 5 s later, fails on any on-screen window outside the allowlist in
+   `internal/machine/desktopcheck.go`, any running regular app but Finder, a flat
+   screenshot, or a softwareupdated that is enabled or running.
+5. Reboots from inside the guest (`sudo reboot`) and does 2 to 4 again.
 
-| In the guest | What |
-| --- | --- |
-| `/var/log/greenroom-firstboot.log` | the run, line by line |
-| `/var/db/greenroom-firstboot.json` | `status` (`ok`, `failed`, `no-seed`), values, failed steps |
-| `/var/db/.greenroom-personalized` | written only on full success, so failures retry next boot |
+It writes `first-boot.png`, `after-reboot.png` and `report.json` to `-out`
+(`GREENROOM_CHECK_OUT` for the build) either way. It does not write the screen-capture
+approvals or desktop preferences a daemon's boot writes: the image must pass alone.
 
-No seed disk is fine: the VM stays generic.
+At runtime the daemon runs the same window check once before ready and returns it as
+`desktop` in `machine_wait`. It reports; it never closes a window or quits an app.
 
-## Build the Xcode layer
+## Toolchain manifest
 
-Download the `.xip` by hand (no Apple ID in the pipeline) to
-`~/XcodesCache/Xcode_<version>.xip`, then:
-
-```sh
-packer init  images/greenroom-xcode.pkr.hcl
-packer build -var "xcode_version=26.1" \
-             -var "xip_path=$HOME/XcodesCache/Xcode_26.1.xip" \
-             images/greenroom-xcode.pkr.hcl
-```
-
-Produces `greenroom-xcode26`. The first build prints the simulator runtimes it found and
-stops; check them into `data/expected-simulator-runtimes.txt`, and later builds assert
-against it.
+`/usr/local/greenroom/toolchain.json` in the guest, written at build time by running a tiny
+XCTest package and a tiny swift-testing package with `swift test` (ADR 0017). The daemon
+returns it as `toolchain` in `machine_wait`, as the image wrote it; an image without it
+reports `{"known": false}`. The current images have the Command Line Tools only: no Xcode,
+no XCTest, and swift-testing does not build without extra search paths, which we do not add.
 
 ## Gotchas
 
-- **`sync` before `tart stop`.** Otherwise files written just before are gone on next
-  boot. `Bootstrap failed: 5` often means the plist is missing, not mis-owned.
-- **Always `--suspendable`** if you might suspend. Without it resume fails with
-  `VZErrorDomain Code=12`, with no error at suspend time.
-- **No secrets in images.** Pushed layers are immutable. Use the seed disk or a per-run
-  read-only `--dir`.
-- **No offline disk edits.** Files land as uid 501 and launchd rejects non-`root:wheel`
-  plists. Keep `hdiutil attach -imagekey diskimage-class=CRawDiskImage` for debugging.
-- **Two VMs per host.** An image build takes a slot.
-- **SIP is off.** Required for TCC writes.
-- **Screen work runs as a LaunchAgent**, never a LaunchDaemon.
-- To grant a new greenroom binary TCC, add its realpath to `GREENROOM_BINARIES` in
-  `scripts/greenroom-tcc.sh`. Anything run over ssh or `tart exec` already inherits the
-  base grants.
+- **`sync` before `tart stop`.** Otherwise files written just before are gone on the next
+  boot. `PrepareGuest` and `DisableSoftwareUpdate` end with it.
+- **loginwindow relaunches whatever is in its list**, from
+  `~/Library/Group Containers/group.com.apple.loginwindow.persistent-apps/persistantApps`,
+  whatever `TALLogoutSavesState` says (measured on 26.6.2). The list follows the apps that
+  run, so an app left running while an image is built comes back on every machine. `base.sh`
+  stops the apps the list names, cuts it to Finder and reads it back.
+- **Software Update is two launchd jobs.** Disabling `com.apple.softwareupdated` alone
+  leaves `com.apple.mobile.softwareupdated` to start the same daemon after a reboot.
+- **SIP is off** in the Cirrus base. That is what lets root write TCC.db. Say so when
+  claiming a result was verified.
+- **No secrets in images.** Anything per run goes in through `machine_sync` or
+  `machine_exec`.
+- **Screen work runs in the user's session**, through `tart exec` (tart-guest-agent is a
+  LaunchAgent). A LaunchDaemon has no WindowServer.
+- **Two VMs per host**, Apple's limit. The build and its gate each take a slot, one after
+  the other.
+- To keep a new guest binary's Apple Events or screen capture from prompting, run it through
+  `tart exec`: TCC and replayd both key on the responsible process, tart-guest-agent.

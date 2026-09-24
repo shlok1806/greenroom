@@ -93,7 +93,7 @@ pnpm test        # go test ./..., swift test
 
 - `apps/daemon` - Go daemon. Commands and invariants in its `CLAUDE.md`.
 - `apps/companion` - SwiftPM macOS app. `CLAUDE.md` and `CONTEXT.md`.
-- `images/` - Packer recipes for the VM image.
+- `images/` - how the VM images are built and checked (`apps/daemon/scripts/build-image.sh`).
 - `docs/` - notes (`00`-`10`) and ADRs.
 
 Tests need no VM: a fake `tart` drives the whole lifecycle. The real-VM suite is

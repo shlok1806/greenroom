@@ -15,6 +15,20 @@
 7. Per-run machines are **plain local clones**, not `clone --stacked`.
 8. The daemon runs a **pinned tart** (2.37.0), not whatever is on `PATH`. Done.
 
+### Superseded (2026-09-24, ADR 0016 and ADR 0017)
+
+- Decisions 2 and 4 are replaced: there is one recipe, `apps/daemon/scripts/build-image.sh`
+  (`prepare-image`), with a base layer (every fix that needs no click: replayd approvals,
+  Apple Events rows, Safari JavaScript from Apple Events, crash dialogs off, the loginwindow
+  relaunch list cut to Finder, Software Update disabled) and a lean layer (hiding only). The
+  Packer files, the first-boot daemon and the seed disk are deleted; nothing read the seed.
+  The smoke test is replaced by the dialog gate, `greenroom check-image`, which fails the
+  build on any window or app a fresh machine should not have, before and after a reboot.
+- Decision 3 is on hold: no Xcode layer for now. The image reports its toolchain instead
+  (`/usr/local/greenroom/toolchain.json`, returned by `machine_wait`).
+- Sections 1 and 3 below keep the measurements; where they describe the Packer layer or
+  the seed disk, that is history.
+
 How to build and run it: `images/README.md`.
 
 Measured on macOS 27.0 host, Tart 2.32.1 unless marked 2.37.0. Disk figures are `df`
@@ -59,8 +73,23 @@ deltas; `du` over-counts shared APFS clone extents.
   helper started through `tart exec` (verified on 26.6.2), so no new TCC row is needed.
 - Screen work must run as a LaunchAgent with `admin` auto-logged in. A LaunchDaemon has no
   WindowServer session.
-- TCC fails silently (black frames, `AXIsProcessTrusted() == false`), so the build
-  smoke-tests a screenshot, AX trust and a posted event.
+- TCC fails silently (black frames, `AXIsProcessTrusted() == false`), so the build's
+  dialog gate takes a screenshot, fails on a flat one, and posts an event.
+- Apple Events are per target app, and the Cirrus base grants tart-guest-agent none that
+  are allowed (one System Events row with `auth_value` 0), so the first osascript to Safari
+  or System Events raised "tart-guest-agent wants access to control ..." and blocked 90 s
+  (issue #25). `base.sh` adds allowed rows for tart-guest-agent (resolved path) and
+  sshd-keygen-wrapper to the core apps and System Events; the #25 repro then took 5 s,
+  4 of them its own `sleep`.
+- A fresh machine had Terminal running (issue #60). Cause, measured on 26.6.2: loginwindow's
+  persistent-apps list (`~/Library/Group Containers/group.com.apple.loginwindow.persistent-apps/persistantApps`)
+  held Finder and Terminal, and loginwindow relaunches that list at every login regardless of
+  `TALLogoutSavesState` and `LoginwindowLaunchesRelaunchApps`. Background Task Management
+  (`sfltool dumpbtm` with sudo) holds only the Cirrus daemons. The list follows running apps,
+  so the build stops them before cutting it to Finder.
+- Software Update: `launchctl disable system/com.apple.softwareupdated` alone does not keep
+  softwareupdated off; `com.apple.mobile.softwareupdated` starts the same binary after a
+  reboot. Both are disabled.
 - SIP is off. Say so when claiming a result was verified.
 
 ## 2. Toolchain layers
@@ -106,7 +135,7 @@ ghcr.io/cirruslabs/macos-tahoe-base   upstream, SIP off, TCC seeded
   agent until the exec ends (issue #30). A guest `script` writing straight to a non-tty
   `tart exec` stalls too, less often. Sessions no longer use either (ADR 0017).
 
-## 3. Identity: seed disk
+## 3. Identity: seed disk (removed by ADR 0016; kept as measurements)
 
 - The guest Data volume is not encrypted and can be mounted and edited offline, but
   without host `sudo` files land as uid 501 and launchd rejects non-`root:wheel`

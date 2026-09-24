@@ -50,8 +50,8 @@ import (
 //     (machine_approve_capture). A relative path is taken from the guest home.
 //
 // Each write reads LastUsed back while replayd is stopped. defaults(1), not
-// PlistBuddy: a bundle URL key contains ':', PlistBuddy's path separator. Keep
-// images/scripts/greenroom-tcc.sh in step.
+// PlistBuddy: a bundle URL key contains ':', PlistBuddy's path separator. This one
+// script is what boot and prepare-image both write (ADR 0016), so they cannot disagree.
 const captureApprovalsScript = `export LC_ALL=C TZ=UTC
 p="$HOME/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist"
 far="3024-01-01 00:00:00 +0000"
