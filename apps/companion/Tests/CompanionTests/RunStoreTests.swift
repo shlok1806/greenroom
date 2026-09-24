@@ -440,10 +440,18 @@ final class RunStoreTests: XCTestCase {
 
     /// The card says the shown verdict predates the task being checked.
     func testTheCardSaysAVerdictIsOlderThanTheLatestTask() {
-        let text = VerdictReview.staleNote(verdictSeq: 13, newerTask: Message(
-            seq: 15, at: Date(timeIntervalSince1970: 15), from: .coder, kind: .task, text: "re-check the fixed build"))
+        let task = Message(
+            seq: 15, at: Date(timeIntervalSince1970: 15), from: .coder, kind: .task, text: "re-check the fixed build")
+        let text = VerdictReview.staleNote(verdictSeq: 13, newerTask: task, verifierListens: true)
         XCTAssertTrue(text.contains("message 15"), text)
         XCTAssertTrue(text.contains("older"), text)
+        XCTAssertTrue(text.contains("will replace this one"), text)
+
+        // A destroyed run's verifier answers nothing, so the note promises no later verdict.
+        let stopped = VerdictReview.staleNote(verdictSeq: 13, newerTask: task, verifierListens: false)
+        XCTAssertTrue(stopped.contains("message 15"), stopped)
+        XCTAssertTrue(stopped.contains("no verdict will replace this one"), stopped)
+        XCTAssertFalse(stopped.contains("Its verdict on that task will replace"), stopped)
     }
 
     /// The coding agent accepting mid-draft must take the Reject form with it.

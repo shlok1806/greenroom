@@ -79,11 +79,14 @@ struct VerdictReview: Equatable, Sendable {
     }
 
     /// Says the shown verdict predates the task the verifier is on, so it is not the answer to it.
-    static func staleNote(verdictSeq: Int?, newerTask: Message) -> String {
+    static func staleNote(verdictSeq: Int?, newerTask: Message, verifierListens: Bool) -> String {
         let who = newerTask.from == .human ? "You" : "The coding agent"
         let verdict = verdictSeq.map { "message \($0)" } ?? "this verdict"
+        let outcome = verifierListens
+            ? "Its verdict on that task will replace this one."
+            : "The verifier stopped with the machine before answering it, so no verdict will replace this one."
         return "\(who) sent a newer task (message \(newerTask.seq)) after this verdict, so \(verdict) is older "
-            + "than what the verifier is checking now. Its verdict on that task will replace this one."
+            + "than what the verifier is checking now. " + outcome
     }
 
     /// What each action does, in the daemon's own terms (session rules, ADR 0006).

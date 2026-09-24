@@ -303,7 +303,8 @@ struct VerdictCard: View {
         let draft = draft
         let newer = VerdictReview.newerTask(than: verdict.seq, in: store.messages[runId] ?? [])
         if let newer {
-            Label(VerdictReview.staleNote(verdictSeq: verdict.seq, newerTask: newer), systemImage: "clock.arrow.circlepath")
+            Label(VerdictReview.staleNote(verdictSeq: verdict.seq, newerTask: newer,
+                                            verifierListens: facts.verifierListens), systemImage: "clock.arrow.circlepath")
                 .font(.callout)
                 .foregroundStyle(Palette.attention)
         }
