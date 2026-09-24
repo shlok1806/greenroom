@@ -122,6 +122,10 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   action (a re-check task), never a button that will fail. The verifier stops only when
   the machine is destroyed (`RunFacts.verifierListens`); then the re-check is disabled and
   the card and composer say nothing will answer.
+- A verdict is older than a task sent after it with no verdict since
+  (`VerdictReview.newerTask`): the card says so (`staleNote`), and Re-check is disabled and
+  refused by `sendVerdictAction`, since a re-check then pulls the verifier's turn off the
+  newer task (issue #89).
 - The verdict's drafts (the action and its reason, whether evidence was opened, the
   accept confirmation, whether the card's evidence is open) live in
   `RunStore.verdictDrafts`, per run and verdict, never in `@AppStorage`: a saved

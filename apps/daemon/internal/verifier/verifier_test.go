@@ -726,7 +726,9 @@ func TestANoteSentMidTurnReachesTheModel(t *testing.T) {
 // Prose is posted as a reply, never turned into a verdict.
 func TestProseWithoutAToolCallBecomesAReply(t *testing.T) {
 	mgr, runID, _ := ready(t)
-	model := &scriptedModel{replies: []string{prose("It looks fine to me.")}}
+	// The task is open, so the first prose is sent back once for a verdict (issue #89); a
+	// model that answers in prose again is heard.
+	model := &scriptedModel{replies: []string{prose("Looking."), prose("It looks fine to me.")}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
 	postTask(t, store, "Check it.")
@@ -745,8 +747,8 @@ func TestProseWithoutAToolCallBecomesAReply(t *testing.T) {
 	if got := store.Verdict(); got.Status != session.None {
 		t.Errorf("verdict state = %+v, want no verdict from prose", got)
 	}
-	if model.calls() != 1 {
-		t.Errorf("the model was called %d times, want 1: the loop must not nudge", model.calls())
+	if model.calls() != 2 {
+		t.Errorf("the model was called %d times, want 2: one nudge for the open task, then the reply", model.calls())
 	}
 }
 
@@ -1115,7 +1117,7 @@ func TestTurnClickByElementNeedsATree(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
 		toolCall("machine_click", map[string]any{"element": 3}),
-		toolCall("reply", map[string]any{"text": "I need to read the UI first."}),
+		toolCall("ask", map[string]any{"question": "Which element is it? I need to read the UI first."}),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -1420,7 +1422,7 @@ func TestATurnThatKeepsGettingCutOffSaysSo(t *testing.T) {
 // Reasoning models think inside the completion budget, so 1200 tokens was used up before any answer.
 func TestChatLeavesRoomForAReasoningModel(t *testing.T) {
 	mgr, runID, _ := ready(t)
-	model := &scriptedModel{replies: []string{prose("fine")}}
+	model := &scriptedModel{replies: []string{toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "fine"})}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
 	postTask(t, store, "Check it.")
@@ -1458,5 +1460,127 @@ func TestMachineInputRefusesFieldsItDoesNotKnow(t *testing.T) {
 	}
 	if strings.Contains(testsupport.Calls(t, control), "--json-base64") {
 		t.Error("the batch was posted")
+	}
+}
+
+// Issue #89: a human re-check arrived while the verifier checked the coder's newer task, and the
+// turn ended in a reply, so the task never got a verdict. A turn with an open task is sent back
+// once when it tries to end in a reply, and the verdict it then reports is the one recorded.
+func TestATurnWithAnOpenTaskIsSentBackFromAReply(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	store := openStore(t, mgr, runID)
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_exec", map[string]any{"command": "true"}),
+		toolCall("reply", map[string]any{"text": "The first verdict was right for the old build; the fix works."}),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "The fixed build splits correctly."}),
+	}}
+	model.onReasoning = func(n int) {
+		if n == 2 {
+			// The Companion's Re-check lands mid-turn, as in the demo.
+			_, _ = store.Append(session.Message{From: session.Human, Kind: session.Task,
+				Text: "Re-check the fail verdict (message 1) before it is trusted: is it still right?"})
+		}
+	}
+	v := newVerifier(t, mgr, model.start(t))
+	postTask(t, store, "Re-check the fixed build.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Ended != session.Verdict || store.Verdict().Verdict != "pass" {
+		t.Fatalf("ended %q with verdict %+v, want the pass for the open task", res.Ended, store.Verdict())
+	}
+	if replies := messagesOfKind(store, session.Reply); len(replies) != 0 {
+		t.Errorf("the reply was posted although a task was open: %+v", replies)
+	}
+	if !strings.Contains(model.request(t, 3), "report_verdict") || !strings.Contains(model.request(t, 3), "still open") {
+		t.Error("the model was not told the task is still open and needs report_verdict")
+	}
+}
+
+// The nudge is once per turn: a model that replies again is heard, not looped.
+func TestAnOpenTaskIsNudgedOnlyOnce(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("reply", map[string]any{"text": "The IP is 192.168.64.2."}),
+		toolCall("reply", map[string]any{"text": "The IP is 192.168.64.2; there is nothing to judge."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "What is the machine's IP?")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Ended != session.Reply || lastMessage(t, store).Text != "The IP is 192.168.64.2; there is nothing to judge." {
+		t.Fatalf("ended %q with %+v, want the second reply posted", res.Ended, lastMessage(t, store))
+	}
+}
+
+// A turn with no open task (a human's question after a verdict) replies as before.
+func TestANoteAfterAVerdictIsStillAnsweredWithAReply(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{toolCall("reply", map[string]any{"text": "It passed at step 3."})}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check it.")
+	post(t, store, session.Message{From: session.Verifier, Kind: session.Verdict, Verdict: "pass", Text: "fine"})
+	post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "why did it pass?"})
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatal(err)
+	}
+	if last := lastMessage(t, store); last.Kind != session.Reply || model.calls() != 1 {
+		t.Fatalf("last = %+v after %d calls, want one reply", last, model.calls())
+	}
+}
+
+// A reply sent back for an open task shares its message with other calls: every call id still
+// gets a tool message in the next request, since a strict endpoint refuses an unanswered one.
+func TestASentBackReplyAnswersEveryCallOfItsMessage(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	reply, _ := json.Marshal(map[string]any{"text": "Looks fine."})
+	exec, _ := json.Marshal(map[string]any{"command": "true"})
+	both := `{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[` +
+		`{"id":"c1","type":"function","function":{"name":"reply","arguments":` + quote(string(reply)) + `}},` +
+		`{"id":"c2","type":"function","function":{"name":"machine_exec","arguments":` + quote(string(exec)) + `}}` +
+		`]}}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`
+	model := &scriptedModel{replies: []string{
+		both,
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "fine"}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check it.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Ended != session.Verdict {
+		t.Fatalf("ended %q, want the verdict", res.Ended)
+	}
+	var req struct {
+		Messages []struct {
+			Role       string `json:"role"`
+			ToolCallID string `json:"tool_call_id"`
+			Content    string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(model.request(t, 2)), &req); err != nil {
+		t.Fatal(err)
+	}
+	answers := map[string]string{}
+	for _, m := range req.Messages {
+		if m.Role == "tool" {
+			answers[m.ToolCallID] = m.Content
+		}
+	}
+	if !strings.Contains(answers["c1"], "still open") {
+		t.Errorf("the reply call got %q, want the open-task nudge", answers["c1"])
+	}
+	if !strings.Contains(answers["c2"], "Not run") {
+		t.Errorf("the machine_exec call got %q, want it answered as dropped", answers["c2"])
+	}
+	if progress := messagesOfKind(store, session.Progress); len(progress) != 0 {
+		t.Errorf("a dropped call ran: %+v", progress)
 	}
 }

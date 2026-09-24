@@ -406,6 +406,54 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.verdictDraft("run-1"), VerdictDraft(verdictSeq: 9))
     }
 
+    /// #89: a Re-check of an accepted verdict, sent while the verifier checks a newer task,
+    /// took the verdict away from that task. It is not sent while a newer task is open.
+    func testARecheckIsNotSentWhileANewerTaskIsOpen() async {
+        let posts = Counter()
+        let client = StubURLProtocol.client { request in
+            if request.httpMethod == "POST" { posts.add() }
+            return .json(#"{"seq": 30, "at": "2026-09-18T10:00:00Z"}"#)
+        }
+        let store = RunStore(client: client)
+        store.runs = [RunSummary(runId: "run-1", createdAt: Date(timeIntervalSince1970: 0), status: .ready,
+                                 verdict: VerdictState(seq: 13, verdict: "fail", status: .accepted, acceptedBy: .coder))]
+        store.messages["run-1"] = [
+            message(2, kind: .task, from: .coder),
+            Message(seq: 13, at: Date(timeIntervalSince1970: 13), from: .verifier, kind: .verdict, text: "broken", verdict: "fail"),
+            message(14, kind: .accept, from: .coder),
+            Message(seq: 15, at: Date(timeIntervalSince1970: 15), from: .coder, kind: .task, text: "re-check the fixed build"),
+        ]
+        XCTAssertEqual(VerdictReview.newerTask(than: 13, in: store.messages["run-1"] ?? [])?.seq, 15)
+        store.updateVerdictDraft("run-1") {
+            $0.action = .recheck
+            $0.reason = "is it still right?"
+        }
+        let sent = await store.sendVerdictAction(runId: "run-1")
+        XCTAssertFalse(sent)
+        XCTAssertEqual(posts.value, 0, "a re-check was posted over a newer task")
+
+        // Once the newer task has its own verdict, nothing is newer than that verdict.
+        store.messages["run-1"]?.append(
+            Message(seq: 29, at: Date(timeIntervalSince1970: 29), from: .verifier, kind: .verdict, text: "fixed", verdict: "pass"))
+        XCTAssertNil(VerdictReview.newerTask(than: 29, in: store.messages["run-1"] ?? []))
+    }
+
+    /// The card says the shown verdict predates the task being checked.
+    func testTheCardSaysAVerdictIsOlderThanTheLatestTask() {
+        let task = Message(
+            seq: 15, at: Date(timeIntervalSince1970: 15), from: .coder, kind: .task, text: "re-check the fixed build")
+        let text = VerdictReview.staleNote(verdictSeq: 13, newerTask: task, verifierListens: true)
+        XCTAssertTrue(text.contains("message 15"), text)
+        XCTAssertTrue(text.contains("older"), text)
+        XCTAssertTrue(text.contains("will replace this one"), text)
+
+        // A destroyed run's verifier answers nothing, so the note promises no later verdict.
+        let stopped = VerdictReview.staleNote(verdictSeq: 13, newerTask: task, verifierListens: false)
+        XCTAssertTrue(stopped.contains("message 15"), stopped)
+        XCTAssertTrue(stopped.contains("no verdict will replace this one"), stopped)
+        XCTAssertFalse(stopped.contains("Its verdict on that task will replace"), stopped)
+    }
+
     /// The coding agent accepting mid-draft must take the Reject form with it.
     func testADraftEndsWhenItsVerdictCloses() async {
         let posts = Counter()

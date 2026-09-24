@@ -140,6 +140,30 @@ func cutOff(msg nim.Message) bool {
 	return msg.FinishReason == "length" || strings.Contains(msg.Content, "<tool_call>")
 }
 
+// openTaskNudge answers a reply that would end a turn with a task still waiting for a verdict.
+const openTaskNudge = "[greenroom] Not posted: a task in this conversation is still open, and a task is " +
+	"answered with a verdict. Call report_verdict for it now (or ask, if you are blocked). If more than " +
+	"one task is open, one verdict covering the newest build or state answers them all; say in the summary " +
+	"what it covers. Use reply only for a message that is not a task."
+
+// droppedWithReply answers each call that shared a message with a reply sent back by openTaskNudge.
+const droppedWithReply = "[greenroom] Not run: the reply in this message was sent back, so its other " +
+	"calls were dropped; call them again if you still need them."
+
+// hasOpenTask reports whether a task from the coder or a human came after the latest verdict.
+func hasOpenTask(msgs []session.Message) bool {
+	open := false
+	for _, m := range msgs {
+		switch {
+		case m.Kind == session.Task && m.From != session.Verifier:
+			open = true
+		case m.Kind == session.Verdict && m.From == session.Verifier:
+			open = false
+		}
+	}
+	return open
+}
+
 // Turn rebuilds the model context from the transcript, loops over tool calls
 // posting progress, and ends by posting a reply, question or verdict. An error
 // means the loop itself broke; it is also posted as an event unless the caller
@@ -155,6 +179,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 	status := machineStatus(ctx, v.mgr, runID)
 	msgs := withStatus(project(store.After(0)), status)
 	nudged := false
+	taskNudged := false
 
 	for step := 1; step <= v.cfg.MaxSteps; step++ {
 		// Feed in anything said mid-turn, and any machine status change.
@@ -209,6 +234,13 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			res.Steps = step
 			continue
 		}
+		if len(msg.ToolCalls) == 0 && !taskNudged && step < v.cfg.MaxSteps && hasOpenTask(store.After(0)) {
+			// A task owes a verdict (issue #89): once per turn, a reply is sent back.
+			taskNudged = true
+			msgs = append(msgs, nim.Message{Role: "user", Content: openTaskNudge})
+			res.Steps = step
+			continue
+		}
 		if len(msg.ToolCalls) == 0 {
 			// Prose is a reply, never a verdict nobody reasoned towards.
 			res.Steps, res.Ended = step, session.Reply
@@ -216,7 +248,19 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			return res, nil
 		}
 
-		for _, call := range msg.ToolCalls {
+		for i, call := range msg.ToolCalls {
+			if end, ok := endingMessage(call); ok && end.Kind == session.Reply && !taskNudged &&
+				step < v.cfg.MaxSteps && hasOpenTask(store.After(0)) {
+				// A task in this turn is still open, often because a message arrived mid-turn
+				// and the model answered that instead (issue #89). Not posted; asked once for
+				// the verdict. Every other call of this message is dropped with it, and answered.
+				taskNudged = true
+				msgs = append(msgs, nim.Message{Role: "tool", ToolCallID: call.ID, Content: openTaskNudge})
+				for _, rest := range msg.ToolCalls[i+1:] {
+					msgs = append(msgs, nim.Message{Role: "tool", ToolCallID: rest.ID, Content: droppedWithReply})
+				}
+				break
+			}
 			if end, ok := endingMessage(call); ok {
 				res.Steps, res.Ended = step, end.Kind
 				v.post(store, end)
