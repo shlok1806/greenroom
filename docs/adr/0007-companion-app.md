@@ -2,7 +2,8 @@
 
 Date: 2026-09-18
 Status: accepted (implemented). The "what it may not do" rule is narrowed by ADR 0009, which lets a
-person take the machine's mouse and keyboard under a recorded lease. Everything else
+person take the machine's mouse and keyboard under a recorded lease. Watch mode over VNC,
+expected here as the eventual Screen tab, is retired by ADR 0016. Everything else
 here stands.
 
 ## Context

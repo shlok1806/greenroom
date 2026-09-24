@@ -22,7 +22,7 @@ final class RunFactsTests: XCTestCase {
 
     private func machine(_ status: MachineStatus) -> Machine {
         Machine(runId: "r", name: "m", image: "i", ip: nil, status: status, error: nil, bootSeconds: nil,
-                createdAt: now.addingTimeInterval(-600), dir: "", vncUrl: nil, control: nil)
+                createdAt: now.addingTimeInterval(-600), dir: "", control: nil)
     }
 
     private func detail(_ machine: Machine?, destroyedAt: Date? = nil) -> RunDetail {

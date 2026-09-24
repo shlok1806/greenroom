@@ -64,7 +64,7 @@ func newHarness(t *testing.T, extra ...machine.Option) *harness {
 // create starts a machine and returns its run id while it is still booting.
 func (h *harness) create() string {
 	h.t.Helper()
-	mc, err := h.mgr.Create(context.Background(), "ghcr.io/example/base:latest", false)
+	mc, err := h.mgr.Create(context.Background(), "ghcr.io/example/base:latest")
 	if err != nil {
 		h.t.Fatalf("create: %v", err)
 	}

@@ -255,7 +255,7 @@ final class SnapshotHarness {
         detail.destroyedAt = nil
         detail.machine = Machine(
             runId: runId, name: detail.machineName, image: detail.image, ip: detail.ip ?? "192.168.64.12",
-            status: .ready, error: nil, bootSeconds: 11.4, createdAt: detail.createdAt, dir: "", vncUrl: nil, control: nil
+            status: .ready, error: nil, bootSeconds: 11.4, createdAt: detail.createdAt, dir: "", control: nil
         )
         store.details[runId] = detail
         if let index = store.runs.firstIndex(where: { $0.runId == runId }) {
@@ -278,7 +278,7 @@ final class SnapshotHarness {
         detail.verdict = VerdictState()
         detail.machine = Machine(
             runId: runId, name: detail.machineName, image: detail.image, ip: nil,
-            status: .booting, error: nil, bootSeconds: nil, createdAt: created, dir: "", vncUrl: nil, control: nil
+            status: .booting, error: nil, bootSeconds: nil, createdAt: created, dir: "", control: nil
         )
         store.details[runId] = detail
         if let index = store.runs.firstIndex(where: { $0.runId == runId }) {

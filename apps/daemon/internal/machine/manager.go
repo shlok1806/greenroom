@@ -53,7 +53,6 @@ type Machine struct {
 	BootSeconds float64   `json:"bootSeconds,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	Dir         string    `json:"dir"`
-	VNCURL      string    `json:"vncUrl,omitempty"` // set when the machine is watched
 
 	// Control is the screen-control lease (ADR 0009). It is replaced, never
 	// edited in place, so snapshots can share it.
@@ -110,7 +109,6 @@ type Manager struct {
 	frameInterval    time.Duration
 	vmPoll           time.Duration
 	sshProbe         func(ctx context.Context, vmName, addr string) error
-	onWatch          func(vncURL string)
 	screenIdle       time.Duration
 	turnMu           sync.Mutex
 	verifierTurns    map[string]bool // runs whose verifier is in a turn (SetVerifierTurn)
@@ -179,11 +177,6 @@ func WithScreenIdle(d time.Duration) Option {
 // beyond the time its actions and those queued before it take to post.
 func WithScreenInputSlack(d time.Duration) Option {
 	return func(m *Manager) { m.screenInputSlack = d }
-}
-
-// WithWatchHandler is called with the screen address of each watched machine.
-func WithWatchHandler(fn func(vncURL string)) Option {
-	return func(m *Manager) { m.onWatch = fn }
 }
 
 // WithSSHProbe replaces the check that guest sshd accepts connections.
@@ -348,7 +341,7 @@ func newRunID() string {
 
 // Create clones image and starts it, returning at once in Booting state.
 // Readiness is tracked in the background; use Wait to block for it.
-func (m *Manager) Create(ctx context.Context, image string, watch bool) (*Machine, error) {
+func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 	m.createMu.Lock()
 	defer m.createMu.Unlock()
 
@@ -376,21 +369,12 @@ func (m *Manager) Create(ctx context.Context, image string, watch bool) (*Machin
 	if err := m.tart.Clone(ctx, image, name); err != nil {
 		return fail(err)
 	}
-	proc, err := m.tart.Start(name, filepath.Join(dir, "vm.log"), watch)
+	proc, err := m.tart.Start(name, filepath.Join(dir, "vm.log"))
 	if err != nil {
 		m.cleanupVM(name)
 		return fail(err)
 	}
 	mc.proc = proc
-	if watch {
-		// Wait for the address so the create result carries it.
-		mc.VNCURL = proc.VNCURL(10 * time.Second)
-		if mc.VNCURL == "" {
-			m.Log.Warn("watched machine has no screen address", "runId", runID)
-		} else if m.onWatch != nil {
-			m.onWatch(mc.VNCURL)
-		}
-	}
 
 	bootCtx := newBoot(mc)
 	m.mu.Lock()

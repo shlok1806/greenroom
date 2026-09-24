@@ -24,7 +24,7 @@ final class SSEParserTests: XCTestCase {
         : heartbeat
 
         event: run
-        data: {"kind":"ready","runId":"run-1","machine":{"runId":"run-1","name":"gr-1","image":"base","ip":"192.168.64.9","status":"ready","bootSeconds":12.5,"createdAt":"2026-09-18T10:00:00Z","dir":"/runs/run-1","vncUrl":"vnc://x"}}
+        data: {"kind":"ready","runId":"run-1","machine":{"runId":"run-1","name":"gr-1","image":"base","ip":"192.168.64.9","status":"ready","bootSeconds":12.5,"createdAt":"2026-09-18T10:00:00Z","dir":"/runs/run-1"}}
 
         event: message
         data: {"runId":"run-1","message":{"seq":4,"at":"2026-09-18T10:00:03.25Z",

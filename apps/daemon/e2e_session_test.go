@@ -28,7 +28,7 @@ func TestEndToEndSession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	created, err := mgr.Create(ctx, defaultImage, false)
+	created, err := mgr.Create(ctx, defaultImage)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

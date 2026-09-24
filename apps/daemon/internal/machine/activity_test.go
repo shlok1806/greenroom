@@ -116,7 +116,7 @@ func TestCapacityErrorSaysHowLongEachMachineHasBeenIdle(t *testing.T) {
 	mc := readyMachine(t, mgr)
 	ageRun(t, mgr, mc.RunID, 3*time.Hour+12*time.Minute)
 
-	_, err = mgr.Create(context.Background(), testImage, false)
+	_, err = mgr.Create(context.Background(), testImage)
 	if err == nil {
 		t.Fatal("a create past the host limit succeeded")
 	}

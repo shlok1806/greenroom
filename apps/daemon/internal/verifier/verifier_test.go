@@ -158,7 +158,7 @@ func ready(t *testing.T) (*machine.Manager, string, string) {
 			_ = mgr.Destroy(context.Background(), mc.RunID)
 		}
 	})
-	mc, err := mgr.Create(context.Background(), "img", false)
+	mc, err := mgr.Create(context.Background(), "img")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func failed(t *testing.T) (*machine.Manager, string) {
 	})
 	t.Cleanup(stop)
 
-	mc, err := mgr.Create(context.Background(), "img", false)
+	mc, err := mgr.Create(context.Background(), "img")
 	if err != nil {
 		t.Fatal(err)
 	}

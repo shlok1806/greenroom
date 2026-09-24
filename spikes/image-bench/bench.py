@@ -328,7 +328,7 @@ class Bench:
         os.makedirs(self.root, exist_ok=True)
         self.daemon_log = open(os.path.join(self.scratch, "daemon.log"), "a")
         args = [grx, "serve", "-addr", self.a.addr, "-root", self.root, "-env-file", self.a.env_file,
-                "-open-viewer=false", "-verifier", "nim", "-image", self.a.image, "-tart", self.a.tart]
+                "-verifier", "nim", "-image", self.a.image, "-tart", self.a.tart]
         log("serving:", " ".join(args))
         self.proc = subprocess.Popen(args, stdout=self.daemon_log, stderr=subprocess.STDOUT)
         for _ in range(60):

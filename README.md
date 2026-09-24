@@ -51,11 +51,12 @@ Decisions: [docs/adr/](docs/adr/).
    ```sh
    cd ../daemon
    go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp \
-     -live /path/to/project -watch
+     -live /path/to/project
    ```
 
    `-live` creates a machine, syncs the directory to `~/work/<name>` in the guest and
-   posts a first task. `-watch` opens the guest screen in a VNC window.
+   posts a first task. Watch its screen live in the companion's Screen stage. Machines
+   always run headless (ADR 0016).
 
 4. Talk to the verifier in the companion's Transcript tab. In `manual` mode, one
    instruction per line:

@@ -13,7 +13,6 @@ struct Machine: Codable, Hashable, Sendable {
     var bootSeconds: Double?
     var createdAt: Date
     var dir: String
-    var vncUrl: String?
     /// Who holds the mouse and keyboard, if anyone (ADR 0009).
     var control: ControlLease?
 }
@@ -30,7 +29,6 @@ extension Machine {
         bootSeconds = try c.decodeIfPresent(Double.self, forKey: .bootSeconds)
         createdAt = try c.decode(.createdAt, or: .epoch)
         dir = try c.decode(.dir, or: "")
-        vncUrl = try c.decodeIfPresent(String.self, forKey: .vncUrl)
         control = try c.decodeIfPresent(ControlLease.self, forKey: .control)
     }
 }
@@ -207,7 +205,6 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     var image: String
     var status: RunStatus
     var ip: String?
-    var vncUrl: String?
     /// Counts, not sequence numbers: step numbering can have gaps.
     var steps: Int
     var verdict: VerdictState?
@@ -227,7 +224,6 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         image: String = "",
         status: RunStatus = .unknown(""),
         ip: String? = nil,
-        vncUrl: String? = nil,
         steps: Int = 0,
         verdict: VerdictState? = nil,
         lastActivity: Date? = nil,
@@ -241,7 +237,6 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         self.image = image
         self.status = status
         self.ip = ip
-        self.vncUrl = vncUrl
         self.steps = steps
         self.verdict = verdict
         self.lastActivity = lastActivity ?? createdAt
@@ -258,7 +253,6 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         image = try c.decode(.image, or: "")
         status = try c.decode(.status, or: .unknown(""))
         ip = try c.decodeIfPresent(String.self, forKey: .ip)
-        vncUrl = try c.decodeIfPresent(String.self, forKey: .vncUrl)
         steps = try c.decode(.steps, or: 0)
         verdict = try c.decodeIfPresent(VerdictState.self, forKey: .verdict)
         lastActivity = try c.decode(.lastActivity, or: createdAt)

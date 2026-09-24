@@ -19,7 +19,6 @@ import (
 func main() {
 	url := flag.String("url", "http://127.0.0.1:7777/mcp", "MCP endpoint")
 	live := flag.String("live", "", "create a machine, sync this host directory into it, hand the verifier a task, and leave everything running for a person to join")
-	watch := flag.Bool("watch", false, "with -live: show the machine screen on this Mac")
 	flag.Parse()
 	ctx := context.Background()
 
@@ -67,7 +66,7 @@ func main() {
 	}
 
 	if *live != "" {
-		runLive(call, *live, *watch)
+		runLive(call, *live)
 		return
 	}
 	created := call("machine_create", map[string]any{})
@@ -99,8 +98,8 @@ func main() {
 
 // runLive boots a real machine, syncs a project in, and gives the verifier a
 // first task. It destroys nothing: the run stays up for the companion app.
-func runLive(call func(string, map[string]any) map[string]any, dir string, watch bool) {
-	created := call("machine_create", map[string]any{"watch": watch})
+func runLive(call func(string, map[string]any) map[string]any, dir string) {
+	created := call("machine_create", map[string]any{})
 	runID, _ := created["runId"].(string)
 	if runID == "" {
 		fail("machine_create", fmt.Errorf("no runId"))
