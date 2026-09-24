@@ -1652,6 +1652,35 @@ func TestAnInconclusiveCausedByTheLeaseIsAQuestion(t *testing.T) {
 	}
 }
 
+// A verdict the human rejected does not "still stand" in the question.
+func TestTheQuestionDoesNotStandByARejectedVerdict(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check the split.")
+	fail := post(t, store, session.Message{From: session.Verifier, Kind: session.Verdict, Verdict: "fail", Text: "Each pays is $45.00, not $53.10."})
+	post(t, store, session.Message{From: session.Human, Kind: session.Dispute, ReplyTo: fail.Seq, Text: "that is the right total"})
+	if got := store.Verdict().Status; got != session.Rejected {
+		t.Fatalf("status = %q, want rejected", got)
+	}
+	if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
+		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "A human is driving."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	postTask(t, store, "Check it again.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := lastMessage(t, store)
+	if res.Ended != session.Question || strings.Contains(last.Text, "verdict still stands") {
+		t.Fatalf("ended %q with %q, want a question that does not claim the rejected verdict stands", res.Ended, last.Text)
+	}
+}
+
 // Once the human gives the screen back mid-turn, an inconclusive is the model's own verdict.
 func TestAnInconclusiveAfterTheScreenIsGivenBackIsAVerdict(t *testing.T) {
 	mgr, runID, _ := ready(t)

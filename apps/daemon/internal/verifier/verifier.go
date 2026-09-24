@@ -165,7 +165,8 @@ func (v *Verifier) screenHolder(runID string) (string, bool) {
 
 // askForScreen ends the turn with a question asking holder for the screen back (issue #97).
 func (v *Verifier) askForScreen(store *session.Store, holder string) {
-	standing := store.Verdict().Status != session.None
+	st := store.Verdict().Status
+	standing := st == session.Proposed || st == session.Accepted
 	v.post(store, session.Message{From: session.Verifier, Kind: session.Question, Text: screenTakenQuestion(holder, standing)})
 }
 
