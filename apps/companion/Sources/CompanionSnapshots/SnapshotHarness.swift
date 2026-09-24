@@ -85,6 +85,8 @@ final class SnapshotHarness {
     private static let longRun = "20260919-222432-ea8dfe"
     /// A verdict citing two screenshot steps, failed steps with raw input and very long rows.
     private static let citedRun = "20260923-124520-61ea02f4836340aa"
+    /// No task message, two system events.
+    private static let noTaskRun = "20260923-101500-noTaskRun0000001"
 
     private func scenarios() -> [Scenario] {
         let all = [Self.large, Self.medium, Self.small]
@@ -179,6 +181,8 @@ final class SnapshotHarness {
             Scenario(name: "25b-guest-sidebar-by-hand", sizes: [Self.guest], runId: Self.citedRun, showSidebar: true),
             Scenario(name: "25c-small-sidebar-by-hand", sizes: [Self.small], runId: Self.citedRun, showSidebar: true),
             Scenario(name: "26-guest-no-conversation", sizes: [Self.guest], runId: Self.citedRun, conversation: false),
+            // A run with no task and only system events: the header and a short transcript.
+            Scenario(name: "27-no-task-few-events", sizes: [Self.guest, Self.medium], runId: Self.noTaskRun),
         ]
     }
 

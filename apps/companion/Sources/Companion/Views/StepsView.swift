@@ -93,6 +93,14 @@ struct StepsView: View {
                     reveal(focusedStep, proxy: proxy)
                 } else {
                     openFirstFailure()
+                    // Following a live run opens at the newest step, not at step 1 (#59):
+                    // the count may never change while the stage is open.
+                    if following, facts.isAlive, let last = steps.last {
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(60))
+                            proxy.scrollTo(last, anchor: .bottom)
+                        }
+                    }
                 }
             }
             .onChange(of: store.seekRequest) {

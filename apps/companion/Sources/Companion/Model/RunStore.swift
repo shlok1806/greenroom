@@ -760,7 +760,15 @@ final class RunStore: PilotHost {
                 return false
             case .coder, .human:
                 return startsTurn(message)
-            case .system, .unknown:
+            case .system:
+                // The daemon says when no verifier will answer: none is configured, or the
+                // machine was destroyed with the task still open (#79).
+                if message.kind == .event,
+                   message.text.contains("nobody will answer") || message.text.contains("nothing will answer") {
+                    return false
+                }
+                continue
+            case .unknown:
                 continue
             }
         }

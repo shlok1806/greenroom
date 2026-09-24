@@ -21,6 +21,36 @@ final class RunLayoutTests: XCTestCase {
                        CGSize(width: 1320, height: 840))
     }
 
+    /// #64 after a relaunch: the restored frame, 1320 wide at x = -148, is put back on a
+    /// 1024 x 678 screen; a frame that fits is left alone.
+    func testARestoredFrameWiderThanTheScreenIsFittedToIt() {
+        let visible = CGRect(x: 0, y: 25, width: 1024, height: 678)
+        let fitted = RunLayout.fitted(frame: CGRect(x: -148, y: 30, width: 1320, height: 678), visible: visible)
+        XCTAssertEqual(fitted, CGRect(x: 0, y: 25, width: 1024, height: 678))
+        let fine = CGRect(x: 100, y: 60, width: 900, height: 600)
+        XCTAssertEqual(RunLayout.fitted(frame: fine, visible: visible), fine)
+    }
+
+    /// Only the run window is fitted; a smaller panel or dialog would be grown to its minimum.
+    func testOnlyTheRunWindowIsKeptOnScreen() {
+        func window(_ id: String?, _ style: NSWindow.StyleMask = [.titled, .resizable], panel: Bool = false) -> NSWindow {
+            let rect = CGRect(x: 0, y: 0, width: 260, height: 150)
+            let window = panel
+                ? NSPanel(contentRect: rect, styleMask: style, backing: .buffered, defer: true)
+                : NSWindow(contentRect: rect, styleMask: style, backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            window.identifier = id.map { NSUserInterfaceItemIdentifier($0) }
+            return window
+        }
+        XCTAssertTrue(AppDelegate.isRunWindow(window("main")))
+        XCTAssertTrue(AppDelegate.isRunWindow(window("main-AppWindow-1")))
+        XCTAssertFalse(AppDelegate.isRunWindow(window(nil)))
+        XCTAssertFalse(AppDelegate.isRunWindow(window("mainly")))
+        XCTAssertFalse(AppDelegate.isRunWindow(window("main", panel: true)))
+        XCTAssertFalse(AppDelegate.isRunWindow(window("main", [.titled])))
+        XCTAssertFalse(AppDelegate.isRunWindow(window("main", [.borderless])))
+    }
+
     func testDefaultWindowIsNeverUnderTheMinimum() {
         XCTAssertEqual(RunLayout.defaultWindowSize(visible: CGSize(width: 800, height: 500)),
                        RunLayout.windowMinimum)

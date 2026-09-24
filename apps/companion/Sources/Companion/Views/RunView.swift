@@ -325,6 +325,18 @@ enum RunLayout {
         )
     }
 
+    /// A window frame moved and shrunk to fit `visible` (a screen's visible frame). macOS
+    /// restores a saved frame, and SwiftUI's split view its saved column widths, without
+    /// fitting them to the screen: a window saved 1320 wide came back at x = -148 on a 1024
+    /// pt screen after every relaunch (#64). Never below the window's minimum.
+    static func fitted(frame: CGRect, visible: CGRect) -> CGRect {
+        let width = max(min(frame.width, visible.width), windowMinimum.width)
+        let height = max(min(frame.height, visible.height), windowMinimum.height)
+        let x = min(max(frame.minX, visible.minX), visible.maxX - width)
+        let y = min(max(frame.minY, visible.minY), visible.maxY - height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
     static let sidebarMinimum: Double = 240
     static let sidebarIdeal: Double = 290
     static let sidebarMaximum: Double = 380
@@ -437,7 +449,7 @@ private struct RunHeader: View {
     }
 
     private var title: String { RunTitle.short(task: task, runId: runId) }
-    private var fullTask: String { RunTitle.text(task: task, runId: runId) }
+    private var fullTask: String { RunTitle.subtitle(task: task, alive: facts.isAlive) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

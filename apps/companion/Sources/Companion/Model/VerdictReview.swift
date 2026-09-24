@@ -344,12 +344,25 @@ extension RunTitle {
     private static func withoutAsides(_ text: String) -> String {
         var out = ""
         var depth = 0
+        var closedAside = false
         for character in text {
             if character == "(" { depth += 1; continue }
-            if character == ")", depth > 0 { depth -= 1; continue }
-            if depth == 0 { out.append(character) }
+            if character == ")", depth > 0 {
+                depth -= 1
+                closedAside = depth == 0
+                continue
+            }
+            guard depth == 0 else { continue }
+            // An aside removed before punctuation would leave "UI only : set Bill".
+            if closedAside, !character.isWhitespace {
+                if ",:;.!?".contains(character) {
+                    while out.last?.isWhitespace == true { out.removeLast() }
+                }
+                closedAside = false
+            }
+            out.append(character)
         }
-        return StepSummary.oneLine(out.replacingOccurrences(of: " ,", with: ","))
+        return StepSummary.oneLine(out)
     }
 
     /// The end of the first sentence or clause introduced by a colon.

@@ -133,7 +133,11 @@ struct ConversationView: View {
             .overlayScrollers()
             .scrollTargetBehavior(.viewAligned(limitBehavior: .never))
             .contentMargins(.top, Space.s, for: .scrollContent)
-            .defaultScrollAnchor(.bottom)
+            // Opens at the newest message and follows it, but a short transcript sits at the
+            // top: anchored to the bottom for alignment too, two events sat under a tall gap.
+            .defaultScrollAnchor(.top, for: .alignment)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
             // A scroll-edge fade: whatever row sits at the top edge dissolves into the
             // surface under the pinned card instead of showing as a cut-off half line.
             .overlay(alignment: .top) {

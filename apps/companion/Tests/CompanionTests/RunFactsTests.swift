@@ -261,6 +261,24 @@ final class TitleAndWordsTests: XCTestCase {
         XCTAssertEqual(RunTitle.short(task: "Check $24.00 is shown", runId: "x"), "Check $24.00 is shown")
     }
 
+    /// Seen in the app: "UI only (no build): set Bill" became "UI only : set Bill".
+    func testAnAsideBeforePunctuationLeavesNoSpaceBeforeIt() {
+        XCTAssertEqual(RunTitle.short(task: "UI only (no build): set Bill to 50", runId: "x"), "UI only: set Bill to 50")
+        XCTAssertEqual(RunTitle.short(task: "Open it (TextEdit); type hi", runId: "x"), "Open it; type hi")
+    }
+
+    /// Only a dropped aside takes the space before punctuation with it.
+    func testPunctuationAfterASpaceWithoutAnAsideIsKept() {
+        XCTAssertEqual(RunTitle.short(task: "Add .env to .gitignore", runId: "x"), "Add .env to .gitignore")
+        XCTAssertEqual(RunTitle.short(task: "Run ./build.sh", runId: "x"), "Run ./build.sh")    }
+
+    /// Seen in the app: a run with no task read "Run 3f2a" as its title and again under it.
+    func testARunWithoutATaskSaysSoUnderItsTitle() {
+        XCTAssertEqual(RunTitle.subtitle(task: nil, alive: true), "No task yet")
+        XCTAssertEqual(RunTitle.subtitle(task: "  ", alive: false), "No task was sent to this run")
+        XCTAssertEqual(RunTitle.subtitle(task: "Check the tip", alive: true), "Check the tip")
+    }
+
     func testALongClauseIsCutAtAWord() {
         let title = RunTitle.short(task: String(repeating: "word ", count: 40), runId: "x", limit: 20)
         XCTAssertEqual(title, "word word word word…")

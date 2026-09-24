@@ -213,7 +213,7 @@ func routes(mgr *machine.Manager, reg *session.Registry, image string, log *slog
 }
 
 // bridgeLifecycle posts the manager's lifecycle into each run's conversation. It is the only poster of
-// ready/failed/stopped/destroyed. Without a verifier it also tells the coder nobody will answer a task.
+// ready/failed/stopped/destroyed. Without a verifier it also says nobody will answer each message that starts a turn.
 func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnabled bool) {
 	post := func(runID, text string) {
 		store, err := reg.Get(runID)
@@ -255,13 +255,17 @@ func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnable
 		return
 	}
 	reg.Listen(func(runID string, m session.Message) {
-		if m.Kind != session.Task || m.From == session.Verifier {
+		if !m.StartsTurn() {
 			return
 		}
 		// Listeners run under the store's lock, so append elsewhere.
-		go post(runID, "no verifier is configured on this daemon (set NVIDIA_API_KEY in .env); nobody will answer this task")
+		go post(runID, noVerifierNotice+string(m.Kind))
 	})
 }
+
+// noVerifierNotice, followed by the kind of message, is what a daemon without a verifier posts
+// after every message that starts a turn, so no client waits for an answer.
+const noVerifierNotice = "no verifier is configured on this daemon (set NVIDIA_API_KEY in .env); nobody will answer this "
 
 // redactVNC keeps the one-time screen password out of the log.
 func redactVNC(url string) string {

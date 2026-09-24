@@ -62,7 +62,8 @@ are in the root `CONTEXT-MAP.md`.
 5. An unknown enum value is data, not a crash.
 6. Every human `note`, `task`, `answer` and `dispute` starts a verifier turn. While the
    last word is human or coder, the transcript shows "verifier is working"
-   (`RunStore.awaitingVerifier`).
+   (`RunStore.awaitingVerifier`), unless a later daemon event says nobody or nothing will
+   answer (no verifier configured, or the machine destroyed with the task open).
 7. The event stream may drop. After a drop, and on every return to the foreground, the
    app re-reads the run list and the open run (`RunStore.resyncPlan`).
 8. Input is sent only under a held lease, and the lease is given back on every way out of
