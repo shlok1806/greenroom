@@ -12,8 +12,8 @@ spikes/image-bench/bench.py -image greenroom-lean-a \
 ```
 
 It builds the daemon from this checkout into `/tmp/greenroom-bench-<image>/grx` and
-serves it on `127.0.0.1:7861` with its own `-root`, `-verifier nim` and
-`-open-viewer=false`. It never talks to another daemon, never touches a VM it did not
+serves it on `127.0.0.1:7861` with its own `-root` and
+`-verifier nim`. It never talks to another daemon, never touches a VM it did not
 create, and runs its machines one at a time: it waits while the host is at Apple's two-VM
 limit and retries a create the limit refused. Flags: `-runs` (3), `-idle-seconds` (600),
 `-sample-every` (30), `-latency-reps` (5), `-task-timeout` (900), `-addr`, `-scratch`,

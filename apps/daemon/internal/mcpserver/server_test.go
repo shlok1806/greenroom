@@ -313,6 +313,22 @@ func TestCreateAcceptsANamedImage(t *testing.T) {
 	}
 }
 
+// Watch mode is retired (ADR 0016): an old client asking for it is told so, not
+// silently handed a headless machine, and no VM is cloned.
+func TestCreateRefusesTheRetiredWatchArgument(t *testing.T) {
+	h := newHarness(t)
+	res := h.raw("machine_create", map[string]any{"watch": true})
+	if !res.IsError {
+		t.Fatal("create accepted watch, which no longer exists")
+	}
+	if !strings.Contains(text(res), "watch") {
+		t.Errorf("the error does not name the argument: %q", text(res))
+	}
+	if strings.Contains(testsupport.Calls(t, h.control), "clone") {
+		t.Error("a refused create still cloned a VM")
+	}
+}
+
 func TestCreateReportsATartFailure(t *testing.T) {
 	h := newHarness(t)
 	testsupport.Flag(t, h.control, "fail-clone")

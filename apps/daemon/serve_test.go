@@ -33,7 +33,7 @@ func pendingRoot(t *testing.T) (root, conversation string) {
 // serveAsync runs serve and returns its error, or fails the test if it is still serving after d.
 func serveAsync(t *testing.T, d time.Duration, args ...string) error {
 	t.Helper()
-	args = append(args, "-tart", "/usr/bin/false", "-verifier", "manual", "-open-viewer=false",
+	args = append(args, "-tart", "/usr/bin/false", "-verifier", "manual",
 		"-env-file", filepath.Join(t.TempDir(), "none.env"))
 	errCh := make(chan error, 1)
 	go func() { errCh <- serve(args) }()

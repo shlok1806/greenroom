@@ -1,7 +1,8 @@
 # 0011. A live screen: H.264 from inside the guest over one exec pipe
 
 Date: 2026-09-22
-Status: accepted
+Status: accepted. Decision 5's "stays available for a person via `-watch`" is superseded by
+ADR 0016, which retires watch mode.
 
 ## Context
 

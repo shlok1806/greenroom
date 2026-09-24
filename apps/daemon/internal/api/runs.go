@@ -17,7 +17,6 @@ type RunSummary struct {
 	Image        string                `json:"image"`
 	Status       string                `json:"status"`
 	IP           string                `json:"ip,omitempty"`
-	VNCURL       string                `json:"vncUrl,omitempty"`
 	Steps        int                   `json:"steps"`
 	Frames       int                   `json:"frames"`
 	Verdict      *session.VerdictState `json:"verdict"`
@@ -69,7 +68,7 @@ func (a *api) summary(runID string, mc *machine.Machine) RunSummary {
 	s.Steps = steps.Count
 	s.Task = a.runTask(runID)
 	if mc != nil {
-		s.Status, s.Image, s.IP, s.VNCURL = string(mc.Status), mc.Image, mc.IP, mc.VNCURL
+		s.Status, s.Image, s.IP = string(mc.Status), mc.Image, mc.IP
 		s.CreatedAt = mc.CreatedAt
 	}
 	// Steps and messages, not frames: the recorder captures an idle machine too (machine.Manager.LastActivity).

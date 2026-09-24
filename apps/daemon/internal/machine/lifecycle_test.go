@@ -89,7 +89,7 @@ func TestDestroyDuringBootEndsTheBootSilently(t *testing.T) {
 	})
 	defer stop()
 
-	mc, err := mgr.Create(context.Background(), testImage, false)
+	mc, err := mgr.Create(context.Background(), testImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestCreateCleansUpWhenStateCannotBeSaved(t *testing.T) {
 	mgr, root, control := newTestManager(t)
 	readOnly(t, root) // runs/ stays writable; state.json cannot be replaced
 
-	if _, err := mgr.Create(context.Background(), testImage, false); err == nil {
+	if _, err := mgr.Create(context.Background(), testImage); err == nil {
 		t.Fatal("Create succeeded although state.json could not be written")
 	}
 	if n := len(mgr.List()); n != 0 {

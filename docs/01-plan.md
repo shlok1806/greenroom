@@ -47,7 +47,8 @@ In rough priority order.
    endpoint.
 6. **Tart behind an interface** (ADR 0010). Today `internal/tart` is the only caller, but
    `Manager` holds a concrete `*tart.Client`.
-7. Open issues: #7 (GPU crash dialog in graphics mode), #22 (nothing installs `packer`),
+7. Open issues: #7 (GPU crash dialog in graphics mode; graphics retired by ADR 0016,
+   so it can close as won't fix), #22 (nothing installs `packer`),
    #23 (transcript wastes a wide window).
 
 Not planned: fleet, multi-host, PR posting, warm machines (resume is not faster than cold

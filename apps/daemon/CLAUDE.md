@@ -21,7 +21,7 @@ go run . serve -verifier manual                 # no model; a person types instr
 go run . serve -image greenroom-base -max-machines 2 -frame-interval 2s
 go run . serve -tart <path>                     # or GREENROOM_TART
 go run . prepare-image -vm <running vm>
-go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir> [-watch]]
+go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir>]
 
 scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
                         # image default: local greenroom-lean-a, then greenroom-base, then upstream Cirrus
@@ -296,6 +296,10 @@ UI tree (ADR 0012)
 
 Live screen (ADR 0011)
 
+- Every VM boots `tart run --no-graphics`. Graphics mode (`--vnc-experimental`, the old
+  `watch`) is retired (ADR 0016, issue #7: the guest GPU restarts and a crash dialog
+  covers the screen). Do not add a graphics or VNC path; a person watches through this
+  stream in the companion.
 - One `greenroom-input --serve` per machine, on plain pipes (`tart.StartPipe`, never a
   pty). The first `WatchScreen` starts it; it stops `WithScreenIdle` (30 s) after the last
   viewer leaves, and at once in `detachLocked`. The start command first pkills an orphan

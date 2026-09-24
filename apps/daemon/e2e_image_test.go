@@ -60,7 +60,7 @@ func TestPreparedImageNeedsNoCompile(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	created, err := mgr.Create(ctx, base, false)
+	created, err := mgr.Create(ctx, base)
 	if err != nil {
 		t.Fatalf("Create (clone of %s): %v", base, err)
 	}

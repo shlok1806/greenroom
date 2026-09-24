@@ -246,7 +246,7 @@ func TestAHelperCrashEndsViewersAndTheNextViewerRestartsIt(t *testing.T) {
 func TestWatchScreenRefusesAMachineThatIsNotReady(t *testing.T) {
 	mgr, _, control := newTestManager(t, WithReadyTimeout(300*time.Millisecond))
 	testsupport.Flag(t, control, "agent-down")
-	mc, err := mgr.Create(context.Background(), testImage, false)
+	mc, err := mgr.Create(context.Background(), testImage)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

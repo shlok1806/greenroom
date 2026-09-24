@@ -44,19 +44,18 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 
 	type createIn struct {
 		Image string `json:"image,omitempty" jsonschema:"OCI image to clone. Defaults to the daemon's configured image."`
-		Watch bool   `json:"watch,omitempty" jsonschema:"Show the machine's screen so a person can watch the run. Returns vncUrl, and the daemon opens a viewer on the host."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_create",
 		Description: "Clone and start a fresh macOS machine. Returns at once with status booting and the runId every " +
-			"other tool needs. Call machine_wait next; boot takes 30 to 90 seconds. Pass watch true when a person " +
-			"wants to see the screen while the machine works.",
+			"other tool needs. Call machine_wait next; boot takes 30 to 90 seconds. Machines run headless; " +
+			"a person watches the screen live in the greenroom companion app.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, *machine.Machine, error) {
 		image := in.Image
 		if image == "" {
 			image = defaultImage
 		}
-		return wrap(mgr.Create(ctx, image, in.Watch))
+		return wrap(mgr.Create(ctx, image))
 	})
 
 	type waitIn struct {

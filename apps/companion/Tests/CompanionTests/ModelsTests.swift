@@ -16,7 +16,6 @@ final class ModelsTests: XCTestCase {
             "image": "ventura-base",
             "status": "ready",
             "ip": "192.168.64.9",
-            "vncUrl": "vnc://127.0.0.1:5900",
             "steps": 7,
             "verdict": {"seq": 12, "verdict": "pass", "summary": "the app builds", "evidence": ["003-screenshot.png"], "status": "proposed", "disputes": 0},
             "lastActivity": "2026-09-18T10:04:00Z",

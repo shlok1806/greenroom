@@ -105,18 +105,14 @@ type Process struct {
 
 const logTailLines = 3
 
-// Start boots a VM in its own process group so it outlives the daemon, with
-// output appended to logPath. watch runs it with a VNC screen, else headless.
-func (c *Client) Start(name, logPath string, watch bool) (*Process, error) {
+// Start boots a VM headless in its own process group so it outlives the daemon,
+// with output appended to logPath. Graphics mode is retired (ADR 0016).
+func (c *Client) Start(name, logPath string) (*Process, error) {
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	mode := "--no-graphics"
-	if watch {
-		mode = "--vnc-experimental"
-	}
-	cmd := exec.Command(c.Bin, "run", name, mode)
+	cmd := exec.Command(c.Bin, "run", name, "--no-graphics")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -162,25 +158,6 @@ func (p *Process) tail() string {
 		lines = lines[len(lines)-logTailLines:]
 	}
 	return strings.TrimSpace(strings.Join(lines, "; "))
-}
-
-// VNCURL waits up to timeout for tart to log its "vnc://" address and returns
-// it, or "" for a headless VM or one that exited.
-func (p *Process) VNCURL(timeout time.Duration) string {
-	deadline := time.Now().Add(timeout)
-	for {
-		if data, err := os.ReadFile(p.logPath); err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
-				if i := strings.Index(line, "vnc://"); i >= 0 {
-					return strings.TrimRight(strings.TrimSpace(line[i:]), ".")
-				}
-			}
-		}
-		if p.Exited() || time.Now().After(deadline) {
-			return ""
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
 }
 
 // Exec runs a command in the guest via the guest agent. A non-zero guest exit

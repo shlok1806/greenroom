@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -70,7 +69,6 @@ func usage() {
 type serveOpts struct {
 	addr, root, image, envFile, tartBin, verifierKind string
 	maxDisputes, maxMachines, verifierMaxSteps        int
-	openViewer                                        bool
 	frameInterval, verifierBudget                     time.Duration
 }
 
@@ -84,7 +82,6 @@ func serveFlags() (*flag.FlagSet, *serveOpts) {
 	fs.IntVar(&o.maxMachines, "max-machines", 2, "how many VMs the host may run at once; Apple allows two macOS guests, and 0 removes the check")
 	fs.StringVar(&o.envFile, "env-file", ".env", "file of KEY=VALUE lines holding the model credentials")
 	fs.StringVar(&o.tartBin, "tart", "", tartUsage)
-	fs.BoolVar(&o.openViewer, "open-viewer", true, "when a machine is created with watch, open its screen on this Mac")
 	fs.DurationVar(&o.frameInterval, "frame-interval", 2*time.Second, "screen frame capture interval for the run recording; 0 disables")
 	fs.StringVar(&o.verifierKind, "verifier", "", "verifier brain: nim (model-driven) or manual (a person types instructions in the conversation); default nim, overridden by GREENROOM_VERIFIER when this flag is not set")
 	fs.IntVar(&o.verifierMaxSteps, "verifier-max-steps", verifier.DefaultMaxSteps, "tool calls a verifier turn may make before it stops and asks to be continued with another message")
@@ -123,14 +120,6 @@ func serve(args []string) error {
 		machine.WithMaxMachines(o.maxMachines),
 		machine.WithFrameInterval(o.frameInterval),
 		machine.WithTartBin(o.tartBin), // empty keeps internal/tart's own resolution
-	}
-	if o.openViewer {
-		opts = append(opts, machine.WithWatchHandler(func(vncURL string) {
-			log.Info("opening the machine's screen", "url", redactVNC(vncURL))
-			if err := exec.Command("open", vncURL).Start(); err != nil {
-				log.Warn("could not open the viewer", "err", err)
-			}
-		}))
 	}
 	mgr, err := machine.NewManager(o.root, log, opts...)
 	if err != nil {
@@ -266,14 +255,6 @@ func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnable
 // noVerifierNotice, followed by the kind of message, is what a daemon without a verifier posts
 // after every message that starts a turn, so no client waits for an answer.
 const noVerifierNotice = "no verifier is configured on this daemon (set NVIDIA_API_KEY in .env); nobody will answer this "
-
-// redactVNC keeps the one-time screen password out of the log.
-func redactVNC(url string) string {
-	if i := strings.Index(url, "@"); i >= 0 {
-		return "vnc://***" + url[i:]
-	}
-	return url
-}
 
 func defaultRoot() string {
 	home, err := os.UserHomeDir()

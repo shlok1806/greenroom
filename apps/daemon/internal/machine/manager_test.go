@@ -78,7 +78,7 @@ func settleOnCleanup(t *testing.T, mgr *Manager) {
 func readyMachine(t *testing.T, mgr *Manager) *Machine {
 	t.Helper()
 	ctx := context.Background()
-	mc, err := mgr.Create(ctx, testImage, false)
+	mc, err := mgr.Create(ctx, testImage)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestCreateFailsWhenCloneFails(t *testing.T) {
 	mgr, root, control := newTestManager(t)
 	testsupport.Flag(t, control, "fail-clone")
 
-	_, err := mgr.Create(context.Background(), testImage, false)
+	_, err := mgr.Create(context.Background(), testImage)
 	if err == nil {
 		t.Fatal("Create returned no error although the clone failed")
 	}
@@ -637,7 +637,7 @@ func TestFinishBootFailsWhenTheIPNeverArrives(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	testsupport.Flag(t, control, "fail-ip")
 
-	mc, err := mgr.Create(context.Background(), testImage, false)
+	mc, err := mgr.Create(context.Background(), testImage)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -668,7 +668,7 @@ func TestFinishBootFailsWhenTheIPNeverArrives(t *testing.T) {
 func TestGuestToolsRefuseAFailedMachine(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	testsupport.Flag(t, control, "fail-ip")
-	mc, err := mgr.Create(context.Background(), testImage, false)
+	mc, err := mgr.Create(context.Background(), testImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -690,7 +690,7 @@ func TestInstallSSHKeyFailureFailsTheBoot(t *testing.T) {
 	// The guest agent answers the readiness probe, then the key install fails.
 	testsupport.Flag(t, control, "fail-keyinstall")
 
-	mc, err := mgr.Create(context.Background(), testImage, false)
+	mc, err := mgr.Create(context.Background(), testImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -774,7 +774,7 @@ func TestBootFailsWhenSSHNeverAnswers(t *testing.T) {
 	}
 	settleOnCleanup(t, mgr)
 
-	created, err := mgr.Create(context.Background(), testImage, false)
+	created, err := mgr.Create(context.Background(), testImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -819,7 +819,7 @@ func TestSSHTimeoutNamesTheLastProbeError(t *testing.T) {
 	}
 	settleOnCleanup(t, mgr)
 
-	created, err := mgr.Create(context.Background(), testImage, false)
+	created, err := mgr.Create(context.Background(), testImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -855,7 +855,7 @@ func TestConcurrentCreatesRespectTheHostLimit(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, results[i] = mgr.Create(context.Background(), testImage, false)
+			_, results[i] = mgr.Create(context.Background(), testImage)
 		}(i)
 	}
 	wg.Wait()
@@ -889,7 +889,7 @@ func TestFakeTartExitsWhenItsControlDirectoryGoesAway(t *testing.T) {
 	bin, control := testsupport.FakeTart(t)
 	logPath := filepath.Join(t.TempDir(), "vm.log")
 	cl := &tart.Client{Bin: bin}
-	proc, err := cl.Start("greenroom-leak-check", logPath, false)
+	proc, err := cl.Start("greenroom-leak-check", logPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1007,7 +1007,7 @@ func TestAFailedBootEndsTheRun(t *testing.T) {
 		}
 	})
 	defer stop()
-	mc, err := mgr.Create(context.Background(), testImage, false)
+	mc, err := mgr.Create(context.Background(), testImage)
 	if err != nil {
 		t.Fatal(err)
 	}
