@@ -12,21 +12,26 @@ came from short probes. Two evaluations have since measured the models on greenr
 work.
 
 **Offline screening** (`docs/image-experiment/verifier-models/report.md`) sent greenroom's
-exact describe request to each candidate for 40 hand-labelled screenshots from real runs:
+exact describe request to each candidate for up to 40 hand-labelled screenshots from real
+runs. The first row is what the daemon ships: kimi-k3 with its default thinking on, since
+`nim.Client.Describe` sends no chat-template settings. That setup was measured on only 14
+shots, a smaller sample than the other rows:
 
 | describer | failed | value recall | invented values | selected TipSplit segment | control centres inside the control | p50 | p95 with retries |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| kimi-k3, thinking on (shipped, 14 shots) | 0 of 14 | 1.00 | none | 6 of 6 | 55 of 56 | 50 s | 79 s |
 | nano-omni, thinking on (the old default) | 8 of 40 | 0.74 | 54 in 8 images | 10 of 12 | 57 of 95 | 71 s | 301 s |
-| kimi-k3, thinking off | 0 of 40 | 0.94 | none | 12 of 12 | 105 of 111 | 39 s | 69 s |
+| kimi-k3, thinking off (needs a chat-template knob the daemon does not send yet) | 0 of 40 | 0.94 | none | 12 of 12 | 105 of 111 | 39 s | 69 s |
 
 nano-omni's failures were 503 ResourceExhausted and 300 s timeouts. Its controls section
-made elements up. kimi-k3 found every alert (3 of 3) and never named a value that was not on
-screen.
+made elements up. kimi-k3 never named a value that was not on screen in either setup, and
+with thinking off it found every alert (3 of 3).
 
 **The realistic suite** ran Claude Code as the coding agent on 7 real tasks, 2 trials each,
 per configuration. A trial passed only if the hidden oracle passed, the tests were not
 weakened, the run shows red then green in the VM, and, where a verdict was required, the
-verifier's last verdict was right:
+verifier's last verdict was right. The kimi-k3 describer rows ran the same setup the daemon
+ships (thinking on, no patch):
 
 | configuration | pass rate | verdicts obtained / requested | wrong verdicts | failed model turns | median wall, UI tasks |
 | --- | --- | --- | --- | --- | --- |
@@ -56,7 +61,7 @@ to change it when a model disappears from the account.
 ## Consequences
 
 - Machines that set nothing now get a describer, one extra model call per screenshot,
-  about 40 s at p50.
+  about 50 s at p50.
 - Installs that pinned `GREENROOM_VISION_MODEL=nvidia/nemotron-3-nano-omni-...` in `.env` or
   the launchd plist keep it until they change it. `.env.example` now shows kimi-k3.
 - **Follow-up:** move to a single multimodal kimi-k3 verifier (brain and eyes in one model),
