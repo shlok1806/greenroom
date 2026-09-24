@@ -122,7 +122,9 @@ case "$sub" in
     esac
     case "$*" in
       *com.apple.Terminal.savedState*)
+        : > "$C/terminal-quit-ran"
         [ -f "$C/fail-terminal" ] && { echo "Terminal is still running" >&2; exit 1; }
+        echo "quit"
         exit 0 ;;
     esac
     case "$*" in

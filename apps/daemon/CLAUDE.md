@@ -78,11 +78,14 @@ Boot and lifecycle
   `captureAlertSeconds`, `desktopPrefsSeconds`, `timeZoneSeconds`, `inputHelperSeconds`,
   `sshSeconds`.
 - Boot quits the Terminal the image starts at login and removes its saved state
-  (`terminal.go`, step keys `terminalSeconds`, `terminalError`, issue #60); `prepare-image`
-  runs the same so a rebuilt image has no saved window to restore. What relaunches Terminal
+  (`terminal.go`, step keys `terminalSeconds`, `terminalQuit` (a Terminal was found and quit),
+  `terminalError`, issue #60); `prepare-image` runs the same so a rebuilt image has no saved
+  window to restore. launchd can start Terminal after the guest agent answers, so the script
+  waits up to 30 s for Dock and Finder, then up to 8 s for Terminal, before it reports none. What relaunches Terminal
   is not a System Events login item, and `osascript` or `sfltool dumpbtm` over `tart exec`
   hang (they wait for an Automation or admin prompt nobody answers), so boot does it on every
-  machine rather than trusting the image. Never fatal. Fake tart flag `fail-terminal`.
+  machine rather than trusting the image. Never fatal. Fake tart flag `fail-terminal`; the fake
+  prints `quit` and writes `terminal-quit-ran` when the script runs.
 - Boot puts the guest in the host's time zone (`timezone.go`, from `TZ` or `/etc/localtime`, step
   keys `timeZone`, `timeZoneError`, issue #77): the image runs in UTC, and the recording's
   menu bar clock disagreed with every time the companion prints. Only a tz database name
