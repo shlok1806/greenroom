@@ -26,7 +26,7 @@ var inputHelper string
 // inputHelperVersion names the compiled helper. Bump it whenever
 // guest/input.swift changes, or running machines and prepared images keep
 // the old binary.
-const inputHelperVersion = 5
+const inputHelperVersion = 6
 
 // ControlTTL is how long an unused screen-control lease lives unless the taker
 // asks otherwise. Every input renews it by its own ttl, so a crashed holder
