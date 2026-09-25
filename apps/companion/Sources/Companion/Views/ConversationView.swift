@@ -172,16 +172,6 @@ struct ConversationView: View {
                     withAnimation { proxy.scrollTo(Self.endRowId, anchor: .bottom) }
                 }
             }
-            // The run's steps land after its messages and turn citations into chips, which
-            // re-wraps rows the lazy stack had already measured: pinned to the end until the
-            // person scrolls, or the newest message sits below the fold.
-            .onChange(of: store.steps[runId]?.count) {
-                guard anchored, !userScrolled else { return }
-                Task {
-                    try? await Task.sleep(for: .milliseconds(50))
-                    proxy.scrollTo(Self.endRowId, anchor: .bottom)
-                }
-            }
             .onChange(of: awaitingVerifier) {
                 guard atBottom, awaitingVerifier else { return }
                 withAnimation { proxy.scrollTo(Self.workingRowId, anchor: .bottom) }
