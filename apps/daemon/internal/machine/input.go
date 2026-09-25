@@ -98,7 +98,7 @@ type inputState struct {
 	// handovers counts the times the screen changed hands under anyone but the verifier: a fresh
 	// take, a release or a lapse. A verifier input aimed before the latest one is refused (issue #124).
 	handovers atomic.Uint64
-	asMu   sync.Mutex         // serializes InputAs so one call's release cannot end another's lease
+	asMu      sync.Mutex // serializes InputAs so one call's release cannot end another's lease
 	// ctlMu serializes each lease change with the events it emits, taken before Manager.mu: a
 	// take that follows a lapse returns only once the lapse was announced (lapseLocked).
 	ctlMu sync.Mutex
