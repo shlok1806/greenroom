@@ -162,10 +162,13 @@ func cutOff(msg nim.Message) bool {
 	return msg.FinishReason == "length" || strings.Contains(msg.Content, "<tool_call>")
 }
 
+// screenBackAsk starts the question asking a person for the screen. Giving it back resumes the
+// turn by itself (resumeOwed), so the question asks for nothing more (issue #124).
+const screenBackAsk = "You have the screen, so I cannot click or type."
+
 // screenTakenQuestion ends a turn whose input the seat holding the screen refused.
 func screenTakenQuestion(holder string, standing bool) string {
-	q := "You have the screen, so I cannot click or type. Press Give Back in the Companion, then send a " +
-		"message and I will continue from here."
+	q := screenBackAsk + " Press Give Back in the Companion and I will continue from here."
 	if holder == machine.HolderCoder {
 		q = "The coding agent has the screen, so I cannot click or type. It releases the screen after each " +
 			"input call. Send the task again and I will continue from here."
@@ -196,14 +199,6 @@ func standingVerdict(store *session.Store) bool {
 	return st == session.Proposed || st == session.Accepted
 }
 
-func isInputTool(name string) bool {
-	switch name {
-	case "machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input":
-		return true
-	}
-	return false
-}
-
 // openTaskNudge answers a reply that would end a turn with a task still waiting for a verdict.
 const openTaskNudge = "[greenroom] Not posted: a task in this conversation is still open, and a task is " +
 	"answered with a verdict. Call report_verdict for it now (or ask, if you are blocked). If more than " +
@@ -213,6 +208,34 @@ const openTaskNudge = "[greenroom] Not posted: a task in this conversation is st
 // droppedWithReply answers each call that shared a message with a reply sent back by openTaskNudge.
 const droppedWithReply = "[greenroom] Not run: the reply in this message was sent back, so its other " +
 	"calls were dropped; call them again if you still need them."
+
+// countTaken counts the events in msgs saying a person took the screen.
+func countTaken(msgs []session.Message) int {
+	n := 0
+	for _, m := range msgs {
+		if m.Kind == session.Event && m.Control == session.ControlTaken {
+			n++
+		}
+	}
+	return n
+}
+
+// resumeOwed reports whether the screen coming back should start a turn with nothing else to
+// start one (issue #124): the verifier's last turn ended asking for the screen, or a task is open
+// and that turn did not end waiting on an answer to some other question. A Verifier resumes; a
+// Manual brain does not, since its person types the next instruction.
+func (v *Verifier) resumeOwed(msgs []session.Message) bool {
+	var last *session.Message
+	for i := range msgs {
+		if msgs[i].EndsTurn() {
+			last = &msgs[i]
+		}
+	}
+	if last != nil && last.Kind == session.Question {
+		return strings.HasPrefix(last.Text, screenBackAsk)
+	}
+	return hasOpenTask(msgs)
+}
 
 // hasOpenTask reports whether a task from the coder or a human came after the latest verdict.
 func hasOpenTask(msgs []session.Message) bool {
@@ -244,7 +267,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 	msgs := withStatus(project(store.After(0)), status)
 	nudged := false
 	taskNudged := false
-	screenTaken := 0    // input refused this turn because someone else holds the screen
+	screenTaken := 0    // input refused, or the screen taken, during this turn (issues #97, #124)
 	failed := repeats{} // failing tool calls this turn, by call and error (issue #125)
 
 	for step := 1; step <= v.cfg.MaxSteps; step++ {
@@ -252,6 +275,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 		if fresh := store.After(seen); len(fresh) > 0 {
 			msgs = append(msgs, projectLate(fresh)...)
 			seen += len(fresh)
+			screenTaken += countTaken(fresh)
 		}
 		if now := machineStatus(ctx, v.mgr, runID); now != status {
 			status = now
@@ -329,16 +353,9 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 				res.Ended = v.postEnding(store, runID, end, screenTaken, step, since(started))
 				return res, nil
 			}
-			if screenTaken > 0 && isInputTool(call.Name) {
-				if holder, held := v.screenHolder(runID); held {
-					// Still held: a second refusal ends the turn instead of spinning (issue #97).
-					res.Steps, res.Ended = step, session.Question
-					v.askForScreen(store, holder)
-					return res, nil
-				}
-			}
 			result, stepNo := v.runTool(ctx, runID, call)
-			if strings.HasPrefix(result, screenTakenPrefix) {
+			taken := strings.HasPrefix(result, screenTakenPrefix)
+			if taken {
 				screenTaken++
 			}
 			result, stuck := v.guardRepeat(runID, failed, call, result)
@@ -346,6 +363,16 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			// appended while the tool ran sits before it. projectLate skips ours.
 			v.post(store, session.Message{From: session.Verifier, Kind: session.Progress, Text: progressText(call, result), Step: stepNo})
 			msgs = append(msgs, nim.Message{Role: "tool", ToolCallID: call.ID, Content: result})
+			if taken {
+				if holder, held := v.screenHolder(runID); held {
+					// The first refusal while someone else holds the screen ends the turn: the
+					// verifier yields at once (issue #124) instead of spinning (issue #97). Giving
+					// the screen back resumes it (resumeOwed).
+					res.Steps, res.Ended = step, session.Question
+					v.askForScreen(store, holder)
+					return res, nil
+				}
+			}
 			if stuck {
 				// The same call failed the same way repeatStopAt times: the person sees the blocker (issue #125).
 				res.Steps, res.Ended = step, session.Question

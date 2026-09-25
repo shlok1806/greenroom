@@ -486,7 +486,8 @@ func TestInputAsRefusesWhileSomeoneElseHoldsTheScreen(t *testing.T) {
 }
 
 // Overlapping InputAs calls take turns: one call's release must never end the
-// lease another is posting under, whichever seat each is.
+// lease another is posting under, whichever seat each is. Not the verifier: another seat's
+// handover refuses its input until it looks again (issue #124, TestAHandoverRefusesTheVerifierUntilItLooks).
 func TestOverlappingInputAsCallsAllLand(t *testing.T) {
 	mgr, _, _ := newTestManager(t)
 	mc := readyMachine(t, mgr)
@@ -495,7 +496,7 @@ func TestOverlappingInputAsCallsAllLand(t *testing.T) {
 	for i := range 12 {
 		holder := HolderCoder
 		if i%2 == 0 {
-			holder = HolderVerifier
+			holder = "human"
 		}
 		wg.Add(1)
 		go func() {

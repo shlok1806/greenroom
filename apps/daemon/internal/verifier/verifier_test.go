@@ -1643,9 +1643,8 @@ func TestASentBackReplyAnswersEveryCallOfItsMessage(t *testing.T) {
 }
 
 // Issue #97: while a human held the screen the verifier retried clicks in a tight loop, then
-// reported "inconclusive: a human is driving", which replaced its real fail verdict. The second
-// refusal ends the turn with a question, no refused input reaches the manager twice, and a lease
-// refusal never becomes a verdict.
+// reported "inconclusive: a human is driving", which replaced its real fail verdict. The first
+// refusal ends the turn with a question (issue #124), and a lease refusal never becomes a verdict.
 func TestAHumanOnTheScreenEndsTheTurnWithAQuestionNotAVerdict(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	store := openStore(t, mgr, runID)
@@ -1679,8 +1678,15 @@ func TestAHumanOnTheScreenEndsTheTurnWithAQuestionNotAVerdict(t *testing.T) {
 	if last := lastMessage(t, store); !strings.Contains(last.Text, "verdict still stands") {
 		t.Errorf("question = %q, want it to say the fail still stands", last.Text)
 	}
-	if n := len(messagesOfKind(store, session.Progress)); n > 2 {
-		t.Errorf("%d clicks were tried while the human held the screen, want at most 2", n)
+	if n := len(messagesOfKind(store, session.Progress)); n != 1 {
+		t.Errorf("%d clicks were tried while the human held the screen, want 1", n)
+	}
+	if model.calls() != 1 {
+		t.Errorf("the model was asked %d times, want once: the refusal ends the turn", model.calls())
+	}
+	if last := lastMessage(t, store); !strings.Contains(last.Text, "Press Give Back in the Companion and I will continue") ||
+		strings.Contains(last.Text, "send a message") {
+		t.Errorf("question = %q, want giving back to be enough", last.Text)
 	}
 }
 
@@ -1741,23 +1747,29 @@ func TestTheQuestionDoesNotStandByARejectedVerdict(t *testing.T) {
 // Once the human gives the screen back mid-turn, an inconclusive is the model's own verdict.
 func TestAnInconclusiveAfterTheScreenIsGivenBackIsAVerdict(t *testing.T) {
 	mgr, runID, _ := ready(t)
-	if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
-		t.Fatalf("TakeControl: %v", err)
-	}
+	store := openStore(t, mgr, runID)
 	model := &scriptedModel{replies: []string{
-		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
+		toolCall("machine_exec", map[string]any{"command": "true"}),
 		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "The build crashed on launch."}),
 	}}
 	model.onReasoning = func(n int) {
-		if n == 2 {
+		switch n {
+		case 1: // taken while the verifier works
+			if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
+				t.Errorf("TakeControl: %v", err)
+			}
+			if _, err := store.Append(session.Message{From: session.System, Kind: session.Event,
+				Text: "human took control of the screen", Control: session.ControlTaken}); err != nil {
+				t.Errorf("append: %v", err)
+			}
+		case 2:
 			if _, _, err := mgr.ReleaseControl(runID, "human"); err != nil {
 				t.Errorf("ReleaseControl: %v", err)
 			}
 		}
 	}
 	v := newVerifier(t, mgr, model.start(t))
-	store := openStore(t, mgr, runID)
-	postTask(t, store, "Click it.")
+	postTask(t, store, "Launch it.")
 	res, err := v.Turn(context.Background(), runID, store)
 	if err != nil {
 		t.Fatal(err)

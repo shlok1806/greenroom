@@ -111,6 +111,7 @@ func (m *Manager) UI(ctx context.Context, runID, reader, app string, limit int) 
 	limit = min(limit, MaxUILimit)
 	started := time.Now()
 	seq := mc.rec.begin() // before the tree is recorded, so its step is its own (issue #47)
+	at := mc.input.handovers.Load()
 	tree, err := m.readUI(ctx, mc, app, limit)
 	tree.Seconds = time.Since(started).Seconds()
 	tree.Step = seq
@@ -127,6 +128,7 @@ func (m *Manager) UI(ctx context.Context, runID, reader, app string, limit int) 
 		}
 		mc.input.ui[reader] = &kept
 		mc.input.uiMu.Unlock()
+		mc.noteLook(reader, at)
 	}
 	m.emitStep(mc.RunID, tree.Step)
 	return tree, err

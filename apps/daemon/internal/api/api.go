@@ -38,7 +38,7 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Han
 	// returns; posting synchronously keeps "lost control" ahead of the next "took control".
 	mgr.Listen(func(ev machine.LifecycleEvent) {
 		if ev.Kind == "control" && ev.Lapsed != nil && ev.Lapsed.Holder == humanSeat {
-			a.event(ev.RunID, lapsedText(*ev.Lapsed))
+			a.controlEvent(ev.RunID, lapsedText(*ev.Lapsed), session.ControlReturned)
 		}
 		if ev.Kind == "destroyed" {
 			go a.removeUploads(ev.RunID) // may wait for an upload in progress, so not on the manager's goroutine
@@ -149,12 +149,23 @@ func (a *api) serveFile(w http.ResponseWriter, r *http.Request, path, contentTyp
 
 // event posts a system event into the run's conversation, so the coder hears of it on its next agent_wait (ADR 0006).
 func (a *api) event(runID, text string) {
+	a.post(runID, session.Message{From: session.System, Kind: session.Event, Text: text})
+}
+
+// controlEvent posts a system event saying the human took the screen or that it came back
+// (session.ControlTaken, ControlReturned): the verifier is told to look before acting again, and
+// resumes an interrupted task when it comes back (issue #124).
+func (a *api) controlEvent(runID, text, control string) {
+	a.post(runID, session.Message{From: session.System, Kind: session.Event, Text: text, Control: control})
+}
+
+func (a *api) post(runID string, m session.Message) {
 	store, err := a.reg.Get(runID)
 	if err != nil {
 		a.log.Warn("cannot reach the conversation", "runId", runID, "err", err)
 		return
 	}
-	if _, err := store.Append(session.Message{From: session.System, Kind: session.Event, Text: text}); err != nil {
+	if _, err := store.Append(m); err != nil {
 		a.log.Warn("cannot record a human action", "runId", runID, "err", err)
 	}
 }

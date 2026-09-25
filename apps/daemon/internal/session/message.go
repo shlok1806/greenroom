@@ -45,7 +45,16 @@ type Message struct {
 	Verdict  string    `json:"verdict,omitempty"`  // verdict: pass, fail, inconclusive
 	Evidence []string  `json:"evidence,omitempty"` // verdict: artifact paths and step refs
 	Stop     string    `json:"stop,omitempty"`     // verifier reply: the limit that ended its turn (issue #127)
+	Control  string    `json:"control,omitempty"`  // system event: the screen was taken or came back (issue #124)
 }
+
+// Control values: a system event saying a person took the screen, or that it came back to nobody
+// (given back, or the lease lapsed). The verifier is told to look before acting again, and the
+// actor resumes an interrupted task on ControlReturned (issue #124).
+const (
+	ControlTaken    = "taken"
+	ControlReturned = "returned"
+)
 
 // Stop values: the verifier's turn ended at its step cap or its time budget with no verdict
 // (issue #127). Only a verifier reply carries one, so a client can tell it from a plain answer.
@@ -115,6 +124,14 @@ func validate(m Message) error {
 		}
 		if m.Stop != StopSteps && m.Stop != StopTime {
 			return fmt.Errorf("stop must be %s or %s, not %q", StopSteps, StopTime, m.Stop)
+		}
+	}
+	if m.Control != "" {
+		if m.Kind != Event || m.From != System {
+			return fmt.Errorf("only a system event may carry control, not a %s from %s", m.Kind, m.From)
+		}
+		if m.Control != ControlTaken && m.Control != ControlReturned {
+			return fmt.Errorf("control must be %s or %s, not %q", ControlTaken, ControlReturned, m.Control)
 		}
 	}
 	if m.Text == "" && m.Kind != Accept && m.Kind != Progress {

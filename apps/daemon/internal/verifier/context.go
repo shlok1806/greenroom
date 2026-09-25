@@ -134,6 +134,16 @@ var proseVerdict = regexp.MustCompile(`(?i)^\s*(\[\s*I (reported|report) (a )?ve
 const proseNudge = "You wrote a verdict or a question as plain text, which is posted as an ordinary reply and " +
 	"records no verdict. Call report_verdict (or ask) now with the same content."
 
+// What the model is told when a person takes the screen and when it comes back (issue #124). A
+// plan made on the screen before a handover must not be carried out after it: the manager
+// refuses the verifier's input until it looks again (machine.ErrStaleLook).
+const (
+	takenAdvice = "A person has the screen now. You may look (machine_ui, machine_screenshot) but not act: do " +
+		"not click, type, press keys or scroll until they give it back. If you need to act, end the turn with ask."
+	returnedAdvice = "The screen is yours again, and the person may have changed it. Look at the screen with " +
+		"machine_ui before any input, then carry on from where you stopped."
+)
+
 // projectLate projects messages that arrive mid-turn, skipping the verifier's
 // own so they are not mistaken for new history.
 func projectLate(msgs []session.Message) []nim.Message {
@@ -165,6 +175,12 @@ func speaker(m session.Message) string {
 	case session.Dispute:
 		return label + " disputes your verdict: " + m.Text + "\nRe-examine the evidence. Run more tools if you need to, then report a verdict again and say whether it changed and why."
 	case session.Event:
+		switch m.Control {
+		case session.ControlTaken:
+			return "machine event: " + m.Text + ". " + takenAdvice
+		case session.ControlReturned:
+			return "machine event: " + m.Text + ". " + returnedAdvice
+		}
 		return "machine event: " + m.Text
 	}
 	return label + ": " + m.Text

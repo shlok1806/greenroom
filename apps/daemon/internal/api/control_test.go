@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
@@ -314,5 +315,46 @@ func TestARenewalAfterAGiveBackIsRefused(t *testing.T) {
 	h.take(runID)
 	if code, body := h.status(http.MethodPost, "/api/runs/"+runID+"/control", map[string]any{"renew": true}); code != http.StatusOK {
 		t.Fatalf("renewal of a held lease = %d %s", code, body)
+	}
+}
+
+// Issue #124: the verifier must learn that the screen was taken or came back from the event
+// itself, not from its words, so it can stop acting and pick up again. Taking marks the event
+// taken; giving back and a lapse mark it returned. Other human events carry no control.
+func TestHandoverEventsSayWhichWayTheScreenWent(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.take(runID)
+	if code, body := h.status(http.MethodDelete, "/api/runs/"+runID+"/control", nil); code != http.StatusOK {
+		t.Fatalf("release: status %d: %s", code, body)
+	}
+	h.postJSON("/api/runs/"+runID+"/control", map[string]any{"ttlSeconds": 1}, nil)
+	deadline := time.Now().Add(5 * time.Second)
+	for conversationCount(h, runID, "human lost control of the screen") == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("no lapse was posted for a lease nobody renewed")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	var got []string
+	for _, m := range h.store(runID).After(0) {
+		if m.From == session.System && strings.HasPrefix(m.Text, "human") {
+			got = append(got, m.Control+" "+strings.SplitN(m.Text, ":", 2)[0])
+		}
+	}
+	want := []string{
+		"taken human took control of the screen",
+		"returned human gave the screen back after 0 actions",
+		"taken human took control of the screen",
+		"returned human lost control of the screen after 0 actions",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("handover events:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	for _, m := range h.store(runID).After(0) {
+		if m.StartsTurn() {
+			t.Errorf("%q starts a turn by itself; the verifier's actor decides whether it resumes", m.Text)
+		}
 	}
 }

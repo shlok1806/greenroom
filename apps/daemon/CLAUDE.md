@@ -331,7 +331,21 @@ Conversation and verifier
   batch when anything else lands or at the timeout: one call per verifier turn, not one per
   step (issue #46).
 - `Manual` answers exactly like `Verifier`, through the same `Manager` calls. Anything
-  that works under `-verifier manual` works under `nim`.
+  that works under `-verifier manual` works under `nim`. One exception: `Manual` does not
+  resume on a Give Back (it would rerun the last instructions); its person types the next.
+- The screen coming back can start a turn with no message (issue #124). `internal/api` tags
+  its human handover events with `control`: `taken` on "took control", `returned` on "gave
+  the screen back" and on a lapsed human lease (`session.ControlTaken`, `ControlReturned`;
+  only a system event may carry it, `session.validate`). `StartsTurn` stays false for every
+  event: the actor, between turns, starts one on a `returned` event when the brain is a
+  `resumer` (`Verifier.resumeOwed`): its last turn ended with the screen question
+  (`screenBackAsk` prefix), or a task is open and that turn did not end on another question.
+  A handover during a turn reaches it as a late message and `seen` moves past it, so a Give
+  Back and a message right after it make one turn. `project` and `projectLate` add
+  `takenAdvice` (look, do not act) and `returnedAdvice` (look with `machine_ui` before any
+  input) to those events. `lastUnanswered` ignores them, so a daemon restart does not resume.
+  An actor's start position (`startSeen`) is read in `Start`, not in its goroutine, so an
+  event appended right after `Start` returns is never skipped.
 - Model failures retry: `nim.RetryBackoff` (1, 2, 4, 8 s on 429/5xx/transport, honours
   `Retry-After`; a timeout is never retried), then `verifier.TurnRetryDelays` (30, 60, 120 s). After the last, the
   actor posts that it gave up. Both are package vars so tests can zero them.
@@ -362,8 +376,9 @@ Conversation and verifier
   progress and ends the turn with a question naming the call, its arguments and the error
   (`repeatQuestion`, "My last verdict still stands." when one does). Another call leaves
   the counts alone; a success of the same call clears its counts. Screen-taken refusals are
-  left to the #97 rule. Every refused call's raw arguments are logged at warn
-  ("verifier tool call refused").
+  left to the #97 rule. A successful `machine_ui` or `machine_screenshot` also clears every
+  stale-look count (issue #124), since a look is what that refusal asks for. Every refused
+  call's raw arguments are logged at warn ("verifier tool call refused").
 - Verifier tool errors say what to send instead and name the fields that arrived
   (`argsProblem`), so a wrong field name is visible. `machine_type` text and `machine_key`
   key take a number as written (`looseString`): `{"text": 160}` was refused as no text.
@@ -377,7 +392,8 @@ Conversation and verifier
 - The verifier writes plainly: `writingRules` (adapted from stop-slop, MIT) ends the system
   prompt and the reply, ask and report_verdict argument descriptions repeat its limits. Keep
   it short; the small NIM model ignores a long style guide. Daemon-authored verifier texts
-  (budget, step cap, closing prompt, repeat question, cut-off, screen taken) follow the same rules.
+  (budget, step cap, closing prompt, repeat question, cut-off, screen taken, stale look,
+  handover advice) follow the same rules.
   `TestTheDeliveredSystemPromptCarriesTheWritingRules` pins it. The Companion matches
   "nobody will answer" and "nothing will answer" in system events; keep both phrases.
 - Every action that changes a machine lands in the transcript. Lifecycle events come only
@@ -402,13 +418,25 @@ Computer use (ADR 0009)
   cannot undo a Give Back (issue #100).
 - The verifier takes the lease per call, not per turn, via `Manager.InputAs`. A human
   holding it is a readable error, not a failure. It is `machine.ScreenTakenError`
-  (`ErrScreenTaken`); the verifier's tool result then says not to retry. After a refusal,
-  while someone else still holds the screen, `Turn` ends the turn with a question asking for
-  it instead of another input call or an `inconclusive` verdict, so a standing verdict is
-  never replaced by one about the lease (issue #97). The actor marks each turn with
-  `SetVerifierTurn`, and while one is open the coder's `InputAs` is refused with words
-  pointing at `agent_wait` (issue #82): per-call leases let both drive the same app. A human
-  is never refused for it.
+  (`ErrScreenTaken`); the verifier's tool result then says not to retry. The first refusal,
+  while someone else still holds the screen, ends the turn with a question asking for it
+  (issue #124; #97 waited for a second), and an `inconclusive` verdict while someone else
+  holds it after a refusal or a mid-turn `taken` event becomes that question (`postEnding`),
+  so a standing verdict is never replaced by one about the lease (issue #97). The human's
+  question says Give Back is enough ("Press Give Back in the Companion and I will continue
+  from here."): giving back resumes the turn (see Conversation and verifier). The actor
+  marks each turn with `SetVerifierTurn`, and while one is open the coder's `InputAs` is
+  refused with words pointing at `agent_wait` (issue #82): per-call leases let both drive the
+  same app. A human is never refused for it.
+- Screen handovers (issue #124): `inputState.handovers` counts every fresh take, release and
+  lapse by any seat but the verifier (coder per-call leases included); the verifier's own
+  lease changes never count. `Manager.UI` and `ScreenshotAs` record, per reader, the count
+  read before the look began. `InputAs` for `HolderVerifier`, after its take (so a human lease
+  that the take found lapsed counts, and a human still holding it is `ScreenTakenError`
+  first), refuses with `ErrStaleLook` while the verifier's latest look is older than the
+  latest handover, for element and coordinate input alike; a verifier that never looked is
+  stale once anyone else held the screen. Nothing is posted and no step is recorded. The coder
+  and the human are never refused for it. Plain `Screenshot` (API, MCP) records no look.
 - `validateActions` also refuses a click, down, up or move without both `x` and `y`: the
   helper would post it at the pointer (issue #85). The verifier's `machine_input` decodes with
   `DisallowUnknownFields`, so an `element` in a batch is an error, not a click at the pointer.
@@ -450,7 +478,8 @@ UI tree (ADR 0012)
   `HolderVerifier`); `machine_click {element}` aims at the caller's own tree via
   `ElementCenter` without re-reading, so a verifier read never retargets a coder's ids
   (issue #35). An optional `uiStep` refuses a click whose ids are not from the caller's
-  latest read. Nothing checks that the app is still frontmost. `UITree.Outline` is the text both
+  latest read. Nothing checks that the app is still frontmost, but a verifier click after a
+  screen handover is refused until it reads again (`ErrStaleLook`, issue #124). `UITree.Outline` is the text both
   surfaces show a model; keep it one element a line with its id and center.
 - The verifier's prompt makes the tree the way to aim and a coder's constraints hard rules
   (`verifier.go`). `TestTheDeliveredSystemPromptBindsConstraintsAndAimsFromTheTree` pins the phrases.

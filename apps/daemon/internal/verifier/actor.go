@@ -140,7 +140,18 @@ func (a *Actors) Start(runID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	a.cancel[runID], a.done[runID] = cancel, done
-	go a.loop(ctx, runID, store, done)
+	go a.loop(ctx, runID, store, done, startSeen(store))
+}
+
+// startSeen is where a new actor starts reading: past everything already there, or just before
+// the last turn-starting message still unanswered, as after a daemon restart mid-conversation.
+// It is read before Start returns, so a message appended after that is never skipped (a Give
+// Back right after the actor started was, issue #124).
+func startSeen(store *session.Store) int {
+	if pending := lastUnanswered(store.After(0)); pending > 0 {
+		return pending - 1
+	}
+	return store.Len()
 }
 
 // Stop ends the actor for runID and waits for its current turn to unwind.
@@ -165,14 +176,10 @@ func (a *Actors) Running(runID string) bool {
 	return ok
 }
 
-// loop is the actor. If the last turn-starting message is unanswered, as
-// after a daemon restart mid-conversation, that turn runs first.
-func (a *Actors) loop(ctx context.Context, runID string, store *session.Store, done chan struct{}) {
+// loop is the actor, reading from seen (startSeen). If the last turn-starting message is
+// unanswered, as after a daemon restart mid-conversation, that turn runs first.
+func (a *Actors) loop(ctx context.Context, runID string, store *session.Store, done chan struct{}, seen int) {
 	defer close(done)
-	seen := store.Len()
-	if pending := lastUnanswered(store.After(0)); pending > 0 {
-		seen = pending - 1
-	}
 	for {
 		msgs := store.Wait(ctx, seen)
 		if ctx.Err() != nil {
@@ -184,10 +191,28 @@ func (a *Actors) loop(ctx context.Context, runID string, store *session.Store, d
 			return
 		}
 		seen = store.Len()
-		if slices.ContainsFunc(msgs, session.Message.StartsTurn) {
+		if slices.ContainsFunc(msgs, session.Message.StartsTurn) || a.resumes(msgs, store) {
 			a.runTurn(ctx, runID, store, &seen)
 		}
 	}
+}
+
+// resumer is a Brain that picks up by itself when the screen comes back (issue #124).
+type resumer interface {
+	resumeOwed(all []session.Message) bool
+}
+
+// resumes reports whether msgs give the screen back to a brain that stopped for it. It is asked
+// only between turns: a handover during a turn reaches that turn as a late message, and seen
+// then moves past it, so giving back and a message sent right after it make one turn.
+func (a *Actors) resumes(msgs []session.Message, store *session.Store) bool {
+	r, ok := a.brain.(resumer)
+	if !ok || !slices.ContainsFunc(msgs, func(m session.Message) bool {
+		return m.Kind == session.Event && m.Control == session.ControlReturned
+	}) {
+		return false
+	}
+	return r.resumeOwed(store.After(0))
 }
 
 // runTurn takes a turn, retrying on failure until it succeeds, a newer

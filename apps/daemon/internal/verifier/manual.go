@@ -129,7 +129,7 @@ func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (
 
 	case "screenshot":
 		call = nim.ToolCall{Name: "machine_screenshot", Arguments: "{}"}
-		_, shot, err := m.mgr.Screenshot(ctx, runID)
+		_, shot, err := m.mgr.ScreenshotAs(ctx, runID, machine.HolderVerifier)
 		if err != nil {
 			return call, "error: " + err.Error(), shot.Step
 		}

@@ -179,7 +179,7 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 		return execResultText(res), res.Step
 
 	case "machine_screenshot":
-		png, shot, err := v.mgr.Screenshot(ctx, runID)
+		png, shot, err := v.mgr.ScreenshotAs(ctx, runID, machine.HolderVerifier)
 		if err != nil {
 			return "error: " + err.Error(), shot.Step
 		}
@@ -343,6 +343,15 @@ func screenTakenResult(err error) string {
 		"back, or reply that you are waiting. Never report a verdict because of this: it says nothing about the app."
 }
 
+// staleLookPrefix starts the tool result for input refused because the screen changed hands
+// since the verifier last looked (issue #124). A look clears its repeat count (repeats.record).
+const staleLookPrefix = "error: the screen changed hands since your last look"
+
+func staleLookResult(err error) string {
+	return "error: " + err.Error() + ". It may have changed: plan again from what you see, not from ids or " +
+		"positions you read before."
+}
+
 // postInput posts one batch as the verifier and returns the tool result text,
 // "step N\n<done>" on success, and the step it recorded.
 func postInput(ctx context.Context, mgr *machine.Manager, runID, done string, actions ...machine.InputAction) (string, int) {
@@ -350,6 +359,9 @@ func postInput(ctx context.Context, mgr *machine.Manager, runID, done string, ac
 	res, err := mgr.InputAs(ctx, runID, machine.HolderVerifier, actions)
 	if errors.Is(err, machine.ErrScreenTaken) {
 		return screenTakenResult(err), res.Step
+	}
+	if errors.Is(err, machine.ErrStaleLook) {
+		return staleLookResult(err), res.Step
 	}
 	if err != nil {
 		return "error: " + err.Error(), res.Step
