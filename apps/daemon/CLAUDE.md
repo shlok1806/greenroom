@@ -367,6 +367,15 @@ Computer use (ADR 0009)
   anything, because the helper drops an unknown modifier and makes an unknown button a left
   click (issue #31). Its name lists mirror `flags` and `mouseButton` in `input.swift`; change
   them together.
+- A batch returns only after the window server applied it (`perform`/`settle` in
+  `input.swift`): the session's event counter (`CGEventSource.counterForEventType`, any
+  type) must move by as many events as the batch posted, within 3 s, or the batch fails.
+  A batch whose action fails part way still waits for what it posted.
+  A post only queues the event; the window server checks the poster's TCC PostEvent grant
+  by audit token before applying it, and near boot that check can run over 100 ms late.
+  A one-shot helper that had already exited then lost the event with no error anywhere
+  (the pointer stayed at boot's (10,10), about one `TestEndToEndInput` run in ten). Every
+  post goes through `post()`, which counts it; a new post site that bypasses it breaks this.
 - A shortcut posts real modifier key downs and ups around the key (`press` in
   `input.swift`). A flag on the key event alone leaves the window server thinking the
   modifier is held, and the next typed text arrives as command-1, command-2.
