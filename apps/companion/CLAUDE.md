@@ -62,20 +62,41 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
 - `swift build -c release` of the whole package fails (the harness uses `@testable`);
   release builds take `--product Companion`, as `bundle.sh` does.
 
-- `GREENROOM_SNAPSHOT=<dir>` (debug builds only, `SnapshotHook` in `WindowChrome.swift`):
-  the real app, against whatever daemon it talks to, opens `GREENROOM_SNAPSHOT_RUN`
-  with `GREENROOM_SNAPSHOT_PANE` (`screen` or `steps`: the stage part with the keys, and
-  in a medium or narrow window whether the steps list is open), writes the window in each theme
-  of `GREENROOM_SNAPSHOT_THEMES` (default `dark,light,dark-hc,light-hc`) to
-  `<dir>/<GREENROOM_SNAPSHOT_NAME>-<theme>.png` with `cacheDisplay` (no screen-recording
-  permission), puts the person's theme back and quits. It shows a window on screen; the
-  harness above does not. `GREENROOM_SNAPSHOT_KEYS` (comma-separated: `g`, `?`, `cmd+k`,
-  `esc`, `enter`, `tab`, `z`, `shift+enter`, `text:words`; `g,v,z` zooms the screen, `g,t,z`
-  the transcript) posts real key events through the app's
-  queue first, so the router sees them as typed (hint bar, help, palette, composer
-  states); `GREENROOM_SNAPSHOT_MENU=1` prints the View and Run menus as AppKit holds them. `GREENROOM_SNAPSHOT_SIZE=820x560`
-  sizes the window's content first.
-  Never press keys that send (accept, dispute, a composer's Return) against a real run.
+- `GREENROOM_SNAPSHOT=<dir>` (debug builds only, `SnapshotHook` in `WindowChrome.swift`,
+  `SnapshotMode` in `Model/SnapshotMode.swift`): the real app, against whatever daemon it
+  talks to, opens `GREENROOM_SNAPSHOT_RUN` with `GREENROOM_SNAPSHOT_PANE` (`screen` or
+  `steps`: the stage part with the keys, and in a medium or narrow window whether the steps
+  list is open), writes the window in each theme of `GREENROOM_SNAPSHOT_THEMES` (default
+  `dark,light,dark-hc,light-hc`) to `<dir>/<GREENROOM_SNAPSHOT_NAME>-<theme>.png` with
+  `cacheDisplay` (no screen-recording permission) and quits. It shows a window on screen;
+  the harness above does not. `GREENROOM_SNAPSHOT_KEYS` (comma-separated: `g`, `?`,
+  `cmd+k`, `esc`, `enter`, `tab`, `z`, `shift+enter`, `text:words`; `g,v,z` zooms the
+  screen, `g,t,z` the transcript) hands key events to `KeyRouter.inject`, the router first
+  and then the window's responders, as typed keys go (hint bar, help, palette, composer
+  states); `GREENROOM_SNAPSHOT_MENU=1` prints the View and Run menus as AppKit holds them.
+  `GREENROOM_SNAPSHOT_SIZE=820x560` sizes the window's content first.
+- A snapshot is a camera, never a seat. A launch once took the key window, opened the
+  live run that needed review instead of the requested one and took the person's typing,
+  which started an accept on a real verdict. So in `SnapshotMode`:
+  - The app is `.prohibited` from `applicationWillFinishLaunching` and never activates;
+    `SnapshotHook.seal` makes the window's class answer no to `canBecomeKey` and
+    `canBecomeMain`, and `assertNotAPerson` fails the snapshot if the app is ever active
+    or the window key or main. Its pictures draw as an inactive window.
+  - `KeyRouter` swallows every real event (`personEvents`: keys, clicks, scrolls, hover);
+    only `inject` drives the window, and it never goes through the app's queue.
+  - `DaemonClient.readOnly` refuses every request but GET in `data(_:)`, the one place all
+    writes pass (messages, accept and dispute, destroy, screenshot, control, input), with
+    `DaemonError.readOnly`. A held accept or dispute is dropped at quit, and one whose undo
+    ends first is refused there. Keys that send are safe now, but still point them at a
+    daemon serving copied runs (above), not at the person's runs.
+  - Every `@AppStorage` and settings write goes through `AppDefaults.shared`: in a snapshot
+    a scratch suite in the temporary directory (a suite named by an absolute path is a
+    plist there, never in `~/Library/Preferences`), removed at quit. The window's frame
+    autosave and state restoration are off. A snapshot starts from default settings, not
+    the person's, and never writes theirs.
+  - A requested run the daemon does not list, a run list that never answers, or a
+    selection that leaves the run with no keys pressed fails the snapshot:
+    `snapshot failed: ...` on stderr, exit status 1, never another run's picture.
 - `GREENROOM_URL` overrides `http://127.0.0.1:7777` (`DaemonClient.defaultBaseURL`).
 - The app never starts the daemon.
 - The icon is drawn at build time by `scripts/make-icon.swift`; no artwork is checked in.

@@ -39,8 +39,8 @@ struct ScreenView: View {
     @State private var evidenceStep: Int?
     /// When the live screen began connecting, for the loader's timer.
     @State private var connectingSince: Date?
-    @AppStorage("showsConversation") private var showsConversation = true
-    @AppStorage(ClickMarks.storageKey) private var showsClickMarks = true
+    @AppStorage("showsConversation", store: AppDefaults.shared) private var showsConversation = true
+    @AppStorage(ClickMarks.storageKey, store: AppDefaults.shared) private var showsClickMarks = true
     /// The boot reveal or the power-down playing now, if either is.
     @State private var moment: ScreenMoment?
     /// The well waited for a picture during this open of the run, so its first one reveals.

@@ -10,10 +10,10 @@ struct RootView: View {
     let store: RunStore
 
     @State private var keyboard: KeyboardModel
-    @AppStorage("stagePane") private var savedStage: StagePane = .screen
-    @AppStorage("showsConversation") private var showsConversation = true
-    @AppStorage("selectedRunId") private var savedSelection = ""
-    @AppStorage("sidebarWidth") private var sidebarWidth = RunLayout.sidebarIdeal
+    @AppStorage("stagePane", store: AppDefaults.shared) private var savedStage: StagePane = .screen
+    @AppStorage("showsConversation", store: AppDefaults.shared) private var showsConversation = true
+    @AppStorage("selectedRunId", store: AppDefaults.shared) private var savedSelection = ""
+    @AppStorage("sidebarWidth", store: AppDefaults.shared) private var sidebarWidth = RunLayout.sidebarIdeal
     @State private var windowHeight: Double = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 

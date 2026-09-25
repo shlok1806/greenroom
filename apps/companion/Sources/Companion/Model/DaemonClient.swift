@@ -8,6 +8,9 @@ enum DaemonError: Error, LocalizedError, Equatable {
     /// The app cancelled the request itself (e.g. a `.task(id:)` whose id moved
     /// on). Never shown as a failure.
     case cancelled
+    /// A read-only client (a snapshot) refused a write before it left the app: the
+    /// method and path it would have sent.
+    case readOnly(String)
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +23,8 @@ enum DaemonError: Error, LocalizedError, Equatable {
             return trimmed.isEmpty ? "greenroom answered \(code)" : "greenroom answered \(code): \(trimmed)"
         case .badResponse(let detail):
             return "greenroom sent something unexpected: \(detail)"
+        case .readOnly(let route):
+            return "A snapshot never writes to greenroom, so \(route) was not sent."
         }
     }
 }
@@ -34,6 +39,9 @@ extension DaemonError {
 final class DaemonClient: Sendable {
     let baseURL: URL
     private let session: URLSession
+    /// Refuses every write (anything but GET) before it leaves the app. A snapshot
+    /// (`SnapshotMode`) is always read-only: it may open runs, never act on them.
+    let readOnly: Bool
 
     /// `GREENROOM_URL` overrides the default address.
     static let defaultBaseURL: URL = {
@@ -43,9 +51,10 @@ final class DaemonClient: Sendable {
         return URL(string: "http://127.0.0.1:7777")!
     }()
 
-    init(baseURL: URL = DaemonClient.defaultBaseURL, session: URLSession = .shared) {
+    init(baseURL: URL = DaemonClient.defaultBaseURL, session: URLSession = .shared, readOnly: Bool = SnapshotMode.isActive) {
         self.baseURL = baseURL
         self.session = session
+        self.readOnly = readOnly
     }
 
     // MARK: - Reads
@@ -224,8 +233,14 @@ final class DaemonClient: Sendable {
         return built
     }
 
-    /// Sends `request` and returns the body of a 2xx answer.
+    /// Sends `request` and returns the body of a 2xx answer. Every route that changes
+    /// anything (messages, accept and dispute, destroy, screenshot, control, input) comes
+    /// through here, so a read-only client refuses them all in this one place.
     private func data(_ request: URLRequest) async throws -> Data {
+        let method = request.httpMethod ?? "GET"
+        if readOnly, method != "GET" {
+            throw DaemonError.readOnly("\(method) \(request.url?.path(percentEncoded: true) ?? "")")
+        }
         let data: Data
         let response: URLResponse
         do {

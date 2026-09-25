@@ -24,7 +24,7 @@ struct StepsView: View {
     var claimsFocus = true
 
     @State private var expanded: Set<Step> = []
-    @AppStorage("stepsErrorsOnly") private var errorsOnly = false
+    @AppStorage("stepsErrorsOnly", store: AppDefaults.shared) private var errorsOnly = false
     /// While live, keep the newest step in view.
     @State private var following = true
     /// The keyboard's row: `j` and `k` move it, `⏎` opens it.
@@ -44,7 +44,7 @@ struct StepsView: View {
 
     private var facts: RunFacts { store.facts(runId) }
 
-    @AppStorage("showsConversation") private var showsConversation = true
+    @AppStorage("showsConversation", store: AppDefaults.shared) private var showsConversation = true
 
     private var fromVerdict: Bool { store.focusedStep?.fromVerdict == true && store.focusedStep?.runId == runId }
 
