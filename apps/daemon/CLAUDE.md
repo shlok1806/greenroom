@@ -25,7 +25,7 @@ go run . serve -public-host gr.example.com      # or GREENROOM_PUBLIC_HOST; need
 go run . prepare-image -vm <running vm>          # build-image.sh runs it; not on its own
 go run . check-image -image <local image> [-out dir]   # the dialog gate, on a clone of a clone
 go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir>]
-go run . connect [-url URL] [-token T] [-config F]   # stdio MCP server for a daemon on another host
+go run . connect [-url URL] [-token T] [-config F] [-dir D]   # stdio MCP server for a daemon on another host
 go run . connect -check                          # prints "ok: <url> (<n> tools)" or the reason, exit 1
 
 scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
@@ -47,6 +47,13 @@ Companion's advice keys off. Writes under `/api` with a body must be `applicatio
 (415), except `PUT /api/runs/{id}/sync`, which must be `application/gzip` (no HTML form can
 send either). The companion and smoke client send a loopback Host and no Origin.
 
+- `api.Guard` marks a request it admitted through the public host (`api.FromPublicHost`,
+  a context value only Guard sets). `routes` answers such an MCP request with a second
+  server built with `mcpserver.ForPublicHost()`, chosen per request by the SDK's getServer
+  callback. Its `machine_pull` refuses a `dest` (`ErrRemoteDest`) and copies into the run
+  directory only (ADR 0022): a host path from the tunnel is host code execution
+  (`~/.zshrc`, LaunchAgents). Any new tool that writes a caller-named host path must refuse
+  it there too. `TestRoutesKeepAPublicHostPullInsideTheRunDirectory` pins it.
 - The daemon stays on loopback; `cloudflared` on the same host forwards the public name to
   it. Tunnel traffic also arrives from 127.0.0.1, so `Host` is the only thing that tells it
   from local traffic. Never trust the peer address, and never bind a public interface: a
@@ -62,11 +69,17 @@ send either). The companion and smoke client send a loopback Host and no Origin.
   Anything put in `dist` is world-readable through the tunnel. `Cache-Control: no-store`.
 - `PUT /api/runs/{id}/sync?dest=&name=` (`upload.go`) unpacks into
   `<root>/uploads/<runId>/<name>` (emptied first), then calls `Manager.Sync` from there,
-  so the default dest is `work/<name>`. `untar.go` takes only files, dirs and symlinks,
-  refuses `..`, absolute names and links that leave the directory, never writes through a
-  symlink, and keeps modes and mtimes (rsync's quick check needs them, or every sync copies
-  everything). Caps: 2 GiB body, 4 GiB unpacked, 200000 entries (413). A run's uploads go on
-  its "destroyed" event, and `api.New` sweeps those of runs with no machine at start.
+  so the default dest is `work/<name>`. `internal/tarball` (`Untar`) takes only files, dirs
+  and symlinks, refuses `..`, absolute names and links that leave the directory, never
+  writes through a symlink (one already in the directory included), and keeps modes and
+  mtimes (rsync's quick check needs them, or every sync copies everything). Caps: 2 GiB
+  body, 4 GiB unpacked, 200000 entries (413). A run's uploads go on its "destroyed" event,
+  and `api.New` sweeps those of runs with no machine at start.
+- `GET /api/runs/{id}/pull?src=&exclude=` (`pull.go`, ADR 0022) is `Manager.PullArchive`:
+  the guest's `tar czf -` streamed through `tart.ExecTo` as `application/gzip`, never held.
+  The step number is the `Greenroom-Step` header; a missing source is 404 before any byte.
+  tar failing after the archive has begun cannot change the 200, so the `Greenroom-Error`
+  trailer names it (empty on success). Only literal `exclude` names reach the guest's tar.
 
 ## connect (ADR 0021)
 
@@ -87,11 +100,26 @@ only reads belongs in that list.
   Symlinks stay symlinks, never followed; sockets, devices and fifos are skipped; owners are
   not sent. Its description gains `remote.SyncNote`. The result is the route's JSON as
   structured content plus one text copy; a refusal is a tool error with the HTTP status.
+- `machine_pull` is never forwarded either: the daemon would write on its own host. connect
+  GETs the pull route and unpacks as it reads with `tarball.Untar` (the upload route's
+  rules: a guest decides what is in the archive), applying every `exclude` itself
+  (`Excludes.Covers`). `dest` must be absolute on this computer; the default is
+  `<dir>/runs/<runId>/NNN-pull` with NNN from `Greenroom-Step`. `-dir` (`Options.Dir`)
+  defaults to `~/.greenroom/connect` (`DefaultDir`); tests always pass a temp dir. The
+  description gains `remote.PullNote`. It is not in `readOnlyTools`: that list governs
+  forwarded calls only.
+- `machine_screenshot` is forwarded, then its PNG is fetched through
+  `/api/runs/{id}/artifacts/{name}` into `<dir>/runs/<runId>/` and `path` is rewritten in
+  the structured result and its text copy (temp file, then rename). The image content is
+  never touched. A failed download keeps the daemon's path and adds a text item saying so.
 - Stdout is the MCP channel. Log to stderr only; nothing in `internal/remote` may print to
   stdout except `Check`, through the writer it is given. The SDK's own info logs are dropped.
 - `internal/remote` does not import the daemon's packages; `connect.go` passes the version.
+  `internal/tarball` is the exception: a leaf that imports nothing of the daemon's. The pull
+  route's header names are written in both `api/pull.go` and `remote/pull.go`; change both.
 - Tests: `internal/remote/remote_test.go` runs a real stateless MCP server behind a bearer
-  check plus a fake sync route that untars what it gets.
+  check plus fake sync, pull and artifact routes. The real route and connect's `Pull` meet
+  only in the tart-tagged `TestEndToEnd`.
 
 ## Layering
 
@@ -115,6 +143,8 @@ Each layer depends only on the ones below. Keep it that way.
   (`ptysession.go`).
 - `internal/nim` - OpenAI-compatible client for NVIDIA NIM.
 - `internal/tart` - the only package that knows tart's arguments and output.
+- `internal/tarball` - unpacking an untrusted gzipped tar (`Untar`); used by `api` and
+  `remote`, imports nothing of the daemon's.
 
 ## Invariants
 
@@ -248,7 +278,16 @@ Evidence
 
 Exec
 
-- `machine_exec` runs `/bin/sh -c execWrapper greenroom-exec <script>`: the login zsh
+- `machine_exec` runs `tart exec -i <vm> /bin/sh -s greenroom-exec <secs>` with
+  `execScript` on stdin (ADR 0023, issue #128): the wrapper, and the command in a quoted
+  heredoc with a random delimiter, written to `$d/cmd`. zsh runs it as
+  `zsh -lc 'disable log; eval "$(<$d/cmd)"'`, so it parses and runs as `zsh -c` did (whole
+  parse first, no positional parameters); only its error prefix is `(eval):N:`, not `zsh:N:`.
+  No guest argv carries the command or the wrapper: ps shows two short lines, and a
+  `pgrep -f` run through machine_exec does not find itself. Never put either back in argv,
+  and never let anything but sh read stdin (zsh and the watchdog get `/dev/null`). The fake
+  tart logs the stdin to `exec-stdin` (`testsupport.ExecStdin`) and re-appends it to its
+  arguments, so its pattern cases see the command. The login zsh
   writes to temp files that are printed after it exits. `tart exec` returns only when
   every holder of the guest's stdout/stderr pipes closes them, so without the wrapper
   `./App &` (or `(cd x && ./App) &`) holds the call until its timeout. `cmd.WaitDelay`
@@ -373,6 +412,10 @@ Computer use (ADR 0009)
 - `validateActions` also refuses a click, down, up or move without both `x` and `y`: the
   helper would post it at the pointer (issue #85). The verifier's `machine_input` decodes with
   `DisallowUnknownFields`, so an `element` in a batch is an error, not a click at the pointer.
+  It refuses a `type` with empty text too (issue #126): the helper typed nothing and the call
+  reported success with a step. This one check covers MCP, the verifier (both brains dropped
+  their own) and the human API. `InputAs` runs it before taking the lease, so a refused batch
+  records no step and leaves no lease.
 - Coordinates are fractions 0 to 1. Only the manager converts to points (`ScreenOf`), and
   back for the UI tree; out-of-range is clamped. `machine.Shot` carries `width`, `height`,
   `scale`; never hardcode Retina 2 (the tahoe guest is 1024x768 at scale 1).
@@ -442,6 +485,21 @@ Sync
   are keyed to their absolute path and fail hard elsewhere.
 - rsync uses `-a`, not `-az`. Compression makes a local VM sync ~4x slower
   (`docs/10-build-transport.md`). `TestSyncBuildsTheRsyncCommand` asserts it.
+
+Pull (ADR 0022)
+
+- `Manager.Pull` is Sync's rsync reversed. `source` is any guest path: relative to the home,
+  `~/x`, or absolute (`guestSource`); `dest` is an absolute host dir, made if missing,
+  default `mc.rec.artifactDir(seq, "pull")` (`runs/<id>/NNN-pull`), so its step is claimed
+  before the copy. A directory's contents land in `dest` (`src/`); a file lands under its
+  own name, read through a link (`--copy-links`, which has nothing else to follow there).
+- The file-or-directory probe (`pullProbeScript`) and the archive (`pullTarScript`) take
+  the path as an argument to `/bin/sh -c`, never as shell text, run from the home. A missing
+  source is `ErrNotInGuest` and records no step, like every refused argument.
+- The guest's tar gets `COPYFILE_DISABLE=1 --no-mac-metadata --no-xattrs`, or macOS adds
+  `._` AppleDouble members, and `-h` for a file source (the rsync path's `--copy-links`).
+  Only literal exclude names go to it (`literalName`): bsdtar matches those as rsync does,
+  and nothing else is guaranteed to.
 
 Interactive sessions (`machine_session_*`)
 
@@ -536,7 +594,7 @@ renames it to `<name>` only if that passes. A failed gate deletes the build.
   `com.apple.mobile.softwareupdated`; the first alone lets the daemon start after a reboot.
 - `check-image` (`imagecheck.go`) never writes what boot writes (approvals, desktop
   prefs): the image must pass alone. Its exercises run under a process-group watchdog like
-  `execWrapper`'s, because a blocked osascript keeps `tart exec` open after its shell dies.
+  the exec wrapper's, because a blocked osascript keeps `tart exec` open after its shell dies.
   The allowlist lives in `desktopcheck.go` and is shared with boot; widen it only for a
   window every clean desktop has, with a screenshot as evidence.
 
@@ -574,7 +632,9 @@ renames it to `<name>` only if that passes. A failed gate deletes the build.
   files are listed there; `testsupport.ServeStarts` counts starts.
 - `WithSSHProbe`, `WithReadyTimeout` shorten or replace boot waits; `WithScreenIdle` the
   live screen's idle stop.
-- A fake `rsync` earlier on `PATH` covers `Sync`.
+- A fake `rsync` earlier on `PATH` covers `Sync`. Pull tests run the host's real rsync
+  with a fake `ssh` that runs the remote side in a local shell in a temp `HOME`
+  (`localSSH`); the fake tart runs the pull probe and tar for real from the same `HOME`.
 - Test at the highest seam that sees the behaviour: `internal/mcpserver/*_test.go` runs a
   real MCP client over HTTP against every tool; `internal/api/api_test.go` drives the real
   routes and SSE over `httptest`.

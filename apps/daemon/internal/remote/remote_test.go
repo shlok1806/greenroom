@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -39,6 +40,12 @@ type fakeDaemon struct {
 	forbid     bool // 403 everything, as a daemon with another public host would
 	syncStatus int
 	syncBody   string
+	pulls      []url.Values // queries the pull route got
+	pullTar    []byte       // what the pull route sends
+	pullStatus int
+	pullBody   string
+	pullErr    string            // the pull route's error trailer
+	artifacts  map[string][]byte // run artifacts by name
 }
 
 type syncRequest struct {
@@ -98,11 +105,47 @@ func newFakeDaemon(t *testing.T) *fakeDaemon {
 			return nil, syncOut{}, errors.New("forwarded machine_sync: the daemon cannot read this path")
 		})
 
+	mcp.AddTool(server, &mcp.Tool{Name: PullTool, Description: "Copy a file or directory out of the machine."},
+		func(_ context.Context, _ *mcp.CallToolRequest, _ PullArgs) (*mcp.CallToolResult, PullResult, error) {
+			d.record(PullTool)
+			return nil, PullResult{}, errors.New("forwarded machine_pull: this would land on the daemon's host")
+		})
+	type shot struct {
+		Path  string `json:"path"`
+		Bytes int    `json:"bytes"`
+		Step  int    `json:"step"`
+	}
+	mcp.AddTool(server, &mcp.Tool{Name: ScreenshotTool, Description: "Capture the machine's screen."},
+		func(_ context.Context, _ *mcp.CallToolRequest, in struct {
+			RunID string `json:"runId"`
+		}) (*mcp.CallToolResult, shot, error) {
+			d.record(ScreenshotTool)
+			out := shot{Path: "/Users/host/.greenroom/runs/" + in.RunID + "/003-screenshot.png", Bytes: 4, Step: 3}
+			meta, _ := json.Marshal(out)
+			return &mcp.CallToolResult{Content: []mcp.Content{
+				&mcp.ImageContent{Data: []byte("jpeg"), MIMEType: "image/jpeg"},
+				&mcp.TextContent{Text: string(meta)},
+			}}, out, nil
+		})
+
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true}))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok 0 machines\n") })
 	mux.HandleFunc("PUT /api/runs/{runId}/sync", d.sync)
+	mux.HandleFunc("GET /api/runs/{runId}/pull", d.pull)
+	mux.HandleFunc("GET /api/runs/{runId}/artifacts/{name}", func(w http.ResponseWriter, r *http.Request) {
+		d.mu.Lock()
+		data, ok := d.artifacts[r.PathValue("name")]
+		d.mu.Unlock()
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"no artifact"}`)
+			return
+		}
+		_, _ = w.Write(data)
+	})
 	d.srv = httptest.NewServer(d.guard(mux))
 	t.Cleanup(d.srv.Close)
 	return d
@@ -200,6 +243,26 @@ func (d *fakeDaemon) sync(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"dest": dest, "summary": "sent 3 files", "seconds": 1.25})
 }
 
+// pull is the daemon's pull route as connect sees it: the step header, a gzipped tar and
+// the error trailer.
+func (d *fakeDaemon) pull(w http.ResponseWriter, r *http.Request) {
+	d.mu.Lock()
+	d.pulls = append(d.pulls, r.URL.Query())
+	status, body, data, trailer := d.pullStatus, d.pullBody, d.pullTar, d.pullErr
+	d.mu.Unlock()
+	if status != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+		return
+	}
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set(pullStepHeader, "7")
+	w.Header().Set("Trailer", pullErrorTrailer)
+	_, _ = w.Write(data)
+	w.Header().Set(pullErrorTrailer, trailer)
+}
+
 func (d *fakeDaemon) cfg() Config { return Config{URL: d.srv.URL, Token: testToken} }
 
 // connectClient runs connect's local server against d and returns an MCP client of it,
@@ -207,7 +270,7 @@ func (d *fakeDaemon) cfg() Config { return Config{URL: d.srv.URL, Token: testTok
 func connectClient(t *testing.T, d *fakeDaemon) (*mcp.ClientSession, *Remote) {
 	t.Helper()
 	ctx := context.Background()
-	r, err := Dial(ctx, d.cfg(), Options{Version: "1.2.3"})
+	r, err := Dial(ctx, d.cfg(), Options{Version: "1.2.3", Dir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -263,7 +326,7 @@ func TestRemoteConnectMirrorsTheDaemonsToolsAndForwardsCalls(t *testing.T) {
 		t.Errorf("instructions = %q", init.Instructions)
 	}
 
-	// The daemon pages two tools at a time; connect must follow the cursor to get all four.
+	// The daemon pages two tools at a time; connect must follow the cursor to get all six.
 	byName := map[string]*mcp.Tool{}
 	for tool, err := range cs.Tools(context.Background(), nil) {
 		if err != nil {
@@ -271,8 +334,8 @@ func TestRemoteConnectMirrorsTheDaemonsToolsAndForwardsCalls(t *testing.T) {
 		}
 		byName[tool.Name] = tool
 	}
-	if len(byName) != 4 {
-		t.Fatalf("tools = %v, want echo, fail, machine_list, machine_sync", byName)
+	if len(byName) != 6 {
+		t.Fatalf("tools = %v, want echo, fail, machine_list, machine_sync, machine_pull, machine_screenshot", byName)
 	}
 	echo := byName["echo"]
 	if echo.Description != "Echo text." || echo.OutputSchema == nil {
@@ -284,6 +347,9 @@ func TestRemoteConnectMirrorsTheDaemonsToolsAndForwardsCalls(t *testing.T) {
 	}
 	if want := "Copy a host directory into the machine with rsync." + SyncNote; byName[SyncTool].Description != want {
 		t.Errorf("machine_sync description = %q, want %q", byName[SyncTool].Description, want)
+	}
+	if want := "Copy a file or directory out of the machine." + PullNote; byName[PullTool].Description != want {
+		t.Errorf("machine_pull description = %q, want %q", byName[PullTool].Description, want)
 	}
 
 	res := call(t, cs, "echo", map[string]any{"text": "hi"})
@@ -595,7 +661,7 @@ func TestRemoteCheck(t *testing.T) {
 	if err := Check(ctx, d.cfg(), Options{}, &out); err != nil {
 		t.Fatalf("Check: %v", err)
 	}
-	if want := "ok: " + d.srv.URL + " (4 tools)\n"; out.String() != want {
+	if want := "ok: " + d.srv.URL + " (6 tools)\n"; out.String() != want {
 		t.Errorf("Check printed %q, want %q", out.String(), want)
 	}
 
@@ -632,4 +698,220 @@ func sorted(s []string) []string {
 	out := slices.Clone(s)
 	slices.Sort(out)
 	return out
+}
+
+// member is one entry of an archive the fake pull route sends; typ defaults to a regular file.
+type member struct {
+	name, body, link string
+	typ              byte
+}
+
+func gzTar(t *testing.T, members ...member) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, m := range members {
+		hdr := &tar.Header{Name: m.name, Linkname: m.link, Typeflag: m.typ, Mode: 0o644, ModTime: time.Now()}
+		if hdr.Typeflag == 0 {
+			hdr.Typeflag = tar.TypeReg
+			hdr.Size = int64(len(m.body))
+		}
+		if hdr.Typeflag == tar.TypeDir {
+			hdr.Mode = 0o755
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(tw, m.body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func (d *fakeDaemon) setPull(data []byte, trailer string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.pullTar, d.pullErr = data, trailer
+}
+
+func TestRemoteMachinePullUnpacksTheDaemonsArchiveHereInsteadOfForwarding(t *testing.T) {
+	d := newFakeDaemon(t)
+	cs, r := connectClient(t, d)
+	d.setPull(gzTar(t,
+		member{name: "./", typ: tar.TypeDir},
+		member{name: "./report.xml", body: "<ok/>"},
+		member{name: "./logs/", typ: tar.TypeDir},
+		member{name: "./logs/run.log", body: "passed"},
+		member{name: "./latest", typ: tar.TypeSymlink, link: "logs/run.log"},
+		member{name: "./build/", typ: tar.TypeDir},
+		member{name: "./build/out.o", body: "left out by the client"},
+		member{name: "./dist/x", body: "left out: anchored"},
+		member{name: "./logs/dist/y", body: "kept: /dist is anchored"},
+	), "")
+
+	res := call(t, cs, PullTool, map[string]any{"runId": "r1", "source": "~/work/app", "exclude": []string{"build/", "/dist"}})
+	if res.IsError {
+		t.Fatalf("machine_pull = %q", text(res))
+	}
+	if got := d.called(); len(got) != 0 {
+		t.Errorf("daemon ran %v; machine_pull must not be forwarded", got)
+	}
+	dest := filepath.Join(r.opts.Dir, "runs", "r1", "007-pull")
+	var out PullResult
+	if err := json.Unmarshal([]byte(text(res)), &out); err != nil {
+		t.Fatalf("result %q: %v", text(res), err)
+	}
+	if out.Dest != dest || out.Step != 7 || out.Source != "~/work/app" || out.Summary != "3 files, 34 bytes" {
+		t.Errorf("result = %+v, want dest %s, step 7 and what was unpacked", out, dest)
+	}
+	if sc, _ := res.StructuredContent.(map[string]any); sc["dest"] != dest {
+		t.Errorf("structured = %v", res.StructuredContent)
+	}
+	for name, want := range map[string]string{"report.xml": "<ok/>", "logs/run.log": "passed", "logs/dist/y": "kept: /dist is anchored"} {
+		if got, err := os.ReadFile(filepath.Join(dest, name)); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v; want %q", name, got, err, want)
+		}
+	}
+	if link, err := os.Readlink(filepath.Join(dest, "latest")); err != nil || link != "logs/run.log" {
+		t.Errorf("latest -> %q, %v", link, err)
+	}
+	for _, gone := range []string{"build", "dist"} {
+		if _, err := os.Lstat(filepath.Join(dest, gone)); err == nil {
+			t.Errorf("excluded %s was unpacked", gone)
+		}
+	}
+	d.mu.Lock()
+	q := d.pulls[0]
+	d.mu.Unlock()
+	if q.Get("src") != "~/work/app" || strings.Join(q["exclude"], ",") != "build/,/dist" {
+		t.Errorf("pull query = %v", q)
+	}
+
+	// A dest of the caller's is used as given, and a relative one never reaches the daemon.
+	mine := filepath.Join(t.TempDir(), "mine")
+	if res := call(t, cs, PullTool, map[string]any{"runId": "r1", "source": "x", "dest": mine}); res.IsError {
+		t.Fatalf("machine_pull with dest = %q", text(res))
+	}
+	if _, err := os.ReadFile(filepath.Join(mine, "report.xml")); err != nil {
+		t.Errorf("not unpacked into the given dest: %v", err)
+	}
+	res = call(t, cs, PullTool, map[string]any{"runId": "r1", "source": "x", "dest": "rel"})
+	if !res.IsError || !strings.Contains(text(res), "absolute path on this computer") {
+		t.Errorf("relative dest = %q", text(res))
+	}
+	d.mu.Lock()
+	n := len(d.pulls)
+	d.mu.Unlock()
+	if n != 2 {
+		t.Errorf("the daemon got %d pulls, want 2", n)
+	}
+}
+
+// What the daemon sends is untrusted: a guest decides what is in it.
+func TestRemoteMachinePullRefusesAnArchiveThatWouldEscape(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		members []member
+		want    string
+	}{
+		{"parent traversal", []member{{name: "../../evil", body: "x"}}, ".."},
+		{"absolute name", []member{{name: "/tmp/evil", body: "x"}}, "relative"},
+		{"escaping symlink", []member{{name: "l", typ: tar.TypeSymlink, link: "../../../evil"}}, "leaves"},
+		{"absolute symlink", []member{{name: "l", typ: tar.TypeSymlink, link: "/etc"}}, "relative"},
+		{"write through a link", []member{{name: "l", typ: tar.TypeSymlink, link: "."}, {name: "l/evil", body: "x"}}, "symlink"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newFakeDaemon(t)
+			cs, _ := connectClient(t, d)
+			d.setPull(gzTar(t, tc.members...), "")
+			outer := t.TempDir()
+			dest := filepath.Join(outer, "a", "b")
+			res := call(t, cs, PullTool, map[string]any{"runId": "r1", "source": "x", "dest": dest})
+			if !res.IsError || !strings.Contains(text(res), tc.want) {
+				t.Fatalf("result = %q, want a tool error about %q", text(res), tc.want)
+			}
+			for _, p := range []string{filepath.Join(outer, "evil"), filepath.Join(outer, "a", "evil")} {
+				if _, err := os.Lstat(p); err == nil {
+					t.Errorf("%s was written outside dest", p)
+				}
+			}
+		})
+	}
+}
+
+func TestRemoteMachinePullReportsTheDaemonsRefusalAndALateFailure(t *testing.T) {
+	d := newFakeDaemon(t)
+	cs, _ := connectClient(t, d)
+	d.mu.Lock()
+	d.pullStatus, d.pullBody = http.StatusNotFound, `{"error":"source \"x\" does not exist in the guest"}`
+	d.mu.Unlock()
+	res := call(t, cs, PullTool, map[string]any{"runId": "r1", "source": "x", "dest": t.TempDir()})
+	if !res.IsError || !strings.Contains(text(res), "HTTP 404") || !strings.Contains(text(res), "does not exist in the guest") {
+		t.Errorf("refused pull = %q", text(res))
+	}
+
+	d.mu.Lock()
+	d.pullStatus = 0
+	d.mu.Unlock()
+	d.setPull(gzTar(t, member{name: "./a", body: "x"}), "tar in the guest: exit 1: tar: ./secret: Permission denied")
+	res = call(t, cs, PullTool, map[string]any{"runId": "r1", "source": "x", "dest": t.TempDir()})
+	if !res.IsError || !strings.Contains(text(res), "may be incomplete") || !strings.Contains(text(res), "Permission denied") {
+		t.Errorf("late failure = %q, want the trailer's message", text(res))
+	}
+
+	whole := gzTar(t, member{name: "./a", body: strings.Repeat("x", 1<<16)})
+	d.setPull(whole[:len(whole)/2], "tar in the guest: signal: killed")
+	res = call(t, cs, PullTool, map[string]any{"runId": "r1", "source": "x", "dest": t.TempDir()})
+	if !res.IsError || !strings.Contains(text(res), "signal: killed") {
+		t.Errorf("cut-short archive = %q, want the trailer's message", text(res))
+	}
+}
+
+func TestRemoteScreenshotPathIsCopiedToThisComputer(t *testing.T) {
+	d := newFakeDaemon(t)
+	cs, r := connectClient(t, d)
+	d.mu.Lock()
+	d.artifacts = map[string][]byte{"003-screenshot.png": []byte("\x89PNG")}
+	d.mu.Unlock()
+
+	res := call(t, cs, ScreenshotTool, map[string]any{"runId": "r1"})
+	if res.IsError {
+		t.Fatalf("machine_screenshot = %q", text(res))
+	}
+	local := filepath.Join(r.opts.Dir, "runs", "r1", "003-screenshot.png")
+	if got, err := os.ReadFile(local); err != nil || string(got) != "\x89PNG" {
+		t.Fatalf("local copy = %q, %v", got, err)
+	}
+	if sc, _ := res.StructuredContent.(map[string]any); sc["path"] != local || sc["step"] != float64(3) {
+		t.Errorf("structured = %v, want path %s and the rest as the daemon sent it", res.StructuredContent, local)
+	}
+	if img, ok := res.Content[0].(*mcp.ImageContent); !ok || string(img.Data) != "jpeg" || img.MIMEType != "image/jpeg" {
+		t.Errorf("image content = %+v, want it unchanged", res.Content[0])
+	}
+	var meta struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(text(res)), &meta); err != nil || meta.Path != local {
+		t.Errorf("text copy = %q, want path %s", text(res), local)
+	}
+
+	// Without the artifact the picture still arrives, with the daemon's path and a note.
+	d.mu.Lock()
+	d.artifacts = nil
+	d.mu.Unlock()
+	res = call(t, cs, ScreenshotTool, map[string]any{"runId": "r2"})
+	if res.IsError || len(res.Content) != 3 || !strings.Contains(text(res), "could not copy the screenshot") {
+		t.Errorf("failed download = %+v %q", res, text(res))
+	}
+	if sc, _ := res.StructuredContent.(map[string]any); sc["path"] != "/Users/host/.greenroom/runs/r2/003-screenshot.png" {
+		t.Errorf("path after a failed download = %v, want the daemon's", sc["path"])
+	}
 }

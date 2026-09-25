@@ -319,7 +319,7 @@ func TestTurnRunsACommandThenPostsAVerdict(t *testing.T) {
 		t.Errorf("progress text = %q, want it to name the tool", truncateFor(prog[0].Text))
 	}
 
-	if !strings.Contains(testsupport.Calls(t, control), "swift build") {
+	if !strings.Contains(testsupport.ExecStdin(t, control), "swift build") {
 		t.Error("the command never reached the machine")
 	}
 	if second := model.request(t, 2); !strings.Contains(second, "exit code") {
@@ -390,6 +390,26 @@ func TestTurnTypesAndScrolls(t *testing.T) {
 	}
 	if !strings.Contains(prog[1].Text, "cmd+a") {
 		t.Errorf("key progress %q does not name the modifier", prog[1].Text)
+	}
+}
+
+// Issue #126: the model brain's empty machine_type gets the machine's own refusal, with no step.
+func TestTurnEmptyTypeIsRefusedWithNoStep(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_type", map[string]any{"text": ""}),
+		toolCall("report_verdict", map[string]any{"verdict": "fail", "summary": "Nothing was typed."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Type nothing.")
+
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	prog := messagesOfKind(store, session.Progress)
+	if len(prog) != 1 || prog[0].Step != 0 || !strings.Contains(prog[0].Text, "type needs text: pass the characters to type") {
+		t.Fatalf("progress = %+v, want one unrecorded type-needs-text refusal", prog)
 	}
 }
 

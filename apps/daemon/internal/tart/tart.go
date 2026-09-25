@@ -173,7 +173,20 @@ func (c *Client) Exec(ctx context.Context, name string, args ...string) (ExecRes
 // command's output may take (issue #29). The last tailLimit bytes of stderr
 // are kept to tell tart's own failure (always its last line) from the guest's.
 func (c *Client) ExecTo(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) (exitCode int, err error) {
-	cmd := exec.CommandContext(ctx, c.Bin, append([]string{"exec", name}, args...)...)
+	return runExec(ctx, exec.CommandContext(ctx, c.Bin, append([]string{"exec", name}, args...)...), stdout, stderr, name)
+}
+
+// ExecInputTo is ExecTo with stdin attached (`tart exec -i`): the guest command
+// reads stdin to its end, then EOF. It carries what must not be in the guest
+// command's argv, which every process listing in the guest shows (issue #128).
+func (c *Client) ExecInputTo(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) (exitCode int, err error) {
+	// tart's flags must precede the VM name or it treats them as part of the command.
+	cmd := exec.CommandContext(ctx, c.Bin, append([]string{"exec", "-i", name}, args...)...)
+	cmd.Stdin = stdin
+	return runExec(ctx, cmd, stdout, stderr, name)
+}
+
+func runExec(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer, name string) (exitCode int, err error) {
 	tail := &tailBuffer{}
 	cmd.Stdout = stdout
 	cmd.Stderr = io.MultiWriter(stderr, tail)

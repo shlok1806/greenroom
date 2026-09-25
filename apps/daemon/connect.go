@@ -17,8 +17,8 @@ import (
 )
 
 type connectOpts struct {
-	url, token, config string
-	check              bool
+	url, token, config, dir string
+	check                   bool
 }
 
 func connectFlags() (*flag.FlagSet, *connectOpts) {
@@ -27,6 +27,7 @@ func connectFlags() (*flag.FlagSet, *connectOpts) {
 	fs.StringVar(&o.url, "url", "", "daemon URL, e.g. https://greenroom.example.com; default "+remote.EnvURL+", then the config file")
 	fs.StringVar(&o.token, "token", "", "bearer token; default "+remote.EnvToken+", then the config file")
 	fs.StringVar(&o.config, "config", remote.DefaultConfigPath(), "client config file holding {\"url\", \"token\"}")
+	fs.StringVar(&o.dir, "dir", remote.DefaultDir(), "directory on this computer for machine_pull without a dest and for screenshots")
 	fs.BoolVar(&o.check, "check", false, "check the url and token, print ok: <url> (<n> tools), and exit")
 	return fs, o
 }
@@ -52,7 +53,7 @@ func connect(args []string) error {
 		return err
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	opts := remote.Options{Version: mcpserver.Version, Logger: logger}
+	opts := remote.Options{Version: mcpserver.Version, Logger: logger, Dir: o.dir}
 
 	if o.check {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

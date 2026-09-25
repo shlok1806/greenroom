@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -110,7 +111,7 @@ func localSSH(t *testing.T) string {
 	return home
 }
 
-// runWrapper runs execWrapper for real in a host shell, with a login zsh that
+// runWrapper runs execShell with execScript on stdin for real in a host shell, with a login zsh that
 // reads no dotfiles of this host's user. Every pid the command writes to
 // $HOME/pids is killed when the test ends, so no child outlives it. A mktemp
 // shim first on PATH records the dir the wrapper makes in $HOME/dirs, so
@@ -140,7 +141,8 @@ func runWrapperIn(t *testing.T, command string, timeoutSeconds int) (stdout, std
 			}
 		}
 	})
-	cmd := exec.Command("/bin/sh", "-c", execWrapper, "greenroom-exec", command, strconv.Itoa(timeoutSeconds))
+	cmd := exec.Command(execShell[0], append(slices.Clone(execShell[1:]), strconv.Itoa(timeoutSeconds))...)
+	cmd.Stdin = strings.NewReader(execScript(command))
 	cmd.Env = append(os.Environ(), "HOME="+home, "ZDOTDIR="+home, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var out, errOut strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errOut
@@ -241,15 +243,74 @@ func TestExecWrapperRunsLogAsTheCommandNotTheZshBuiltin(t *testing.T) {
 	}
 }
 
+// Issue #128: the command and the wrapper go on stdin, so the guest's argv is
+// the short execShell line and nothing of the command.
 func TestExecRunsTheCommandThroughTheWrapper(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
-	if _, err := mgr.Exec(context.Background(), mc.RunID, "./App &", "", 10*time.Second); err != nil {
+	if _, err := mgr.Exec(context.Background(), mc.RunID, "./App & xyz-token", "~/work", 10*time.Second); err != nil {
 		t.Fatalf("Exec: %v", err)
 	}
-	log := testsupport.Calls(t, control)
-	if !strings.Contains(log, `/bin/zsh -lc "disable log 2>/dev/null; $1" >"$d/out" 2>"$d/err" </dev/null 3>&- &`) || !strings.Contains(log, "greenroom-exec ./App & 10") {
-		t.Errorf("the command did not run behind the wrapper\ncalls:\n%s", log)
+	var execs []string
+	for _, line := range strings.Split(testsupport.Calls(t, control), "\n") {
+		if strings.Contains(line, "greenroom-exec") {
+			execs = append(execs, line)
+		}
+	}
+	if want := "exec -i " + mc.Name + " /bin/sh -s greenroom-exec 10"; len(execs) != 1 || execs[0] != want {
+		t.Errorf("machine_exec ran %q, want exactly %q", execs, want)
+	}
+	if calls := testsupport.Calls(t, control); strings.Contains(calls, "xyz-token") || strings.Contains(calls, "disable log") {
+		t.Errorf("the command or the wrapper reached tart's argv\ncalls:\n%s", calls)
+	}
+	stdin := testsupport.ExecStdin(t, control)
+	if !strings.Contains(stdin, "\ncd \"$HOME\"/'work' && ./App & xyz-token\n") || !strings.Contains(stdin, execWrapperTail) {
+		t.Errorf("stdin did not carry the wrapper and the command\nstdin:\n%s", stdin)
+	}
+}
+
+// Issue #128: no process the wrapper starts carries the command, so a pgrep
+// for a pattern in the command no longer finds the wrapper itself.
+func TestExecWrapperKeepsTheCommandOutOfEveryArgv(t *testing.T) {
+	// Any match is printed, so a failure names the process that carried the pattern.
+	stdout, stderr, code, _ := runWrapper(t, `for p in $(pgrep -f greenroom-unique-token-xyz); do ps -o pid=,args= -p $p; done
+pgrep -f greenroom-unique-token-xyz >/dev/null; echo "pgrep $?"
+ps -o args= -p $$ -p $PPID`, 0)
+	listing, found := strings.CutPrefix(stdout, "pgrep 1\n")
+	if code != 0 || !found {
+		t.Fatalf("stdout %q, stderr %q, exit %d; want pgrep to find nothing (exit 1)", stdout, stderr, code)
+	}
+	// The listing is the wrapper's sh and the login zsh, both short.
+	lines := strings.Split(strings.TrimSpace(listing), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "/bin/sh -s greenroom-exec 0") || !strings.HasPrefix(lines[1], "/bin/zsh -lc ") {
+		t.Errorf("ps lines %q, want the wrapper's sh and zsh", lines)
+	}
+	for _, line := range lines {
+		if len(line) > 100 || strings.Contains(line, "pgrep") {
+			t.Errorf("process line %q is long or carries the command", line)
+		}
+	}
+}
+
+// The command reaches zsh byte for byte: quotes, dollars, backslashes and a
+// line that looks like a heredoc end are not the shell's to read.
+func TestExecWrapperPassesTheCommandVerbatim(t *testing.T) {
+	stdout, stderr, code, _ := runWrapper(t, "printf '%s|' 'a $b \\c' \"q'uote\"\ncat <<'EOF'\nGREENROOM_CMD_X\nEOF\necho \"args $#\"", 0)
+	if want := "a $b \\c|q'uote|GREENROOM_CMD_X\nargs 0\n"; stdout != want || code != 0 {
+		t.Errorf("stdout %q (stderr %q, exit %d), want %q", stdout, stderr, code, want)
+	}
+}
+
+// zsh still parses the whole command before running any of it, as `zsh -c`
+// did, and its errors keep the command's own line numbers (issue #40).
+func TestExecWrapperKeepsZshsParseAndLineNumbers(t *testing.T) {
+	_, stderr, code, _ := runWrapper(t, "true\nnosuchcmd-greenroom", 0)
+	if code != 127 || !strings.Contains(stderr, ":2: command not found: nosuchcmd-greenroom") {
+		t.Errorf("stderr %q, exit %d; want line 2's command not found and exit 127", stderr, code)
+	}
+	stdout, stderr, code, _ := runWrapper(t, "echo ran\n(( 1 +", 0)
+	if stdout != "" || code == 0 || !strings.Contains(stderr, ":2: parse error") {
+		t.Errorf("stdout %q, stderr %q, exit %d; want a parse error on line 2 and nothing run", stdout, stderr, code)
 	}
 }
 

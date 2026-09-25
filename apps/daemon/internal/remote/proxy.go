@@ -35,8 +35,9 @@ func Serve(ctx context.Context, cfg Config, opts Options, t mcp.Transport) error
 }
 
 // NewServer builds the local server: every remote tool with its definition unchanged,
-// forwarded as is, except machine_sync, which uploads the local source. It takes the
-// daemon's name, version and instructions.
+// forwarded as is, except machine_sync, which uploads the local source, machine_pull, which
+// unpacks here, and machine_screenshot, whose PNG is copied here. It takes the daemon's name,
+// version and instructions.
 func NewServer(ctx context.Context, r *Remote) (*mcp.Server, error) {
 	tools, err := r.Tools(ctx)
 	if err != nil {
@@ -55,9 +56,15 @@ func NewServer(ctx context.Context, r *Remote) (*mcp.Server, error) {
 	for _, t := range tools {
 		tool := *t
 		handler := forward(r, tool.Name)
-		if tool.Name == SyncTool {
+		switch tool.Name {
+		case SyncTool:
 			tool.Description += SyncNote
 			handler = syncHandler(r)
+		case PullTool:
+			tool.Description += PullNote
+			handler = pullHandler(r)
+		case ScreenshotTool:
+			handler = screenshotHandler(r)
 		}
 		if err := addTool(srv, &tool, handler); err != nil {
 			r.opts.Logger.Error("skipping a tool the local server refused", "tool", tool.Name, "err", err)
@@ -117,11 +124,7 @@ func syncHandler(r *Remote) mcp.ToolHandler {
 		if err := json.Unmarshal(body, &structured); err != nil {
 			return toolError(fmt.Sprintf("machine_sync: the daemon's answer is not a JSON object: %.200s", body)), nil
 		}
-		compact, _ := json.Marshal(structured)
-		return &mcp.CallToolResult{
-			Content:           []mcp.Content{&mcp.TextContent{Text: string(compact)}},
-			StructuredContent: structured,
-		}, nil
+		return structuredResult(structured)
 	}
 }
 

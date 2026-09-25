@@ -230,7 +230,7 @@ osascript -e 'tell application "Safari" to do JavaScript "1+1" in document 1'`},
 // (exit 124), as machine_exec's wrapper does: tart exec returns only when every holder of
 // the guest's pipes has exited, so killing the shell alone left a blocked osascript holding
 // the call open. The shell's job notices go to /dev/null and the call's stderr through fd 3,
-// as in execWrapper. macOS has no timeout(1).
+// as in execWrapperTail. macOS has no timeout(1).
 const exerciseWatchdog = `exec 3>&2 2>/dev/null
 set -m
 /bin/sh -c "$1" 2>&3 3>&- &

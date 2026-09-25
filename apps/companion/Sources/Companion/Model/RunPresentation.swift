@@ -87,6 +87,7 @@ enum ToolCatalog {
         case "machine_wait": Entry(title: "Wait", symbol: "hourglass")
         case "machine_exec": Entry(title: "Command", symbol: "terminal")
         case "machine_sync": Entry(title: "Sync files", symbol: "arrow.triangle.2.circlepath")
+        case "machine_pull": Entry(title: "Pull files", symbol: "square.and.arrow.down")
         case "machine_screenshot": Entry(title: "Screenshot", symbol: "camera")
         case "machine_input": Entry(title: "Input", symbol: "cursorarrow.click")
         case "machine_click": Entry(title: "Click", symbol: "cursorarrow.click")

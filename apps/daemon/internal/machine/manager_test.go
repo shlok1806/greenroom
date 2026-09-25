@@ -245,9 +245,9 @@ func TestExecQuotesTheWorkingDirectory(t *testing.T) {
 	if _, err := mgr.Exec(context.Background(), mc.RunID, "pwd", "work/my app", 10*time.Second); err != nil {
 		t.Fatalf("Exec: %v", err)
 	}
-	log := testsupport.Calls(t, control)
-	if !strings.Contains(log, `cd 'work/my app'`) {
-		t.Errorf("the working directory was not quoted\ncalls:\n%s", log)
+	stdin := testsupport.ExecStdin(t, control)
+	if !strings.Contains(stdin, `cd 'work/my app'`) {
+		t.Errorf("the working directory was not quoted\nstdin:\n%s", stdin)
 	}
 }
 
