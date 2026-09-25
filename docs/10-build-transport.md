@@ -62,6 +62,11 @@ host 0.41 s = **2.55 s**, against 1.4-2.1 s locally.
 Mutagen two-way 0.41 s for a 3.4 MB binary; rsync 3.18 s for 251 MB. A read-write disk
 image needs the VM stopped, so it is out.
 
+`machine_pull` (ADR 0022) is that rsync, reversed, with no new transport. Through
+`greenroom connect` it is the guest's `tar czf -` streamed out of `tart exec` to the client
+(the real-VM e2e test pulls 3 MB through the route on loopback in about 0.15 s; over the
+tunnel the link is the limit).
+
 ## Warm machines lose
 
 Resume of a suspended VM with a built project: 35.7 s to ssh, then 12.6 s of page-in,

@@ -56,6 +56,7 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Han
 		"GET /api/runs/{id}/recording.mp4":       a.recording,
 		"GET /api/runs/{id}/messages":            a.readMessages,
 		"GET /api/runs/{id}/artifacts/{name...}": a.artifact,
+		"GET /api/runs/{id}/pull":                a.pullArchive,
 		"POST /api/runs/{id}/messages":           a.postMessage,
 		"POST /api/runs/{id}/screenshot":         a.screenshot,
 		"GET /api/runs/{id}/screen/live":         a.screenLive,

@@ -74,7 +74,9 @@ Needs: Apple silicon, macOS 15 or later, Claude Code installed and logged in.
    > screenshot.
 
    Claude Code starts a macOS machine on the host, uploads the project folder (including
-   edits that are not committed), builds it there and shows the screen. The Companion
+   edits that are not committed), builds it there and shows the screen. Files it copies
+   back with `machine_pull` and each screenshot's PNG land on your Mac, under
+   `~/.greenroom/connect/runs/<runId>/` unless it names another folder (ADR 0022). The Companion
    shows the run, its steps and the live screen, and "take control" lets you click in it.
 
 3. When done, ask Claude Code to destroy the machine, or press destroy in the Companion.

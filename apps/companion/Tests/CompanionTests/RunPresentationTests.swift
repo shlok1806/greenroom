@@ -66,6 +66,7 @@ final class RunPresentationTests: XCTestCase {
     func testKnownToolsReadAsWords() {
         XCTAssertEqual(ToolCatalog.entry(for: "machine_exec").title, "Command")
         XCTAssertEqual(ToolCatalog.entry(for: "machine_screenshot").symbol, "camera")
+        XCTAssertEqual(ToolCatalog.entry(for: "machine_pull").title, "Pull files")
         XCTAssertEqual(ToolCatalog.entry(for: "machine_session_start").title, "Session")
     }
 

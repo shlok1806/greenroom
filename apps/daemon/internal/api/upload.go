@@ -11,12 +11,13 @@ import (
 	"sync"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/tarball"
 )
 
 // Upload limits for PUT /api/runs/{id}/sync; vars so tests can shrink them.
 var (
 	maxUploadBytes = int64(2 << 30) // the compressed body
-	uploadLimits   = untarLimits{bytes: 4 << 30, entries: 200_000}
+	uploadLimits   = tarball.Limits{Bytes: 4 << 30, Entries: 200_000}
 )
 
 // uploadSync is machine_sync for a client whose project is on another host (ADR 0021): the body
@@ -64,10 +65,10 @@ func (a *api) uploadSync(w http.ResponseWriter, r *http.Request, runID string) {
 		a.fail(w, http.StatusInternalServerError, err)
 		return
 	}
-	if err := untar(http.MaxBytesReader(w, r.Body, maxUploadBytes), staging, uploadLimits); err != nil {
+	if _, err := tarball.Untar(http.MaxBytesReader(w, r.Body, maxUploadBytes), staging, uploadLimits, nil); err != nil {
 		var tooBig *http.MaxBytesError
 		code := http.StatusBadRequest
-		if errors.As(err, &tooBig) || errors.Is(err, errTooLarge) {
+		if errors.As(err, &tooBig) || errors.Is(err, tarball.ErrTooLarge) {
 			code = http.StatusRequestEntityTooLarge
 		}
 		_ = os.RemoveAll(staging)

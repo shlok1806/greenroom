@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	imagepng "image/png"
+	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -280,10 +282,9 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 	if _, err := execChecked(ctx, m.tart, mc.Name, "/bin/sh", "-c", "cd && mkdir -p "+shellQuote(dest)); err != nil {
 		return SyncResult{}, fmt.Errorf("create %s in the guest: %w", dest, err)
 	}
-	sshCmd := "ssh -i " + shellQuote(m.sshKey) + " -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 	// No -z: compression costs 4x on a local VM (docs/10-build-transport.md).
 	// Revisit only if sync ever crosses a real network.
-	args := []string{"-a", "--stats", "-e", sshCmd}
+	args := []string{"-a", "--stats", "-e", m.rsyncShell()}
 	for _, ex := range exclude {
 		args = append(args, "--exclude", ex)
 	}
@@ -299,6 +300,203 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 	}
 	m.emitStep(runID, mc.rec.step("machine_sync", map[string]any{"source": source, "dest": dest, "exclude": exclude}, res, err, started))
 	return res, err
+}
+
+// rsyncShell is the ssh command rsync reaches the guest with, for Sync and Pull.
+func (m *Manager) rsyncShell() string {
+	return "ssh -i " + shellQuote(m.sshKey) + " -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+}
+
+// PullResult reports what a pull copied and where it is on the host.
+type PullResult struct {
+	Source  string  `json:"source"`
+	Dest    string  `json:"dest"`
+	Summary string  `json:"summary"`
+	Seconds float64 `json:"seconds"`
+	Step    int     `json:"step"`
+}
+
+// ErrNotInGuest is a pull source the guest does not have.
+var ErrNotInGuest = errors.New("does not exist in the guest")
+
+// Pull copies a guest file or directory to the host with rsync over ssh, the mirror of Sync.
+// source is a guest path: relative to the home, ~/x, or absolute. A directory's contents land
+// in dest; a file lands in dest under its own name (a symlink to a file is copied as the
+// file). dest is an absolute host directory, made if missing. It defaults to the run
+// directory's NNN-pull, so what was pulled is also evidence of the step that pulled it.
+func (m *Manager) Pull(ctx context.Context, runID, source, dest string, exclude []string) (res PullResult, err error) {
+	mc, err := m.get(runID)
+	if err != nil {
+		return PullResult{}, err
+	}
+	if err := m.awaitReady(ctx, mc); err != nil {
+		return PullResult{}, err
+	}
+	started := time.Now()
+	src, err := guestSource(source)
+	if err != nil {
+		return PullResult{}, err
+	}
+	if dest != "" && !filepath.IsAbs(dest) {
+		return PullResult{}, fmt.Errorf("dest %q must be an absolute path on the host", dest)
+	}
+	isDir, err := m.guestIsDir(ctx, mc, source, src)
+	if err != nil {
+		return PullResult{}, err
+	}
+	// Claim the number before naming the default dest, as Screenshot does.
+	seq := mc.rec.begin()
+	input := map[string]any{"source": source, "dest": dest, "exclude": exclude}
+	defer func() {
+		res.Seconds = time.Since(started).Seconds()
+		mc.rec.complete(seq, "machine_pull", input, res, err, started)
+		m.emitStep(runID, seq)
+	}()
+	if dest == "" {
+		dest = mc.rec.artifactDir(seq, "pull")
+	}
+	res = PullResult{Source: source, Dest: filepath.Clean(dest), Step: seq}
+	if err = os.MkdirAll(res.Dest, 0o755); err != nil {
+		return res, fmt.Errorf("create %s: %w", res.Dest, err)
+	}
+	args := []string{"-a", "--stats", "-e", m.rsyncShell()}
+	remote := shellQuote(src) // quoted for the guest's shell, as in Sync
+	if isDir {
+		remote += "/"
+	} else {
+		args = append(args, "--copy-links") // a file source has nothing under it, so this only reads through a link
+	}
+	for _, ex := range exclude {
+		args = append(args, "--exclude", ex)
+	}
+	args = append(args, fmt.Sprintf("%s@%s:%s", guestUser, m.snapshot(mc).IP, remote), res.Dest+"/")
+	cmd := exec.CommandContext(ctx, "rsync", args...)
+	cmd.Env = append(os.Environ(), "RSYNC_OLD_ARGS=1")
+	out, err := cmd.CombinedOutput()
+	res.Summary = rsyncSummary(string(out))
+	if err != nil {
+		err = fmt.Errorf("rsync: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return res, err
+}
+
+// PullArchive is Pull for a client on another host (ADR 0021): it writes source to the writer
+// open returns as a gzipped tar made in the guest, instead of rsyncing it to a host directory.
+// A directory's contents are the archive's root; a file is one member under its own name.
+// open is called once the source is known to exist, with the step's number, and not at all
+// when the call fails before that; an error after it means the archive is incomplete. Only
+// the literal names in exclude (node_modules, .git) are left out in the guest, where tar
+// reads them as rsync does; the caller applies every pattern while unpacking.
+func (m *Manager) PullArchive(ctx context.Context, runID, source string, exclude []string, open func(step int) io.Writer) (err error) {
+	mc, err := m.get(runID)
+	if err != nil {
+		return err
+	}
+	if err := m.awaitReady(ctx, mc); err != nil {
+		return err
+	}
+	started := time.Now()
+	src, err := guestSource(source)
+	if err != nil {
+		return err
+	}
+	isDir, err := m.guestIsDir(ctx, mc, source, src)
+	if err != nil {
+		return err
+	}
+	seq := mc.rec.begin()
+	var out pullArchiveOutput
+	defer func() {
+		out.Seconds = time.Since(started).Seconds()
+		mc.rec.complete(seq, "machine_pull", map[string]any{"source": source, "exclude": exclude, "archive": true}, out, err, started)
+		m.emitStep(runID, seq)
+	}()
+	out = pullArchiveOutput{Source: source, Step: seq}
+	// COPYFILE_DISABLE and --no-mac-metadata keep macOS's tar from adding ._ AppleDouble members.
+	args := []string{"czf", "-", "--no-mac-metadata", "--no-xattrs"}
+	for _, ex := range exclude {
+		if literalName(ex) {
+			args = append(args, "--exclude", ex)
+		}
+	}
+	if isDir {
+		args = append(args, "-C", src, ".")
+	} else {
+		// -h reads through a link, like Pull's --copy-links; "./" keeps a name like -x a name.
+		args = append(args, "-h", "-C", path.Dir(src), "./"+path.Base(src))
+	}
+	w := &countingWriter{w: open(seq)}
+	var stderr headTail
+	code, err := m.tart.ExecTo(ctx, w, &stderr, mc.Name, append([]string{"/bin/sh", "-c", pullTarScript, "greenroom-pull-tar"}, args...)...)
+	out.Bytes = w.n
+	if err == nil && code != 0 {
+		text, _, _ := stderr.result()
+		err = fmt.Errorf("tar in the guest: exit %d: %s", code, strings.TrimSpace(text))
+	}
+	return err
+}
+
+// pullArchiveOutput is PullArchive's step output: Bytes is the compressed archive's size.
+type pullArchiveOutput struct {
+	Source  string  `json:"source"`
+	Bytes   int64   `json:"bytes"`
+	Seconds float64 `json:"seconds"`
+	Step    int     `json:"step"`
+}
+
+// pullProbeScript prints dir or file for the guest path $1, read from the home, and exits 3
+// when nothing is there. A path is an argument, never shell text.
+const pullProbeScript = `cd || exit; if [ -d "$1" ]; then echo dir; elif [ -e "$1" ]; then echo file; else exit 3; fi`
+
+// pullTarScript runs tar from the home with the arguments it is given.
+const pullTarScript = `cd || exit; COPYFILE_DISABLE=1 exec tar "$@"`
+
+// guestIsDir reports whether the guest path src is a directory, and refuses one that is not there.
+func (m *Manager) guestIsDir(ctx context.Context, mc *Machine, source, src string) (bool, error) {
+	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", pullProbeScript, "greenroom-pull-probe", src)
+	switch {
+	case err != nil:
+		return false, err
+	case res.ExitCode == 3:
+		return false, fmt.Errorf("source %q %w", source, ErrNotInGuest)
+	case res.ExitCode != 0:
+		return false, fmt.Errorf("look up %q in the guest: exit %d: %s", source, res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	return strings.TrimSpace(res.Stdout) == "dir", nil
+}
+
+// guestSource reads a pull source as the guest's shell and rsync take it once in the home:
+// "~" and "~/x" become "." and "x", a relative path stays relative to the home and an absolute
+// one stays absolute. Unlike a sync dest, it may be anywhere in the guest.
+func guestSource(source string) (string, error) {
+	if strings.TrimSpace(source) == "" {
+		return "", errors.New("source is required: a guest path relative to the home, ~/x, or absolute")
+	}
+	if rest, tilde := homeRelative(source); tilde {
+		source = rest
+		if source == "" {
+			source = "."
+		}
+	}
+	return path.Clean(source), nil
+}
+
+// literalName reports whether an exclude pattern is a plain base name, which guest tar and
+// rsync match the same way: any path component with exactly that name.
+func literalName(p string) bool {
+	return p != "" && !strings.ContainsAny(p, `/*?[\`)
+}
+
+// countingWriter counts what passes through it.
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // CheckDest reports whether dest would be refused by Sync, so a caller can say so before
