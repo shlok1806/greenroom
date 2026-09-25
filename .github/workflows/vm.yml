@@ -33,6 +33,14 @@ jobs:
               missing=1
             fi
           done
+          # The companion's tests import XCTest, which ships with Xcode and not the
+          # Command Line Tools. While the App Store updates Xcode, Xcode.app is gone
+          # and xcode-select falls back to the Command Line Tools, so `swift test`
+          # would fail with "no such module 'XCTest'" on every file.
+          if ! xcrun --find xctest >/dev/null 2>&1; then
+            echo "::error::XCTest is not available: the active developer directory is '$(xcode-select -p 2>/dev/null)'. The companion's tests need Xcode. If Xcode is updating (/Applications/Xcode.appdownload), let it finish; otherwise install Xcode and run 'sudo xcode-select -s /Applications/Xcode.app' on this Mac before re-running."
+            missing=1
+          fi
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
