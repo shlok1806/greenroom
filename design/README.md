@@ -15,8 +15,12 @@ The design data for greenroom's interfaces. Decisions: companion ADR 0004 and 00
     tab, the cursor, the wordmark), `brandText` is the label colour that sits on top of
     it, and `chromeTint` is the faint brand-tinted background for the sidebar and top
     bar. A theme without them (an imported Ghostty or iTerm theme, which has no concept
-    of a brand colour) is not refused; the app fills these three from a fixed default
-    (the current theme's `brand` set) rather than failing the import.
+    of a brand colour) is not to be refused: the importer, when it is built, fills these
+    three from the first-party theme of the same appearance and contrast level (`dark`,
+    `dark-hc`, `light` or `light-hc`) rather than failing the import.
+  - `cursor-color`, `cursor-text` and `selection-*` stay in each file for Ghostty
+    compatibility and apply only inside the terminal-screen well. The app's own focus
+    cursor, selected run and active tab use `brand` and `brandText`, never these keys.
 - `tokens.json`: cell metrics for the mono face, the two type faces (`mono` for chrome
   and data, `reading` and `readingHeading` for prose), the reading size and line height,
   the palette slot for each ANSI-slot semantic role, the `themeKeys` names above, the

@@ -125,6 +125,10 @@ keys, `greenroom-brand`, `greenroom-brand-text`, `greenroom-chrome-tint`). The f
 themes are a neutral near-black and a warm paper, each with a high-contrast variant. Hue
 is reserved for meaning and for the brand.
 
+The Ghostty `cursor-color`, `cursor-text` and `selection-*` keys apply only inside the
+terminal-screen well. The app's own cursor, selected run and active tab draw in `brand`
+and `brandText`, never in those keys.
+
 | Role | Slot | Meaning | Where |
 | --- | --- | --- | --- |
 | pass | 2, bluer emerald | a pass | block-letter outcome, "Pass, you accepted", small status marks (always with `✓` and the word "Pass") |
