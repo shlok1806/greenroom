@@ -146,6 +146,7 @@ struct RunMenuCommands: Commands {
 
     @FocusedValue(\.actionState) private var state
     @AppStorage(ThemePreference.key) private var theme: ThemePreference = .system
+    @AppStorage(ClickMarks.storageKey) private var showsClickMarks = true
 
     var body: some Commands {
         CommandGroup(before: .toolbar) {
@@ -188,6 +189,7 @@ struct RunMenuCommands: Commands {
         case .toggleSidebar: current.sidebarShown ? "Hide Sidebar" : "Show Sidebar"
         case .toggleConversation: current.conversationShown ? "Hide Conversation" : "Show Conversation"
         case .zoom: current.zoomed == nil ? "Zoom Focused Pane" : "Restore Pane"
+        case .clickMarks: showsClickMarks ? "Hide Click Marks" : "Show Click Marks"
         default: spec.menuTitle ?? spec.title
         }
     }

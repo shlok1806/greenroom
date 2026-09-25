@@ -454,7 +454,7 @@ it.
 | Cmd-Backspace | Destroy the machine (asked inline: `⏎` destroys, any other key keeps it) | a machine |
 | `⏎`, Cmd-`⏎` / `⇧⏎`, `⌥⏎` | Send / new line | composer |
 | `z` | Zoom the focused pane to the window; `z` again (or esc) restores | a run open |
-| `m` | Click marks on or off | later layers |
+| `m` | Click marks on or off (kept across launches) | screen |
 
 The registry (`Model/ActionRegistry.swift`) is the source of truth since the registry PR
 (ADR 0005, decision 6); this table follows it. Showing or hiding the conversation and the

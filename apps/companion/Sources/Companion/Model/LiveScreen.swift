@@ -1,6 +1,7 @@
 import AVFoundation
 import Observation
 import Synchronization
+import VideoToolbox
 
 /// The live screen route, so `LiveScreen` is testable without a daemon.
 protocol ScreenSource: Sendable {
@@ -180,6 +181,24 @@ final class VideoOutput: @unchecked Sendable {
             renderer.enqueue(sample)
         }
         return true
+    }
+
+    /// The picture on the layer now, for the glyph moments (ADR 0006): read on `queue`,
+    /// in order with the samples, so a request made before `reset(removingImage:)` sees the
+    /// frame that reset removes. Converted there too; nothing touches the main actor.
+    /// `nil` while nothing has been displayed.
+    func still() async -> CGImage? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<CGImage?, Never>) in
+            queue.async { [self] in
+                guard let buffer = renderer.displayedPixelBuffer() else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                var image: CGImage?
+                VTCreateCGImageFromCVPixelBuffer(buffer, options: nil, imageOut: &image)
+                continuation.resume(returning: image)
+            }
+        }
     }
 
     /// Before a new connection or format: the next sample must be a keyframe.

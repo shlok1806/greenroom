@@ -284,6 +284,8 @@ struct RunView: View {
                 if facts.machineReady {
                     // The one way to take and give back the screen.
                     ControlButton(driving: driving, busy: pilot.busy, action: toggleControl)
+                        // Give Back stays lit and clickable while the rest dims.
+                        .houseLightsLit(radius: Radius.md)
                 }
             }
         }

@@ -64,9 +64,17 @@ struct RootView: View {
                     .animation(settle, value: layout)
                     .animation(settle, value: keyboard.helpOpen)
                     HintBarView(keyboard: keyboard)
+                        .houseLightsLit()
                 }
                 .overlayPreferenceValue(TopBarItemsKey.self, alignment: .top) { items in
                     TopBar(items: items)
+                }
+                // Over the panes and the top bar, under the palette: dark everywhere but
+                // the holes the lit views report, while the person drives.
+                .overlayPreferenceValue(HouseLightsHolesKey.self) { holes in
+                    GeometryReader { proxy in
+                        HouseLightsScrim(keyboard: keyboard, holes: holes.map { (proxy[$0.anchor], $0.radius) })
+                    }
                 }
                 if keyboard.paletteOpen {
                     palette

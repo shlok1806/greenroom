@@ -194,7 +194,7 @@ enum ActionID: String, CaseIterable, Sendable {
     case takeControl, giveBack, capture, exportRecording, followLive
     case nextFailure, previousFailure, destroy, confirmDestroy, cancelDestroy
     // The screen
-    case play, previousFrame, nextFrame, speed, backToVerdict
+    case play, previousFrame, nextFrame, speed, backToVerdict, clickMarks
     // The verdict
     case accept, dispute, undo
     // Writing
@@ -334,6 +334,9 @@ enum ActionRegistry {
                    contexts: [.screen], group: .screen),
         ActionSpec(id: .backToVerdict, title: "Back to the verdict", keys: [],
                    contexts: [.screen, .steps], group: .screen),
+        // Where the agent clicked or typed, over the picture (ADR 0006 decision 5).
+        ActionSpec(id: .clickMarks, title: "Show or hide click marks", keys: [KeyBinding(.char("m"))],
+                   contexts: [.screen], group: .screen, menu: .view, menuTitle: "Click Marks"),
     ]
 
     static let verdict: [ActionSpec] = [
@@ -548,6 +551,7 @@ enum ActionRules {
         case .exportRecording: return "No recording yet"
         case .play, .previousFrame, .nextFrame, .speed: return "Show the screen, with a recording"
         case .backToVerdict: return "No evidence is open"
+        case .clickMarks: return "Show the screen"
         case .search: return "No runs yet"
         case .nextPane, .previousPane: return "Open a run first"
         case .zoom: return "Open a run first"
