@@ -136,6 +136,13 @@ Boot and lifecycle
 - Every way a run ends stamps `destroyedAt`: destroy, failed boot, VM exit, and a reattach
   that finds the VM gone (dated from the run's last evidence).
 - SIGINT stops HTTP only. Machines keep running; `loadState` reattaches on next start.
+  Every request's context ends when shutdown starts (`BaseContext` cancelled by
+  `RegisterOnShutdown`), so an open event stream or `agent_wait` does not hold the stop
+  to its 5 s timeout, and the root lock is free at once for a restart (issue #98). A
+  timeout still exits 0 after closing what is left.
+- With no `-image`, the default image is `GREENROOM_IMAGE`, then the first local
+  `machine.PreferredImages` (greenroom-lean-a, greenroom-base), then upstream Cirrus: the
+  same choice `scripts/install.sh` makes, so a bare `serve` behaves like the installed one.
 - `serve` takes an exclusive `flock` on `<root>/daemon.lock` (holding its pid) and binds
   `-addr` before it reads `state.json` or starts a verifier. A second daemon on the same root
   or address exits without touching either: one that got as far as its actors answered live

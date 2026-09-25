@@ -82,7 +82,7 @@ func serveFlags() (*flag.FlagSet, *serveOpts) {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.StringVar(&o.addr, "addr", "127.0.0.1:7777", "listen address")
 	fs.StringVar(&o.root, "root", defaultRoot(), "state directory")
-	fs.StringVar(&o.image, "image", defaultImage, "default image for machine_create")
+	fs.StringVar(&o.image, "image", "", "default image for machine_create; default GREENROOM_IMAGE, then local greenroom-lean-a, then greenroom-base, then "+defaultImage)
 	fs.IntVar(&o.maxDisputes, "max-disputes", session.DefaultMaxDisputes, "how many times the coding agent may dispute a verdict before it is contested and only a human can close it")
 	fs.IntVar(&o.maxMachines, "max-machines", 2, "how many VMs the host may run at once; Apple allows two macOS guests, and 0 removes the check")
 	fs.StringVar(&o.envFile, "env-file", ".env", "file of KEY=VALUE lines holding the model credentials")
@@ -95,6 +95,13 @@ func serveFlags() (*flag.FlagSet, *serveOpts) {
 }
 
 func serve(args []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return serveUntil(ctx, args)
+}
+
+// serveUntil serves until ctx ends, then stops HTTP; machines keep running.
+func serveUntil(ctx context.Context, args []string) error {
 	fs, o := serveFlags()
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -131,6 +138,13 @@ func serve(args []string) error {
 		return err
 	}
 	mgr.CheckTart(context.Background()) // logs a version mismatch, never fatal
+	// The same choice scripts/install.sh makes, so a bare serve behaves like the installed daemon.
+	if o.image == "" {
+		o.image = strings.TrimSpace(os.Getenv("GREENROOM_IMAGE"))
+	}
+	if o.image == "" {
+		o.image = mgr.PreferredImage(context.Background(), defaultImage)
+	}
 
 	reg := session.NewRegistry(o.root, o.maxDisputes, session.WithOnVerdict(func(runID string, v session.VerdictState) { _ = mgr.RecordVerdict(runID, v) }))
 	mgr.SetMessageActivity(reg.LastMessageAt) // machine_list and the capacity error report idle time
@@ -170,10 +184,15 @@ func serve(args []string) error {
 		return fmt.Errorf("unknown -verifier %q: want nim or manual", kind)
 	}
 
-	httpServer := &http.Server{Addr: o.addr, Handler: routes(mgr, reg, o.image, log), ReadHeaderTimeout: 10 * time.Second}
+	// Every request's context ends when shutdown starts, so long-lived handlers (the companion's
+	// event stream, agent_wait) return at once instead of holding Shutdown to its timeout and
+	// the root lock with it (issue #98).
+	baseCtx, cancelRequests := context.WithCancel(context.Background())
+	defer cancelRequests()
+	httpServer := &http.Server{Addr: o.addr, Handler: routes(mgr, reg, o.image, log), ReadHeaderTimeout: 10 * time.Second,
+		BaseContext: func(net.Listener) context.Context { return baseCtx }}
+	httpServer.RegisterOnShutdown(cancelRequests)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.Serve(ln) }()
 	addr := ln.Addr().String()
@@ -188,7 +207,9 @@ func serve(args []string) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return err
+			// Still the stop the person asked for: close what is left rather than fail.
+			log.Warn("closing the connections that did not finish in time", "err", err)
+			_ = httpServer.Close()
 		}
 		return nil
 	}
