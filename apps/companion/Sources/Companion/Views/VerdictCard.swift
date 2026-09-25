@@ -80,11 +80,13 @@ struct VerdictCard: View {
         let messages = store.messages[runId] ?? []
         let review = VerdictReview.of(verdict, messages: messages, verifierListens: facts.verifierListens)
         let checks = VerdictCheck.checks(verdict, messages: messages, steps: store.steps[runId])
-        // Only a verdict a person closed takes its outcome's colour (ADR 0003); an
-        // agent-accepted one keeps its word, not its colour.
-        let closedByPerson = verdict.status == .accepted && review.humanReviewed
-        let tint = closedByPerson ? theme.outcome(verdict.verdict, on: .surface) : theme.foreground
+        // Proposed: a dim edge, the outcome in the foreground. Only a verdict a person
+        // accepted takes its outcome's colour (ADR 0003); an agent-accepted or rejected one
+        // keeps its word, not its colour (`VerdictAppearance`).
+        let appearance = VerdictAppearance.of(verdict, review: review)
+        let tint = appearance.outcomeInColour ? theme.outcome(verdict.verdict, on: .surface) : theme.foreground
         let words = TranscriptText.clean(text(verdict))
+        let reason = MarkdownText.blocks(words, steps: store.stepNumbers(runId))
         let detailed = expanded && !compact
         return VStack(alignment: .leading, spacing: Space.s) {
             headline(review, verdict: verdict)
@@ -94,7 +96,7 @@ struct VerdictCard: View {
             // however much evidence is open: the body scrolls once the card is capped.
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Space.s) {
-                    outcome(verdict, tint: tint)
+                    outcome(verdict, appearance: appearance, tint: tint)
                     if let note = review.note {
                         Text((review.humanReviewed ? "" : "! ") + note)
                             .readingStyle(size: TypeScale.readingSmall)
@@ -102,12 +104,17 @@ struct VerdictCard: View {
                                 ? theme.color(.attention, on: .surface) : theme.dim(on: .surface))
                     }
                     // Short reasons in full; long ones to three lines until opened. Numbers are
-                    // what a reviewer checks, so two lines was never enough.
-                    Text(words)
-                        .readingStyle()
-                        .lineLimit(detailed || words.count <= 280 ? nil : 3)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // what a reviewer checks, so two lines was never enough. In full, the steps
+                    // the reason names are chips that open them, like the evidence below.
+                    if detailed || words.count <= 280 {
+                        MarkdownView(blocks: reason) { step in seek(.step(step), inSteps: false) }
+                    } else {
+                        Text(MarkdownText.plain(reason))
+                            .readingStyle()
+                            .lineLimit(3)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     ForEach(checks, id: \.self) { check in
                         Text("! " + check.text)
                             .readingStyle(.readingMedium, size: TypeScale.readingSmall)
@@ -144,7 +151,7 @@ struct VerdictCard: View {
         }
         .padding(Space.m)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .panel()
+        .panel(edge: edge(appearance.edge, verdict: verdict))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Verdict, \(review.state), \(Chrome.outcomeTitle(verdict.verdict))")
     }
@@ -160,34 +167,66 @@ struct VerdictCard: View {
     /// State and decider first: that is what decides whether to trust the rest.
     private func headline(_ review: VerdictReview, verdict: VerdictState) -> some View {
         let urgent = !review.humanReviewed && verdict.status != .rejected
-        return HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-            Text((urgent ? "! " : "") + review.state.uppercased())
-                .font(Typeface.monoBold.font(size: TypeScale.label))
-                .tracking(0.8)
-                .foregroundStyle(urgent ? theme.color(.attention, on: .surface) : theme.dim(on: .surface))
-                .fixedSize()
-            Text(review.decision)
-                .readingStyle(size: TypeScale.small)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: Space.s)
-            if !compact {
-                Button(expanded ? "Less ▴" : "Evidence ▾") {
-                    withAnimation(.snappy(duration: 0.2)) { store.updateVerdictDraft(runId) { $0.expanded.toggle() } }
+        let state = Text((urgent ? "! " : "") + review.state.uppercased())
+            .font(Typeface.monoBold.font(size: TypeScale.label))
+            .tracking(0.8)
+            .foregroundStyle(urgent ? theme.color(.attention, on: .surface) : theme.dim(on: .surface))
+            .fixedSize()
+        let decision = Text(review.decision)
+            .readingStyle(size: TypeScale.small)
+            .foregroundStyle(.secondary)
+        // On one line while the decision fits whole beside the state; in a narrow column it
+        // goes under it, whole, rather than clipped to "you or the coding a...".
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                state
+                decision.lineLimit(1).fixedSize()
+                Spacer(minLength: Space.s)
+                evidenceToggle
+            }
+            VStack(alignment: .leading, spacing: Space.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                    state
+                    Spacer(minLength: Space.s)
+                    evidenceToggle
                 }
-                .buttonStyle(.textLink)
-                .fixedSize()
-                .help(expanded ? "Fold the verdict" : "Show each cited step's picture, what it claims there, and the disputes")
+                if !review.decision.isEmpty {
+                    decision.fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
 
-    private func outcome(_ verdict: VerdictState, tint: Color) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-            Text("\(Chrome.outcomeGlyph(verdict.verdict)) \(Chrome.outcomeTitle(verdict.verdict))")
-                .headingStyle(size: TypeScale.title)
+    @ViewBuilder
+    private var evidenceToggle: some View {
+        if !compact {
+            Button(expanded ? "Less ▴" : "Evidence ▾") {
+                withAnimation(.snappy(duration: 0.2)) { store.updateVerdictDraft(runId) { $0.expanded.toggle() } }
+            }
+            .buttonStyle(.textLink)
+            .fixedSize()
+            .help(expanded ? "Fold the verdict" : "Show each cited step's picture, what it claims there, and the disputes")
+        }
+    }
+
+    private func edge(_ edge: VerdictAppearance.Edge, verdict: VerdictState) -> Color {
+        switch edge {
+        case .hairline: theme.hairline
+        case .dim: theme.dim
+        case .outcome: theme.outcome(verdict.verdict)
+        }
+    }
+
+    /// The outcome in the mono face, in capitals: the static end state of the verdict's
+    /// decode-in (spec, Signature moments), which the motion layer animates later.
+    private func outcome(_ verdict: VerdictState, appearance: VerdictAppearance, tint: Color) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.m) {
+            Text(appearance.outcome)
+                .font(Typeface.monoBold.font(size: TypeScale.title))
+                .tracking(1.5)
                 .foregroundStyle(tint)
+                .fixedSize()
+                .accessibilityLabel(Chrome.outcomeTitle(verdict.verdict))
             if verdict.status.isOpen {
                 Text("proposed by the verifier")
                     .readingStyle(size: TypeScale.readingSmall)
@@ -339,6 +378,14 @@ struct VerdictCard: View {
                 }
             }
             .padding(.top, Space.xs)
+        } else if let result = VerdictAppearance.result(verdict, review: review) {
+            // The Approval Card's result, where the actions were once the choice is made.
+            Text(result)
+                .readingStyle(.readingMedium, size: TypeScale.readingSmall)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, Space.s)
+                .overlay(alignment: .top) { Hairline() }
         }
     }
 

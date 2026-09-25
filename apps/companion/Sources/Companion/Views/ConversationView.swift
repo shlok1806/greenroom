@@ -85,15 +85,20 @@ struct ConversationView: View {
             Text("Conversation")
                 .headingStyle()
                 .foregroundStyle(focused ? theme.brandInk(on: .background) : theme.foreground)
+                .lineLimit(1)
+                .fixedSize()
             let count = store.facts(runId).messageCount
             if count > 0 {
                 Text(count == 1 ? "1 message" : "\(Chrome.count(count)) messages")
                     .monoStyle(size: TypeScale.monoSmall)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
             Spacer(minLength: Space.s)
             Toggle("Tool calls", isOn: $showsToolCalls)
+                .fixedSize()
                 .help("Show the verifier's tool calls between its messages")
         }
         .padding(.horizontal, Space.m)
@@ -165,6 +170,16 @@ struct ConversationView: View {
                 Task {
                     try? await Task.sleep(for: .milliseconds(50))
                     withAnimation { proxy.scrollTo(Self.endRowId, anchor: .bottom) }
+                }
+            }
+            // The run's steps land after its messages and turn citations into chips, which
+            // re-wraps rows the lazy stack had already measured: pinned to the end until the
+            // person scrolls, or the newest message sits below the fold.
+            .onChange(of: store.steps[runId]?.count) {
+                guard anchored, !userScrolled else { return }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(50))
+                    proxy.scrollTo(Self.endRowId, anchor: .bottom)
                 }
             }
             .onChange(of: awaitingVerifier) {
@@ -260,412 +275,12 @@ struct ConversationView: View {
         case .toolCalls(let calls):
             ToolCallGroup(store: store, runId: runId, calls: calls)
         case .event(let message):
-            EventLine(message: message, verdicts: messages.filter { $0.kind == .verdict }, steps: store.steps[runId] ?? [])
+            EventLine(message: message, verdicts: messages.filter { $0.kind == .verdict })
         case .day(let day, _):
             SectionLabel(title: Chrome.day(day))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, Space.xs)
         }
-    }
-}
-
-// MARK: - Rows
-
-/// A lifecycle event or a closed verdict, as one quiet mono line.
-private struct EventLine: View {
-    let message: Message
-    let verdicts: [Message]
-    let steps: [Step]
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-            Text(message.kind == .accept ? "✓" : "·")
-            // The time runs on after the words, so a wrapped line keeps it beside them.
-            (Text(text) + Text("  " + Chrome.shortTime(message.at)).monospacedDigit())
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .help(Chrome.stamp(message.at))
-        }
-        .monoStyle(size: TypeScale.monoSmall)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, Space.m)
-        .textSelection(.enabled)
-    }
-
-    private var text: String {
-        guard message.kind == .accept else { return Chrome.eventText(message.text) }
-        let target = verdicts.first { $0.seq == message.replyTo }
-        let outcome = target?.verdict.map { " \($0)" } ?? ""
-        return "\(message.from.displayName) accepted the\(outcome) verdict"
-    }
-}
-
-/// One spoken message (ADR 0008 `MessageGroup`): the sender's name in words once per
-/// turn, then the words in the reading face, with a thin coloured edge down the side
-/// saying who spoke a second way.
-private struct MessageRow: View {
-    let store: RunStore
-    let runId: String
-    let message: Message
-    let showsSender: Bool
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
-            if showsSender { header }
-            bubble
-        }
-        .padding(.leading, Space.m)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 1)
-                .fill(edge)
-                .frame(width: 2)
-                .accessibilityHidden(true)
-        }
-    }
-
-    private var edge: Color {
-        message.kind == .dispute ? theme.color(.attention) : theme.edge(message.from)
-    }
-
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-            Text(message.from.displayName)
-                .readingStyle(.readingSemiBold, size: TypeScale.readingSmall)
-            if let kind = kindLabel {
-                Text(kind)
-                    .monoStyle(size: TypeScale.monoSmall)
-                    .foregroundStyle(.secondary)
-            }
-            Text(Chrome.shortTime(message.at))
-                .monoStyle(size: TypeScale.monoSmall)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .help("\(Chrome.stamp(message.at)) · message \(message.seq)")
-        }
-    }
-
-    /// Only kinds that change how to read the message get named.
-    private var kindLabel: String? {
-        switch message.kind {
-        case .task: "task"
-        case .question: "question"
-        case .answer: "answer"
-        case .dispute: "dispute"
-        case .verdict: "verdict"
-        case .unknown(let raw): raw
-        default: nil
-        }
-    }
-
-    @ViewBuilder
-    private var bubble: some View {
-        switch message.kind {
-        case .verdict:
-            VerdictMessage(store: store, runId: runId, message: message)
-        case .question:
-            QuestionBubble(store: store, runId: runId, message: message)
-        default:
-            MessageText(text: TranscriptText.clean(message.text))
-        }
-    }
-}
-
-/// A verdict in the history, one line: the card above holds the live one in full, so it
-/// is never shown twice. An earlier one opens to its words.
-private struct VerdictMessage: View {
-    let store: RunStore
-    let runId: String
-    let message: Message
-
-    @State private var open = false
-    @Environment(\.theme) private var theme
-
-    private var isLatest: Bool { store.verdict(runId)?.seq == message.seq }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
-            Button {
-                withAnimation(.snappy(duration: 0.18)) { open.toggle() }
-            } label: {
-                HStack(spacing: Space.s) {
-                    Text(open ? "▾" : "▸").foregroundStyle(.secondary)
-                    Text("\(Chrome.outcomeGlyph(message.verdict)) \(isLatest ? "Verdict" : "Earlier verdict"): \(Chrome.outcomeTitle(message.verdict))")
-                        .fontWeight(.semibold)
-                        .foregroundStyle(isLatest ? theme.outcome(message.verdict) : theme.dim)
-                    Text(isLatest ? "in full above" : "superseded")
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                }
-                .monoStyle(size: TypeScale.monoSmall)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(open ? "Hide what the verifier wrote" : "Show what the verifier wrote")
-            if open {
-                MessageText(text: TranscriptText.clean(message.text))
-                    .foregroundStyle(.secondary)
-                let cited = VerdictCard.byStep((message.evidence ?? []).map(Evidence.parse))
-                if !cited.isEmpty {
-                    HStack(spacing: Space.xs) {
-                        Text(isLatest ? "Cites" : "Cited by this earlier \(Chrome.outcomeTitle(message.verdict)) verdict, superseded:")
-                            .readingStyle(size: TypeScale.small)
-                            .foregroundStyle(.secondary)
-                        ForEach(cited, id: \.self) { item in
-                            EvidenceLink(store: store, runId: runId, item: item) {
-                                if let step = item.step { store.requestSeek(runId: runId, step: step) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// The verifier asking the person something, answered in place.
-private struct QuestionBubble: View {
-    let store: RunStore
-    let runId: String
-    let message: Message
-
-    @State private var answer = ""
-    @State private var sending = false
-    @FocusState private var focused: Bool
-
-    private var answered: Bool {
-        (store.messages[runId] ?? []).contains { $0.kind == .answer && $0.replyTo == message.seq }
-    }
-
-    private var canSend: Bool { !sending && !isBlank(answer) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
-            MessageText(text: TranscriptText.clean(message.text))
-            if !answered {
-                HStack(spacing: Space.s) {
-                    TextField("Answer the verifier", text: $answer)
-                        .textFieldStyle(.plain)
-                        .font(Typeface.readingRegular.font(size: TypeScale.readingSmall))
-                        .focused($focused)
-                        .padding(.horizontal, Space.s)
-                        .frame(height: 28)
-                        .fieldFrame(focused: focused, radius: Radius.sm)
-                        .sendOnReturn(enabled: canSend, submit)
-                        .typingField(focused: focused, sends: true)
-                    Button("Reply", action: submit)
-                        .buttonStyle(.primary)
-                        .disabled(!canSend)
-                }
-            } else {
-                Text("✓ Answered")
-                    .monoStyle(size: TypeScale.monoSmall)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func submit() {
-        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !sending else { return }
-        sending = true
-        Task {
-            if await store.send(runId: runId, kind: .answer, text: text, replyTo: message.seq) { answer = "" }
-            sending = false
-        }
-    }
-}
-
-/// The verifier's tool calls in a row, one plain-words line each, in a quiet panel. A
-/// line seeks the Screen to its step; its caret shows the raw call. Long runs fold to
-/// the last few.
-private struct ToolCallGroup: View {
-    let store: RunStore
-    let runId: String
-    let calls: [Message]
-
-    @State private var showsAll = false
-
-    private static let folded = 3
-
-    private var visible: [Message] {
-        showsAll || calls.count <= Self.folded + 1 ? calls : Array(calls.suffix(Self.folded))
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if calls.count > Self.folded + 1 {
-                Button {
-                    withAnimation(.snappy(duration: 0.2)) { showsAll.toggle() }
-                } label: {
-                    HStack(spacing: Space.s) {
-                        Text(showsAll ? "▾" : "▸")
-                        Text(showsAll ? "Hide earlier tool calls" : "\(calls.count - Self.folded) earlier tool calls")
-                    }
-                    .monoStyle(size: TypeScale.monoSmall)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, Space.s)
-                    .padding(.vertical, Space.xs + 2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                Hairline()
-            }
-            ForEach(Array(visible.enumerated()), id: \.element.seq) { position, call in
-                if position > 0 { Hairline() }
-                ToolCallLine(store: store, runId: runId, message: call)
-            }
-        }
-        .panel(radius: Radius.md)
-    }
-}
-
-private struct ToolCallLine: View {
-    let store: RunStore
-    let runId: String
-    let message: Message
-
-    @State private var expanded = false
-    @Environment(\.theme) private var theme
-
-    private var step: Step? {
-        guard let number = message.step else { return nil }
-        return (store.steps[runId] ?? []).first { $0.seq == number }
-    }
-
-    /// The step's own words when the record is held; else the same rules applied to the
-    /// tool call the message carries.
-    private var phrase: String {
-        if let step { return StepSummary.phrase(for: step, in: store.steps[runId] ?? []) }
-        return StepSummary.phrase(ofProgress: message.text)
-    }
-
-    private var failed: Bool { step?.outcome.isFailure == true }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: Space.s) {
-                Button {
-                    withAnimation(.snappy(duration: 0.18)) { expanded.toggle() }
-                } label: {
-                    Text(expanded ? "▾" : "▸")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 14, height: 20)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(expanded ? "Hide the raw tool call" : "Show the raw tool call and what came back")
-
-                Button {
-                    if let number = message.step { store.requestSeek(runId: runId, step: number) }
-                } label: {
-                    HStack(spacing: Space.s) {
-                        Text(failed ? "✗" : "✓")
-                            .foregroundStyle(failed ? theme.color(.failure, on: .surface) : theme.dim(on: .surface))
-                        Text(phrase)
-                            .foregroundStyle(failed ? theme.color(.failure, on: .surface) : theme.foreground)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer(minLength: Space.xs)
-                        if let number = message.step {
-                            Text("step \(number)")
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(message.step == nil)
-                .help(message.step.map { "Show step \($0) on the screen" } ?? "")
-            }
-            .monoStyle(size: TypeScale.small)
-            .padding(.horizontal, Space.s)
-            .padding(.vertical, Space.xs + 2)
-            .hoverHighlight(radius: Radius.sm)
-
-            if expanded {
-                Text(message.text)
-                    .monoStyle(size: TypeScale.monoSmall)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, Space.s + 14 + Space.s)
-                    .padding(.trailing, Space.s)
-                    .padding(.bottom, Space.s)
-            }
-        }
-    }
-}
-
-private struct WorkingRow: View {
-    var body: some View {
-        HStack(spacing: Space.s) {
-            Spinner(size: TypeScale.monoSmall)
-            Text("Verifier is working")
-        }
-        .monoStyle(size: TypeScale.monoSmall)
-        .foregroundStyle(.secondary)
-        .padding(.leading, Space.m)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-// MARK: - Text
-
-struct MessageText: View {
-    let text: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
-            // By position: block text can repeat.
-            ForEach(Array(RichText.blocks(text).enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .heading(let title, let level):
-                    // Never bigger than the reading text, only heavier and wider (ADR 0008).
-                    Text(title)
-                        .headingStyle(size: level <= 2 ? TypeScale.reading : TypeScale.readingSmall)
-                        .textSelection(.enabled)
-                        .padding(.top, Space.xs)
-                case .code(let body):
-                    // Wrapped, not scrolled: a column this narrow would show a scroller per block.
-                    Text(body)
-                        .monoStyle(size: TypeScale.small)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(Space.s)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .panel(radius: Radius.sm)
-                case .prose(let body):
-                    Text(inline(body))
-                        .readingStyle()
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-
-    /// Preserving whitespace keeps the agent's line breaks, and so its lists. Inline code
-    /// sets in the mono face, bold in the reading face's semibold.
-    private func inline(_ body: String) -> AttributedString {
-        var text = (try? AttributedString(
-            markdown: body,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        )) ?? AttributedString(body)
-        for run in text.runs {
-            guard let intent = run.inlinePresentationIntent else { continue }
-            if intent.contains(.code) {
-                text[run.range].font = Typeface.monoRegular.font(size: TypeScale.readingSmall)
-            } else if intent.contains(.stronglyEmphasized) {
-                text[run.range].font = Typeface.readingSemiBold.font(size: TypeScale.reading)
-            }
-        }
-        return text
     }
 }
 

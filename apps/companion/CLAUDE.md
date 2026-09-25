@@ -7,8 +7,9 @@ package's own `docs/adr/0001` (the run window, superseded by 0004), `0002` (one 
 run state, colour meanings, verdict trust, the snapshot tool), `0003` (verdict actions, one
 status vocabulary, the daemon changes the UI waits on), `0004` (the glyph-native interface
 on a character grid), `0005` (keys and the action registry), `0006` (motion, signature
-moments, click marks), `0007` (the dependency allowlist) and `0008` (readable type and the
-olive brand, amending 0004's type and colour decisions). Design: `docs/design-spec.md`
+moments, click marks), `0007` (the dependency allowlist), `0008` (readable type and the
+olive brand, amending 0004's type and colour decisions) and `0009` (transcript cards and
+the Markdown renderer). Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -22,9 +23,12 @@ dispute. Layer 3 (layout) has landed: the three width classes, the screen with t
 under it (no more Screen and Steps tabs), the runs strip and the one-row steps track, one
 pane at a time in a narrow window, and `z` zoom (design spec, Layout). Layer 4 (the stage)
 has landed: the screen's title row and well states, the loader, the player bar, and the
-steps as a thinking trace (below). Not yet built: the motion vocabulary beyond the settle
-spring, the tick and the loader, signature moments, click marks (`m`), `GridMetrics`.
-Until a layer lands, the rules below that name round-2 behaviour describe the code as it is.
+steps as a thinking trace (below). Layer 5 (transcript cards) has landed: Markdown through
+swift-markdown, evidence chips in prose, the verdict card's proposed and closed framing,
+the question card, and tool-call rows (ADR 0009). Not yet built: the motion vocabulary
+beyond the settle spring, the tick and the loader, signature moments, click marks (`m`),
+`GridMetrics`. Until a layer lands, the rules below that name round-2 behaviour describe
+the code as it is.
 
 ## Commands
 
@@ -84,7 +88,8 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
 - Dependencies are an allowlist (ADR 0007): Apple and swiftlang packages that build in
   Swift 6 mode with no warnings; swift-markdown (parse only), swift-collections,
   swift-async-algorithms and SwiftTerm. Anything else needs its own companion ADR (why,
-  licence, Swift 6 mode, exit plan) before it goes into `Package.swift`. Rejected:
+  licence, Swift 6 mode, exit plan) before it goes into `Package.swift`. `Package.resolved`
+  is checked in, and packages are pinned `exact:`. Rejected:
   Textual and MarkdownUI (they break the grid), animation libraries, Highlightr.
 - Beautiful UI's components are ported as behaviour, credited under MIT in the app's
   acknowledgements; no code from it is copied into the Mac app (ADR 0007).
@@ -109,7 +114,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   - `Model/DaemonClient.swift` is the only file that knows HTTP. One method per route.
   - `Model/Models.swift` mirrors the daemon's Go structs; `OpenEnums.swift`, `DaemonJSON.swift`
     (dates, coders) and `EventStream.swift` (SSE) hold the rest of the wire layer.
-  - `ScreenControl`, `FrameTimeline`, `StepSummary`, `RichText` are pure value types with
+  - `ScreenControl`, `FrameTimeline`, `StepSummary`, `MarkdownText` are pure value types with
     a test per rule. `ControlPilot` holds the lease and send queue; it talks through
     `ControlClient` and `PilotHost` so its tests need no daemon. `PaneLayout` (the width
     classes, `ZoomState`, what `tab` cycles, every pane's frame) is pure too; the views
@@ -122,6 +127,13 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   - `Model/RunPresentation.swift` and `Model/VerdictReview.swift` hold the pure
     presentation rules (titles, evidence, tool names, transcript grouping, connection
     state, who decided a verdict, checks against the record), each with a test.
+  - `Model/TranscriptCards.swift` says how each transcript card reads (`ToolCallRow`,
+    `ToolCallFold`, `QuestionCardState`, `VerdictAppearance`, `VerdictLine`);
+    `Views/TranscriptViews.swift` and `VerdictCard.swift` only draw it.
+  - `Model/Markdown.swift` (`MarkdownText`) is the only file that imports swift-markdown:
+    it hands views our own blocks and spans. `Views/MarkdownView.swift` draws them. Every
+    message, answer and verdict reason goes through it, never through
+    `AttributedString(markdown:)`.
   - `Design/` is the design system: `DesignData` (the bundled `design/`, `AppResources`),
     `Theme` (roles, brand, grounds, `ThemePreference`, the `\.theme` and `\.ground`
     environment values) and `Typography` (`BundledFonts`, `Typeface`, `TypeScale`,
@@ -381,6 +393,13 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   hairline). Messages are not bubbles and all sit on the left.
 - Section labels are small uppercase mono (`SectionLabel`) with whitespace around them,
   never a drawn rule (`today ─── 3`).
+- Transcript cards (ADR 0009): a cited step in prose is a chip only when the run's record
+  holds it (`RunStore.stepNumbers`), linked with the in-app `greenroom-step:` scheme that
+  `MarkdownView`'s `openURL` handles; never a daemon URL. The verdict card's edge and
+  outcome colour come from `VerdictAppearance` (dim while open, the outcome's role only
+  once a person accepted); a closed card shows its result where the actions were.
+  Emphasis uses Mona Sans's own italics (`Typeface.readingItalic`), never a synthetic
+  slant.
 - Prose (`readingStyle`) sits at `tokens.json` `reading.lineHeight` (1.45): the gap is
   worked out from the face's own line (`Typeface.lineSpacing`), never a fraction of the
   size added on top.
