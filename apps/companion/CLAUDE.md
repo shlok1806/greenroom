@@ -14,9 +14,9 @@ olive brand, amending 0004's type and colour decisions). Design: `docs/design-sp
 at the repo root.
 
 The views still draw the round-2 window (system styles, `NavigationSplitView`,
-`Theme.swift`). ADR 0004 to 0006 describe the glyph-native window being built layer by
-layer; until a layer lands, the rules below that name round-2 types describe the code as
-it is, and the new rules apply to everything built from now on.
+`Theme.swift`). ADR 0004 to 0006, as amended by 0008, describe the new window being built
+layer by layer; until a layer lands, the rules below that name round-2 types describe the
+code as it is, and the new rules apply to everything built from now on.
 
 ## Commands
 
