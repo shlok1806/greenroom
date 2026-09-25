@@ -185,6 +185,10 @@ private actor GrantingControlClient: ControlClient {
         )
     }
 
+    func renewControl(runId: String) async throws -> ControlResponse {
+        try await takeControl(runId: runId)
+    }
+
     func releaseControl(runId: String) async throws {}
 
     func input(runId: String, actions: [InputAction]) async throws -> InputResult {
