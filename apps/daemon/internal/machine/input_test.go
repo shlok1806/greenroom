@@ -358,6 +358,7 @@ func TestUnknownModifiersAndButtonsAreRefusedBeforeAnythingIsPosted(t *testing.T
 		{InputAction{Type: "key", Key: "q", Mods: []string{"cmd", "⌘"}}, "cmd, shift, alt, ctrl, fn"},
 		{InputAction{Type: "click", X: frac(0.9), Y: frac(0.9), Button: "bogus"}, `unknown button "bogus"`},
 		{InputAction{Type: "wiggle"}, `unknown action type "wiggle"`},
+		{InputAction{Type: "type"}, "type needs text: pass the characters to type"},
 	} {
 		_, err := mgr.InputAs(context.Background(), mc.RunID, HolderCoder, []InputAction{
 			{Type: "move", X: frac(0.1), Y: frac(0.1)}, tc.action,
@@ -377,6 +378,46 @@ func TestUnknownModifiersAndButtonsAreRefusedBeforeAnythingIsPosted(t *testing.T
 		{Type: "Click", X: frac(0.5), Y: frac(0.5)},
 	}); err != nil {
 		t.Fatalf("aliases were refused: %v", err)
+	}
+}
+
+// Issue #126: an empty type posted nothing and still reported success with a step. It is refused
+// on every path (the lease holder's Input and InputAs), records no step and leaves no lease.
+func TestAnEmptyTypeIsRefusedAndRecordsNoStep(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	before, err := ReadSteps(mgr.RunDir(mc.RunID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := []InputAction{{Type: "type", Text: ""}}
+	if _, err := mgr.InputAs(context.Background(), mc.RunID, HolderCoder, empty); err == nil ||
+		err.Error() != "action 1: type needs text: pass the characters to type" {
+		t.Errorf("InputAs: err = %v, want the type-needs-text refusal", err)
+	}
+	if _, held := mgr.ControlState(mc.RunID); held {
+		t.Error("a refused batch left a lease behind")
+	}
+	if _, _, err := mgr.TakeControl(mc.RunID, "human", 0); err != nil {
+		t.Fatalf("TakeControl: %v", err)
+	}
+	if _, err := mgr.Input(context.Background(), mc.RunID, "human", empty); err == nil ||
+		!strings.Contains(err.Error(), "type needs text") {
+		t.Errorf("Input: err = %v, want the type-needs-text refusal", err)
+	}
+	after, err := ReadSteps(mgr.RunDir(mc.RunID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("a refused type recorded %d steps", len(after)-len(before))
+	}
+	if posted := postedActions(t, control); len(posted) != 0 {
+		t.Errorf("a refused type posted %+v", posted)
+	}
+	// A space is text.
+	if _, err := mgr.Input(context.Background(), mc.RunID, "human", []InputAction{{Type: "type", Text: " "}}); err != nil {
+		t.Errorf("typing a space was refused: %v", err)
 	}
 }
 

@@ -43,9 +43,12 @@ import (
 //	list-empty          `tart list` returns []
 //	vmnames, vmname     `tart list` reports these VMs running (default: one unrelated VM)
 //
-// The script writes session-stdin ("tty <rows> <cols>" or "pipe"), a session's files
+// The script writes session-stdin ("tty <rows> <cols>" or "pipe"), exec-stdin (every script
+// machine_exec sent on stdin, ExecStdin), a session's files
 // (greenroom-session.<id> and .pid, ADR 0017) and stopped (after stop or delete).
 // `--serve` runs the fake live screen helper; its own control files are listed in fakescreen.go.
+// machine_pull's probe and tar (greenroom-pull-probe, greenroom-pull-tar) run for real on the
+// host, with $HOME as the guest home.
 func FakeTart(t *testing.T) (bin string, control string) {
 	t.Helper()
 	self, err := os.Executable()
@@ -92,6 +95,15 @@ case "$sub" in
         [ -f "$C/fail-serve" ] && { echo "Error: VM is not running" >&2; exit 1; }
         exec env ` + fakeScreenEnv + `="$C" "` + self + `" ;;
     esac
+    # machine_exec is "exec -i <name> /bin/sh -s greenroom-exec <secs>" with the wrapper and the
+    # command on stdin (issue #128). Each script is appended to exec-stdin, then put back where it
+    # was before (the last argument), so the cases below see the command as they always did.
+    if [ "$1" = "-i" ] && [ "$4" = "-s" ] && [ "$5" = "greenroom-exec" ]; then
+      in=$(cat)
+      printf '%s\n' "$in" >> "$C/exec-stdin"
+      shift
+      set -- "$@" "$in"
+    fi
     # A session is "exec -i <name> /bin/sh -c <wrapper> greenroom-session <id> <command>" (ADR 0017).
     # It is modelled by the real script(1) running cat behind a host pty, writing the file the real
     # read and close commands below use, so it echoes like the guest. The command is never run.
@@ -115,9 +127,10 @@ case "$sub" in
     fi
     if [ -f "$C/agent-down" ]; then echo "Error: is the Tart Guest Agent running?" >&2; exit 1; fi
     [ -f "$C/fail-exec" ] && { echo "Error: VM is not running" >&2; exit 1; }
-    # A session's output reads and its close run for real on the host (machine/sessionguest.go).
+    # A session's output reads and its close run for real on the host (machine/sessionguest.go),
+    # and so do machine_pull's probe and tar, from the host's $HOME as the guest's.
     case "$*" in
-      *greenroom-session-read*|*greenroom-session-close*) shift; exec "$@" ;;
+      *greenroom-session-read*|*greenroom-session-close*|*greenroom-pull-probe*|*greenroom-pull-tar*) shift; exec "$@" ;;
     esac
     case "$*" in
       *authorized_keys*) [ -f "$C/fail-keyinstall" ] && { echo "Error: cannot write" >&2; exit 1; } ;;
@@ -283,6 +296,16 @@ func ServeStarts(t *testing.T, control string) int {
 		}
 	}
 	return n
+}
+
+// ExecStdin returns every script machine_exec sent the fake tart on stdin, in order.
+func ExecStdin(t *testing.T, control string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(control, "exec-stdin"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // Flag turns on one fake-tart behavior by creating its control file.

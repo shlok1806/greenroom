@@ -213,3 +213,22 @@ func TestABodylessWriteWorksFromANativeClientButNotABrowser(t *testing.T) {
 		t.Error("the machine is still live after destroy")
 	}
 }
+
+// Only a request admitted through the public host is marked as coming from another computer.
+func TestGuardMarksOnlyPublicHostRequests(t *testing.T) {
+	var marked bool
+	h := Guard(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { marked = FromPublicHost(r.Context()) }), "gr.example.com", testToken)
+	for _, tc := range []struct {
+		host string
+		want bool
+	}{{"gr.example.com", true}, {"127.0.0.1:7777", false}, {"localhost", false}} {
+		marked = !tc.want
+		req := httptest.NewRequest(http.MethodGet, "/api/runs", nil)
+		req.Host = tc.host
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		if marked != tc.want {
+			t.Errorf("Host %s: FromPublicHost = %v, want %v", tc.host, marked, tc.want)
+		}
+	}
+}

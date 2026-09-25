@@ -25,18 +25,20 @@ type SyncArgs struct {
 	Exclude []string `json:"exclude,omitempty"`
 }
 
-// UploadError is the daemon refusing an upload: its status and message.
-type UploadError struct {
+// RefusedError is the daemon refusing a request connect made itself (an upload, a pull, a
+// download): what it was, its status and the daemon's message.
+type RefusedError struct {
+	Op      string
 	Status  int
 	Message string
 }
 
-func (e *UploadError) Error() string {
+func (e *RefusedError) Error() string {
 	msg := e.Message
 	if msg == "" {
 		msg = "no message"
 	}
-	return fmt.Sprintf("the daemon refused the upload (HTTP %d %s): %s", e.Status, http.StatusText(e.Status), msg)
+	return fmt.Sprintf("the daemon refused the %s (HTTP %d %s): %s", e.Op, e.Status, http.StatusText(e.Status), msg)
 }
 
 // errUploadDone stops the tar writer once the request is over.
@@ -101,7 +103,7 @@ func Upload(ctx context.Context, client *http.Client, base string, args SyncArgs
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponse))
 	if resp.StatusCode/100 != 2 {
-		return nil, &UploadError{Status: resp.StatusCode, Message: daemonMessage(body)}
+		return nil, &RefusedError{Op: "upload", Status: resp.StatusCode, Message: daemonMessage(body)}
 	}
 	if tarErr != nil {
 		return nil, fmt.Errorf("pack %s: %w", source, tarErr)
@@ -239,6 +241,17 @@ func ParseExcludes(patterns []string) Excludes {
 		out = append(out, e)
 	}
 	return out
+}
+
+// Covers reports whether rel or a directory above it is excluded. An archive is a flat list
+// of paths, with nothing to skip a directory's contents the way the walk does.
+func (x Excludes) Covers(rel string, isDir bool) bool {
+	for i := 1; i < len(rel); i++ {
+		if rel[i] == '/' && x.Match(rel[:i], true) {
+			return true
+		}
+	}
+	return x.Match(rel, isDir)
 }
 
 // Match reports whether rel (slash-separated, relative to source) is excluded. The walk

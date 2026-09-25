@@ -156,9 +156,7 @@ func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (
 
 	case "type":
 		call = callOf("machine_type", map[string]string{"text": arg})
-		if arg == "" {
-			return call, "error: machine_type needs text", 0
-		}
+		// An empty text is refused by the machine, in the words every surface uses (issue #126).
 		result, step = postInput(ctx, m.mgr, runID, fmt.Sprintf("typed %q", arg),
 			machine.InputAction{Type: "type", Text: arg})
 		return call, result, step

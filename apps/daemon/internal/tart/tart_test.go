@@ -129,6 +129,22 @@ func TestExecPassesTheCommandAfterTheVMName(t *testing.T) {
 	}
 }
 
+// ExecInputTo puts -i before the VM name and hands the guest command stdin to its end.
+func TestExecInputToAttachesStdin(t *testing.T) {
+	c, log := argsBin(t, `cat; echo err >&2; exit 3`)
+	var stdout, stderr strings.Builder
+	code, err := c.ExecInputTo(context.Background(), strings.NewReader("line 1\nline 2\n"), &stdout, &stderr, "vm", "/bin/sh", "-s", "x")
+	if err != nil || code != 3 {
+		t.Fatalf("ExecInputTo = %d, %v; want the guest's exit 3", code, err)
+	}
+	if stdout.String() != "line 1\nline 2\n" || stderr.String() != "err\n" {
+		t.Errorf("stdout %q, stderr %q", stdout.String(), stderr.String())
+	}
+	if got, _ := os.ReadFile(log); string(got) != "exec -i vm /bin/sh -s x\n" {
+		t.Errorf("tart was called with %q", got)
+	}
+}
+
 func TestExecStopsWhenTheContextEnds(t *testing.T) {
 	c, _ := argsBin(t, `exec sleep 30`)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

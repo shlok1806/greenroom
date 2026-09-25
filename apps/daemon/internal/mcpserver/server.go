@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/jpeg"
 	"image/png"
@@ -28,11 +29,30 @@ const (
 	jpegQuality = 80
 )
 
+// Option changes what New builds.
+type Option func(*options)
+
+type options struct {
+	publicHost bool
+}
+
+// ForPublicHost builds the server that answers calls from the public host (ADR 0021): its
+// caller is on another computer, so no tool writes where the caller names on this host.
+// machine_pull refuses a dest there and always copies into the run directory (ADR 0022).
+func ForPublicHost() Option { return func(o *options) { o.publicHost = true } }
+
+// ErrRemoteDest is machine_pull's answer to a dest from the public host.
+var ErrRemoteDest = errors.New("through the tunnel, dest is chosen by greenroom connect on your computer; omit dest")
+
 // New builds the MCP server over mgr and reg. defaultImage is used when machine_create names none.
-func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.Server {
+func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts ...Option) *mcp.Server {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	s := mcp.NewServer(&mcp.Implementation{Name: "greenroom", Version: Version}, &mcp.ServerOptions{
 		Instructions: "greenroom gives you a disposable macOS machine. Call machine_create once and keep its runId, " +
-			"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_exec to build " +
+			"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_pull to copy files out, machine_exec to build " +
 			"and run (a command still going after 45 s comes back running, with an execId for machine_exec_wait), " +
 			"machine_screenshot to look at the screen, machine_ui to find controls and their centers before " +
 			"machine_click, and machine_destroy when done. " +
@@ -111,6 +131,28 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 			"the path relative to the home, which machine_exec's cwd takes as is.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in syncIn) (*mcp.CallToolResult, machine.SyncResult, error) {
 		res, err := mgr.Sync(ctx, in.RunID, in.Source, in.Dest, in.Exclude)
+		res.Seconds = round(res.Seconds)
+		return nil, res, err
+	})
+
+	type pullIn struct {
+		RunID   string   `json:"runId" jsonschema:"runId from machine_create"`
+		Source  string   `json:"source" jsonschema:"Guest file or directory to copy out: relative to the guest home (work/myapp/build/report.xml), starting with ~/, or absolute (/tmp/app.log)"`
+		Dest    string   `json:"dest,omitempty" jsonschema:"Absolute directory on the host to copy into, made if missing. Defaults to a new NNN-pull directory in the run's directory."`
+		Exclude []string `json:"exclude,omitempty" jsonschema:"rsync exclude patterns, e.g. node_modules, .git, build"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "machine_pull",
+		Description: "Copy a file or directory out of the machine to the host with rsync: build products, logs, test " +
+			"reports, an .app bundle. source is a guest path, relative to the home, with ~/, or absolute. A " +
+			"directory's contents land in dest; a file lands in dest under its own name (a symlink to a file is " +
+			"copied as the file). Without dest the copy goes to a new numbered directory in the run's directory, so " +
+			"it is also evidence. The result's dest is the absolute path on the host where the copy is.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in pullIn) (*mcp.CallToolResult, machine.PullResult, error) {
+		if o.publicHost && in.Dest != "" {
+			return nil, machine.PullResult{}, ErrRemoteDest
+		}
+		res, err := mgr.Pull(ctx, in.RunID, in.Source, in.Dest, in.Exclude)
 		res.Seconds = round(res.Seconds)
 		return nil, res, err
 	})

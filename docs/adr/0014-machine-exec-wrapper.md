@@ -1,7 +1,8 @@
 # 0014. machine_exec runs behind a guest wrapper: output through files, timeout enforced in the guest
 
 Date: 2026-09-22
-Status: accepted
+Status: accepted. Decision 1's invocation (the wrapper and the command in argv) is superseded by
+ADR 0023, which sends both on stdin.
 
 ## Context
 

@@ -7,6 +7,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -20,8 +22,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/api"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/mcpserver"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/remote"
 	greenroomsession "github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
@@ -32,7 +36,8 @@ func TestEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := mcpserver.New(mgr, greenroomBaseImage(), greenroomsession.NewRegistry(root, greenroomsession.DefaultMaxDisputes))
+	reg := greenroomsession.NewRegistry(root, greenroomsession.DefaultMaxDisputes)
+	server := mcpserver.New(mgr, greenroomBaseImage(), reg)
 	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true}))
 	defer ts.Close()
 
@@ -104,6 +109,35 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("expected exit 3, got %+v", execOut)
 	}
 
+	// Issue #128: the wrapper and the command reach the guest on stdin, so every
+	// process listing is short and a pgrep for the command's own words finds
+	// nothing but itself, which pgrep never lists.
+	call("machine_exec", map[string]any{"runId": created.RunID, "command": "pgrep -fl greenroom"}, &execOut)
+	t.Logf("pgrep -fl greenroom: %q", execOut.Stdout)
+	if execOut.ExitCode != 0 || !strings.Contains(execOut.Stdout, "/bin/sh -s greenroom-exec 600") {
+		t.Fatalf("pgrep -fl greenroom did not list the wrapper's short line: %+v", execOut)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(execOut.Stdout), "\n") {
+		if len(line) > 160 || strings.Contains(line, "pgrep") {
+			t.Errorf("process line %q is long or carries the command", line)
+		}
+	}
+	call("machine_exec", map[string]any{"runId": created.RunID, "command": "pgrep -fl some-unique-token-xyz"}, &execOut)
+	if execOut.ExitCode != 1 || execOut.Stdout != "" {
+		t.Fatalf("pgrep -f for the command's own words matched something: %+v", execOut)
+	}
+	// Still as before: the timeout kills the command with exit 124 and the output
+	// so far, a background child does not hold the call, and log is /usr/bin/log.
+	call("machine_exec", map[string]any{"runId": created.RunID, "command": "echo before; sleep 30", "timeoutSeconds": 2}, &execOut)
+	if execOut.ExitCode != 124 || !execOut.TimedOut || execOut.Stdout != "before\n" {
+		t.Fatalf("timeout: %+v", execOut)
+	}
+	call("machine_exec", map[string]any{"runId": created.RunID, "command": "sleep 30 & echo started; whence -w log; echo err >&2\nnosuchcmd-greenroom"}, &execOut)
+	if execOut.ExitCode != 127 || execOut.Seconds > 10 || execOut.Stdout != "started\nlog: command\n" ||
+		!strings.HasPrefix(execOut.Stderr, "err\n") || !strings.Contains(execOut.Stderr, ":2: command not found: nosuchcmd-greenroom") {
+		t.Fatalf("background child, log and line numbers: %+v", execOut)
+	}
+
 	src := t.TempDir()
 	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("hi\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -121,6 +155,49 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("sync: expected only hello.txt, got %q", execOut.Stdout)
 	}
 
+	// machine_pull: what the guest made comes back byte for byte, through rsync and through
+	// the pull route connect uses (the guest's tar streamed out of tart exec).
+	call("machine_exec", map[string]any{"runId": created.RunID, "cwd": syncOut.Dest, "command": "mkdir -p out/sub && " +
+		"printf 'made in the guest\\n' > out/sub/made.txt && head -c 3000000 /dev/urandom > out/blob.bin && " +
+		"shasum -a 256 out/blob.bin | cut -d ' ' -f 1"}, &execOut)
+	guestSum := strings.TrimSpace(execOut.Stdout)
+	if execOut.ExitCode != 0 || len(guestSum) != 64 {
+		t.Fatalf("make files in the guest: %+v", execOut)
+	}
+	checkPulled := func(how, dir string) {
+		t.Helper()
+		if b, err := os.ReadFile(filepath.Join(dir, "sub", "made.txt")); err != nil || string(b) != "made in the guest\n" {
+			t.Fatalf("%s: sub/made.txt = %q, %v", how, b, err)
+		}
+		blob, err := os.ReadFile(filepath.Join(dir, "blob.bin"))
+		if err != nil {
+			t.Fatalf("%s: %v", how, err)
+		}
+		if sum := sha256.Sum256(blob); hex.EncodeToString(sum[:]) != guestSum {
+			t.Fatalf("%s: blob.bin (%d bytes) differs from the guest's", how, len(blob))
+		}
+	}
+	var pullOut machine.PullResult
+	call("machine_pull", map[string]any{"runId": created.RunID, "source": "~/" + syncOut.Dest + "/out"}, &pullOut)
+	if want := filepath.Join(root, "runs", created.RunID); filepath.Dir(pullOut.Dest) != want {
+		t.Fatalf("pull: default dest %s is not in the run directory %s", pullOut.Dest, want)
+	}
+	checkPulled("machine_pull", pullOut.Dest)
+	fileDest := t.TempDir()
+	call("machine_pull", map[string]any{"runId": created.RunID, "source": syncOut.Dest + "/hello.txt", "dest": fileDest}, nil)
+	if b, err := os.ReadFile(filepath.Join(fileDest, "hello.txt")); err != nil || string(b) != "hi\n" {
+		t.Fatalf("pull of a synced file: %q, %v", b, err)
+	}
+	apiSrv := httptest.NewServer(api.Guard(api.New(mgr, reg, slog.New(slog.NewTextHandler(os.Stderr, nil))), "", ""))
+	defer apiSrv.Close()
+	remoteOut, err := remote.Pull(ctx, http.DefaultClient, apiSrv.URL, t.TempDir(),
+		remote.PullArgs{RunID: created.RunID, Source: syncOut.Dest + "/out"})
+	if err != nil {
+		t.Fatalf("pull through the route: %v", err)
+	}
+	checkPulled("the pull route", remoteOut.Dest)
+	t.Logf("pull route: %s in %.2fs", remoteOut.Summary, remoteOut.Seconds)
+
 	res := call("machine_screenshot", map[string]any{"runId": created.RunID}, nil)
 	var img *mcp.ImageContent
 	for _, c := range res.Content {
@@ -132,6 +209,10 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("screenshot: no JPEG image content in result")
 	}
 	t.Logf("screenshot: %d bytes, %s", len(img.Data), img.MIMEType)
+	// Kept with go test -artifacts, to look at the desktop after machine_exec (issue #117).
+	if err := os.WriteFile(filepath.Join(t.ArtifactDir(), "after-exec.jpg"), img.Data, 0o644); err != nil {
+		t.Errorf("keep the screenshot: %v", err)
+	}
 
 	entries, _ := os.ReadDir(filepath.Join(root, "runs", created.RunID))
 	names := []string{}

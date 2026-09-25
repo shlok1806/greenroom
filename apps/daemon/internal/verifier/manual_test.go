@@ -179,7 +179,8 @@ func TestManualTypeKeyAndScroll(t *testing.T) {
 	}
 }
 
-// Like the model brain, an empty type is refused before it reaches the machine.
+// Like the model brain, an empty type is refused by the machine's shared check and records no
+// step (issue #126).
 func TestManualTypeNeedsText(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	store := openStore(t, mgr, runID)
@@ -189,7 +190,7 @@ func TestManualTypeNeedsText(t *testing.T) {
 		t.Fatalf("Turn: %v", err)
 	}
 	progress := messagesOfKind(store, session.Progress)
-	if len(progress) != 1 || progress[0].Step != 0 || !strings.Contains(progress[0].Text, "machine_type needs text") {
+	if len(progress) != 1 || progress[0].Step != 0 || !strings.Contains(progress[0].Text, "type needs text: pass the characters to type") {
 		t.Fatalf("progress = %+v, want one unrecorded refusal", progress)
 	}
 	if last := lastMessage(t, store); len(last.Evidence) != 0 {
@@ -363,7 +364,7 @@ func TestManualReplyNamesTheInstructionThatFailed(t *testing.T) {
 	store := openStore(t, mgr, runID)
 	for _, tc := range []struct{ text, want string }{
 		{"click 0.5", "click failed: click needs two numbers"},
-		{"type", "type failed: machine_type needs text"},
+		{"type", "type failed: action 1: type needs text"},
 		{"key", "key failed: key needs a key name"},
 		{"scroll x y", "scroll failed: scroll needs two numbers"},
 	} {

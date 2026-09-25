@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -160,8 +161,9 @@ func (m *Manager) startExec(ctx context.Context, runID, command, cwd string, tim
 	go func() {
 		defer cancel()
 		var stdout, stderr headTail
-		code, err := m.tart.ExecTo(jobCtx, &stdout, &stderr, mc.Name,
-			"/bin/sh", "-c", execWrapper, "greenroom-exec", script, strconv.Itoa(guestSeconds))
+		// The wrapper and the command go on stdin, never in a guest argv (issue #128).
+		code, err := m.tart.ExecInputTo(jobCtx, strings.NewReader(execScript(script)), &stdout, &stderr, mc.Name,
+			append(slices.Clone(execShell), strconv.Itoa(guestSeconds))...)
 		out := ExecResult{ExecID: id, ExitCode: code, Seconds: time.Since(j.started).Seconds(), Step: j.step}
 		out.Stdout, out.StdoutBytes, out.StdoutTruncated = stdout.result()
 		out.Stderr, out.StderrBytes, out.StderrTruncated = stderr.result()
