@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -59,6 +60,11 @@ type Machine struct {
 	// Desktop is what the screen showed at ready: any window or app a fresh machine should
 	// not have (ADR 0018). Reported, never closed. Set at ready.
 	Desktop *DesktopReport `json:"desktop,omitempty"`
+
+	// boot is each boot phase as it started and ended (bootphase.go), guarded by
+	// Manager.mu. Unexported, so neither MCP results nor state.json carry it; the
+	// companion API reads it through BootPhases.
+	boot []BootPhase
 
 	// Control is the screen-control lease (ADR 0009). It is replaced, never
 	// edited in place, so snapshots can share it.
@@ -134,13 +140,15 @@ type Manager struct {
 
 // LifecycleEvent is one change a listener may care about.
 type LifecycleEvent struct {
-	Kind    string   `json:"kind"` // created, ready, failed, stopped, destroyed, step, frame, control
+	Kind    string   `json:"kind"` // created, ready, failed, stopped, destroyed, step, frame, control, boot
 	RunID   string   `json:"runId"`
 	Machine *Machine `json:"machine,omitempty"`
 	Step    int      `json:"step,omitempty"`
 	Frame   *Frame   `json:"frame,omitempty"`
 	// Lapsed is the lease that ran out with nobody renewing it, on a "control" event (issue #57).
 	Lapsed *Control `json:"lapsed,omitempty"`
+	// Boot is the phase that started or ended, on a "boot" event.
+	Boot *BootPhase `json:"boot,omitempty"`
 }
 
 // Option adjusts a Manager before it touches the disk or the host.
@@ -302,6 +310,7 @@ func (mc *Machine) publicLocked() *Machine {
 	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel, c.screen = nil, nil, nil, nil, nil, nil, nil
 	c.execs, c.cleanups = nil, nil
 	c.bootCancel, c.bootDone, c.frameDone = nil, nil, nil
+	c.boot = slices.Clone(mc.boot) // putPhase rewrites elements in place
 	return &c
 }
 
@@ -382,10 +391,15 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 	mc := &Machine{RunID: runID, Name: name, Image: image, Status: Booting, CreatedAt: started.UTC(), Dir: dir,
 		rec: rec, ready: make(chan struct{}), input: &inputState{}}
 
-	if err := m.tart.Clone(ctx, image, name); err != nil {
+	endClone := m.beginPhase(mc, PhaseClone)
+	err = m.tart.Clone(ctx, image, name)
+	endClone(image, err)
+	if err != nil {
 		return fail(err)
 	}
+	endStart := m.beginPhase(mc, PhaseStart)
 	proc, err := m.tart.Start(name, filepath.Join(dir, "vm.log"))
+	endStart(name, err)
 	if err != nil {
 		m.cleanupVM(name)
 		return fail(err)
@@ -412,7 +426,12 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 	}
 	seq := rec.step("machine_create", input, map[string]any{"runId": runID, "machineName": name, "status": Booting}, nil, started)
 	m.emitStep(runID, seq)
-	m.emit(LifecycleEvent{Kind: "created", RunID: runID, Machine: m.snapshot(mc)})
+	created := m.snapshot(mc)
+	m.emit(LifecycleEvent{Kind: "created", RunID: runID, Machine: created})
+	// Clone and start ran before anyone knew the run; publish them now, in order.
+	for _, p := range created.boot {
+		m.emitPhase(runID, p)
+	}
 	go m.finishBoot(bootCtx, mc, started)
 	return m.snapshot(mc), nil
 }

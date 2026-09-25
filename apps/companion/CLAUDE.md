@@ -265,10 +265,13 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   layer that takes no clicks and is hidden from VoiceOver; none delays a key, a click or a
   navigation; Reduce Motion plays no reveal or power-down (the end state shows) and holds a
   click mark still instead of rippling.
-  - Boot: the well shows `BootLog` lines under the loader, only what the daemon said (the
-    create and boot steps, status, boot time, address, the screen connecting). The daemon
-    sends no clone or ssh events, so there are no such lines (ADR 0006 expects them; a
-    daemon change). The first picture after the well waited (booting, connecting, no frame
+  - Boot: the well shows `BootLog` lines under the loader, only what the daemon said: one
+    line per boot phase in `Machine.boot` (clone, start, agent, ip, key, settings, helper,
+    desktop, ssh; the running one ticks from its start, and between phases a `boot` line
+    ticks), then ready with the boot time and the screen connecting. `boot` SSE events merge
+    into the held machine in `apply` (`[BootPhase].merging`, by phase name); a `run` event
+    with no phases keeps the held ones. A daemon before boot phases sends none: the lines
+    are then the create and boot steps, status, boot time and address. The first picture after the well waited (booting, connecting, no frame
     yet) resolves out of glyphs, once per open of the run; a finished run opening onto its
     recording does not reveal.
   - Glyphs are sampled off the main actor from a picture already decoded: the live layer's
@@ -510,7 +513,8 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
 - Unknown enum values decode to `unknown(String)`, never throw. Use `JSONDecoder.daemon()`
   (RFC3339 with or without fractional seconds).
 - `apps/daemon/internal/api/api.go` is the authority on shapes. A `step` event carries the
-  step number (re-read `/steps`). `machine`, `verdict`, `destroyedAt` come back as
+  step number (re-read `/steps`). A `boot` event carries the whole phase (`{runId, phase}`),
+  sent once as it starts and again as it ends. `machine`, `verdict`, `destroyedAt` come back as
   explicit `null`. Errors are `{"error": "..."}`; a message refused on a contested verdict
   is 409.
 - `RunSummary.task` is optional: a daemon before it decodes, and the run reads "Run <hash>".

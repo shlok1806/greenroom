@@ -39,6 +39,12 @@ func (c *sseClient) send(ev sseEvent) {
 	}
 }
 
+// runEvent is a lifecycle event whose machine carries its boot phases, like /api/runs/{id}.
+type runEvent struct {
+	machine.LifecycleEvent
+	Machine *LiveMachine `json:"machine,omitempty"`
+}
+
 func (a *api) events(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -55,7 +61,11 @@ func (a *api) events(w http.ResponseWriter, r *http.Request) {
 		}
 		switch ev.Kind {
 		case "created", "ready", "failed", "stopped", "destroyed", "control":
-			c.send(sseEvent{name: "run", data: ev})
+			c.send(sseEvent{name: "run", data: runEvent{LifecycleEvent: ev, Machine: liveMachine(ev.Machine)}})
+		case "boot":
+			if ev.Boot != nil {
+				c.send(sseEvent{name: "boot", data: map[string]any{"runId": ev.RunID, "phase": ev.Boot}})
+			}
 		case "step":
 			c.send(sseEvent{name: "step", data: map[string]any{"runId": ev.RunID, "step": ev.Step}})
 		case "frame":

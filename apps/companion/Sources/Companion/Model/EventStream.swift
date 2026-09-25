@@ -13,6 +13,8 @@ enum ServerEvent: Hashable, Sendable {
     case step(runId: String, seq: Int, step: Step?)
     case message(runId: String, message: Message)
     case frame(runId: String, frame: Frame)
+    /// A boot phase started or ended.
+    case boot(runId: String, phase: BootPhase)
 }
 
 struct LifecycleEvent: Codable, Hashable, Sendable {
@@ -108,6 +110,9 @@ struct SSEParser {
                 // The daemon flattens the frame's fields into the envelope.
                 let runId = try decoder.decode(FrameEvent.self, from: payload).runId
                 return .frame(runId: runId, frame: try decoder.decode(Frame.self, from: payload))
+            case "boot":
+                let event = try decoder.decode(BootEvent.self, from: payload)
+                return .boot(runId: event.runId, phase: event.phase)
             default:
                 return nil
             }
@@ -138,6 +143,11 @@ private struct StepEvent: Decodable {
             step = record
         }
     }
+}
+
+private struct BootEvent: Decodable {
+    var runId: String
+    var phase: BootPhase
 }
 
 private struct MessageEvent: Decodable {
