@@ -20,10 +20,11 @@ and radii, the window's own chrome, and every view restyled in that language. La
 the Cmd-K palette, the menu bar built from the registry, and the 5 s undo on accept and
 dispute. Layer 3 (layout) has landed: the three width classes, the screen with the steps
 under it (no more Screen and Steps tabs), the runs strip and the one-row steps track, one
-pane at a time in a narrow window, and `z` zoom (design spec, Layout). Not yet built: the
-motion vocabulary beyond the settle spring and signature moments, click marks (`m`),
-`GridMetrics`. Until a layer lands, the rules below that name round-2 behaviour describe
-the code as it is.
+pane at a time in a narrow window, and `z` zoom (design spec, Layout). Layer 4 (the stage)
+has landed: the screen's title row and well states, the loader, the player bar, and the
+steps as a thinking trace (below). Not yet built: the motion vocabulary beyond the settle
+spring, the tick and the loader, signature moments, click marks (`m`), `GridMetrics`.
+Until a layer lands, the rules below that name round-2 behaviour describe the code as it is.
 
 ## Commands
 
@@ -335,6 +336,22 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   shortcuts included), the composer once it is clicked. "Give Back", clicked, returns the
   screen (in the top bar). Taking control from the top bar or menu brings the screen
   forward first (`KeyboardModel.showScreen`: the stage, its screen, no zoom elsewhere).
+- The stage (layer 4): `ScreenView` is a title row (`SCREEN`, the machine's image, and
+  `SourceLabel`: live, connecting, recording position, driving), the well, then
+  `Views/PlayerBar.swift` (play, the scrubber, the step at the playhead in words under it,
+  speed `f`, Follow Live). What an empty well says is `WellState` (pure). The scrubber's
+  ticks are `FrameTimeline.stepTicks`: a failure always gets its tick, even with no frame
+  of its own, and a plain tick never hides one.
+- `Loader` (`Views/Loader.swift`, math in `Model/LoaderMotion.swift`, timings in
+  `tokens.json` `motion.loader`) is the one waiting indicator for long work: booting,
+  connecting, the first connection. It is reusable (the transcript may adopt it for
+  "verifier is working"); its timer counts from the work's own start (`since`), never from
+  when the view appeared. Reduce Motion freezes the grid, the timer keeps ticking.
+- The steps read as a trace (`Model/StepTrace.swift`): done is a dim `✓`, errored is `✗`
+  and the word (`exit 1`, `error`) in the failure role. The daemon records a step only when
+  its call ends, so no recorded step is "running": while the verifier has the turn on a
+  live machine (`StepTrace.working`) the list ends in a ticking row and the one-row track
+  in a tick after its cells. Never mark the newest recorded step as running.
 - Every step and tool-call row reads in plain words (`StepSummary.phrase`: "Clicked Bill
   field", "Typed 120", "Pressed ⌘A", "Ran swift test", "Took a screenshot"); the tool
   name, time and raw JSON are one click (expand) away. A click is named by the control

@@ -289,16 +289,19 @@ private struct EmptyState<Extra: View>: View {
     }
 }
 
+/// The first read of the daemon: the loader, timed from when it began, and where.
 private struct ConnectingView: View {
     let address: String
 
+    @State private var since = Date()
+
     var body: some View {
-        HStack(spacing: Space.s) {
-            Spinner()
-            Text("Connecting to greenroom at \(address)")
-                .monoStyle()
+        VStack(spacing: Space.s) {
+            Loader(label: "Connecting to greenroom", since: since)
+            Text(address)
+                .monoStyle(size: TypeScale.monoSmall)
+                .foregroundStyle(.secondary)
         }
-        .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

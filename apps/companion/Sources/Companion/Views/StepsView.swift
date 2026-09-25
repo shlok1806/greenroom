@@ -1,8 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// Every tool call the run recorded. A row opens to show the screen at that step, what
-/// went in and what came out. The step a person was sent to is highlighted and open.
+/// Every tool call the run recorded, read as a thinking trace (`StepTrace`, after Beautiful
+/// UI's ThinkingState): a row per step in plain words, a muted check once it is done, `✗`
+/// and the word when it errored, and while the verifier works a last row that ticks. A
+/// row opens (`⏎`) to show the screen at that step, what went in and what came out. The
+/// step a person was sent to is highlighted and open; the one at the playhead is marked.
+/// New rows settle in; under Reduce Motion they appear at once.
 struct StepsView: View {
     let store: RunStore
     let runId: String
@@ -29,6 +33,7 @@ struct StepsView: View {
     @State private var browsing = false
     @FocusState private var hasFocus: Bool
     @Environment(\.keyboard) private var keyboard
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var allSteps: [Step] { store.steps[runId] ?? [] }
     private var steps: [Step] { errorsOnly ? allSteps.filter { $0.outcome.isFailure } : allSteps }
@@ -119,6 +124,12 @@ struct StepsView: View {
                                     }
                                 )
                             )
+                            .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: Space.s)), removal: .opacity))
+                        }
+                        if let working = StepTrace.working(facts) {
+                            RunningRow(working: working)
+                                .id(RunningRow.id)
+                                .transition(.opacity)
                         }
                     } header: {
                         StepsHeader(
@@ -131,11 +142,16 @@ struct StepsView: View {
                         )
                     }
                 }
+                // New steps settle in (ADR 0006 `settle`); instant under Reduce Motion.
+                .animation(PaneMotion.settle(reduceMotion: reduceMotion), value: allSteps.count)
+                .animation(PaneMotion.settle(reduceMotion: reduceMotion), value: StepTrace.working(facts) != nil)
             }
             .overlayScrollers()
             .overlay {
-                if allSteps.isEmpty {
-                    QuietEmpty(title: "No steps yet", message: "A step is recorded for every tool call against the machine.")
+                if allSteps.isEmpty, StepTrace.working(facts) == nil {
+                    QuietEmpty(title: "No steps yet", message: facts.isAlive
+                        ? "A step is recorded for every tool call against the machine."
+                        : "This run made no tool calls against its machine.")
                 } else if steps.isEmpty {
                     QuietEmpty(title: "No failed steps", message: "Every tool call in this run succeeded.")
                 }
@@ -170,6 +186,12 @@ struct StepsView: View {
                 guard following, facts.isAlive, let last = steps.last else { return }
                 // The row's identity in the lazy stack is the `Step`, not its seq.
                 withAnimation { proxy.scrollTo(last, anchor: .bottom) }
+                // The ticking row under it, once the lazy stack has built it.
+                guard StepTrace.working(facts) != nil else { return }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(60))
+                    withAnimation { proxy.scrollTo(RunningRow.id, anchor: .bottom) }
+                }
             }
             .offersActions(.steps, offered, refresh: runId) { perform($0, proxy: proxy) }
         }
@@ -218,12 +240,12 @@ struct StepsView: View {
 
 /// Widths shared by the header and every row.
 private enum StepColumn {
-    static let glyph: CGFloat = 14
     static let seq: CGFloat = 32
+    static let glyph: CGFloat = 14
     static let duration: CGFloat = 64
     static let gap: CGFloat = Space.s
     static let horizontal: CGFloat = Space.l
-    static let detailInset: CGFloat = horizontal + glyph + gap + seq + gap
+    static let detailInset: CGFloat = horizontal + seq + gap + glyph + gap
 }
 
 private struct StepsHeader: View {
@@ -261,9 +283,10 @@ private struct StepsHeader: View {
     }
 }
 
-/// One step in plain words (ADR 0008): a glyph for how it went, its number, what it did
-/// as a sentence, and at most two facts (a failure badge, how long it took). The tool,
-/// its time and its raw input and output are one click away.
+/// One step in plain words (ADR 0008): its number, a glyph for how it went (a muted
+/// check, or `✗` in the failure role), what it did as a sentence, and at most two facts
+/// (the failure's word, how long it took). The tool, its time and its raw input and
+/// output are one `⏎` away.
 private struct StepRow: View {
     let store: RunStore
     let runId: String
@@ -278,16 +301,22 @@ private struct StepRow: View {
     @State private var hovering = false
     @Environment(\.theme) private var theme
 
+    private var row: StepTrace.Row {
+        StepTrace.row(for: step, in: store.steps[runId] ?? [], playhead: atPlayhead ? step.seq : nil)
+    }
+
     var body: some View {
+        let row = row
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.snappy(duration: 0.18)) { expanded.toggle() }
             } label: {
-                summaryLine
+                summaryLine(row)
             }
             .buttonStyle(.plain)
             .id(step.seq)
             .help(expanded ? "Hide this step" : "Show this step's screen, input and output")
+            .accessibilityLabel("Step \(row.seq), \(StepTrace.spoken(row.state)): \(row.words)")
             .accessibilityHint(expanded ? "Collapses the step" : "Expands the step")
 
             if expanded {
@@ -311,36 +340,33 @@ private struct StepRow: View {
         .onHover { hovering = $0 }
     }
 
-    private var failed: Bool { step.outcome.isFailure }
-
-    private var summaryLine: some View {
+    private func summaryLine(_ row: StepTrace.Row) -> some View {
         HStack(spacing: StepColumn.gap) {
-            Text(failed ? "✗" : "✓")
-                .foregroundStyle(failed ? theme.color(.failure) : theme.dim)
-                .frame(width: StepColumn.glyph)
-                .accessibilityLabel(failed ? "Errored" : "Done")
-
-            Text("\(step.seq)")
+            Text("\(row.seq)")
                 .monospacedDigit()
                 .fontWeight(atPlayhead ? .bold : nil)
                 .foregroundStyle(atPlayhead ? AnyShapeStyle(theme.foreground) : AnyShapeStyle(.secondary))
                 .frame(width: StepColumn.seq, alignment: .trailing)
 
+            Text(StepTrace.glyph(row.state) ?? "")
+                .foregroundStyle(row.failed ? theme.color(.failure) : theme.dim)
+                .frame(width: StepColumn.glyph)
+
             HStack(spacing: Space.s) {
-                if step.isRisky {
+                if row.risky {
                     Text("!")
                         .fontWeight(.bold)
                         .foregroundStyle(theme.color(.attention))
                         .help("This command can destroy data or change the machine for good")
                         .accessibilityLabel("Risky command")
                 }
-                Text(StepSummary.phrase(for: step, in: store.steps[runId] ?? []))
-                    .foregroundStyle(failed ? theme.color(.failure) : theme.foreground)
+                Text(row.words)
+                    .foregroundStyle(row.failed ? theme.color(.failure) : theme.foreground)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(detailHelp)
-                if let badge {
-                    Text(badge)
+                if case .failed(let word) = row.state {
+                    Text(word)
                         .font(Typeface.monoMedium.font(size: TypeScale.monoSmall))
                         .foregroundStyle(theme.color(.failure))
                         .fixedSize()
@@ -348,7 +374,7 @@ private struct StepRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(Chrome.duration(step.durationMs))
+            Text(row.duration)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .frame(width: StepColumn.duration, alignment: .trailing)
@@ -358,14 +384,6 @@ private struct StepRow: View {
         .padding(.horizontal, StepColumn.horizontal)
         .padding(.vertical, Space.s)
         .contentShape(Rectangle())
-    }
-
-    private var badge: String? {
-        switch step.outcome {
-        case .ok: nil
-        case .exit(let code): "exit \(code)"
-        case .error: "error"
-        }
     }
 
     private var detailHelp: String {
@@ -385,6 +403,41 @@ private struct StepRow: View {
         } else {
             Color.clear
         }
+    }
+}
+
+/// The trace's last row while the verifier works on its next call: the tick where the
+/// glyph goes, who is working in words, and how long since the last step or message.
+private struct RunningRow: View {
+    let working: StepTrace.Working
+
+    static let id = "running"
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        HStack(spacing: StepColumn.gap) {
+            Color.clear.frame(width: StepColumn.seq, height: 1)
+            Spinner()
+                .foregroundStyle(theme.foreground)
+                .frame(width: StepColumn.glyph)
+            Text(working.words)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            TimelineView(.periodic(from: working.since, by: 1)) { context in
+                Text(LoaderMotion.elapsed(context.date.timeIntervalSince(working.since)))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: StepColumn.duration, alignment: .trailing)
+        }
+        .monoStyle()
+        .padding(.horizontal, StepColumn.horizontal)
+        .padding(.vertical, Space.s)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(working.words), for \(LoaderMotion.spokenElapsed(Date().timeIntervalSince(working.since)))")
+        .accessibilityAddTraits(.updatesFrequently)
     }
 }
 
@@ -493,7 +546,8 @@ private struct StepDetail: View {
 // MARK: - The one-row track
 
 /// The steps folded to one row under the screen (medium and narrow windows, ADR 0004
-/// decision 8): a cell per step, failures in the failure role, the step at the screen's
+/// decision 8): a cell per step in the trace's states (done dim, errored in the failure
+/// role, the tick in a last cell while the verifier works), the step at the screen's
 /// playhead drawn full height in the foreground, and that step in words beside it. A
 /// click on a cell shows its step on the screen; hovering names it; "All Steps" opens
 /// the list (`g s`).
@@ -507,19 +561,31 @@ struct StepsTrack: View {
     @State private var hovered: Int?
     @Environment(\.theme) private var theme
 
+    /// The widest a cell grows, so one step is not a bar across the stage.
+    private static let maxPitch: Double = 10
+
     private var steps: [Step] { store.steps[runId] ?? [] }
 
     var body: some View {
         let steps = steps
+        let working = StepTrace.working(store.facts(runId))
         HStack(spacing: Space.m) {
             SectionLabel(title: Chrome.plural(steps.count, "step"))
                 .fixedSize()
-            if !steps.isEmpty {
-                cells(steps)
-                    .frame(height: 16)
-                    .frame(minWidth: 80)
+            if !steps.isEmpty || working != nil {
+                HStack(spacing: Space.xs) {
+                    cells(steps)
+                        .frame(height: 16)
+                        .frame(minWidth: 80)
+                    // The running cell: the tick after the last step (ADR 0006 `tick`).
+                    if working != nil {
+                        Spinner(size: TypeScale.small)
+                            .foregroundStyle(theme.foreground)
+                            .fixedSize()
+                    }
+                }
                 // The words first: the cells take whatever is left.
-                label(steps)
+                label(steps, working: working)
                     .frame(minWidth: 120, idealWidth: 240, maxWidth: 260, alignment: .leading)
                     .layoutPriority(1)
             } else {
@@ -535,22 +601,34 @@ struct StepsTrack: View {
         .overlay(alignment: .top) { Hairline() }
     }
 
-    /// The hovered step, else the one at the playhead: its number and what it did.
+    /// The hovered step, else the one at the playhead: its number and what it did. With
+    /// neither, while the verifier works, who is working.
     @ViewBuilder
-    private func label(_ steps: [Step]) -> some View {
+    private func label(_ steps: [Step], working: StepTrace.Working?) -> some View {
         let seq = hoveredSeq(steps) ?? playhead
         if let seq, let step = steps.first(where: { $0.seq == seq }) {
+            let row = StepTrace.row(for: step, in: steps, playhead: playhead)
             HStack(spacing: Space.s) {
-                Text("\(step.seq)")
+                Text("\(row.seq)")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .fixedSize()
-                Text(StepSummary.phrase(for: step, in: steps))
-                    .foregroundStyle(step.outcome.isFailure ? theme.color(.failure) : theme.foreground)
+                Text(row.words)
+                    .foregroundStyle(row.failed ? theme.color(.failure) : theme.foreground)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                if case .failed(let word) = row.state {
+                    Text(word)
+                        .foregroundStyle(theme.color(.failure))
+                        .fixedSize()
+                }
             }
             .monoStyle(size: TypeScale.small)
+        } else if let working {
+            Text(working.words)
+                .monoStyle(size: TypeScale.small)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         } else {
             Color.clear.frame(height: 1)
         }
@@ -560,20 +638,27 @@ struct StepsTrack: View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let height = geometry.size.height
-            let pitch = width / Double(max(steps.count, 1))
+            let current = hoveredSeq(steps) ?? playhead
+            let cells = StepTrace.cells(steps, current: current, working: false)
+            // A few steps keep cells of a step's size, from the left; many share the width.
+            let pitch = min(width / Double(max(cells.count, 1)), Self.maxPitch)
             // A gap between cells while there is room for one.
             let gap: Double = pitch >= 4 ? 1 : 0
-            let current = hoveredSeq(steps) ?? playhead
-            Canvas { context, _ in
-                for (index, step) in steps.enumerated() {
-                    let failed = step.outcome.isFailure
-                    let isCurrent = step.seq == current
-                    let cellHeight = isCurrent ? height : height * 0.55
-                    let rect = CGRect(x: Double(index) * pitch, y: (height - cellHeight) / 2,
-                                      width: max(pitch - gap, 1), height: cellHeight)
-                    let ink: Color = isCurrent ? theme.foreground
-                        : failed ? theme.color(.failure) : theme.dim.opacity(0.55)
-                    context.fill(Path(roundedRect: rect, cornerRadius: min(1, rect.width / 2)), with: .color(ink))
+            ZStack(alignment: .leading) {
+                Canvas { context, _ in
+                    for (index, cell) in cells.enumerated() {
+                        let cellHeight = cell.current ? height : height * 0.55
+                        let rect = CGRect(x: Double(index) * pitch, y: (height - cellHeight) / 2,
+                                          width: max(pitch - gap, 1), height: cellHeight)
+                        let ink: Color
+                        switch cell.state {
+                        case _ where cell.current: ink = theme.foreground
+                        case .failed: ink = theme.color(.failure)
+                        case .done: ink = theme.dim.opacity(0.55)
+                        case .running: continue
+                        }
+                        context.fill(Path(roundedRect: rect, cornerRadius: min(1, rect.width / 2)), with: .color(ink))
+                    }
                 }
             }
             .contentShape(Rectangle())
@@ -600,8 +685,10 @@ struct StepsTrack: View {
         hovered.flatMap { steps.indices.contains($0) ? steps[$0].seq : nil }
     }
 
+    /// The step under `x`; past the last step (the running cell) is none.
     private func index(at x: Double, pitch: Double, count: Int) -> Int? {
         guard count > 0, pitch > 0 else { return nil }
-        return min(max(Int(x / pitch), 0), count - 1)
+        let at = Int(x / pitch)
+        return at < count ? max(at, 0) : nil
     }
 }

@@ -205,6 +205,19 @@ final class ActionRegistryTests: XCTestCase {
         XCTAssertEqual(ActionRules.contexts(onScreen { $0.driving = true; $0.responder = .text }), [.composer])
     }
 
+    /// The player's speed has its own key, on the screen only, offered like play.
+    func testTheSpeedIsAKeyOnTheScreen() {
+        let spec = ActionRegistry.spec(.speed)
+        XCTAssertEqual(spec.keyLabel, "f")
+        XCTAssertEqual(spec.contexts, [.screen])
+        XCTAssertFalse(spec.destructive)
+        let offered = onScreen { $0.available.insert(HandlerKey(id: .speed, context: .screen)) }
+        XCTAssertEqual(KeyResolver.resolve(chord("f"), offered), .perform(.speed, .screen))
+        // Not offered (no recording to play): taken, doing nothing.
+        XCTAssertEqual(KeyResolver.resolve(chord("f"), onScreen()), .swallow)
+        XCTAssertEqual(ActionRules.whyDisabled(.speed, onScreen()), "Show the screen, with a recording")
+    }
+
     // MARK: - Resolving keys
 
     func testABareKeyOnAPaneActs() {

@@ -116,7 +116,19 @@ struct DesignTokens: Decodable, Sendable, Equatable {
             let dampingFraction: Double
         }
 
+        /// The 3 x 3 block-glyph loader (ADR 0006 `load`): a wavefront over a cycle, each
+        /// column (and each row away from the middle) `stepMs` later than the last.
+        struct Loader: Decodable, Sendable, Equatable {
+            let grid: Int
+            let cycleMs: Int
+            let stepMs: Int
+            let on: String
+            let off: String
+            let elapsedTickMs: Int
+        }
+
         let spinner: Spinner
+        let loader: Loader
         /// Resize, zoom, expand: panes move on this spring (ADR 0006).
         let settle: Spring
         /// How long an accept or dispute waits to be sent, so it can be undone (ADR 0005).

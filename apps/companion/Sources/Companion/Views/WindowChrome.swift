@@ -245,6 +245,11 @@ enum SnapshotHook {
                 defaults.set(theme.rawValue, forKey: ThemePreference.key)
                 try? await Task.sleep(for: .seconds(1.5))
                 guard let window = NSApp.windows.first(where: AppDelegate.isRunWindow) else { continue }
+                // A window under others gets no display pass of its own, so the new
+                // theme would reach the picture one capture late: draw it now.
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                try? await Task.sleep(for: .milliseconds(300))
                 let file = URL(fileURLWithPath: directory).appendingPathComponent("\(name)-\(theme.rawValue).png")
                 write(window, to: file)
             }
