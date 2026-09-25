@@ -2,34 +2,21 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// What the run's main column shows. The conversation sits beside either.
-enum StagePane: String, CaseIterable, Identifiable {
-    case screen
-    case steps
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .screen: "Screen"
-        case .steps: "Steps"
-        }
-    }
-}
-
-/// One run: a header naming it with its state in one line, the stage (Screen or Steps),
-/// and the conversation in a trailing column.
+/// One run: a header naming it with its state in one line, the stage (the screen with the
+/// steps under it) and the conversation beside it, arranged by `PaneLayout` for the
+/// window's width class and zoom. Every pane stays in the tree in every arrangement.
 struct RunView: View {
     let store: RunStore
     let runId: String
-    @Binding var pane: StagePane
+    /// The part of the stage with the keys (`KeyboardModel.stage`).
+    @Binding var stage: StagePane
     @Binding var showsConversation: Bool
-    /// Folds the sidebar, for a conversation asked for where it does not fit beside the stage.
-    var makeRoom: () -> Void = {}
 
     @State private var capturing = false
     @State private var savingRecording = false
     @State private var failureCursor: Int?
+    /// The step at the screen's playhead, for the one-row steps track.
+    @State private var playhead: Int?
     @AppStorage("conversationWidth") private var conversationWidth = RunLayout.conversationIdeal
     @AppStorage("composerFocusRequest") private var composerFocusRequest = 0
     @State private var detailSize: CGSize = .zero
@@ -43,28 +30,81 @@ struct RunView: View {
     private var canExport: Bool { !(store.frames[runId] ?? []).isEmpty && !savingRecording }
     private var canDestroy: Bool { store.details[runId]?.machine != nil }
 
-    /// The conversation's width beside the stage; nil when the window is too narrow for both.
-    private var conversationFit: Double? {
-        RunLayout.conversation(conversationWidth, in: detailSize.width)
+    /// The window's arrangement; a view hosted alone (tests) works one out from its own width.
+    private var layout: PaneLayout {
+        if let keyboard { return keyboard.layout }
+        return PaneLayout(widthClass: .of(width: detailSize.width), focus: .stage, stage: stage, runOpen: true,
+                          conversationShown: showsConversation)
     }
 
-    /// Whether the conversation is beside the stage: asked for, and room for it.
-    private var conversationShown: Bool { showsConversation && conversationFit != nil }
+    private var frames: PaneLayout.RunFrames {
+        layout.run(in: detailSize, conversationWidth: conversationWidth)
+    }
 
-    /// What the toolbar and the menu toggle. Asking for a conversation that has no room
-    /// folds the sidebar to make it.
+    /// Whether the conversation is on screen beside (or, narrow, instead of) the stage.
+    private var conversationVisible: Bool { layout.conversationShown(fits: frames.conversationFits) }
+
+    /// The conversation is asked for but has no room beside the stage: asking for it in a
+    /// window too narrow shows it the way the width class does.
     private var conversationToggle: Binding<Bool> {
-        Binding(get: { conversationShown }, set: { show in
+        Binding(get: { showsConversation && frames.conversationFits }, set: { show in
             showsConversation = show
-            if show, conversationFit == nil { makeRoom() }
+            if show, layout.widthClass == .narrow { keyboard?.pane = .conversation }
         })
     }
 
+    /// Keyboard focus is drawn only where more than one pane shows.
+    private var showsFocus: Bool { layout.widthClass != .narrow && layout.zoom == nil }
+
+    private func focused(_ pane: FocusPane, _ part: StagePane? = nil) -> Bool {
+        guard showsFocus, let keyboard, keyboard.pane == pane else { return false }
+        return part == nil || keyboard.stage == part
+    }
+
     var body: some View {
-        // A hand-made split, not `.inspector` or `HSplitView`: inside a split view both
-        // add hundreds of points to the window's minimum width, so it could not shrink.
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
+        let layout = layout
+        RunPanesLayout(layout: layout, conversationWidth: conversationWidth) {
+            stageColumn(layout)
+                .paneShown(layout.stageShown)
+                .keyboardPane(.stage, active: layout.stageShown)
+            ColumnDivider(width: $conversationWidth)
+                .paneShown(conversationVisible && layout.stageShown)
+            // `.id(runId)` rebuilds per run: message seqs restart at 1, so a half-typed
+            // draft, answer or dispute would otherwise post into the next run. Always in
+            // the tree otherwise, so a hidden conversation keeps its draft.
+            ConversationView(store: store, runId: runId, visible: conversationVisible, focused: focused(.conversation))
+                .id(runId)
+                .focusRule(focused(.conversation))
+                .paneShown(conversationVisible)
+                .keyboardPane(.conversation, active: conversationVisible)
+        }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { detailSize = $0 }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .navigationTitle(RunTitle.short(task: store.run(runId)?.task, runId: runId))
+        .topBar(leading: { paneSwitch }, trailing: { actions })
+        .task(id: runId) {
+            failureCursor = nil
+            await store.select(runId)
+        }
+        .onChange(of: store.seekRequest) {
+            guard let request = store.seekRequest, request.runId == runId else { return }
+            stage = request.inSteps ? .steps : .screen
+            // One pane at a time: the stage comes forward to show what was asked for.
+            if layout.widthClass == .narrow || (layout.zoom != nil && layout.zoom != .screen && layout.zoom != .steps) {
+                keyboard?.pane = .stage
+            }
+        }
+        .onPreferenceChange(PlayheadStepKey.self) { step in
+            MainActor.assumeIsolated { playhead = step }
+        }
+        .offersActions(.run, offered, refresh: runId) { perform($0) }
+    }
+
+    /// The header, the verdict where the conversation is not beside the stage, then the
+    /// screen with the steps under it. Zoomed to a part, only that part.
+    private func stageColumn(_ layout: PaneLayout) -> some View {
+        VStack(spacing: 0) {
+            if layout.headerShown {
                 RunHeader(
                     store: store,
                     runId: runId,
@@ -73,49 +113,61 @@ struct RunView: View {
                     showFailure: showFailure
                 )
                 Hairline()
-                // Hidden conversation: the verdict must still be read, not shrink to a chip.
-                if !conversationShown {
+                // Conversation not shown: the verdict must still be read, not shrink to a
+                // chip. A narrow window keeps it with the conversation, one pane away; above
+                // the stage it would leave the screen a thumbnail.
+                if !conversationVisible, !(layout.widthClass == .narrow && showsConversation) {
                     VerdictCard(store: store, runId: runId, facts: facts, compact: true,
                                 maxHeight: RunLayout.verdictCardMaximum(column: detailSize.height))
                         .id(VerdictCard.identity(runId: runId, verdict: facts.verdict))
                         .padding(.horizontal, Space.l)
                         .padding(.top, Space.l)
                 }
-                stage
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            // No hard minimum: one would add to the window's own, and showing the sidebar
-            // in a narrow window would then widen the window past the screen (issue #64).
-            // `conversationFit` keeps the stage at `stageMinimum` or takes the conversation away.
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .keyboardPane(.stage)
-            if conversationShown, let width = conversationFit {
-                ColumnDivider(width: $conversationWidth)
-                // `.id(runId)` rebuilds per run: message seqs restart at 1, so a half-typed
-                // draft, answer or dispute would otherwise post into the next run.
-                ConversationView(store: store, runId: runId)
-                    .id(runId)
-                    // First pick: the stage keeps its minimum through `conversationFit`.
-                    .frame(minWidth: RunLayout.conversationMinimum, idealWidth: width, maxWidth: width)
-                    .frame(maxHeight: .infinity)
-                    .layoutPriority(1)
-                    .keyboardPane(.conversation)
-                    .transition(.move(edge: .trailing))
+            StageBodyLayout(layout: layout) {
+                // Resets itself by hand per run, since it has a lease to give back first.
+                // `visible` stops the live stream while another pane covers it; the lease
+                // stays (Give Back is in the top bar).
+                ScreenView(store: store, runId: runId, visible: layout.screenShown)
+                    .focusRule(focused(.stage, .screen))
+                    .paneShown(layout.screenShown)
+                    .stagePart(.screen, active: layout.screenShown)
+                stepsPane(layout)
+                    .focusRule(focused(.stage, .steps))
+                    .paneShown(layout.stepsShown)
+                    .stagePart(.steps, active: layout.stepsShown)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
         }
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { detailSize = $0 }
+        // No hard minimum: one would add to the window's own, and showing the runs in a
+        // narrow window would then widen the window past the screen (issue #64).
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .navigationTitle(RunTitle.short(task: store.run(runId)?.task, runId: runId))
-        .topBar(leading: { tabs }, trailing: { actions })
-        .task(id: runId) {
-            failureCursor = nil
-            await store.select(runId)
+        .background(Color.clear)
+    }
+
+    @ViewBuilder
+    private func stepsPane(_ layout: PaneLayout) -> some View {
+        switch layout.steps {
+        case .list:
+            StepsView(
+                store: store,
+                runId: runId,
+                focused: focused(.stage, .steps),
+                // Opened from the track (medium, narrow): it folds back to the track.
+                collapse: layout.widthClass == .wide || layout.zoom == .steps ? nil : { stage = .screen },
+                // Beside the screen, the screen's own bar already offers the way back.
+                showsEvidenceBar: !layout.screenShown,
+                playhead: layout.screenShown ? playhead : nil,
+                claimsFocus: !layout.screenShown
+            )
+            .id(runId)
+        case .track:
+            StepsTrack(store: store, runId: runId, playhead: playhead) {
+                stage = .steps
+                keyboard?.pane = .stage
+            }
         }
-        .onChange(of: store.seekRequest) {
-            guard let request = store.seekRequest, request.runId == runId else { return }
-            pane = request.inSteps ? .steps : .screen
-        }
-        .offersActions(.run, offered, refresh: runId) { perform($0) }
     }
 
     /// What the run's keys, menu items and palette entries can do now: only what applies.
@@ -130,14 +182,17 @@ struct RunView: View {
 
     private func perform(_ id: ActionID) {
         switch id {
-        case .goScreen: pane = .screen
-        case .goSteps: pane = .steps
-        case .goTranscript: conversationToggle.wrappedValue = true
+        case .goScreen:
+            stage = .screen
+        case .goSteps:
+            stage = .steps
+        case .goTranscript:
+            conversationToggle.wrappedValue = true
         case .compose:
             conversationToggle.wrappedValue = true
             composerFocusRequest += 1
         case .toggleConversation:
-            withAnimation(.snappy(duration: 0.2)) { conversationToggle.wrappedValue.toggle() }
+            conversationToggle.wrappedValue.toggle()
         case .capture: Task { await capture() }
         case .exportRecording: Task { await saveRecording() }
         case .takeControl: toggleControl()
@@ -147,19 +202,7 @@ struct RunView: View {
         }
     }
 
-    @ViewBuilder
-    private var stage: some View {
-        switch pane {
-        case .screen:
-            // Resets itself by hand, since it has a lease to give back first.
-            ScreenView(store: store, runId: runId)
-        case .steps:
-            StepsView(store: store, runId: runId)
-                .id(runId)
-        }
-    }
-
-    /// Cycles the failed steps, opening each in Steps.
+    /// Cycles the failed steps, opening each in the steps.
     private func showFailure(_ delta: Int) {
         let failures = facts.failures
         guard !failures.isEmpty else { return }
@@ -173,20 +216,27 @@ struct RunView: View {
         store.requestSeek(runId: runId, step: failures[next], inSteps: true)
     }
 
-    /// Taking control needs the Screen: switch to it first, then take the lease.
+    /// Taking control needs the screen on screen: bring it forward first (the stage, its
+    /// screen, no zoom on another pane), then take the lease.
     private func toggleControl() {
         if driving {
             Task { await pilot.release() }
         } else {
-            pane = .screen
+            if let keyboard { keyboard.showScreen() } else { stage = .screen }
             Task { await pilot.take() }
         }
     }
 
-    /// The stage's two tabs, after the wordmark; the chosen one in the brand.
-    private var tabs: some View {
-        SegmentedSwitch(options: StagePane.allCases.map { ($0, $0.title) }, selection: $pane)
-            .help("Show the screen (\(ActionRegistry.label(.goScreen))) or the steps (\(ActionRegistry.label(.goSteps)))")
+    /// A narrow window shows one pane at a time: the switch names them, for the mouse
+    /// (`tab` does the same from the keys).
+    @ViewBuilder
+    private var paneSwitch: some View {
+        if layout.widthClass == .narrow, layout.zoom == nil, let keyboard {
+            let options: [(FocusPane, String)] = [(.sidebar, "Runs"), (.stage, stage.title)]
+                + (showsConversation ? [(.conversation, "Conversation")] : [])
+            SegmentedSwitch(options: options, selection: Binding(get: { keyboard.pane }, set: { keyboard.pane = $0 }))
+                .help("Show the runs, the run's \(stage.title.lowercased()) or its conversation (\(ActionRegistry.label(.nextPane)) cycles)")
+        }
     }
 
     /// The run's actions, at the top bar's right edge. Only what applies to this run is
@@ -223,10 +273,14 @@ struct RunView: View {
                         .buttonStyle(.quiet(tint: .failure))
                         .help("Destroy the machine and end the run (\(ActionRegistry.label(.destroy))). Asks first.")
                 }
-                Button(conversationShown ? "Hide Conversation" : "Conversation") {
-                    withAnimation(.snappy(duration: 0.2)) { conversationToggle.wrappedValue.toggle() }
+                // Narrow: the pane switch shows the conversation; hiding it there hides nothing.
+                if layout.widthClass != .narrow {
+                    let shown = conversationToggle.wrappedValue
+                    Button(shown ? "Hide Conversation" : "Conversation") {
+                        conversationToggle.wrappedValue.toggle()
+                    }
+                    .help("\(shown ? "Hide" : "Show") the conversation (\(ActionRegistry.label(.goTranscript)) goes to it)")
                 }
-                .help("\(conversationShown ? "Hide" : "Show") the conversation (\(ActionRegistry.label(.goTranscript)) goes to it)")
                 if facts.machineReady {
                     // The one way to take and give back the screen.
                     ControlButton(driving: driving, busy: pilot.busy, action: toggleControl)
@@ -255,6 +309,16 @@ struct RunView: View {
         } catch {
             store.lastError = error.localizedDescription
         }
+    }
+}
+
+/// The step at the screen's playhead: the newest while following live. The steps track
+/// under the screen reads it, so the two show the same moment.
+struct PlayheadStepKey: PreferenceKey {
+    static var defaultValue: Int? { nil }
+
+    static func reduce(value: inout Int?, nextValue: () -> Int?) {
+        value = nextValue() ?? value
     }
 }
 
@@ -334,15 +398,16 @@ enum RunLayout {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
-    static let sidebarMinimum: Double = 240
-    static let sidebarIdeal: Double = 290
-    static let sidebarMaximum: Double = 380
-    /// The design spec's least stage: the player bar, the evidence row and the Steps
-    /// table's Detail column need it.
-    static let stageMinimum: Double = 440
-    static let conversationMinimum: Double = 300
-    static let conversationIdeal: Double = 380
-    static let conversationMaximum: Double = 560
+    private static var tokens: DesignTokens.Layout { DesignData.shared.tokens.layout }
+
+    static var sidebarMinimum: Double { tokens.runsMinWidth }
+    static var sidebarIdeal: Double { tokens.runsWidth }
+    static var sidebarMaximum: Double { tokens.runsMaxWidth }
+    /// The design spec's least stage: the player bar and the evidence row need it.
+    static var stageMinimum: Double { tokens.stageMinWidth }
+    static var conversationMinimum: Double { tokens.conversationMinWidth }
+    static var conversationIdeal: Double { tokens.conversationWidth }
+    static var conversationMaximum: Double { tokens.conversationMaxWidth }
     static let divider: Double = 1
     /// The most of its column the pinned verdict card takes, so the column's header,
     /// transcript and composer stay on screen when its evidence is open.
@@ -359,31 +424,22 @@ enum RunLayout {
         min(max(width, sidebarMinimum), sidebarMaximum)
     }
 
-    /// The width a person chose, given back when the window is too narrow for it: the
-    /// stage keeps its minimum first. Nil when the conversation does not fit beside the
-    /// stage at all; the window then shows the verdict above the stage (the spec's
-    /// order: the sidebar folds first, then the conversation gives way).
-    static func conversation(_ chosen: Double, in available: Double) -> Double? {
-        guard available > 0 else { return clamp(chosen) }
-        let room = available - stageMinimum - divider
-        guard room >= conversationMinimum else { return nil }
-        return min(clamp(chosen), room)
-    }
-
-    /// Below this window width the sidebar, `sidebar` wide, folds away, so the stage
-    /// keeps its minimum and the conversation fits beside it. The width is clamped to the
-    /// sidebar's own range, so an unmeasured (or folded) sidebar counts as its minimum.
-    static func sidebarFoldWidth(sidebar: Double, showsConversation: Bool) -> Double {
-        let sidebar = min(max(sidebar, sidebarMinimum), sidebarMaximum)
-        return sidebar + divider + stageMinimum + (showsConversation ? divider + conversationMinimum : 0)
-    }
-
     /// The tallest the pinned verdict card may be in a column this tall; its body
     /// scrolls inside that. Nil before the column has been measured.
     static func verdictCardMaximum(column height: Double) -> Double? {
         guard height > 0 else { return nil }
-        return (height * verdictCardShare).rounded(.down)
+        // A short column (a narrow window's conversation) keeps a few lines of transcript
+        // under the card, not one; the card's reasons still keep their strip to scroll in.
+        let leaving = max(height - verdictColumnLeaves, verdictCardLeast)
+        return min(height * verdictCardShare, leaving).rounded(.down)
     }
+
+    /// What a short column keeps under the card: its header, a few transcript lines and
+    /// the composer.
+    static let verdictColumnLeaves: Double = 280
+    /// However short the column, the card keeps its headline, a strip of reasons and its
+    /// actions.
+    static let verdictCardLeast: Double = 200
 
     /// How tall the card's scrolling body is: all of its `natural` height, or what a card
     /// capped at `card` leaves after its headline and actions (`chrome`). Nil means no
@@ -657,6 +713,7 @@ private struct IdleActions: View {
     let runId: String
 
     @AppStorage("composerFocusRequest") private var focusRequest = 0
+    @Environment(\.keyboard) private var keyboard
 
     var body: some View {
         HStack(spacing: Space.s) {
@@ -665,7 +722,11 @@ private struct IdleActions: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
             Spacer(minLength: Space.s)
-            Button("Write a Message") { focusRequest += 1 }
+            Button("Write a Message") {
+                // The conversation comes forward first (a narrow window shows one pane).
+                keyboard?.pane = .conversation
+                focusRequest += 1
+            }
                 .buttonStyle(.quiet(small: true))
                 .help("Put the cursor in the conversation's message field")
         }

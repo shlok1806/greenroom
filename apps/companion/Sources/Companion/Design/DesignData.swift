@@ -110,9 +110,44 @@ struct DesignTokens: Decodable, Sendable, Equatable {
             let reduceMotion: String
         }
 
+        /// A spring: SwiftUI's response (seconds) and damping fraction.
+        struct Spring: Decodable, Sendable, Equatable {
+            let response: Double
+            let dampingFraction: Double
+        }
+
         let spinner: Spinner
+        /// Resize, zoom, expand: panes move on this spring (ADR 0006).
+        let settle: Spring
         /// How long an accept or dispute waits to be sent, so it can be undone (ADR 0005).
         let undoMs: Int
+    }
+
+    /// The window's width classes and pane sizes, in points (ADR 0004 decision 8, as 0008
+    /// lets widths be points rather than cells).
+    struct Layout: Decodable, Sendable, Equatable {
+        /// At least this wide: runs, stage, conversation side by side.
+        let wideMinWidth: Double
+        /// At least this wide (and under wide): the runs fold to a strip of marks.
+        let mediumMinWidth: Double
+        let runsWidth: Double
+        let runsMinWidth: Double
+        let runsMaxWidth: Double
+        let runsStripWidth: Double
+        let stageMinWidth: Double
+        let conversationMinWidth: Double
+        let conversationWidth: Double
+        let conversationMaxWidth: Double
+        /// The conversation zoomed (or a narrow window's) keeps this measure, centred.
+        let readingMaxWidth: Double
+        /// The steps list under the screen keeps at least this, and this share of the stage.
+        let stepsMinHeight: Double
+        let stepsShare: Double
+        /// The steps list's share of the stage when it is opened from the one-row track.
+        let stepsExpandedShare: Double
+        let stepsTrackHeight: Double
+        /// The `?` help sheet takes at most this share of the window's height.
+        let helpMaxShare: Double
     }
 
     let cell: Cell
@@ -123,6 +158,7 @@ struct DesignTokens: Decodable, Sendable, Equatable {
     let spacing: Spacing
     let radii: Radii
     let motion: Motion
+    let layout: Layout
 
     /// Every role the app draws, on a slot 0 to 15.
     func roleSlots() throws -> [Role: Int] {

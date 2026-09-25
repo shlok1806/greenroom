@@ -14,14 +14,32 @@ import SwiftUI
 final class KeyboardModel {
     let store: RunStore
 
-    /// The pane `j`, `k` and `⏎` act in. Moved by a click, `tab`, `g` and `esc`.
-    var pane: FocusPane = .sidebar
+    /// The pane `j`, `k` and `⏎` act in. Moved by a click, `tab`, `g` and `esc`. In a
+    /// narrow window it is also the one pane on screen.
+    var pane: FocusPane = .sidebar {
+        didSet { if pane != oldValue { zoom.focusMoved(to: ZoomTarget(pane: pane, stage: stage)) } }
+    }
     /// Where the first responder is; `KeyRouter` keeps it current.
     var responder: KeyResponder = .other
-    /// The run's stage and whether its conversation is shown, mirrored from `RootView`.
-    var stage: StagePane = .screen
-    var conversationShown = true
+    /// The part of the run's stage with the keys: the screen, or the steps under it.
+    /// `RootView` keeps it across launches.
+    var stage: StagePane = .screen {
+        didSet { if stage != oldValue { zoom.focusMoved(to: ZoomTarget(pane: pane, stage: stage)) } }
+    }
+    /// Whether the run's conversation is shown, mirrored from `RootView`.
+    var conversationShown = true {
+        didSet {
+            guard !conversationShown else { return }
+            if zoom.target == .conversation { zoom.restore() }
+            if pane == .conversation { pane = .stage }
+        }
+    }
+    /// Wide windows: the runs as a column rather than a strip.
     var sidebarShown = true
+    /// The window's width class, from its width (`RootView`).
+    var widthClass: WidthClass = .wide
+    /// What `z` has zoomed to the window.
+    var zoom = ZoomState()
 
     var paletteOpen = false
     var paletteQuery = "" {
@@ -36,6 +54,9 @@ final class KeyboardModel {
     /// Bumped to put the cursor in the run search, with `searchText` as its query when set.
     private(set) var searchRequest = 0
     private(set) var searchText: String?
+    /// The last search request a runs list on screen acted on: a list that appears after
+    /// the request (the runs opened over a medium window) still takes it.
+    @ObservationIgnored var searchHandled = 0
 
     /// What the views on screen offer. Observed, so the hint bar follows them.
     private(set) var available: Set<HandlerKey> = []
@@ -50,12 +71,21 @@ final class KeyboardModel {
     @ObservationIgnored var endEditing: @MainActor () -> Void = {}
     /// The panes' frames in window coordinates, for a click to move focus.
     @ObservationIgnored var paneFrames: [FocusPane: CGRect] = [:]
+    /// The stage's two parts, so a click on the steps gives them the keys.
+    @ObservationIgnored var stageFrames: [StagePane: CGRect] = [:]
 
     init(store: RunStore) {
         self.store = store
     }
 
     // MARK: - State
+
+    /// The window's arrangement now (`PaneLayout`).
+    var layout: PaneLayout {
+        PaneLayout(widthClass: widthClass, focus: pane, stage: stage, zoom: zoom.target,
+                   runOpen: store.selectedRunId != nil, hasRuns: !store.runs.isEmpty,
+                   sidebarShown: sidebarShown, conversationShown: conversationShown)
+    }
 
     /// Everything the rules read, now.
     func state(now: Date = Date()) -> ActionState {
@@ -76,6 +106,8 @@ final class KeyboardModel {
         s.runCount = store.runs.count
         s.sidebarShown = sidebarShown
         s.conversationShown = conversationShown
+        s.widthClass = widthClass
+        s.zoomed = zoom.target
         s.verdictOpenForReview = (facts?.verdict?.status.isOpen ?? false) && runId.flatMap(store.heldVerdictChoice) == nil
         s.undoSeconds = store.verdictUndo.seconds(now: now)
         s.undoWord = held?.word
@@ -117,7 +149,7 @@ final class KeyboardModel {
         case .palette:
             if paletteOpen { closePalette() } else { openPalette() }
         case .help:
-            withAnimation(.snappy(duration: 0.2)) { helpOpen.toggle() }
+            helpOpen.toggle()
         case .back:
             back()
         case .nextPane:
@@ -127,19 +159,32 @@ final class KeyboardModel {
         case .search:
             search(nil)
         case .goRuns:
-            showSidebar()
             pane = .sidebar
         case .refresh:
             Task { await store.resync() }
         case .toggleSidebar:
-            withAnimation(.snappy) { sidebarShown.toggle() }
-            if !sidebarShown, pane == .sidebar { pane = .stage }
+            if widthClass == .wide {
+                sidebarShown.toggle()
+                if !sidebarShown, pane == .sidebar, store.selectedRunId != nil { pane = .stage }
+            } else if pane == .sidebar {
+                if store.selectedRunId != nil { pane = .stage }
+            } else {
+                pane = .sidebar
+            }
+        case .zoom:
+            zoom.toggle(focus: state().layout.zoomFocus)
         case .themeSystem, .themeDark, .themeLight, .themeDarkContrast, .themeLightContrast:
             if let theme = ActionRegistry.themes.first(where: { $0.0 == id })?.1 {
                 UserDefaults.standard.set(theme.rawValue, forKey: ThemePreference.key)
             }
         case .open where context == .sidebar || (context == nil && pane == .sidebar):
             openFromSidebar()
+        case .accept where verdictOutOfSight, .dispute where verdictOutOfSight:
+            // The verdict card, where the choice is confirmed or its reason written, comes
+            // forward first: out of a zoom, and in a narrow window to the conversation.
+            if zoom.target != .conversation { zoom.restore() }
+            if widthClass == .narrow, conversationShown { pane = .conversation }
+            perform(id, in: context)
         case .accept:
             guard let runId else { return }
             // Asked "accept without opening the evidence?": a second `a` is the answer.
@@ -186,6 +231,13 @@ final class KeyboardModel {
             default: break
             }
         }
+    }
+
+    /// The verdict card is not on screen: another pane is zoomed, or a narrow window
+    /// shows another pane than the conversation it sits in.
+    private var verdictOutOfSight: Bool {
+        if let target = zoom.target, target != .conversation { return true }
+        return widthClass == .narrow && conversationShown && pane != .conversation
     }
 
     func isEnabled(_ id: ActionID) -> Bool {
@@ -238,17 +290,23 @@ final class KeyboardModel {
 
     // MARK: - Moving focus
 
+    /// esc, one level out: the help, then a zoom, then evidence opened from the verdict,
+    /// then the runs opened over a folded window, then out to the runs.
     private func back() {
         if helpOpen {
-            withAnimation(.snappy(duration: 0.2)) { helpOpen = false }
+            helpOpen = false
             return
         }
+        if zoom.escape() { return }
         if let backToVerdict = handler(.backToVerdict, in: nil) {
             backToVerdict()
             return
         }
+        if state().runsOverlay {
+            if store.selectedRunId != nil { pane = .stage }
+            return
+        }
         guard store.selectedRunId != nil, pane != .sidebar else { return }
-        showSidebar()
         pane = .sidebar
     }
 
@@ -258,32 +316,45 @@ final class KeyboardModel {
         custom?()
     }
 
-    private var paneOrder: [FocusPane] {
-        var order: [FocusPane] = []
-        if sidebarShown { order.append(.sidebar) }
-        if store.selectedRunId != nil {
-            order.append(.stage)
-            if conversationShown { order.append(.conversation) }
-        }
-        return order
-    }
-
     private func cyclePane(_ delta: Int) {
-        let order = paneOrder
-        guard !order.isEmpty else { return }
-        let at = order.firstIndex(of: pane) ?? 0
-        pane = order[(at + delta + order.count) % order.count]
+        pane = state().layout.cycled(from: pane, by: delta)
     }
 
-    /// A click lands in a pane: keys follow it.
+    /// A click lands in a pane: keys follow it. The runs opened over the run are tried
+    /// first, since they lie on top of it.
     func focusPane(at point: CGPoint) {
-        guard let hit = paneFrames.first(where: { $0.value.contains(point) })?.key, hit != pane else { return }
-        pane = hit
+        let order: [FocusPane] = [.sidebar, .conversation, .stage]
+        guard let hit = order.first(where: { paneFrames[$0]?.contains(point) == true }) else { return }
+        if hit == .stage, let part = StagePane.allCases.first(where: { stageFrames[$0]?.contains(point) == true }),
+           part != stage {
+            stage = part
+        }
+        if hit != pane { pane = hit }
     }
 
-    private func showSidebar() {
-        guard !sidebarShown else { return }
-        withAnimation(.snappy) { sidebarShown = true }
+    /// A run was opened with a click in the runs: where the runs cover the run (a narrow
+    /// window, or the runs opened over a folded one), the run comes forward.
+    func openedRunByClick() {
+        let layout = state().layout
+        if layout.runs == .pane || layout.runsOverlay { pane = .stage }
+    }
+
+    /// The window changed width class, or a run was restored at launch: runs folded to
+    /// their strip must not open over the run on their own, and a run opened at launch
+    /// in a narrow window shows the run, not the list.
+    func settleFocus(runRestored: Bool = false) {
+        guard pane == .sidebar, store.selectedRunId != nil else { return }
+        let runs = layout.runs
+        if runs == .strip || (runRestored && runs == .pane) { pane = .stage }
+    }
+
+    /// The screen must be on screen: taking control, a seek from the conversation in a
+    /// narrow window. Gives the stage the keys, the screen within it, and ends a zoom on
+    /// anything else.
+    func showScreen() {
+        stage = .screen
+        pane = .stage
+        if let target = zoom.target, target != .screen { zoom.restore() }
     }
 
     /// `⏎` in the runs: into the open run, or open the one that most wants you.
@@ -299,7 +370,6 @@ final class KeyboardModel {
     }
 
     private func search(_ text: String?) {
-        showSidebar()
         pane = .sidebar
         searchText = text
         searchRequest += 1
@@ -398,12 +468,44 @@ private struct TypingField: ViewModifier {
 
 private struct PaneFrame: ViewModifier {
     let pane: FocusPane
+    /// A pane hidden by the layout (under another, or zoomed away) takes no clicks.
+    let active: Bool
     @Environment(\.keyboard) private var keyboard
+    @State private var frame: CGRect = .zero
 
     func body(content: Content) -> some View {
         content
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { keyboard?.paneFrames[pane] = $0 }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                frame = $0
+                publish()
+            }
+            .onChange(of: active) { publish() }
             .onDisappear { keyboard?.paneFrames[pane] = nil }
+    }
+
+    private func publish() {
+        keyboard?.paneFrames[pane] = active ? frame : nil
+    }
+}
+
+private struct StagePartFrame: ViewModifier {
+    let part: StagePane
+    let active: Bool
+    @Environment(\.keyboard) private var keyboard
+    @State private var frame: CGRect = .zero
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                frame = $0
+                publish()
+            }
+            .onChange(of: active) { publish() }
+            .onDisappear { keyboard?.stageFrames[part] = nil }
+    }
+
+    private func publish() {
+        keyboard?.stageFrames[part] = active ? frame : nil
     }
 }
 
@@ -423,9 +525,15 @@ extension View {
         modifier(TypingField(focused: focused, sends: sends, leave: leave))
     }
 
-    /// Marks this view as a pane: a click in it moves keyboard focus there.
-    func keyboardPane(_ pane: FocusPane) -> some View {
-        modifier(PaneFrame(pane: pane))
+    /// Marks this view as a pane: a click in it moves keyboard focus there, while it is
+    /// `active` (shown).
+    func keyboardPane(_ pane: FocusPane, active: Bool = true) -> some View {
+        modifier(PaneFrame(pane: pane, active: active))
+    }
+
+    /// Marks this view as one part of the stage: a click in it gives that part the keys.
+    func stagePart(_ part: StagePane, active: Bool = true) -> some View {
+        modifier(StagePartFrame(part: part, active: active))
     }
 }
 

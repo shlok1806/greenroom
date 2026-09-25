@@ -5,6 +5,8 @@ import SwiftUI
 /// words. Drawn on the chrome tint; the open run is filled with the brand.
 struct SidebarView: View {
     @Bindable var store: RunStore
+    /// A run was opened with a click (the runs covering the run step aside).
+    var onOpen: () -> Void = {}
 
     @State private var query = ""
     @FocusState private var searchFocused: Bool
@@ -39,6 +41,7 @@ struct SidebarView: View {
                                         selected: store.selectedRunId == run.runId
                                     ) {
                                         store.selectedRunId = run.runId
+                                        onOpen()
                                     }
                                     .id(run.runId)
                                 }
@@ -70,11 +73,10 @@ struct SidebarView: View {
         .offersActions(.sidebar, store.runs.isEmpty ? [] : [.moveDown, .moveUp]) { id in
             move(by: id == .moveDown ? 1 : -1, in: sections(now: Date()))
         }
-        // `/` (or the palette's "search the runs for") puts the cursor here.
-        .onChange(of: keyboard?.searchRequest) {
-            if let text = keyboard?.searchText { query = text }
-            searchFocused = true
-        }
+        // `/` (or the palette's "search the runs for") puts the cursor here, also in a
+        // list that opens because of it (the runs over a folded window).
+        .onChange(of: keyboard?.searchRequest) { takeSearch() }
+        .onAppear { takeSearch() }
         // Only while the event stream is down or an action failed: a healthy connection
         // needs no words, and an unreachable daemon is explained in the detail.
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -85,6 +87,13 @@ struct SidebarView: View {
         }
         .ground(.chrome)
         .background(theme.chromeTint)
+    }
+
+    private func takeSearch() {
+        guard let keyboard, keyboard.searchRequest != keyboard.searchHandled else { return }
+        keyboard.searchHandled = keyboard.searchRequest
+        if let text = keyboard.searchText { query = text }
+        searchFocused = true
     }
 
     private var searchField: some View {
@@ -172,13 +181,17 @@ struct SidebarView: View {
         var id: String { title }
     }
 
+    private func sections(now: Date) -> [RunSection] {
+        Self.sections(matches, store: store, now: now)
+    }
+
     /// "Needs you" and "Running" first, then days. A run appears once, in the first
     /// section it belongs to. The daemon sorts newest first; this keeps that order.
-    private func sections(now: Date) -> [RunSection] {
+    fileprivate static func sections(_ runs: [RunSummary], store: RunStore, now: Date) -> [RunSection] {
         var needsYou: [RunSummary] = []
         var running: [RunSummary] = []
         var rest: [RunSummary] = []
-        for run in matches {
+        for run in runs {
             let facts = store.facts(run.runId, now: now)
             if facts.needsYou {
                 needsYou.append(run)
@@ -299,5 +312,106 @@ private struct ConnectionFooter: View {
         .padding(.horizontal, Space.l)
         .padding(.vertical, Space.s)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - The strip
+
+/// The runs folded to a strip of status marks (medium windows, or wide with the runs
+/// hidden; ADR 0004 decision 8): one mark per run in the list's order, its state in the
+/// glyph, its title and state in the tooltip. A click on a mark opens that run; the top
+/// button (or `g r`, esc, `/`) opens the whole list over the run.
+struct RunsStrip: View {
+    let store: RunStore
+    let expand: () -> Void
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { tick in
+            let sections = SidebarView.sections(store.runs, store: store, now: tick.date)
+            let titles = RunTitle.distinct(store.runs)
+            VStack(spacing: 0) {
+                Button(action: expand) {
+                    Text("»")
+                        .font(Typeface.monoBold.font(size: TypeScale.mono))
+                        .foregroundStyle(theme.foreground)
+                        .frame(width: 32, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .hoverHighlight(radius: Radius.sm)
+                .help("Show the runs (\(ActionRegistry.label(.goRuns)))")
+                .accessibilityLabel("Show the runs")
+                .padding(.top, Space.m)
+                .padding(.bottom, Space.s)
+                ScrollView {
+                    LazyVStack(spacing: Space.xs) {
+                        ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
+                            if index > 0 {
+                                Hairline().frame(width: 16).padding(.vertical, Space.xs)
+                            }
+                            ForEach(section.runs) { run in
+                                StripMark(
+                                    title: titles[run.runId] ?? RunTitle.short(task: run.task, runId: run.runId),
+                                    status: store.facts(run.runId, now: tick.date).rowStatus(now: tick.date),
+                                    selected: store.selectedRunId == run.runId
+                                ) {
+                                    store.selectedRunId = run.runId
+                                }
+                            }
+                        }
+                    }
+                    .padding(.bottom, Space.m)
+                }
+                .scrollIndicators(.never)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .ground(.chrome)
+        .background(theme.chromeTint)
+    }
+}
+
+/// One run in the strip: its state as a glyph on a small square, the brand when open.
+private struct StripMark: View {
+    let title: String
+    let status: (text: String, tone: RunFacts.Tone)
+    let selected: Bool
+    let open: () -> Void
+
+    @Environment(\.theme) private var theme
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: open) {
+            glyph
+                .font(Typeface.monoBold.font(size: TypeScale.monoSmall))
+                .foregroundStyle(selected ? theme.brandText : theme.tone(status.tone, on: .chrome))
+                .frame(width: 32, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                        .fill(selected ? theme.brand : hovering ? theme.highlight : .clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("\(title)\n\(status.text)")
+        .accessibilityLabel("\(title), \(status.text)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private var glyph: some View {
+        switch status.tone {
+        case .live: Text("●")
+        case .attention: Text("!")
+        case .pass: Text("✓")
+        case .failure: Text("✗")
+        case .neutral: Spinner(size: TypeScale.monoSmall)
+        case .unsure: Text("?")
+        case .quiet: Text("·")
+        }
     }
 }

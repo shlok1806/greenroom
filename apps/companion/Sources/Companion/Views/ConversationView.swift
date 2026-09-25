@@ -23,6 +23,11 @@ func insertingNewline(into text: String, at selection: TextSelection?) -> (text:
 struct ConversationView: View {
     let store: RunStore
     let runId: String
+    /// On screen. A hidden conversation stays in the tree (its draft lives on) but holds
+    /// no verdict card, whose reason field would take the keyboard out of sight.
+    var visible = true
+    /// Has the keyboard: its label takes the brand.
+    var focused = false
 
     @State private var atBottom = true
     /// Whether the newest message has been scrolled to at least once.
@@ -50,18 +55,24 @@ struct ConversationView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            VerdictCard(store: store, runId: runId, facts: store.facts(runId),
-                        maxHeight: RunLayout.verdictCardMaximum(column: columnHeight))
-                .id(VerdictCard.identity(runId: runId, verdict: store.verdict(runId)))
-                .padding(.horizontal, Space.m)
-                .padding(.bottom, Space.m)
-                // Before the transcript, which scrolls in whatever is left.
-                .layoutPriority(1)
+                .readingMeasure()
+            if visible {
+                VerdictCard(store: store, runId: runId, facts: store.facts(runId),
+                            maxHeight: RunLayout.verdictCardMaximum(column: columnHeight))
+                    .id(VerdictCard.identity(runId: runId, verdict: store.verdict(runId)))
+                    .padding(.horizontal, Space.m)
+                    .padding(.bottom, Space.m)
+                    .readingMeasure()
+                    // Before the transcript, which scrolls in whatever is left.
+                    .layoutPriority(1)
+            }
             Hairline()
             transcript
             Hairline()
-            Composer(store: store, runId: runId) { atBottom = true }
+            Composer(store: store, runId: runId, visible: visible) { atBottom = true }
+                .readingMeasure()
         }
+
         .onGeometryChange(for: Double.self) { $0.size.height } action: { columnHeight = $0 }
         // No navigation title: the column's header names it, and a title here would name
         // the whole window "Conversation" (the run view names it after the run).
@@ -73,6 +84,7 @@ struct ConversationView: View {
         HStack(alignment: .firstTextBaseline, spacing: Space.s) {
             Text("Conversation")
                 .headingStyle()
+                .foregroundStyle(focused ? theme.brandInk(on: .background) : theme.foreground)
             let count = store.facts(runId).messageCount
             if count > 0 {
                 Text(count == 1 ? "1 message" : "\(Chrome.count(count)) messages")
@@ -118,6 +130,7 @@ struct ConversationView: View {
                 .padding(.horizontal, Space.m)
                 .padding(.vertical, Space.m)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .readingMeasure()
             }
             .overlayScrollers()
             .scrollTargetBehavior(.viewAligned(limitBehavior: .never))
@@ -658,11 +671,23 @@ struct MessageText: View {
 
 // MARK: - Composer
 
+extension View {
+    /// Zoomed to the window (or wider than a column ever is), the conversation keeps a
+    /// reading measure, centred, rather than lines a window wide; its rules still run
+    /// edge to edge.
+    fileprivate func readingMeasure() -> some View {
+        frame(maxWidth: DesignData.shared.tokens.layout.readingMaxWidth)
+            .frame(maxWidth: .infinity)
+    }
+}
+
 /// The human seat: a note (the verifier reads it and answers) or a task (new work).
 /// The draft stays in the field until the daemon has taken it.
 private struct Composer: View {
     let store: RunStore
     let runId: String
+    /// A hidden composer never takes the keyboard: the typing would be out of sight.
+    var visible = true
     let didSend: () -> Void
 
     @State private var draft = ""
@@ -720,7 +745,7 @@ private struct Composer: View {
         }
         .padding(Space.m)
         // "Write a Message" in an idle run's header puts the cursor here.
-        .onChange(of: focusRequest) { focused = true }
+        .onChange(of: focusRequest) { if visible { focused = true } }
     }
 
     private var facts: RunFacts { store.facts(runId) }

@@ -1,21 +1,21 @@
 import AppKit
 import SwiftUI
 
-/// The window: the top bar, then the runs on the left and the open run (or why there is
-/// none) on the right. A hand-made split, not a `NavigationSplitView`: that brings the
+/// The window: the top bar, then the runs and the open run (or why there is none),
+/// arranged by `PaneLayout` for the window's width class and zoom (ADR 0004 decision 8),
+/// then the hint bar. Hand-made rather than a `NavigationSplitView`: that brings the
 /// system's sidebar material, toolbar and divider, which the window's own chrome replaces
 /// (ADR 0004, 0008).
 struct RootView: View {
     let store: RunStore
 
     @State private var keyboard: KeyboardModel
-    @AppStorage("stagePane") private var pane: StagePane = .screen
+    @AppStorage("stagePane") private var savedStage: StagePane = .screen
     @AppStorage("showsConversation") private var showsConversation = true
     @AppStorage("selectedRunId") private var savedSelection = ""
     @AppStorage("sidebarWidth") private var sidebarWidth = RunLayout.sidebarIdeal
-    /// Set when a narrow window folded the sidebar away, so widening brings it back.
-    @State private var autoCollapsed = false
-    @State private var windowWidth: Double = 0
+    @State private var windowHeight: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The app passes the window's keyboard, which `KeyRouter` feeds; a view hosted alone
     /// (the harness, tests) makes its own.
@@ -24,41 +24,45 @@ struct RootView: View {
         _keyboard = State(initialValue: keyboard ?? KeyboardModel(store: store))
     }
 
-    /// Posted to show the sidebar by hand (the snapshot harness, as a person would).
+    /// Posted to show the runs column by hand (the snapshot harness, as a person would).
     static let showSidebarNotification = Notification.Name("greenroom.showSidebar")
 
-    private var sidebarShown: Bool { keyboard.sidebarShown }
-
-    /// Below this the sidebar folds away, so the stage and the conversation keep their room.
-    private var foldWidth: Double {
-        RunLayout.sidebarFoldWidth(sidebar: sidebarWidth, showsConversation: showsConversation)
-    }
+    private var settle: Animation? { PaneMotion.settle(reduceMotion: reduceMotion) }
 
     var body: some View {
+        let layout = keyboard.layout
         ThemedRoot {
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
                     // The top bar is drawn over this room, from the preference the open view sets.
                     Color.clear.frame(height: TopBar.height)
-                    HStack(spacing: 0) {
-                        if sidebarShown {
-                            SidebarView(store: store)
-                                .frame(width: RunLayout.clampSidebar(sidebarWidth))
-                                .keyboardPane(.sidebar)
-                                .transition(.move(edge: .leading))
-                            SidebarDivider(width: $sidebarWidth)
-                        }
+                    WindowPanesLayout(layout: layout, runsWidth: sidebarWidth) {
+                        runs(layout)
+                            .paneShown(layout.runs != .hidden)
+                        runsLine(layout)
+                            .paneShown(layout.runs == .column || layout.runs == .strip)
                         detail
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .paneShown(layout.detailShown)
                     }
                     // Any height, clipped: a run whose panes want more room than a short
-                    // window has must not push the hint bar (or the help) off the window.
+                    // window has must not push the hint bar off the window.
                     .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
                     .clipped()
-                    if keyboard.helpOpen {
-                        KeyHelpPanel(keyboard: keyboard)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .overlay(alignment: .leading) {
+                        if layout.runsOverlay {
+                            runsOverlay
+                        }
                     }
+                    // The help opens over the panes, above the hint bar, and never squeezes
+                    // them: at most `layout.helpMaxShare` of the window.
+                    .overlay(alignment: .bottom) {
+                        if keyboard.helpOpen {
+                            KeyHelpPanel(keyboard: keyboard, maximumHeight: helpHeight)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    }
+                    .animation(settle, value: layout)
+                    .animation(settle, value: keyboard.helpOpen)
                     HintBarView(keyboard: keyboard)
                 }
                 .overlayPreferenceValue(TopBarItemsKey.self, alignment: .top) { items in
@@ -72,29 +76,80 @@ struct RootView: View {
         }
         .environment(\.keyboard, keyboard)
         .focusedSceneValue(\.actionState, keyboard.state())
+        // The width picks the class; crossing a threshold settles the panes on a spring.
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            windowHeight = size.height
+            let widthClass = WidthClass.of(width: size.width)
+            guard widthClass != keyboard.widthClass else { return }
+            withAnimation(settle) {
+                keyboard.widthClass = widthClass
+                keyboard.settleFocus()
+            }
+        }
         // The SSE socket can look alive after sleep while the daemon restarted.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.resync() }
         }
         .onReceive(NotificationCenter.default.publisher(for: Self.showSidebarNotification)) { _ in
-            autoCollapsed = false
             keyboard.sidebarShown = true
         }
-        .onChange(of: store.selectedRunId) {
-            if let selected = store.selectedRunId { savedSelection = selected }
+        .onChange(of: store.selectedRunId) { old, new in
+            if let new { savedSelection = new } else { keyboard.zoom.restore() }
+            if old == nil, new != nil { keyboard.settleFocus(runRestored: true) }
             keyboard.confirmingDestroy = nil
         }
         .onChange(of: store.runs.isEmpty) {
             restoreSelection()
         }
-        .onChange(of: pane, initial: true) { keyboard.stage = pane }
+        .onChange(of: savedStage, initial: true) { if keyboard.stage != savedStage { keyboard.stage = savedStage } }
+        .onChange(of: keyboard.stage) { if savedStage != keyboard.stage { savedStage = keyboard.stage } }
         .onChange(of: showsConversation, initial: true) { keyboard.conversationShown = showsConversation }
-        .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
-            let previous = windowWidth
-            windowWidth = width
-            fold(width: width, previous: previous)
+    }
+
+    private var helpHeight: Double {
+        let share = DesignData.shared.tokens.layout.helpMaxShare
+        return max((windowHeight * share).rounded(.down), 160)
+    }
+
+    /// The runs: a column, a strip of marks, or (narrow, zoomed) the whole window.
+    @ViewBuilder
+    private func runs(_ layout: PaneLayout) -> some View {
+        if layout.runs == .strip {
+            RunsStrip(store: store) { keyboard.pane = .sidebar }
+        } else {
+            SidebarView(store: store, onOpen: keyboard.openedRunByClick)
+                .focusRule(layout.runs == .column && keyboard.pane == .sidebar && layout.zoom == nil)
+                .keyboardPane(.sidebar, active: layout.runs != .hidden)
         }
-        .onChange(of: showsConversation) { fold(width: windowWidth, previous: 0) }
+    }
+
+    /// After the runs: a column's edge drags; a strip's is a plain line.
+    @ViewBuilder
+    private func runsLine(_ layout: PaneLayout) -> some View {
+        if layout.runs == .column {
+            SidebarDivider(width: $sidebarWidth)
+        } else {
+            Hairline(axis: .vertical)
+                .frame(maxHeight: .infinity)
+        }
+    }
+
+    /// The whole list over the run, from the strip, while the runs have the keys. A click
+    /// beside it, esc, or opening a run puts it away.
+    private var runsOverlay: some View {
+        HStack(spacing: 0) {
+            SidebarView(store: store, onOpen: keyboard.openedRunByClick)
+                .frame(width: RunLayout.clampSidebar(sidebarWidth))
+                .focusRule(true)
+                .keyboardPane(.sidebar)
+                .overlay(alignment: .trailing) { Hairline(axis: .vertical).frame(maxHeight: .infinity) }
+                .shadow(color: .black.opacity(0.18), radius: 12, x: 4)
+            Color.black.opacity(0.12)
+                .contentShape(Rectangle())
+                .onTapGesture { if store.selectedRunId != nil { keyboard.pane = .stage } }
+                .accessibilityHidden(true)
+        }
+        .transition(.move(edge: .leading).combined(with: .opacity))
     }
 
     /// Cmd-K: over everything, on a scrim that closes it when clicked.
@@ -139,8 +194,9 @@ struct RootView: View {
                 case .connecting, .online: EmptyView()
                 }
                 if let runId = store.selectedRunId {
-                    RunView(store: store, runId: runId, pane: $pane, showsConversation: $showsConversation,
-                            makeRoom: makeRoom)
+                    RunView(store: store, runId: runId,
+                            stage: Binding(get: { keyboard.stage }, set: { keyboard.stage = $0 }),
+                            showsConversation: $showsConversation)
                 } else if store.runs.isEmpty {
                     WelcomeView(address: store.daemonAddress)
                         .topBar { refresh }
@@ -150,27 +206,6 @@ struct RootView: View {
                 }
             }
         }
-    }
-
-    /// Folds only while shrinking (or on first layout), so a sidebar shown by hand in a
-    /// narrow window stays.
-    private func fold(width: Double, previous: Double) {
-        let shrankPast = width < foldWidth && (previous == 0 || previous >= foldWidth)
-        if shrankPast, sidebarShown {
-            autoCollapsed = true
-            withAnimation(.snappy) { keyboard.sidebarShown = false }
-        } else if width >= foldWidth, autoCollapsed {
-            autoCollapsed = false
-            withAnimation(.snappy) { keyboard.sidebarShown = true }
-        }
-    }
-
-    /// The conversation was asked for beside a sidebar shown by hand, with no room for
-    /// both: the sidebar gives way first, and comes back once the window is wide enough.
-    private func makeRoom() {
-        guard sidebarShown else { return }
-        autoCollapsed = true
-        withAnimation(.snappy) { keyboard.sidebarShown = false }
     }
 
     /// The last run a person looked at, else the one that needs them, else the newest,

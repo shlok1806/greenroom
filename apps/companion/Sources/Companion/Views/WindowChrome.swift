@@ -250,9 +250,8 @@ enum SnapshotHook {
             }
             if environment["GREENROOM_SNAPSHOT_MENU"] != nil { printMenus() }
             if let saved { defaults.set(saved, forKey: ThemePreference.key) } else { defaults.removeObject(forKey: ThemePreference.key) }
-            if pane != nil {
-                if let savedPane { defaults.set(savedPane, forKey: "stagePane") } else { defaults.removeObject(forKey: "stagePane") }
-            }
+            // Keys may have moved the stage's focus (`g s`); the person's own comes back.
+            if let savedPane { defaults.set(savedPane, forKey: "stagePane") } else { defaults.removeObject(forKey: "stagePane") }
             NSApp.terminate(nil)
         }
     }

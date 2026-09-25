@@ -175,15 +175,15 @@ final class RunPresentationTests: XCTestCase {
     // MARK: - Layout
 
     func testTheConversationKeepsItsWidthUntilTheStageNeedsIt() {
-        XCTAssertEqual(RunLayout.conversation(420, in: 1200), 420)
+        XCTAssertEqual(PaneLayout.conversationWidth(420, in: 1200), 420)
         // 800 across leaves the stage its 440 and the line 1.
-        XCTAssertEqual(RunLayout.conversation(420, in: 800), 359)
-        XCTAssertEqual(RunLayout.conversation(420, in: 741), RunLayout.conversationMinimum)
+        XCTAssertEqual(PaneLayout.conversationWidth(420, in: 800), 359)
+        XCTAssertEqual(PaneLayout.conversationWidth(420, in: 781), RunLayout.conversationMinimum)
         // Narrower than both minimums: the conversation gives way, not the stage.
-        XCTAssertNil(RunLayout.conversation(420, in: 740))
-        XCTAssertEqual(RunLayout.conversation(9000, in: 3000), RunLayout.conversationMaximum)
+        XCTAssertNil(PaneLayout.conversationWidth(420, in: 780))
+        XCTAssertEqual(PaneLayout.conversationWidth(9000, in: 3000), RunLayout.conversationMaximum)
         // Before the first layout there is no width yet; the choice stands.
-        XCTAssertEqual(RunLayout.conversation(420, in: 0), 420)
+        XCTAssertEqual(PaneLayout.conversationWidth(420, in: 0), 420)
     }
 
     // MARK: - Words

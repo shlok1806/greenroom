@@ -66,7 +66,7 @@ final class RunLayoutTests: XCTestCase {
     func testConversationNeverTakesTheStagesMinimum() {
         for chosen in [RunLayout.conversationMinimum, RunLayout.conversationIdeal, RunLayout.conversationMaximum] {
             for detail in stride(from: 500.0, through: 1600, by: 1) {
-                guard let conversation = RunLayout.conversation(chosen, in: detail) else { continue }
+                guard let conversation = PaneLayout.conversationWidth(chosen, in: detail) else { continue }
                 XCTAssertGreaterThanOrEqual(detail - RunLayout.divider - conversation, RunLayout.stageMinimum,
                                             "detail \(detail), chosen \(chosen)")
                 XCTAssertGreaterThanOrEqual(conversation, RunLayout.conversationMinimum)
@@ -74,43 +74,25 @@ final class RunLayoutTests: XCTestCase {
         }
     }
 
-    /// A 1024 pt window folds its sidebar first, so both the stage and the conversation fit.
-    func testA1024WindowFoldsTheSidebarAndKeepsTheConversation() {
-        XCTAssertGreaterThan(RunLayout.sidebarFoldWidth(sidebar: RunLayout.sidebarIdeal, showsConversation: true), 1024)
-        XCTAssertEqual(RunLayout.conversation(RunLayout.conversationIdeal, in: 1024), RunLayout.conversationIdeal)
-        // Without the conversation the stage fits beside the sidebar.
-        XCTAssertLessThanOrEqual(RunLayout.sidebarFoldWidth(sidebar: RunLayout.sidebarIdeal, showsConversation: false), 1024)
+    /// At the narrowest medium window the runs fold to their strip, and the stage and the
+    /// conversation both keep their room.
+    func testTheNarrowestMediumWindowFitsTheStageAndTheConversation() {
+        let tokens = DesignData.shared.tokens.layout
+        let detail = tokens.mediumMinWidth - tokens.runsStripWidth - 1
+        XCTAssertNotNil(PaneLayout.conversationWidth(RunLayout.conversationIdeal, in: detail))
     }
 
-    /// A sidebar dragged out to 380 pt in an 1100 pt window: the sidebar folds, rather than
-    /// the conversation giving way beside it.
-    func testAWideSidebarFoldsBeforeTheConversationGivesWay() {
-        let sidebar = RunLayout.sidebarMaximum
-        XCTAssertEqual(sidebar, 380)
-        XCTAssertNil(RunLayout.conversation(RunLayout.conversationIdeal, in: 1100 - sidebar - RunLayout.divider))
-        XCTAssertGreaterThan(RunLayout.sidebarFoldWidth(sidebar: sidebar, showsConversation: true), 1100)
-        XCTAssertNotNil(RunLayout.conversation(RunLayout.conversationIdeal, in: 1100))
-    }
-
-    /// At every sidebar width, a window at the fold width still fits the conversation.
-    func testTheFoldWidthLeavesRoomForTheConversationAtAnySidebarWidth() {
-        for sidebar in stride(from: 0.0, through: 500, by: 10) {
-            let fold = RunLayout.sidebarFoldWidth(sidebar: sidebar, showsConversation: true)
-            let shown = min(max(sidebar, RunLayout.sidebarMinimum), RunLayout.sidebarMaximum)
-            XCTAssertNotNil(RunLayout.conversation(RunLayout.conversationIdeal, in: fold - shown - RunLayout.divider),
-                            "sidebar \(sidebar)")
-        }
-    }
-
-    /// The sidebar shown by hand in a 1024 window: the conversation gives way, not the stage.
-    func testTheConversationGivesWayToASidebarShownByHand() {
-        let detail = 1024 - RunLayout.sidebarIdeal - RunLayout.divider
-        XCTAssertNil(RunLayout.conversation(RunLayout.conversationIdeal, in: detail))
+    /// At the narrowest wide window, the runs column at its widest still leaves the
+    /// conversation room beside the stage.
+    func testTheNarrowestWideWindowFitsTheWidestRunsColumn() {
+        let tokens = DesignData.shared.tokens.layout
+        let detail = tokens.wideMinWidth - tokens.runsMaxWidth - 1
+        XCTAssertNotNil(PaneLayout.conversationWidth(RunLayout.conversationIdeal, in: detail))
     }
 
     func testAnUnmeasuredDetailKeepsTheChosenWidth() {
-        XCTAssertEqual(RunLayout.conversation(420, in: 0), 420)
-        XCTAssertEqual(RunLayout.conversation(2000, in: 0), RunLayout.conversationMaximum)
+        XCTAssertEqual(PaneLayout.conversationWidth(420, in: 0), 420)
+        XCTAssertEqual(PaneLayout.conversationWidth(2000, in: 0), RunLayout.conversationMaximum)
     }
 
     // MARK: - #52: the verdict card is capped in its column

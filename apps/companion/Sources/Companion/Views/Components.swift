@@ -22,6 +22,42 @@ enum Space {
     static let hairline: CGFloat = 1
 }
 
+/// Panes move on the settle spring (`tokens.json` `motion.settle`, ADR 0006): a resize
+/// across a width class, a zoom, the runs opening over a folded window. Reduce Motion
+/// makes every change instant.
+enum PaneMotion {
+    static func settle(reduceMotion: Bool) -> Animation? {
+        guard !reduceMotion else { return nil }
+        let spring = DesignData.shared.tokens.motion.settle
+        return .spring(response: spring.response, dampingFraction: spring.dampingFraction)
+    }
+}
+
+extension View {
+    /// Keyboard focus on a pane, quietly: a 2 pt brand rule along its top edge (1 pt
+    /// vanished into the hairline under the top bar). The pane's
+    /// own label, where it has one, takes the brand too (`Theme.brandInk`).
+    func focusRule(_ on: Bool) -> some View {
+        modifier(FocusRule(on: on))
+    }
+}
+
+private struct FocusRule: ViewModifier {
+    let on: Bool
+    @Environment(\.theme) private var theme
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .top) {
+            Rectangle()
+                .fill(theme.brand)
+                .frame(height: 2)
+                .opacity(on ? 1 : 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
 /// Radii (`tokens.json` `radii`): a row or chip, a card, a sheet or the screen's frame.
 enum Radius {
     private static var radii: DesignTokens.Radii { DesignData.shared.tokens.radii }
@@ -146,6 +182,8 @@ struct Hairline: View {
 struct SectionLabel: View {
     let title: String
     var count: Int?
+    /// The label of a pane with the keyboard takes the brand (`Theme.brandInk`).
+    var ink: Color?
 
     var body: some View {
         HStack(spacing: Space.s) {
@@ -156,7 +194,7 @@ struct SectionLabel: View {
         }
         .font(Typeface.monoMedium.font(size: TypeScale.label))
         .tracking(0.8)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(ink.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.secondary))
         .lineLimit(1)
         .accessibilityElement(children: .combine)
     }
