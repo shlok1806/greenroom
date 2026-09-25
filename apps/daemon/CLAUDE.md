@@ -246,13 +246,16 @@ Computer use (ADR 0009)
 - At most one control lease per machine; `Manager.Input` refuses input without it. Lease
   expires after `ControlTTL` (60 s) of silence; each batch renews it. A human taking
   or releasing it posts to the transcript (`internal/api`); each batch is one
-  `machine_input` step. Expiry is lazy, so a human lease that lapsed is posted ("human lost
-  control of the screen after N actions") when the human takes the screen again
-  (`TakeControlReporting`) or lets go of it, never as a second "took control" (issue #57).
-  A lease nobody renews (its Companion quit or crashed) is also cleared when it runs out:
-  `armLapseLocked` keeps one timer per machine, and `checkLapse` emits a `control` event with
-  `Lapsed`, which `internal/api` posts for a human lease. Snapshots never show a lease past
-  its expiry. `POST /control {"renew": true}` (`RenewControl`) extends a held lease and never
+  `machine_input` step. A lease that ran out is announced once, by the manager, as a
+  `control` event with `Lapsed`, which `internal/api` posts synchronously for a human lease
+  ("human lost control of the screen after N actions"), never as a second "took control"
+  (issue #57). Whoever finds it expired announces it through `lapseLocked`: the lapse timer
+  (`armLapseLocked` keeps one per machine, `checkLapse` fires it, so a Companion that quit
+  or crashed still leaves a trace), any take (`TakeControl`, so also a coder's or the
+  verifier's `InputAs`) or a release. `inputState.ctlMu` holds each lease change through its
+  events, so a take that follows a lapse returns only after the lapse was posted. A machine
+  being destroyed announces nothing, and `detachLocked` drops its lease. Snapshots never
+  show a lease past its expiry. `POST /control {"renew": true}` (`RenewControl`) extends a held lease and never
   takes a new one: 409 when the seat no longer holds it, so a second window of the same seat
   cannot undo a Give Back (issue #100).
 - The verifier takes the lease per call, not per turn, via `Manager.InputAs`. A human

@@ -549,11 +549,13 @@ func (m *Manager) forgetLocked(mc *Machine) []*PTYSession {
 }
 
 // detachLocked stops the frame recorder and the live screen, and detaches the
-// sessions. It is safe to repeat.
+// sessions. It is safe to repeat. The lease goes too: a machine that is going away is driven by
+// nobody, and a lease left on it would be announced as a lapse after it was destroyed.
 func (m *Manager) detachLocked(mc *Machine) []*PTYSession {
 	if mc.lapse != nil {
 		mc.lapse.Stop()
 	}
+	mc.Control = nil
 	if mc.frameCancel != nil {
 		mc.frameCancel()
 	}

@@ -44,10 +44,9 @@ func (a *api) takeControl(w http.ResponseWriter, r *http.Request, id string) {
 		writeJSON(w, http.StatusOK, controlOut{Control: &c})
 		return
 	}
-	c, fresh, lapsed, err := a.mgr.TakeControlReporting(id, humanSeat, time.Duration(in.TTLSeconds)*time.Second)
-	if lapsed != nil && lapsed.Holder == humanSeat {
-		a.event(id, lapsedText(*lapsed))
-	}
+	// A lease this replaces because it lapsed is announced by the manager, and posted by New's
+	// listener, before TakeControl returns.
+	c, fresh, err := a.mgr.TakeControl(id, humanSeat, time.Duration(in.TTLSeconds)*time.Second)
 	if err != nil {
 		a.failControl(w, id, err)
 		return
@@ -73,11 +72,8 @@ func (a *api) releaseControl(w http.ResponseWriter, _ *http.Request, id string) 
 		a.failControl(w, id, err)
 		return
 	}
-	switch {
-	case !held || c.Holder != humanSeat:
-	case c.Lapsed(time.Now()):
-		a.event(id, lapsedText(c))
-	default:
+	// A lapsed lease is not held: the manager announced its lapse instead.
+	if held && c.Holder == humanSeat {
 		a.event(id, "human gave the screen back after "+actionCount(c.Actions))
 	}
 	writeJSON(w, http.StatusOK, controlOut{})
