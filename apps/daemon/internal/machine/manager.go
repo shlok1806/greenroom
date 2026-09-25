@@ -72,6 +72,9 @@ type Machine struct {
 	// sessions is guarded by Manager.mu and deliberately not persisted: a
 	// restarted daemon cannot prove a guest process is the one an old id named.
 	sessions map[string]*PTYSession
+	// cleanups counts guest cleanups of evicted sessions still running, so
+	// Destroy returns only after they have. Guarded by Manager.mu; nil until the first.
+	cleanups *sync.WaitGroup
 
 	// execs are machine_exec commands by execId (execjob.go), guarded by
 	// Manager.mu. Not persisted either; detachLocked ends the running ones.
@@ -80,11 +83,6 @@ type Machine struct {
 	frameCancel context.CancelFunc // guarded by Manager.mu
 	frameDone   chan struct{}      // guarded by Manager.mu; closed when the frame recorder returns
 	screen      *screenStream      // guarded by Manager.mu; the live screen, if one has started
-
-	// guestCleanups counts cleanupGuestSession calls still running. Guarded by
-	// Manager.mu and only added to while the machine is in the map, so Destroy
-	// can wait for them once it has taken the machine out. Nil until the first.
-	guestCleanups *sync.WaitGroup
 
 	// bootCancel stops finishBoot and bootDone closes when it returns. Both are
 	// set before the machine is shared, and are nil when no boot runs.
@@ -295,9 +293,8 @@ func (m *Manager) emitStep(runID string, seq int) {
 func (mc *Machine) publicLocked() *Machine {
 	c := *mc
 	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel, c.screen = nil, nil, nil, nil, nil, nil, nil
-	c.execs = nil
+	c.execs, c.cleanups = nil, nil
 	c.bootCancel, c.bootDone, c.frameDone = nil, nil, nil
-	c.guestCleanups = nil
 	return &c
 }
 
@@ -514,15 +511,14 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 
 	m.mu.Lock()
 	live = m.forgetLocked(mc)
-	frames := mc.frameDone
-	cleanups := mc.guestCleanups
+	frames, cleanups := mc.frameDone, mc.cleanups
 	m.mu.Unlock()
 	closeSessions(live)
+	if cleanups != nil {
+		cleanups.Wait() // out of the map, so no eviction can add one now
+	}
 	if frames != nil {
 		<-frames // no frame lands in the run directory after Destroy returns
-	}
-	if cleanups != nil {
-		cleanups.Wait() // no guest exec for this machine outlives Destroy
 	}
 	m.persist()
 	mc.rec.markEnded()

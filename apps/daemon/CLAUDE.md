@@ -250,7 +250,11 @@ Computer use (ADR 0009)
   control of the screen after N actions") when the human takes the screen again
   (`TakeControlReporting`) or lets go of it, never as a second "took control" (issue #57).
 - The verifier takes the lease per call, not per turn, via `Manager.InputAs`. A human
-  holding it is a readable error, not a failure. The actor marks each turn with
+  holding it is a readable error, not a failure. It is `machine.ScreenTakenError`
+  (`ErrScreenTaken`); the verifier's tool result then says not to retry. After a refusal,
+  while someone else still holds the screen, `Turn` ends the turn with a question asking for
+  it instead of another input call or an `inconclusive` verdict, so a standing verdict is
+  never replaced by one about the lease (issue #97). The actor marks each turn with
   `SetVerifierTurn`, and while one is open the coder's `InputAs` is refused with words
   pointing at `agent_wait` (issue #82): per-call leases let both drive the same app. A human
   is never refused for it.
@@ -367,7 +371,7 @@ Values already set in the environment win.
 | `NVIDIA_API_KEY` | none | Without it the `nim` verifier is off; machine tools still work. |
 | `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint. |
 | `GREENROOM_VERIFIER_MODEL` | none, required with a key | Model for verifier turns. |
-| `GREENROOM_VISION_MODEL` | none | Model that describes screenshots. Unset: the verifier works without seeing the screen. |
+| `GREENROOM_VISION_MODEL` | `moonshotai/kimi-k3` | Model that describes screenshots for the verifier (ADR 0020). `none`: the verifier works without seeing the screen. |
 | `GREENROOM_TART` | none | tart binary, see below. `-tart` overrides. |
 
 ## Tart

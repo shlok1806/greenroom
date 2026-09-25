@@ -343,9 +343,8 @@ func (m *Manager) reserveSession(mc *Machine, s *PTYSession) error {
 			_ = old.stop() // already exited; this only reaps the host process
 			ids = append(ids, old.ID)
 		}
-		// Only removes files; the start does not wait on the guest, but Destroy does.
-		go func() {
-			defer mc.guestCleanups.Done()
+		go func() { // only removes files; the start does not wait on the guest
+			defer mc.cleanups.Done()
 			m.cleanupGuestSession(mc, ids...)
 		}()
 	}
@@ -369,10 +368,10 @@ func (m *Manager) reserveSessionLocked(mc *Machine, s *PTYSession) (ended []*PTY
 			}
 		}
 		if len(ended) > 0 {
-			if mc.guestCleanups == nil {
-				mc.guestCleanups = &sync.WaitGroup{}
+			if mc.cleanups == nil {
+				mc.cleanups = &sync.WaitGroup{}
 			}
-			mc.guestCleanups.Add(1)
+			mc.cleanups.Add(1) // reserveSession runs the cleanup; Destroy waits for it
 		}
 	}
 	if len(mc.sessions) >= maxSessionsPerMachine {
