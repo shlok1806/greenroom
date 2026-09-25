@@ -127,8 +127,37 @@ struct DesignTokens: Decodable, Sendable, Equatable {
             let elapsedTickMs: Int
         }
 
+        /// Where the agent clicked or typed: a ripple of `rings` cells that fades over `ms`
+        /// (ADR 0006 decision 5).
+        struct ClickMark: Decodable, Sendable, Equatable {
+            let ms: Int
+            let rings: Int
+        }
+
+        /// The first picture resolving out of its glyph rendering (ADR 0006, Boot).
+        struct BootReveal: Decodable, Sendable, Equatable {
+            let ms: Int
+        }
+
+        /// The picture dissolving into glyphs on destroy, then held as a still before the
+        /// recording shows (ADR 0006, Power-down).
+        struct PowerDown: Decodable, Sendable, Equatable {
+            let dissolveMs: Int
+            let holdMs: Int
+        }
+
+        /// Everything but the screen dims while the person drives (ADR 0006, Take control).
+        struct HouseLights: Decodable, Sendable, Equatable {
+            /// How far the rest of the window goes dark, 0 to 1.
+            let dim: Double
+        }
+
         let spinner: Spinner
         let loader: Loader
+        let clickMark: ClickMark
+        let bootReveal: BootReveal
+        let powerDown: PowerDown
+        let houseLights: HouseLights
         /// Resize, zoom, expand: panes move on this spring (ADR 0006).
         let settle: Spring
         /// How long an accept or dispute waits to be sent, so it can be undone (ADR 0005).

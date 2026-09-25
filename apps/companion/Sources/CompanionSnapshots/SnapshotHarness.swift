@@ -44,6 +44,10 @@ final class SnapshotHarness {
         var pane: StagePane = .screen
         var conversation = true
         var verdictExpanded = false
+        /// Seconds into every signature moment to hold it at (ADR 0006), so one renders mid-way.
+        var momentFreeze: TimeInterval?
+        /// The screen has the keys while driving (the house lights), as a click on it gives them.
+        var drivingFocused = false
         /// Edits the store once the run view has loaded it.
         var prepare: @MainActor (RunStore) async -> Void = { _ in }
         var baseURL: URL?
@@ -89,6 +93,11 @@ final class SnapshotHarness {
     private static let citedRun = "20260923-124520-61ea02f4836340aa"
     /// No task message, two system events.
     private static let noTaskRun = "20260923-101500-noTaskRun0000001"
+    /// The signature moments' run (layer 6): TipSplit checked through the UI, with clicks.
+    /// `GREENROOM_SNAPSHOTS_MOMENTS_RUN` names another.
+    private var momentsRun: String {
+        environment["GREENROOM_SNAPSHOTS_MOMENTS_RUN"] ?? "20260924-040039-3da76afa89136933"
+    }
 
     private func scenarios() -> [Scenario] {
         let all = [Self.large, Self.medium, Self.small]
@@ -188,6 +197,41 @@ final class SnapshotHarness {
             Scenario(name: "26-guest-no-conversation", sizes: [Self.guest], runId: Self.citedRun, conversation: false),
             // A run with no task and only system events: the header and a short transcript.
             Scenario(name: "27-no-task-few-events", sizes: [Self.guest, Self.medium], runId: Self.noTaskRun),
+        ] + momentScenarios()
+    }
+
+    /// The signature moments (ADR 0006), each held part way through with `momentFreeze`.
+    private func momentScenarios() -> [Scenario] {
+        let runId = momentsRun
+        return [
+            // The machine booting: the loader over what the daemon has said so far.
+            Scenario(name: "28-moment-boot-lines", sizes: [Self.medium], runId: runId) { store in
+                Self.makeBooting(store, runId: runId)
+            },
+            // The machine came up while watched: its first picture resolves out of glyphs.
+            Scenario(name: "29-moment-boot-reveal", sizes: [Self.medium], runId: runId, momentFreeze: 0.3) { store in
+                let held = (store.messages[runId], store.steps[runId], store.frames[runId], store.details[runId])
+                Self.makeBooting(store, runId: runId)
+                try? await Task.sleep(for: .seconds(1))
+                store.messages[runId] = held.0
+                store.steps[runId] = held.1
+                store.frames[runId] = held.2
+                store.details[runId] = held.3
+                Self.makeLive(store, runId: runId, lastActivityAgo: 4)
+            },
+            // Driving: everything but the screen dims, Give Back and the hint bar stay lit.
+            Scenario(name: "30-moment-house-lights", sizes: [Self.medium, Self.guest], runId: runId, drivingFocused: true) { store in
+                await store.pilot(for: runId).take()
+                try? await Task.sleep(for: .milliseconds(300))
+                Self.makeLive(store, runId: runId, lastActivityAgo: 5)
+            },
+            // Destroyed while watched: the picture dissolving into glyphs, then held still.
+            Scenario(name: "31-moment-power-down", sizes: [Self.medium], runId: runId, momentFreeze: 0.3) { store in
+                await Self.destroyWhileWatched(store, runId: runId)
+            },
+            Scenario(name: "32-moment-power-down-still", sizes: [Self.medium], runId: runId, momentFreeze: 1.0) { store in
+                await Self.destroyWhileWatched(store, runId: runId)
+            },
         ]
     }
 
@@ -269,6 +313,20 @@ final class SnapshotHarness {
             store.runs[index].createdAt = detail.createdAt
             store.runs[index].lastActivity = Date().addingTimeInterval(-lastActivityAgo)
         }
+    }
+
+    /// A live run whose machine goes away while its screen shows: the run as it was
+    /// while alive, then as the daemon has it, finished.
+    private static func destroyWhileWatched(_ store: RunStore, runId: String) async {
+        let held = (store.messages[runId], store.steps[runId], store.frames[runId], store.details[runId],
+                    store.runs.first { $0.runId == runId })
+        makeLive(store, runId: runId, lastActivityAgo: 5)
+        try? await Task.sleep(for: .seconds(1.5))
+        store.messages[runId] = held.0
+        store.steps[runId] = held.1
+        store.frames[runId] = held.2
+        store.details[runId] = held.3
+        if let run = held.4, let index = store.runs.firstIndex(where: { $0.runId == runId }) { store.runs[index] = run }
     }
 
     /// A run 20 seconds old: one create step, no messages, no frames, no verdict.
@@ -408,7 +466,9 @@ final class SnapshotHarness {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: appearance)
         window.title = "Greenroom Companion"
-        let host = NSHostingController(rootView: RootView(store: store))
+        let keyboard = KeyboardModel(store: store)
+        let host = NSHostingController(rootView: RootView(store: store, keyboard: keyboard)
+            .environment(\.momentFreeze, scenario.momentFreeze))
         host.sceneBridgingOptions = [.toolbars, .title]
         window.contentViewController = host
         window.setContentSize(NSSize(width: size.width, height: size.height))
@@ -419,6 +479,7 @@ final class SnapshotHarness {
         // The run view reads the run when it appears; edits go on top, once.
         try await Task.sleep(for: .seconds(1.5))
         await scenario.prepare(store)
+        if scenario.drivingFocused { keyboard.responder = .guest }
         if scenario.verdictExpanded, let runId = scenario.runId {
             store.updateVerdictDraft(runId) { $0.expanded = true }
         }

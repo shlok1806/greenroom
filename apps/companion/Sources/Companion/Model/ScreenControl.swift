@@ -28,6 +28,18 @@ enum ScreenGeometry {
         )
     }
 
+    /// The other way: where a screen fraction (a step's click) sits on the picture in
+    /// `view`. `nil` before there is a picture to place it on. Fractions outside 0 to 1
+    /// are clamped onto the picture's edge.
+    static func point(atFraction fraction: CGPoint, image: CGSize, view: CGSize) -> CGPoint? {
+        let rect = fitted(image: image, in: view)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        return CGPoint(
+            x: rect.minX + min(max(fraction.x, 0), 1) * rect.width,
+            y: rect.minY + min(max(fraction.y, 0), 1) * rect.height
+        )
+    }
+
     /// Clamped onto the picture instead of refused: a drag's moves and release
     /// must arrive wherever the pointer went, or the guest's button stays held.
     static func clampedFraction(at point: CGPoint, image: CGSize, view: CGSize) -> CGPoint? {

@@ -25,8 +25,9 @@ pane at a time in a narrow window, and `z` zoom (design spec, Layout). Layer 4 (
 has landed: the screen's title row and well states, the loader, the player bar, and the
 steps as a thinking trace (below). Layer 5 (transcript cards) has landed: Markdown through
 swift-markdown, evidence chips in prose, the verdict card's proposed and closed framing,
-the question card, and tool-call rows (ADR 0009). Not yet built: the motion vocabulary
-beyond the settle spring, the tick and the loader, signature moments, click marks (`m`),
+the question card, and tool-call rows (ADR 0009). Layer 6 (signature moments) has landed:
+the boot lines and reveal, house lights, click marks (`m`) and the power-down (below). Not
+yet built: decode, draw and glide, the verdict-lands and welcome moments, the cursor,
 `GridMetrics`. Until a layer lands, the rules below that name round-2 behaviour describe
 the code as it is.
 
@@ -258,6 +259,35 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   Motion makes every change instant.
 - Click marks (transient, `m` toggles; static on a paused step) are the only thing drawn
   over the screen's picture.
+- Signature moments (layer 6, ADR 0006; math in `Model/GlyphRendering.swift`,
+  `ClickMarks.swift`, `HouseLights.swift`, `BootLog.swift`; layers in `Views/GlyphLayer.swift`
+  and `Views/HouseLightsScrim.swift`; timings in `tokens.json` `motion`). Each is an effect
+  layer that takes no clicks and is hidden from VoiceOver; none delays a key, a click or a
+  navigation; Reduce Motion plays no reveal or power-down (the end state shows) and holds a
+  click mark still instead of rippling.
+  - Boot: the well shows `BootLog` lines under the loader, only what the daemon said (the
+    create and boot steps, status, boot time, address, the screen connecting). The daemon
+    sends no clone or ssh events, so there are no such lines (ADR 0006 expects them; a
+    daemon change). The first picture after the well waited (booting, connecting, no frame
+    yet) resolves out of glyphs, once per open of the run; a finished run opening onto its
+    recording does not reveal.
+  - Glyphs are sampled off the main actor from a picture already decoded: the live layer's
+    displayed pixel buffer (`VideoOutput.still()`, read on its own queue, so a request made
+    before a stop's flush still sees the frame) or the recording frame's `NSImage`. The
+    main actor only receives the drawn still.
+  - Power-down: a machine ending while its picture shows dissolves that picture into glyphs
+    and holds it, then the well shows the recording. It is local to the view: the still is
+    not kept as the run's thumbnail (ADR 0006 says it is; that needs a daemon route).
+  - House lights (`HouseLights.down`): down exactly while the hint bar says every key goes to
+    the machine (`drivingFocused`). Lit holes are reported with `.houseLightsLit()`: the
+    well, the driving bar, Give Back and the hint bar. The scrim takes no clicks, so Give
+    Back and the rest of the dimmed window still work.
+  - Click marks come from the steps' input fractions (`ClickMarks.target`) placed through
+    `ScreenGeometry.point(atFraction:)`; typing marks the click before it; the person's own
+    input (`holder: human`) is never marked. Only steps that arrive while following live, or
+    that a playing recording passes, ripple; `m` persists in `@AppStorage`.
+  - `CompanionSnapshots` scenarios 28 to 32 hold each moment part way (`momentFreeze`); they
+    read `GREENROOM_SNAPSHOTS_MOMENTS_RUN` (default a TipSplit run with clicks).
 - A run is named by a short title from its task (`RunTitle.short`, made distinct with
   `RunTitle.distinct`), never by its id. The sidebar pins "Needs You" and "Running"
   above the days; a row is the title, start time and counts, and its state in words.
