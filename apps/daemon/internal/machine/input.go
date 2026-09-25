@@ -26,7 +26,7 @@ var inputHelper string
 // inputHelperVersion names the compiled helper. Bump it whenever
 // guest/input.swift changes, or running machines and prepared images keep
 // the old binary.
-const inputHelperVersion = 6
+const inputHelperVersion = 7
 
 // ControlTTL is how long an unused screen-control lease lives unless the taker
 // asks otherwise. Every input renews it by its own ttl, so a crashed holder
@@ -453,7 +453,7 @@ func (e *ScreenTakenError) Error() string {
 // Is makes errors.Is(err, ErrScreenTaken) true.
 func (e *ScreenTakenError) Is(target error) bool { return target == ErrScreenTaken }
 
-// The names the helper posts (input.swift `flags`, `mouseButton`, `perform`). Anything else is
+// The names the helper posts (input.swift `flags`, `mouseButton`, `run`). Anything else is
 // refused here, before a batch posts anything: the helper drops an unknown modifier and makes an
 // unknown button a left click, so a typo in cmd-Q would type a q (issue #31).
 var (

@@ -36,7 +36,7 @@ import Foundation
 import ScreenCaptureKit
 import VideoToolbox
 
-let version = "greenroom-input 6"
+let version = "greenroom-input 7"
 
 // MARK: - Wire types
 
@@ -134,10 +134,59 @@ func mouseButton(_ name: String?) -> (CGMouseButton, CGEventType, CGEventType, C
     }
 }
 
+/// How many events this process has posted.
+var posted: UInt32 = 0
+
 /// Every event this process posts goes through here, so the HID tap is named
-/// once and a caller cannot post to a different one by accident.
+/// once and a caller cannot post to a different one by accident. It also counts
+/// them for `settle`.
 func post(_ event: CGEvent?) {
-    event?.post(tap: .cghidEventTap)
+    guard let event else { return }
+    event.post(tap: .cghidEventTap)
+    posted &+= 1
+}
+
+/// The login session's count of input events of every kind, ours included.
+func sessionEvents() -> UInt32 {
+    CGEventSource.counterForEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+}
+
+/// Waits until the window server has applied every event posted since `base`
+/// was read, or throws after `limit`.
+///
+/// A post only queues the event. The window server then checks, by the
+/// poster's audit token, that the process may post (TCC PostEvent), and only
+/// then applies it. Right after boot that check can run over 100 ms late;
+/// by then a one-shot helper has exited, the check finds no process, and the
+/// event is dropped without an error anywhere: the pointer stayed where boot
+/// left it, (10,10), and e2e_input_test.go failed about one run in ten. So a
+/// batch is not done until the session's event counter has moved past it.
+/// Other sources only make the counter reach the target sooner, never later.
+func settle(since base: UInt32, want: UInt32, limit: TimeInterval = 3) throws {
+    let deadline = Date().addingTimeInterval(limit)
+    while sessionEvents() &- base < want {
+        if Date() >= deadline {
+            throw Failure("the machine applied \(sessionEvents() &- base) of \(want) input events within \(Int(limit)) s")
+        }
+        usleep(2_000)
+    }
+}
+
+/// Runs a batch and returns once the window server has applied all of it. A
+/// batch that fails part way still waits for what it posted, then reports the
+/// failure.
+func perform(_ actions: [Action]) throws {
+    let base = sessionEvents()
+    let first = posted
+    do {
+        for action in actions {
+            try run(action)
+        }
+    } catch {
+        try? settle(since: base, want: posted &- first)
+        throw error
+    }
+    try settle(since: base, want: posted &- first)
 }
 
 func move(to target: CGPoint, dragging button: CGMouseButton?) {
@@ -788,9 +837,7 @@ func handleInput(_ payload: Data) {
     let id = (try? JSONSerialization.jsonObject(with: payload) as? [String: Any])?["id"] as? Int ?? 0
     var reply: [String: Any] = ["id": id]
     do {
-        for action in try JSONDecoder().decode(Batch.self, from: payload).actions {
-            try run(action)
-        }
+        try perform(JSONDecoder().decode(Batch.self, from: payload).actions)
     } catch let failure as Failure {
         reply["error"] = failure.message
     } catch {
@@ -891,9 +938,7 @@ else {
 
 do {
     let request = try JSONDecoder().decode(Request.self, from: payload)
-    for action in request.actions {
-        try run(action)
-    }
+    try perform(request.actions)
     // A release that is never posted leaves the guest with a stuck button, so
     // a batch that ends mid-drag is the caller's business, not a leak here:
     // the daemon always sends the release in the same batch or a later one.
