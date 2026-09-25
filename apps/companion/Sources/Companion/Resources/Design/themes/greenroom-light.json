@@ -1,0 +1,30 @@
+{
+  "name": "Greenroom Light",
+  "background": "#f4f1e8",
+  "foreground": "#23211d",
+  "cursor-color": "#23211d",
+  "cursor-text": "#f4f1e8",
+  "selection-background": "#d6d1c2",
+  "selection-foreground": "#23211d",
+  "palette": [
+    "#23211d",
+    "#b4302a",
+    "#127b58",
+    "#8a6408",
+    "#2f5f9c",
+    "#8d3aa0",
+    "#1b7575",
+    "#dcd8cc",
+    "#6c6c6c",
+    "#d0443c",
+    "#3c9a4c",
+    "#a8800f",
+    "#4478bd",
+    "#a950bd",
+    "#23908f",
+    "#fbf9f3"
+  ],
+  "greenroom-brand": "#4B5320",
+  "greenroom-brand-text": "#f4f1e8",
+  "greenroom-chrome-tint": "#e8e6da"
+}

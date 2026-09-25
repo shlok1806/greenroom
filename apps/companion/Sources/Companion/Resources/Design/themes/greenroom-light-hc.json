@@ -1,0 +1,30 @@
+{
+  "name": "Greenroom Light High Contrast",
+  "background": "#fffdf7",
+  "foreground": "#000000",
+  "cursor-color": "#000000",
+  "cursor-text": "#fffdf7",
+  "selection-background": "#000000",
+  "selection-foreground": "#fffdf7",
+  "palette": [
+    "#000000",
+    "#9a1111",
+    "#0b6145",
+    "#6a4a00",
+    "#123f85",
+    "#6e1780",
+    "#00585a",
+    "#e8e4d8",
+    "#535353",
+    "#b01818",
+    "#0f6e24",
+    "#7a5600",
+    "#1a4c99",
+    "#80209a",
+    "#006769",
+    "#ffffff"
+  ],
+  "greenroom-brand": "#363d14",
+  "greenroom-brand-text": "#fffdf7",
+  "greenroom-chrome-tint": "#f1f0e7"
+}

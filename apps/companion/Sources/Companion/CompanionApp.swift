@@ -12,6 +12,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        #if DEBUG
+        SnapshotHook.runIfAsked(store: store)
+        #endif
         // The run window is fitted to its screen the first time it shows after launch, when
         // macOS may have restored it off screen, and whenever it moves to another screen.
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didChangeScreenNotification] {
@@ -79,6 +82,7 @@ public enum CompanionMain {
     @MainActor
     public static func run() {
         LegacyDefaults.forget(in: .standard)
+        BundledFonts.ensureRegistered()
         CompanionApp.main()
     }
 }
@@ -106,13 +110,15 @@ struct CompanionApp: App {
                 .frame(minWidth: RunLayout.windowMinimum.width, minHeight: RunLayout.windowMinimum.height)
                 .task { store.start() }
         }
+        // Own chrome (ADR 0004, 0008): the content fills the window under a transparent
+        // title bar; `RootView` draws the top bar.
+        .windowStyle(.hiddenTitleBar)
         // The spec's default, but never wider or taller than the screen it opens on: a
         // plain `defaultSize` opened 1320 pt wide on a 1024 pt screen (issue #64).
         .defaultWindowPlacement { _, context in
             WindowPlacement(size: RunLayout.defaultWindowSize(visible: context.defaultDisplay.visibleRect.size))
         }
         .commands {
-            SidebarCommands()
             RunMenuCommands(store: store)
         }
     }
@@ -125,8 +131,24 @@ struct RunMenuCommands: Commands {
 
     @FocusedValue(\.runCommands) private var run
     @FocusedValue(\.screenCommands) private var screen
+    @FocusedValue(\.sidebarShown) private var sidebarShown
+    @AppStorage(ThemePreference.key) private var theme: ThemePreference = .system
 
     var body: some Commands {
+        // The window has its own sidebar, not a split view's: its toggle, on the same key.
+        CommandGroup(before: .toolbar) {
+            Button(sidebarShown?.wrappedValue == false ? "Show Sidebar" : "Hide Sidebar") {
+                withAnimation(.snappy) { sidebarShown?.wrappedValue.toggle() }
+            }
+            .keyboardShortcut("s", modifiers: [.control, .command])
+            .disabled(sidebarShown == nil)
+            Picker("Theme", selection: $theme) {
+                ForEach(ThemePreference.allCases, id: \.self) { choice in
+                    Text(choice.title).tag(choice)
+                }
+            }
+            Divider()
+        }
         CommandGroup(after: .toolbar) {
             Button("Screen") { run?.pane.wrappedValue = .screen }
                 .keyboardShortcut("1", modifiers: .command)
