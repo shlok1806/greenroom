@@ -112,7 +112,7 @@ struct HintBarView: View {
                 .font(Typeface.readingSemiBold.font(size: TypeScale.readingSmall))
                 .foregroundStyle(theme.color(.failure, on: .chrome))
                 .fixedSize()
-            Text("The run ends and the coding agent is told.")
+            Text("The run ends. The coding agent sees it.")
                 .font(Typeface.readingRegular.font(size: TypeScale.small))
                 .foregroundStyle(theme.dim(on: .chrome))
                 .lineLimit(1)
@@ -207,7 +207,7 @@ struct KeyHelpPanel: View {
         VStack(alignment: .leading, spacing: Space.m) {
             HStack(alignment: .firstTextBaseline, spacing: Space.l) {
                 SectionLabel(title: "All keys")
-                Text("Dim keys do nothing here right now.")
+                Text("Dim keys do nothing here.")
                     .font(Typeface.readingRegular.font(size: TypeScale.small))
                     .foregroundStyle(theme.dim(on: .chrome))
                 Spacer()

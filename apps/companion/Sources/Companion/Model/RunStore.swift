@@ -576,7 +576,7 @@ final class RunStore: PilotHost {
     /// Sends a choice whose window ended, if the verdict it was made on is still the open one.
     private func send(_ choice: PendingVerdictChoice) async {
         guard let verdict = verdict(choice.runId), verdict.seq == choice.verdictSeq, verdict.status.isOpen else {
-            lastError = "The verdict changed before your choice was sent, so nothing was sent."
+            lastError = "The verdict changed, so your choice did not go out."
             return
         }
         switch choice.kind {

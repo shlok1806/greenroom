@@ -455,6 +455,28 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   worked out from the face's own line (`Typeface.lineSpacing`), never a fraction of the
   size added on top.
 
+## Copy
+
+Every string a person reads (states, notes, hints, tooltips, labels, errors) follows these
+rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
+
+- Lead with the fact. One idea per sentence, one or two sentences per line of UI.
+- Say what the person can do next when there is something to do ("To challenge it, ask
+  for a re-check.").
+- Active voice with a named actor: "You asked the verifier to look again", not "The
+  verifier was asked".
+- Cut throat-clearing, hedges, adverbs and intensifiers ("just", "really", "currently").
+  No "not X but Y"; state Y.
+- Plain numbers ("5 s", "2 times"). No em dashes.
+- Leave out internal mechanics (message numbers, "the daemon", session rules) unless the
+  person needs them to act. Say "greenroom" for the daemon in our own words.
+- Keep the vocabulary (`CONTEXT.md`, ADR 0003): run, verdict, step, lease, driving,
+  "Needs review", "Unreviewed", "Contested".
+- Show the daemon's own error text verbatim after our short prefix; never reword it.
+- Never change a string the app parses or matches (`RunStore`'s "nothing will answer" and
+  "nobody will answer", `RunFacts`' "machine failed/stopped/destroyed" prefixes) or a
+  wire value. A test that pins a UI string changes with it.
+
 ## Gotchas
 
 - The fonts register per process (`BundledFonts.ensureRegistered`, from `CompanionMain`

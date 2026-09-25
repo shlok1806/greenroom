@@ -30,7 +30,7 @@ final class DaemonClientTests: XCTestCase {
             XCTFail("expected a failure")
         } catch {
             XCTAssertEqual(error as? DaemonError, .status(code: 404, body: ""))
-            XCTAssertEqual(error.localizedDescription, "The daemon answered 404")
+            XCTAssertEqual(error.localizedDescription, "greenroom answered 404")
         }
     }
 

@@ -272,7 +272,7 @@ struct RunView: View {
             let options: [(FocusPane, String)] = [(.sidebar, "Runs"), (.stage, stage.title)]
                 + (showsConversation ? [(.conversation, "Conversation")] : [])
             SegmentedSwitch(options: options, selection: Binding(get: { keyboard.pane }, set: { keyboard.pane = $0 }))
-                .help("Show the runs, the run's \(stage.title.lowercased()) or its conversation (\(ActionRegistry.label(.nextPane)) cycles)")
+                .help("Switch panes (\(ActionRegistry.label(.nextPane)))")
         }
     }
 
@@ -291,7 +291,7 @@ struct RunView: View {
                 if facts.machineReady {
                     Button("Screenshot") { Task { await capture() } }
                         .disabled(!canCapture)
-                        .help("Capture the machine's screen now (\(ActionRegistry.label(.capture))). It lands in the run as a step.")
+                        .help("Capture the screen as a step (\(ActionRegistry.label(.capture)))")
                 }
                 if !(store.frames[runId] ?? []).isEmpty {
                     Button {
@@ -303,12 +303,12 @@ struct RunView: View {
                         }
                     }
                     .disabled(!canExport)
-                    .help("Save the run's recording as a movie (\(ActionRegistry.label(.exportRecording)))")
+                    .help("Save the recording as a movie (\(ActionRegistry.label(.exportRecording)))")
                 }
                 if canDestroy {
                     Button("Destroy...") { keyboard?.perform(.destroy, in: .run) }
                         .buttonStyle(.quiet(tint: .failure))
-                        .help("Destroy the machine and end the run (\(ActionRegistry.label(.destroy))). Asks first.")
+                        .help("Destroy the machine and end the run (\(ActionRegistry.label(.destroy)))")
                 }
                 // Narrow: the pane switch shows the conversation; hiding it there hides nothing.
                 if layout.widthClass != .narrow {
@@ -316,7 +316,7 @@ struct RunView: View {
                     Button(shown ? "Hide Conversation" : "Conversation") {
                         conversationToggle.wrappedValue.toggle()
                     }
-                    .help("\(shown ? "Hide" : "Show") the conversation (\(ActionRegistry.label(.goTranscript)) goes to it)")
+                    .help("\(shown ? "Hide" : "Show") the conversation")
                 }
                 if facts.machineReady {
                     // The one way to take and give back the screen.
@@ -380,8 +380,8 @@ struct ControlButton: View {
         }
         .disabled(busy)
         .help(driving
-            ? "Give the mouse and keyboard back to the agents"
-            : "Drive the machine with this window's mouse and keyboard (\(ActionRegistry.label(.takeControl))). The conversation records it.")
+            ? "Give the mouse and keys back to the agents"
+            : "Drive the machine yourself (\(ActionRegistry.label(.takeControl))). The conversation records it.")
     }
 }
 
@@ -574,7 +574,7 @@ private struct RunHeader: View {
                 }
                 .buttonStyle(.textLink)
                 .fixedSize()
-                .help("The whole task, and the machine, image and run id")
+                .help("Full task and machine details")
             }
             if expanded {
                 RunInfo(store: store, runId: runId, facts: facts)
@@ -605,12 +605,12 @@ private struct FailureNavigator: View {
                     .foregroundStyle(alive ? theme.dim(on: .surface) : theme.color(.failure, on: .surface))
                     .padding(.horizontal, Space.s)
             }
-            .help("Show the next step that errored (\(ActionRegistry.label(.nextFailure)))")
+            .help("Next error (\(ActionRegistry.label(.nextFailure)))")
             Hairline(axis: .vertical).frame(height: 14)
             Button { show(-1) } label: { Text("↑").padding(.horizontal, Space.s) }
-                .help("Previous step that errored (\(ActionRegistry.label(.previousFailure)))")
+                .help("Previous error (\(ActionRegistry.label(.previousFailure)))")
             Button { show(1) } label: { Text("↓").padding(.horizontal, Space.s) }
-                .help("Next step that errored (\(ActionRegistry.label(.nextFailure)))")
+                .help("Next error (\(ActionRegistry.label(.nextFailure)))")
         }
         .buttonStyle(.plain)
         .monoStyle(.monoMedium, size: TypeScale.monoSmall)
@@ -648,7 +648,7 @@ struct RunStatusLine: View {
             .monoStyle(size: TypeScale.monoSmall)
             .monospacedDigit()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .help("Times are your local time (\(Chrome.zone)). The machine's own clock may show UTC.")
+            .help("Times are local (\(Chrome.zone)). The machine's clock may show UTC.")
         }
         if facts.phase == .idle {
             IdleActions(store: store, runId: runId)
@@ -685,7 +685,7 @@ struct RunStatusLine: View {
             Text("! No activity for \(Chrome.span(facts.idle(now: now)))")
                 .foregroundStyle(theme.color(.attention))
                 .fontWeight(.semibold)
-                .help("The machine is up but nothing has happened for \(Chrome.span(facts.idle(now: now))).")
+                .help("The machine is up. No step or message for \(Chrome.span(facts.idle(now: now))).")
         case .ended(let ending):
             Text(Self.endedText(ending, at: facts.ended))
                 .foregroundStyle(endedTone(ending))
@@ -716,8 +716,8 @@ struct RunStatusLine: View {
 
     static func endedHelp(_ ending: RunFacts.Ending) -> String {
         switch ending {
-        case .lost(let reason): "The machine's VM went away while the run was going. \(reason ?? "")"
-        case .destroyed(let byYou): byYou ? "You destroyed the machine." : "The coding agent destroyed the machine when it was done."
+        case .lost(let reason): "The machine's VM stopped during the run. \(reason ?? "")"
+        case .destroyed(let byYou): byYou ? "You destroyed the machine." : "The coding agent destroyed the machine."
         case .finished: "The machine is gone."
         }
     }
@@ -756,7 +756,7 @@ private struct IdleActions: View {
 
     var body: some View {
         HStack(spacing: Space.s) {
-            Text("Nothing has happened for a while. The coding agent sees a message the next time it checks in.")
+            Text("Nothing is happening. The coding agent reads messages when it next checks in.")
                 .readingStyle(size: TypeScale.readingSmall)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -767,7 +767,7 @@ private struct IdleActions: View {
                 focusRequest += 1
             }
                 .buttonStyle(.quiet(small: true))
-                .help("Put the cursor in the conversation's message field")
+                .help("Go to the message field")
         }
     }
 }

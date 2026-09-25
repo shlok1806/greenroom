@@ -178,7 +178,7 @@ struct VerdictAppearance: Equatable, Sendable {
         let outcome = Chrome.outcomeTitle(verdict.verdict).lowercased()
         switch verdict.status {
         case .accepted where review.humanReviewed:
-            return "✓ You accepted this \(outcome) verdict\(when(review)). It is closed."
+            return "✓ You accepted this \(outcome) verdict\(when(review))."
         case .rejected:
             return "✗ You rejected this \(outcome) verdict\(when(review))."
         default:

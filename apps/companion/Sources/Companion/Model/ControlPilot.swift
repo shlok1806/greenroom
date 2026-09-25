@@ -27,7 +27,7 @@ enum ControlError: Error, LocalizedError, Equatable {
     case refused
 
     var errorDescription: String? {
-        "The daemon did not hand over the screen."
+        "greenroom did not hand over the screen."
     }
 }
 

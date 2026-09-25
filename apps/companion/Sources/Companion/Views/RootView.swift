@@ -345,7 +345,7 @@ private struct OfflineView: View {
     var body: some View {
         EmptyState(
             title: "greenroom is not running",
-            message: "Nothing answered at \(store.daemonAddress). Start it in a terminal and this window connects on its own."
+            message: "Nothing answers at \(store.daemonAddress). Start it and this window connects."
         ) {
             CommandBlock(command: "greenroom serve")
             RetryButton(store: store)
@@ -361,7 +361,7 @@ private struct RefusedView: View {
     var body: some View {
         EmptyState(
             title: "greenroom refused the request",
-            message: "The daemon at \(store.daemonAddress) is running and answered with an error:"
+            message: "greenroom at \(store.daemonAddress) answered with an error:"
         ) {
             Text(words)
                 .monoStyle()
@@ -387,8 +387,8 @@ private struct OfflineBanner: View {
     let words: String?
 
     private var text: String {
-        if let words { return "\(words.hasSuffix(".") ? words : words + ".") This is what was last loaded." }
-        return "The daemon at \(store.daemonAddress) is not answering. This is what was last loaded."
+        if let words { return "\(words.hasSuffix(".") ? words : words + ".") Showing what was last loaded." }
+        return "greenroom is not answering. Showing what was last loaded."
     }
 
     var body: some View {
@@ -429,14 +429,14 @@ private struct WelcomeView: View {
                         Wordmark(size: TypeScale.title)
                         Text("Watch your agents work")
                             .headingStyle(size: TypeScale.title)
-                        Text("greenroom gives your coding agent (Claude Code, or any agent that speaks MCP) its own disposable Mac. Its verifier, greenroom's own agent, checks the work and proposes a verdict. You watch, answer and decide here.")
+                        Text("greenroom gives your coding agent its own disposable Mac. A verifier checks the work and proposes a verdict. You watch, answer and decide here.")
                             .readingStyle()
                             .foregroundStyle(.secondary)
                     }
 
                     VStack(alignment: .leading, spacing: Space.s) {
                         SectionLabel(title: "Connect your agent")
-                        Text("The greenroom daemon is running at \(address). Add it to Claude Code once, then ask your agent to verify a change on a greenroom machine:")
+                        Text("greenroom is running at \(address). Add it to Claude Code once, then ask your agent to verify a change on a greenroom machine:")
                             .readingStyle()
                             .foregroundStyle(.secondary)
                         CommandBlock(command: mcpCommand)
@@ -446,10 +446,10 @@ private struct WelcomeView: View {
 
                     VStack(alignment: .leading, spacing: Space.m) {
                         SectionLabel(title: "What you can do")
-                        feature("Watch the screen", "Follow the machine live, or scrub back through its recording.")
-                        feature("Judge the verdict", "See what the verifier cites, open each step, then accept or dispute.")
+                        feature("Watch the screen", "Follow the machine live, or scrub through its recording.")
+                        feature("Judge the verdict", "Open the steps it cites, then accept or dispute.")
                         feature("Talk to the verifier", "Answer its questions, or hand it more to check.")
-                        feature("Take control", "Drive the machine's mouse and keyboard yourself when an agent is stuck.")
+                        feature("Take control", "Drive the machine yourself when an agent is stuck.")
                     }
                 }
                 .frame(maxWidth: 520, alignment: .leading)
@@ -479,8 +479,8 @@ private struct NoSelectionView: View {
         let suggestion = needing ?? live ?? store.runs.first
         EmptyState(
             title: "No run open",
-            message: store.goneRun.map { "\u{201C}\($0)\u{201D} is no longer on the daemon at \(store.daemonAddress)." }
-                ?? "Pick a run on the left, or open the one that most wants you."
+            message: store.goneRun.map { "\u{201C}\($0)\u{201D} is no longer on greenroom." }
+                ?? "Pick a run on the left."
         ) {
             if let suggestion {
                 let facts = store.facts(suggestion.runId)
@@ -497,8 +497,8 @@ private struct NoSelectionView: View {
             }
             Grid(alignment: .leading, horizontalSpacing: Space.m, verticalSpacing: Space.xs) {
                 shortcut("j k", "Move through runs")
-                shortcut(ActionRegistry.label(.open), "Open the run that most wants you")
-                shortcut(ActionRegistry.label(.palette), "Every command, with its key")
+                shortcut(ActionRegistry.label(.open), "Open the suggested run")
+                shortcut(ActionRegistry.label(.palette), "Commands")
                 shortcut(ActionRegistry.label(.help), "All keys")
             }
             .padding(.top, Space.s)

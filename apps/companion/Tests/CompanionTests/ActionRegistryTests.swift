@@ -215,7 +215,7 @@ final class ActionRegistryTests: XCTestCase {
         XCTAssertEqual(KeyResolver.resolve(chord("f"), offered), .perform(.speed, .screen))
         // Not offered (no recording to play): taken, doing nothing.
         XCTAssertEqual(KeyResolver.resolve(chord("f"), onScreen()), .swallow)
-        XCTAssertEqual(ActionRules.whyDisabled(.speed, onScreen()), "Show the screen, with a recording")
+        XCTAssertEqual(ActionRules.whyDisabled(.speed, onScreen()), "Show a recording first")
     }
 
     // MARK: - Resolving keys

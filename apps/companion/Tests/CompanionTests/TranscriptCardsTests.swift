@@ -155,7 +155,7 @@ final class TranscriptCardsTests: XCTestCase {
         let look = VerdictAppearance.of(verdict, review: review(verdict, messages))
         XCTAssertEqual(look.edge, .outcome)
         XCTAssertTrue(look.outcomeInColour)
-        XCTAssertEqual(look.result, "✓ You accepted this fail verdict at 20:12. It is closed.")
+        XCTAssertEqual(look.result, "✓ You accepted this fail verdict at 20:12.")
     }
 
     /// ADR 0003: the coding agent agreeing with its own verifier keeps the word, not the colour.

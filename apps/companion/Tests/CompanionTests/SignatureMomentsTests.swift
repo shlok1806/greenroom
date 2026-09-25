@@ -287,7 +287,7 @@ final class ClickMarksTests: XCTestCase {
         XCTAssertEqual(KeyResolver.resolve(.char("m"), state), .perform(.clickMarks, .screen))
         state.stage = .steps
         XCTAssertNotEqual(KeyResolver.resolve(.char("m"), state), .perform(.clickMarks, .screen), "only on the screen")
-        XCTAssertEqual(ActionRules.whyDisabled(.clickMarks, ActionState()), "Show the screen")
+        XCTAssertEqual(ActionRules.whyDisabled(.clickMarks, ActionState()), "Show the screen first")
     }
 }
 

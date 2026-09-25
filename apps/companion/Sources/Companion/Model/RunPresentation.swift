@@ -253,7 +253,7 @@ enum ConnectionState: Equatable, Sendable {
     /// bridge address always sends.
     static func advice(for words: String) -> String? {
         guard words.localizedCaseInsensitiveContains("loopback") else { return nil }
-        return "The daemon only answers requests addressed to 127.0.0.1 or localhost. "
-            + "Reach it through a loopback address, for example a port forward, and set GREENROOM_URL to that."
+        return "greenroom only answers requests to 127.0.0.1 or localhost. "
+            + "Use a loopback address, such as a port forward, and set GREENROOM_URL to it."
     }
 }

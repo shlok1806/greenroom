@@ -185,7 +185,7 @@ final class VerdictReviewTests: XCTestCase {
         XCTAssertEqual(review.state, "Unreviewed")
         XCTAssertEqual(review.decision, "accepted by the coding agent at 20:12")
         XCTAssertFalse(review.humanReviewed)
-        XCTAssertEqual(review.note, "No person has reviewed this verdict.")
+        XCTAssertEqual(review.note, "No person reviewed it.")
     }
 
     func testYourAcceptIsTheReview() {
@@ -200,7 +200,7 @@ final class VerdictReviewTests: XCTestCase {
     func testContestedSaysOnlyYouCanCloseIt() {
         let review = VerdictReview.of(VerdictState(seq: 4, verdict: "fail", status: .contested, disputes: 2), messages: [])
         XCTAssertEqual(review.state, "Contested")
-        XCTAssertEqual(review.decision, "only a person can close it")
+        XCTAssertEqual(review.decision, "only you can close it")
         XCTAssertEqual(review.note, "The coding agent disputed it 2 times.")
         XCTAssertFalse(review.closed)
     }
@@ -218,20 +218,21 @@ final class VerdictReviewTests: XCTestCase {
 
         let contested = VerdictState(seq: 4, verdict: "fail", status: .contested)
         let contestedStopped = VerdictReview.explanation(contested, unreviewed: false, verifierListens: false, alive: false)
-        XCTAssertFalse(contestedStopped.contains("the verifier read"), contestedStopped)
+        XCTAssertFalse(contestedStopped.contains("looks again"), contestedStopped)
+        XCTAssertTrue(contestedStopped.contains("nothing will look again"), contestedStopped)
     }
 
     func testARejectionOnADestroyedRunSaysNobodyWasAskedToLookAgain() {
         let rejected = VerdictState(seq: 4, verdict: "pass", status: .rejected)
         let dispute = Message(seq: 5, at: at, from: .human, kind: .dispute, text: "wrong", replyTo: 4)
         XCTAssertEqual(VerdictReview.of(rejected, messages: [dispute], verifierListens: true, timeOfDay: clock).note,
-                       "The verifier was asked to look again.")
+                       "You asked the verifier to look again.")
         XCTAssertEqual(VerdictReview.of(rejected, messages: [dispute], verifierListens: false, timeOfDay: clock).note,
-                       "The verifier stopped with the machine, so nothing will look again.")
+                       "The verifier stopped with the machine. Nothing will look again.")
         // Rejected while it still listened, and it answered: that look happened.
         let answer = Message(seq: 6, at: at, from: .verifier, kind: .reply, text: "Looked again.")
         XCTAssertEqual(VerdictReview.of(rejected, messages: [dispute, answer], verifierListens: false, timeOfDay: clock).note,
-                       "The verifier was asked to look again.")
+                       "You asked the verifier to look again.")
     }
 
     func testChecksComeFromTheRecord() {

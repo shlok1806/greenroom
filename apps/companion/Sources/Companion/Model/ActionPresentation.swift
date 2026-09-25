@@ -197,10 +197,10 @@ enum KeyHelp {
         case .destroy: "destroy machine"
         case .accept: "accept"
         case .dispute: "dispute"
-        case .undo: "undo within 5 s"
+        case .undo: "undo, 5 s"
         case .palette: "commands"
         case .toggleSidebar: "show or hide runs"
-        case .zoom: "zoom or restore the pane"
+        case .zoom: "zoom or restore"
         case .leave: "leave the field"
         default: spec.title.lowercased()
         }

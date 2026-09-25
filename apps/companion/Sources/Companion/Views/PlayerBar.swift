@@ -85,7 +85,7 @@ struct PlayerBar: View {
 
             VStack(alignment: .leading, spacing: Space.xs) {
                 if let liveFailure {
-                    statusLine("The live screen is not available, so this is the recording: \(liveFailure)", tint: theme.dim)
+                    statusLine("Live screen down, showing the recording: \(liveFailure)", tint: theme.dim)
                 }
                 // Outside the ready check: a stopped machine hides the button but keeps the reason.
                 if let endedReason {
@@ -199,7 +199,7 @@ struct PlayerBar: View {
             .monoStyle(size: TypeScale.monoSmall)
             .foregroundStyle(.secondary)
             .fixedSize()
-            .help("Marks on the track: red ticks are steps that errored, filled diamonds the steps the verdict cites, hollow ones steps a superseded verdict cited")
+            .help("Red ticks: errors. Filled diamonds: cited by the verdict. Hollow: cited by an earlier verdict.")
         }
     }
 
@@ -247,8 +247,8 @@ struct SourceLabel: View {
     private var help: String {
         switch state {
         case .live: "The machine's screen as it happens"
-        case .connecting: "Asking the machine for its live screen; the recording shows meanwhile"
-        case .recording: "A recorded frame; times are since the run started"
+        case .connecting: "Connecting to the live screen. The recording shows until then."
+        case .recording: "A recorded frame. Times count from the run's start."
         case .driving: "Your mouse and keys go to the machine"
         }
     }
@@ -367,7 +367,7 @@ struct FrameTrack: View {
         let steps = group.marks.map { "\($0.step)" }.joined(separator: ", ")
         if group.marks.count > 1 { return "Steps \(steps), cited as evidence" }
         return marks.superseded.contains(group.first.step) && !marks.evidence.contains(group.first.step)
-            ? "Step \(steps) was cited by an earlier, superseded verdict"
-            : "Step \(steps) is cited by the verdict"
+            ? "Step \(steps), cited by an earlier verdict"
+            : "Step \(steps), cited by the verdict"
     }
 }
