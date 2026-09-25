@@ -79,7 +79,7 @@ Measured (WCAG 2 contrast against the background, this revision):
 
 | Theme | pass (slot 2) | dim (slot 8) | brand vs bg | brand-text on brand | fg on chromeTint |
 | --- | --- | --- | --- | --- | --- |
-| dark | `#47e1a8` 11.42 | `#7d7d7d` 4.62 | `#8da041` 6.56 | `#101010` 6.56 | `#1a1c14` 11.82 |
+| dark | `#47e1a8` 11.42 | `#7d7d7d` 4.62 | `#61702b` 3.50 | `#f4f1e8` 4.82 | `#1a1c14` 11.82 |
 | light | `#127b58` 4.65 | `#6c6c6c` 4.65 | `#4B5320` 7.27 | `#f4f1e8` 7.27 | `#e8e6da` 12.83 |
 | dark-hc | `#65ecba` 14.26 | `#9b9b9b` 7.56 | `#92a73e` 7.82 | `#000000` 7.82 | `#0d0f06` 19.30 |
 | light-hc | `#0b6145` 7.35 | `#535353` 7.56 | `#363d14` 11.25 | `#fffdf7` 11.25 | `#f1f0e7` 18.36 |
