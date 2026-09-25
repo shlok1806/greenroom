@@ -13,20 +13,22 @@ go test -race ./...                             # before touching boot, recorder
 go test ./internal/machine -run TestFoo
 go test -tags tart -run TestEndToEnd -v -timeout 10m .         # real VM
 go test -tags tart -run TestEndToEndSession -v -timeout 12m .  # guest pty, ^C, a 3 MB flood and close in a real VM
-go test -tags tart -count=1 -timeout 20m ./...  # whole VM suite, as CI runs it
+go test -tags tart -count=1 -timeout 45m ./...  # whole VM suite, as CI runs it
+# every e2e test clones the local GREENROOM_BASE_IMAGE (default greenroom-base), never pulls Cirrus
 golangci-lint run ./...
 
 go run . serve                                  # 127.0.0.1:7777, root ~/.greenroom
 go run . serve -verifier manual                 # no model; a person types instructions
 go run . serve -image greenroom-base -max-machines 2 -frame-interval 2s
 go run . serve -tart <path>                     # or GREENROOM_TART
-go run . prepare-image -vm <running vm>
+go run . prepare-image -vm <running vm>          # build-image.sh runs it; not on its own
+go run . check-image -image <local image> [-out dir]   # the dialog gate, on a clone of a clone
 go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir>]
 
 scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
                         # image default: local greenroom-lean-a, then greenroom-base, then upstream Cirrus
 scripts/uninstall.sh    # keeps the binary and ~/.greenroom
-scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-lean] [-force]
+scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-lean] [-force]   # ends with check-image
 ```
 
 `usage()` prints each subcommand's flag set, so `greenroom` with no arguments lists every flag.
@@ -76,16 +78,16 @@ Boot and lifecycle
   `readyTimeout` (3 min). A timeout names the last probe error.
 - `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`,
   `captureAlertSeconds`, `desktopPrefsSeconds`, `timeZoneSeconds`, `inputHelperSeconds`,
-  `sshSeconds`.
-- Boot quits the Terminal the image starts at login and removes its saved state
-  (`terminal.go`, step keys `terminalSeconds`, `terminalQuit` (a Terminal was found and quit),
-  `terminalError`, issue #60); `prepare-image` runs the same so a rebuilt image has no saved
-  window to restore. launchd can start Terminal after the guest agent answers, so the script
-  waits up to 30 s for Dock and Finder, then up to 8 s for Terminal, before it reports none.
-  What relaunches Terminal is not a System Events login item, and `osascript` or
-  `sfltool dumpbtm` over `tart exec` hang (they wait for an Automation or admin prompt nobody
-  answers), so boot does it on every machine rather than trusting the image. Never fatal. Fake tart flag `fail-terminal`; the fake
-  prints `quit` and writes `terminal-quit-ran` when the script runs.
+  `toolchainSeconds`, `desktopSeconds`, `sshSeconds`.
+- Boot reads the image's toolchain manifest (`base.go`, `ToolchainPath`, ADR 0019) into
+  `Machine.Toolchain` as the image wrote it, `{"known":false}` when absent. The daemon never
+  interprets it and never assumes a toolchain. Error key `toolchainError`, never fatal.
+- Boot checks the desktop once (`desktopcheck.go`, ADR 0018), after the login settles (Dock
+  and Finder up, Finder running 12 s, since loginwindow relaunches apps about then):
+  `greenroom-input --desktop` lists on-screen windows and regular apps, compared with the allowlist the image gate uses.
+  The result is `Machine.Desktop` (and `desktopFindings` in the step). It surfaces, never
+  sweeps: nothing in the daemon closes a window or quits an app it did not open, and a boot
+  `pkill` of an app the image starts is not a fix (issue #60). Fix the image instead.
 - Boot puts the guest in the host's time zone (`timezone.go`, from `TZ` or `/etc/localtime`, step
   keys `timeZone`, `timeZoneError`, issue #77): the image runs in UTC, and the recording's
   menu bar clock disagreed with every time the companion prints. Only a tz database name
@@ -118,7 +120,7 @@ Boot and lifecycle
   #81: "a  b" was typed as "a. b"), and display sleep, screensaver and
   screen lock off (a sleeping guest display makes every capture black, with no error).
   Also never fatal. `prepare-image`
-  bakes both; `images/scripts/greenroom-tcc.sh` repeats them for the Packer image.
+  bakes both with the same scripts, so build time and boot time cannot disagree.
 - `finishBoot` writes the step before closing `ready`. `manifest.json` is written by
   temp file and rename.
 - `waitReady` watches `tart run`'s process; if it exits, fail at once with the tail of
@@ -320,8 +322,7 @@ Sync
 
 - `source` must be absolute; `dest` must stay inside the guest home.
 - Default `dest` is `~/work/<basename>` (`GuestWorkDir`). This is pinned: SwiftPM caches
-  are keyed to their absolute path and fail hard elsewhere. `images/scripts/firstboot.sh`
-  uses the same path; change both together.
+  are keyed to their absolute path and fail hard elsewhere.
 - rsync uses `-a`, not `-az`. Compression makes a local VM sync ~4x slower
   (`docs/10-build-transport.md`). `TestSyncBuildsTheRsyncCommand` asserts it.
 
@@ -392,21 +393,42 @@ mkdir -p ~/.local/tart-$V && tar xzf tart.tar.gz -C ~/.local/tart-$V
 
 ## Image
 
-`scripts/build-image.sh` clones the default image, boots it, runs `prepare-image`
-(`machine.PrepareGuest`: compile the input helper, install the ssh key, pre-approve
-screen capture, set the desktop preferences, quit Terminal and clear its saved state) and stops it.
-Clones of `greenroom-base` skip the ~28 s first-control compile.
+The only image recipe (ADR 0018, `images/README.md`). `scripts/build-image.sh` clones the
+default image to `<name>-building`, boots it, runs `prepare-image` (`machine.PrepareGuest`:
+input helper, ssh key, screen-capture approvals, desktop preferences, `guest/base.sh`,
+`guest/toolchain.sh`; then `-lean`'s `guest/lean.sh`; then `DisableSoftwareUpdate` last,
+because lean.sh still talks to softwareupdated), stops it, runs `check-image` on it and
+renames it to `<name>` only if that passes. A failed gate deletes the build.
+
+- BASE gets every fix that needs no click; LEAN adds only hiding. A fix that makes a
+  machine work goes in `base.sh`, never `lean.sh`, so `greenroom-base` stays complete.
+- `base.sh` and `lean.sh` read every setting back and fail by check name. `base_test.go`
+  and `lean_test.go` run the real scripts in `/bin/sh` under stubs (real SQLite and
+  plutil for base).
+- Apple Events rows are per target bundle id, for tart-guest-agent (path resolved at build,
+  never pinned) and sshd-keygen-wrapper, in the system and the tccd-open user TCC.db. A new
+  target app that agents script needs a row there.
+- loginwindow relaunches every app in
+  `~/Library/Group Containers/group.com.apple.loginwindow.persistent-apps/persistantApps` at
+  login, whatever `TALLogoutSavesState` says, and the list follows running apps. Anything
+  left running during a build comes back on every machine; `base.sh` stops the listed apps
+  and cuts the list to Finder (issue #60).
+- Software Update is off through two launchd jobs, `com.apple.softwareupdated` and
+  `com.apple.mobile.softwareupdated`; the first alone lets the daemon start after a reboot.
+- `check-image` (`imagecheck.go`) never writes what boot writes (approvals, desktop
+  prefs): the image must pass alone. Its exercises run under a process-group watchdog like
+  `execWrapper`'s, because a blocked osascript keeps `tart exec` open after its shell dies.
+  The allowlist lives in `desktopcheck.go` and is shared with boot; widen it only for a
+  window every clean desktop has, with a screenshot as evidence.
 
 - `PrepareGuest` ends with `sync` in the guest. `tart stop` does not flush guest pages;
   without `sync` the helper is gone on next boot. `TestPrepareGuestSyncsBeforeReturning`
   pins it.
-- This is a different `greenroom-base` from the Packer build in `images/`. See the
-  inconsistency note there.
 - `-lean` (`prepare-image -lean`, `machine.ApplyLeanProfile`, script `guest/lean.sh`) is
   variant A of `docs/image-experiment/`: only the core apps in the Dock, the other apps'
   gui-domain agents `launchctl disable`d, widgets, banners, Siri, indexing, update
-  downloads and installs, Time Machine and setup prompts off. Automatic update checks stay
-  on (see the comment in `lean.sh`). It writes preferences and launchd's disabled list only;
+  downloads and installs, Time Machine and setup prompts off. (Update checks are off in
+  base, where softwareupdated is disabled.) It writes preferences and launchd's disabled list only;
   never SIP, the authenticated root or the sealed volume. It runs as the user through
   `/bin/sh`, not zsh: zsh does not word-split `$list`, and one disable of a newline-joined
   "label" once passed a substring read-back. The read-back matches labels exactly. It
@@ -418,8 +440,10 @@ Clones of `greenroom-base` skip the ~28 s first-control compile.
 
 - `WithTartBin` points at the fake tart in `internal/testsupport/faketart.go`. It records
   every call; control files turn on failures. The list is in that file's header comment, plus
-  `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-timezone`, `fail-terminal`, `fail-lean`, `ui.json` (what `--ui-base64`
-  prints), `tart-version` (fake a version mismatch), `exec-sleep` and `exec-stdout` (a slow or
+  `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-timezone`, `fail-lean`, `ui.json` (what `--ui-base64`
+  prints), `desktop.json` (what `--desktop` prints), `toolchain.json` (the image's manifest),
+  `fail-base`, `fail-toolchain`, `fail-softwareupdate`, `fail-check-<exercise>` and
+  `softwareupdate` (image build and gate), `tart-version` (fake a version mismatch), `exec-sleep` and `exec-stdout` (a slow or
   loud machine_exec), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session reaches tart on a
   pipe. It models a session with the host's real `script` running `cat`, and runs the real

@@ -18,7 +18,7 @@ first real term settles). **documented** means `CONTEXT.md` exists.
 | nim       | `apps/daemon/internal/nim/`           | Client for NVIDIA NIM's OpenAI-compatible API               | code       |
 | tart      | `apps/daemon/internal/tart/`          | Tart CLI wrapper, pinned version, long-lived execs          | code       |
 | companion | `apps/companion/`                     | macOS app: watch runs, see the screen, talk, take control   | documented |
-| images    | `images/`                             | Packer image layers and first-boot scripts                  | code       |
+| images    | `images/`                             | Image layers and the dialog gate (docs only)                | docs       |
 
 ## Shared vocabulary
 

@@ -65,7 +65,11 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_wait",
 		Description: "Wait for a machine to finish booting. Returns its status: booting (call again), ready (ip and " +
-			"bootSeconds are set), or failed (error is set).",
+			"bootSeconds are set), or failed (error is set). A ready machine also reports toolchain, what its image " +
+			"measured when it was built (Xcode present or not, whether XCTest and swift-testing packages run with " +
+			"swift test, swift and Command Line Tools versions; known false when the image says nothing), and " +
+			"desktop, whether the screen showed anything besides the desktop and Finder at ready (clean false lists " +
+			"unexpectedWindows and unexpectedApps, such as a permission prompt; greenroom never closes them).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitIn) (*mcp.CallToolResult, *machine.Machine, error) {
 		return wrap(mgr.Wait(ctx, in.RunID, waitTimeout(in.TimeoutSeconds)))
 	})
@@ -130,7 +134,10 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry) *mcp.
 			"machine_session_start. stdout and stderr each keep their first %d KiB and last %d KiB; when bytes "+
 			"were left out, stdoutTruncated or stderrTruncated is true, a marker line in the text says where, "+
 			"and stdoutBytes and stderrBytes give the full sizes. To see more of a big output, write it to a "+
-			"file in the guest and read parts of it (grep, tail, sed -n).",
+			"file in the guest and read parts of it (grep, tail, sed -n). "+
+			"Before running a project's tests, read toolchain in machine_wait's result: it says whether this "+
+			"machine's image can run XCTest and swift-testing. Never delete, skip or exclude a project's existing "+
+			"tests to get a green run; if the machine cannot run them, say so.",
 			machine.ExecHeadLimit/1024, machine.ExecTailLimit/1024),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in execIn) (*mcp.CallToolResult, machine.ExecStatus, error) {
 		timeout := 10 * time.Minute

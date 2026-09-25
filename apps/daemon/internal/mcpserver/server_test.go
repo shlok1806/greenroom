@@ -354,6 +354,55 @@ func TestWaitReachesReadyAndReportsBootSeconds(t *testing.T) {
 	}
 }
 
+// ADR 0019: ready carries what the image measured about its toolchain, as the image wrote
+// it, and says unknown for an image that wrote nothing.
+func TestWaitReportsTheImagesToolchain(t *testing.T) {
+	h := newHarness(t)
+	var mc machine.Machine
+	h.call("machine_wait", map[string]any{"runId": h.ready()}, &mc)
+	if known, ok := mc.Toolchain["known"].(bool); !ok || known {
+		t.Errorf("an image without a manifest reported toolchain %v, want known false", mc.Toolchain)
+	}
+	h.call("machine_destroy", map[string]any{"runId": mc.RunID}, nil)
+	_ = os.Remove(filepath.Join(h.control, "stopped")) // the fake tart's stop mark would end the next run at once
+
+	manifest := `{"known":true,"xcode":false,"xctest":false,"swiftTesting":true,"swiftVersion":"Apple Swift version 6.3.3","futureField":{"a":1}}`
+	if err := os.WriteFile(filepath.Join(h.control, "toolchain.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.call("machine_wait", map[string]any{"runId": h.ready()}, &mc)
+	if mc.Toolchain["xctest"] != false || mc.Toolchain["swiftTesting"] != true || mc.Toolchain["swiftVersion"] != "Apple Swift version 6.3.3" || mc.Toolchain["futureField"] == nil {
+		t.Errorf("the manifest did not come through as the image wrote it: %v", mc.Toolchain)
+	}
+}
+
+// ADR 0018: ready says what was on the screen besides the desktop, and nothing closes it.
+func TestWaitSurfacesUnexpectedWindowsAndNeverClosesThem(t *testing.T) {
+	h := newHarness(t)
+	var mc machine.Machine
+	h.call("machine_wait", map[string]any{"runId": h.ready()}, &mc)
+	if mc.Desktop == nil || !mc.Desktop.Clean {
+		t.Fatalf("a clean desktop was reported as %+v", mc.Desktop)
+	}
+	h.call("machine_destroy", map[string]any{"runId": mc.RunID}, nil)
+	_ = os.Remove(filepath.Join(h.control, "stopped")) // the fake tart's stop mark would end the next run at once
+
+	desktop := `{"windows":[{"owner":"UserNotificationCenter","name":"","layer":8,"alpha":1,"x":382,"y":210,"width":260,"height":348}],
+ "apps":[{"name":"Finder","bundleId":"com.apple.finder","pid":1},{"name":"Terminal","bundleId":"com.apple.Terminal","pid":2}]}`
+	if err := os.WriteFile(filepath.Join(h.control, "desktop.json"), []byte(desktop), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.call("machine_wait", map[string]any{"runId": h.ready()}, &mc)
+	d := mc.Desktop
+	if d == nil || d.Clean || len(d.UnexpectedWindows) != 1 || d.UnexpectedWindows[0].Owner != "UserNotificationCenter" ||
+		len(d.UnexpectedApps) != 1 || d.UnexpectedApps[0].BundleID != "com.apple.Terminal" {
+		t.Fatalf("the prompt and Terminal were not surfaced: %+v", d)
+	}
+	if calls := testsupport.Calls(t, h.control); regexp.MustCompile(`pkill|killall|to quit`).MatchString(calls) {
+		t.Errorf("the daemon closed what it found:\n%s", calls)
+	}
+}
+
 func TestWaitCapsTheTimeout(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
@@ -535,7 +584,8 @@ func TestExecDescriptionStatesItsLimitsAndTheWaitTool(t *testing.T) {
 		if tool.Name != "machine_exec" {
 			continue
 		}
-		for _, want := range []string{"first 8 KiB and last 24 KiB", "stdoutBytes", "machine_exec_wait", "execId", "max 50", "machine_session_start", "not interactive"} {
+		for _, want := range []string{"first 8 KiB and last 24 KiB", "stdoutBytes", "machine_exec_wait", "execId", "max 50", "machine_session_start", "not interactive",
+			"read toolchain in machine_wait", "Never delete, skip or exclude a project's existing tests"} {
 			if !strings.Contains(tool.Description, want) {
 				t.Errorf("machine_exec's description does not mention %q:\n%s", want, tool.Description)
 			}

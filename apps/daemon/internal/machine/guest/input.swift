@@ -9,11 +9,15 @@
 //     greenroom-input --json-base64 <base64 of {"actions":[...]}>
 //     greenroom-input --serve
 //     greenroom-input --ui-base64 <base64 of {"app":"...","limit":N}>
+//     greenroom-input --desktop
 //
 // --json-base64 writes one JSON object to stdout and exits 0, or writes an
 // error object and exits 1. --serve streams the screen as H.264 and takes
 // input batches on stdin until stdin closes (ADR 0011). --ui-base64 writes the
 // accessibility tree of the frontmost (or a named) application (ADR 0012).
+// --desktop writes what is on the screen and what is running: every on-screen
+// window (CGWindowListCopyWindowInfo) and every regular application
+// (NSWorkspace), for the dialog check (desktopcheck.go, ADR 0018).
 // Coordinates are points on the main display, both ways; the daemon turns
 // the fractions the companion sends into points before it gets here, and the
 // frames this reports into fractions after.
@@ -32,7 +36,7 @@ import Foundation
 import ScreenCaptureKit
 import VideoToolbox
 
-let version = "greenroom-input 5"
+let version = "greenroom-input 6"
 
 // MARK: - Wire types
 
@@ -829,9 +833,36 @@ func serve() -> Never {
     dispatchMain()
 }
 
+/// Every on-screen window and every regular running application. Owners and
+/// layers need no permission; titles need screen capture, which the guest
+/// agent holds and this binary inherits.
+func desktop() -> [String: Any] {
+    let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    let windows: [[String: Any]] = info.map { w in
+        let b = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+        return [
+            "owner": w[kCGWindowOwnerName as String] as? String ?? "",
+            "pid": w[kCGWindowOwnerPID as String] as? Int ?? 0,
+            "name": w[kCGWindowName as String] as? String ?? "",
+            "layer": w[kCGWindowLayer as String] as? Int ?? 0,
+            "alpha": w[kCGWindowAlpha as String] as? Double ?? 1,
+            "x": b["X"] as? Double ?? 0, "y": b["Y"] as? Double ?? 0,
+            "width": b["Width"] as? Double ?? 0, "height": b["Height"] as? Double ?? 0,
+        ]
+    }
+    let apps: [[String: Any]] = NSWorkspace.shared.runningApplications
+        .filter { $0.activationPolicy == .regular }
+        .map { ["name": $0.localizedName ?? "", "bundleId": $0.bundleIdentifier ?? "", "pid": Int($0.processIdentifier)] }
+    return ["windows": windows, "apps": apps]
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 if arguments.first == "--version" {
     print(version)
+    exit(0)
+}
+if arguments.first == "--desktop" {
+    emit(desktop(), to: FileHandle.standardOutput)
     exit(0)
 }
 if arguments.first == "--serve" {

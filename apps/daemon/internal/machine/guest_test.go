@@ -112,13 +112,26 @@ func localSSH(t *testing.T) string {
 
 // runWrapper runs execWrapper for real in a host shell, with a login zsh that
 // reads no dotfiles of this host's user. Every pid the command writes to
-// $HOME/pids is killed when the test ends, so no child outlives it.
+// $HOME/pids is killed when the test ends, so no child outlives it. A mktemp
+// shim first on PATH records the dir the wrapper makes in $HOME/dirs, so
+// wrapperDirsLeft checks that dir alone: other processes on a shared host make
+// /tmp/greenroom-exec.* dirs too.
 func runWrapper(t *testing.T, command string, timeoutSeconds int) (stdout, stderr string, code int, took time.Duration) {
+	stdout, stderr, code, took, _ = runWrapperIn(t, command, timeoutSeconds)
+	return stdout, stderr, code, took
+}
+
+func runWrapperIn(t *testing.T, command string, timeoutSeconds int) (stdout, stderr string, code int, took time.Duration, home string) {
 	t.Helper()
 	if _, err := os.Stat("/bin/zsh"); err != nil {
 		t.Skip("no /bin/zsh")
 	}
-	home := t.TempDir()
+	home = t.TempDir()
+	bin := t.TempDir()
+	shim := "#!/bin/sh\nd=$(/usr/bin/mktemp \"$@\") || exit\necho \"$d\" >>\"$HOME/dirs\"\necho \"$d\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "mktemp"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		pids, _ := os.ReadFile(filepath.Join(home, "pids"))
 		for _, f := range strings.Fields(string(pids)) {
@@ -128,7 +141,7 @@ func runWrapper(t *testing.T, command string, timeoutSeconds int) (stdout, stder
 		}
 	})
 	cmd := exec.Command("/bin/sh", "-c", execWrapper, "greenroom-exec", command, strconv.Itoa(timeoutSeconds))
-	cmd.Env = append(os.Environ(), "HOME="+home, "ZDOTDIR="+home)
+	cmd.Env = append(os.Environ(), "HOME="+home, "ZDOTDIR="+home, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var out, errOut strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	started := time.Now()
@@ -149,21 +162,32 @@ func runWrapper(t *testing.T, command string, timeoutSeconds int) (stdout, stder
 		_ = cmd.Process.Kill()
 		t.Fatal("the wrapper did not return")
 	}
-	return out.String(), errOut.String(), code, time.Since(started)
+	return out.String(), errOut.String(), code, time.Since(started), home
 }
 
-func execTempDirs(t *testing.T) int {
+// wrapperDirsLeft is the temp dirs the wrapper run with this home made and
+// left in place. It fails if the wrapper made none, so a shim that stopped
+// being called cannot pass.
+func wrapperDirsLeft(t *testing.T, home string) []string {
 	t.Helper()
-	m, _ := filepath.Glob("/tmp/greenroom-exec.*")
-	return len(m)
+	data, err := os.ReadFile(filepath.Join(home, "dirs"))
+	if err != nil {
+		t.Fatalf("the wrapper made no temp dir through mktemp: %v", err)
+	}
+	var left []string
+	for _, d := range strings.Fields(string(data)) {
+		if _, err := os.Stat(d); err == nil {
+			left = append(left, d)
+		}
+	}
+	return left
 }
 
 // tart exec returns only when every holder of the guest's stdout and stderr
 // has closed them. The wrapper gives a command files instead, so a child the
 // command leaves running cannot hold the call open, and keeps running.
 func TestExecWrapperReturnsWhileABackgroundChildRuns(t *testing.T) {
-	before := execTempDirs(t)
-	stdout, stderr, code, took := runWrapper(t,
+	stdout, stderr, code, took, home := runWrapperIn(t,
 		`echo out; echo err >&2; sleep 20 & echo $! >> "$HOME/pids"; (cd / && exec sleep 20) & echo $! >> "$HOME/pids"; exit 3`, 600)
 	if code != 3 || took > 5*time.Second {
 		t.Errorf("exit %d after %s, want exit 3 in the shell's own time", code, took)
@@ -171,17 +195,16 @@ func TestExecWrapperReturnsWhileABackgroundChildRuns(t *testing.T) {
 	if stdout != "out\n" || stderr != "err\n" {
 		t.Errorf("stdout %q, stderr %q, want out and err and no job notices", stdout, stderr)
 	}
-	if n := execTempDirs(t); n > before {
-		t.Errorf("%d /tmp/greenroom-exec.* dirs left behind", n-before)
+	if left := wrapperDirsLeft(t, home); len(left) > 0 {
+		t.Errorf("temp dirs left behind: %v", left)
 	}
 }
 
 // Issue #28: at the timeout the guest kills the command and its children, and the
 // output so far comes back with exit 124 and a note.
 func TestExecWrapperTimeoutKillsTheTreeAndKeepsTheOutput(t *testing.T) {
-	before := execTempDirs(t)
 	marker := filepath.Join(t.TempDir(), "survived")
-	stdout, stderr, code, took := runWrapper(t,
+	stdout, stderr, code, took, home := runWrapperIn(t,
 		`echo before; (sleep 4; touch `+marker+`) & echo $! >> "$HOME/pids"; for i in 1 2 3 4 5 6; do echo tick $i; sleep 1; done; touch `+marker, 2)
 	if code != execTimedOutExit || took > 5*time.Second {
 		t.Errorf("exit %d after %s, want %d at about 2 s", code, took, execTimedOutExit)
@@ -196,8 +219,8 @@ func TestExecWrapperTimeoutKillsTheTreeAndKeepsTheOutput(t *testing.T) {
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("the command or its background child kept running past the timeout")
 	}
-	if n := execTempDirs(t); n > before {
-		t.Errorf("%d /tmp/greenroom-exec.* dirs left behind", n-before)
+	if left := wrapperDirsLeft(t, home); len(left) > 0 {
+		t.Errorf("temp dirs left behind: %v", left)
 	}
 }
 

@@ -40,6 +40,8 @@ func main() {
 		err = serve(os.Args[2:])
 	case "prepare-image":
 		err = prepareImage(os.Args[2:])
+	case "check-image":
+		err = checkImage(os.Args[2:])
 	case "version":
 		fmt.Println("greenroom", mcpserver.Version)
 	default:
@@ -62,6 +64,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "\n       greenroom prepare-image -vm <name> [flags]")
 	prepare, _ := prepareFlags()
 	prepare.PrintDefaults()
+	fmt.Fprintln(os.Stderr, "\n       greenroom check-image -image <name> [flags]")
+	check, _ := checkFlags()
+	check.PrintDefaults()
 	fmt.Fprintln(os.Stderr, "\n       greenroom version")
 	os.Exit(2)
 }

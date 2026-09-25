@@ -103,7 +103,7 @@ jobs:
       # run prints nothing until the step is cancelled, which says nothing about where.
       - name: go test -tags tart (full suite)
         working-directory: apps/daemon
-        run: go test -tags tart -count=1 -timeout 20m -v ./...
+        run: go test -tags tart -count=1 -timeout 45m -v ./...
 
       - name: Cleanup - delete VMs this job created
         if: always()
