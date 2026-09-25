@@ -2,24 +2,6 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// What the Run menu can do to the screen on show.
-struct ScreenCommands {
-    var goLive: (() -> Void)?
-}
-
-/// Spelled out rather than `@Entry`: that macro's plugin ships only with Xcode, and the
-/// CI runner builds with the Command Line Tools.
-private struct ScreenCommandsKey: FocusedValueKey {
-    typealias Value = ScreenCommands
-}
-
-extension FocusedValues {
-    var screenCommands: ScreenCommands? {
-        get { self[ScreenCommandsKey.self] }
-        set { self[ScreenCommandsKey.self] = newValue }
-    }
-}
-
 /// A player over the frames the daemon captured (ADR 0008), the live stream while
 /// following a ready machine (ADR 0011), and while the lease is held, the machine's
 /// mouse and keys (ADR 0009). Nothing is drawn over the picture except the driving
@@ -65,28 +47,14 @@ struct ScreenView: View {
     var body: some View {
         stack
         .focusable(!driving)
-        // Focus is only for the arrow and space keys; a ring round the whole stage is noise.
+        // Focus holds the keyboard on the stage, so no text field takes it when the Screen
+        // opens; the keys themselves come through the router. A focus ring is noise here.
         .focusEffectDisabled()
         .focused($focused)
-        // While driving, keys belong to the guest.
-        .onKeyPress(.leftArrow) {
-            guard !driving else { return .ignored }
-            step(by: -1)
-            return .handled
-        }
-        .onKeyPress(.rightArrow) {
-            guard !driving else { return .ignored }
-            step(by: 1)
-            return .handled
-        }
-        .onKeyPress(.space) {
-            guard !driving else { return .ignored }
-            player.playing.toggle()
-            return .handled
-        }
-        .focusedSceneValue(\.screenCommands, ScreenCommands(
-            goLive: machineIsReady && !player.live ? { goLive() } : nil
-        ))
+        // Space, the arrows and G, from the registry through the window's router. While
+        // driving none is offered: the keys belong to the guest.
+        .offersActions(.screen, screenActions, refresh: runId) { perform($0) }
+        .offersActions(.run, machineIsReady && !player.live && !driving ? [.followLive] : [], refresh: runId) { _ in goLive() }
         .onAppear {
             focused = true
             onScreen = true
@@ -159,6 +127,32 @@ struct ScreenView: View {
         }
         .task(id: player.current?.file) {
             await loadCurrentImage()
+        }
+    }
+
+    private var screenActions: Set<ActionID> {
+        var ids: Set<ActionID> = []
+        if returnPoint != nil { ids.insert(.backToVerdict) }
+        guard !driving else { return ids }
+        if player.frames.count > 1 { ids.formUnion([.play, .previousFrame, .nextFrame]) }
+        if machineIsReady ? !player.live : player.index < player.frames.count - 1 { ids.insert(.latest) }
+        return ids
+    }
+
+    private func perform(_ id: ActionID) {
+        switch id {
+        case .play: player.playing.toggle()
+        case .previousFrame: step(by: -1)
+        case .nextFrame: step(by: 1)
+        case .latest:
+            if machineIsReady {
+                goLive()
+            } else {
+                player.playing = false
+                player.index = max(0, player.frames.count - 1)
+            }
+        case .backToVerdict: backToVerdict()
+        default: break
         }
     }
 
@@ -436,8 +430,7 @@ struct EvidenceBar: View {
             if let back {
                 Button("← Back to Verdict", action: back)
                     .buttonStyle(.quiet(small: true))
-                    .keyboardShortcut(.escape, modifiers: [])
-                    .help("Return to where you were (Esc)")
+                    .help("Return to where you were (\(ActionRegistry.label(.back)))")
             }
             Text("◆ Step \(step), cited by the verdict")
                 .monoStyle(size: TypeScale.monoSmall)
@@ -529,7 +522,7 @@ private struct PlayerBar: View {
                 .buttonStyle(.plain)
                 .hoverHighlight(radius: Radius.sm)
                 .disabled(player.frames.count < 2 || driving)
-                .help(player.playing ? "Pause (Space)" : "Play the recording (Space)")
+                .help(player.playing ? "Pause (\(ActionRegistry.label(.play)))" : "Play the recording (\(ActionRegistry.label(.play)))")
                 .accessibilityLabel(player.playing ? "Pause" : "Play")
 
                 FrameTrack(
@@ -595,7 +588,7 @@ private struct PlayerBar: View {
             Button("Go Live →") { goLive() }
                 .buttonStyle(.quiet(small: true))
                 .fixedSize()
-            .help("Jump to the machine's screen now (\(Keys.live))")
+            .help("Jump to the machine's screen now (\(ActionRegistry.label(.followLive)))")
         }
     }
 
@@ -748,7 +741,7 @@ private struct RecentSteps: View {
                     Spacer()
                     Button("All Steps") { store.requestSeek(runId: runId, step: shown.last?.seq ?? 0, inSteps: true) }
                         .buttonStyle(.textLink)
-                        .help("Open the Steps stage (\(Keys.steps))")
+                        .help("Open the Steps stage (\(ActionRegistry.label(.goSteps)))")
                 }
                 .padding(.bottom, Space.xs)
                 ForEach(shown.reversed(), id: \.self) { step in

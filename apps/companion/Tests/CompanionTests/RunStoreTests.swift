@@ -377,7 +377,9 @@ final class RunStoreTests: XCTestCase {
         XCTAssertNil(store.verdictDrafts["run-1"])
     }
 
-    func testAcceptAfterOpeningEvidenceSendsAtOnce() async {
+    /// Having opened the evidence, accepting asks nothing more, but it is still held for
+    /// its undo (ADR 0005): nothing is posted until the window ends.
+    func testAcceptAfterOpeningEvidenceIsHeldForItsUndoThenSent() async {
         let posts = Counter()
         let client = StubURLProtocol.client { request in
             if request.httpMethod == "POST" { posts.add(); return .json("{}") }
@@ -388,8 +390,60 @@ final class RunStoreTests: XCTestCase {
                                  verdict: VerdictState(seq: 5, verdict: "pass", evidence: ["step 2"], status: .proposed))]
         store.updateVerdictDraft("run-1") { $0.openedEvidence = true }
         await store.requestAccept(runId: "run-1")
-        XCTAssertEqual(posts.value, 1)
         XCTAssertFalse(store.verdictDraft("run-1").confirmingAccept)
+        XCTAssertEqual(store.heldVerdictChoice("run-1")?.kind, .accept)
+        XCTAssertEqual(posts.value, 0, "an accept was sent inside its undo window")
+
+        await store.sendHeldVerdictChoice(now: Date())
+        XCTAssertEqual(posts.value, 0, "sent before the window ended")
+        await store.sendHeldVerdictChoice(now: Date().addingTimeInterval(UndoWindow<PendingVerdictChoice>.length + 0.1))
+        XCTAssertEqual(posts.value, 1)
+        XCTAssertNil(store.heldVerdictChoice("run-1"))
+    }
+
+    /// Undo inside the window: nothing ever reaches the daemon, and the timer that would
+    /// have sent it finds nothing.
+    func testUndoingAHeldDisputeSendsNothingAndKeepsTheReason() async {
+        let posts = Counter()
+        let client = StubURLProtocol.client { request in
+            if request.httpMethod == "POST" { posts.add(); return .json("{}") }
+            return .json(#"{"messages": []}"#)
+        }
+        let store = RunStore(client: client)
+        store.runs = [RunSummary(runId: "run-1", createdAt: Date(timeIntervalSince1970: 0), status: .ready,
+                                 verdict: VerdictState(seq: 5, verdict: "fail", evidence: ["step 2"], status: .proposed))]
+        store.updateVerdictDraft("run-1") {
+            $0.action = .reject
+            $0.reason = "step 3 shows $48.00"
+        }
+        await store.submitVerdictAction(runId: "run-1")
+        XCTAssertEqual(store.heldVerdictChoice("run-1")?.kind, .dispute(reason: "step 3 shows $48.00"))
+        XCTAssertEqual(posts.value, 0)
+
+        XCTAssertNotNil(store.undoVerdictChoice())
+        await store.sendHeldVerdictChoice(now: Date().addingTimeInterval(60))
+        XCTAssertEqual(posts.value, 0, "an undone dispute was sent")
+        XCTAssertEqual(store.verdictDraft("run-1").reason, "step 3 shows $48.00", "undo lost the reason")
+        XCTAssertEqual(store.verdictDraft("run-1").action, .reject)
+    }
+
+    /// A choice made on a verdict that changed during its window is not sent against the new one.
+    func testAHeldChoiceIsNotSentAgainstAVerdictThatChanged() async {
+        let posts = Counter()
+        let client = StubURLProtocol.client { request in
+            if request.httpMethod == "POST" { posts.add(); return .json("{}") }
+            return .json(#"{"messages": []}"#)
+        }
+        let store = RunStore(client: client)
+        store.runs = [RunSummary(runId: "run-1", createdAt: Date(timeIntervalSince1970: 0), status: .ready,
+                                 verdict: VerdictState(seq: 5, verdict: "pass", status: .proposed))]
+        await store.requestAccept(runId: "run-1")
+        XCTAssertNotNil(store.heldVerdictChoice("run-1"))
+        store.runs[0].verdict = VerdictState(seq: 9, verdict: "fail", status: .proposed)
+        XCTAssertNil(store.heldVerdictChoice("run-1"), "the new verdict shows a choice made on the old one")
+        await store.sendHeldVerdictChoice(now: Date().addingTimeInterval(60))
+        XCTAssertEqual(posts.value, 0, "an accept of verdict 5 was sent against verdict 9")
+        XCTAssertNotNil(store.lastError)
     }
 
     func testADraftBelongsToOneVerdict() {

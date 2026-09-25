@@ -8,17 +8,26 @@ import SwiftUI
 struct RootView: View {
     let store: RunStore
 
+    @State private var keyboard: KeyboardModel
     @AppStorage("stagePane") private var pane: StagePane = .screen
     @AppStorage("showsConversation") private var showsConversation = true
     @AppStorage("selectedRunId") private var savedSelection = ""
     @AppStorage("sidebarWidth") private var sidebarWidth = RunLayout.sidebarIdeal
-    @State private var sidebarShown = true
     /// Set when a narrow window folded the sidebar away, so widening brings it back.
     @State private var autoCollapsed = false
     @State private var windowWidth: Double = 0
 
+    /// The app passes the window's keyboard, which `KeyRouter` feeds; a view hosted alone
+    /// (the harness, tests) makes its own.
+    init(store: RunStore, keyboard: KeyboardModel? = nil) {
+        self.store = store
+        _keyboard = State(initialValue: keyboard ?? KeyboardModel(store: store))
+    }
+
     /// Posted to show the sidebar by hand (the snapshot harness, as a person would).
     static let showSidebarNotification = Notification.Name("greenroom.showSidebar")
+
+    private var sidebarShown: Bool { keyboard.sidebarShown }
 
     /// Below this the sidebar folds away, so the stage and the conversation keep their room.
     private var foldWidth: Double {
@@ -27,40 +36,59 @@ struct RootView: View {
 
     var body: some View {
         ThemedRoot {
-            VStack(spacing: 0) {
-                // The top bar is drawn over this room, from the preference the open view sets.
-                Color.clear.frame(height: TopBar.height)
-                HStack(spacing: 0) {
-                    if sidebarShown {
-                        SidebarView(store: store)
-                            .frame(width: RunLayout.clampSidebar(sidebarWidth))
-                            .transition(.move(edge: .leading))
-                        SidebarDivider(width: $sidebarWidth)
+            ZStack(alignment: .top) {
+                VStack(spacing: 0) {
+                    // The top bar is drawn over this room, from the preference the open view sets.
+                    Color.clear.frame(height: TopBar.height)
+                    HStack(spacing: 0) {
+                        if sidebarShown {
+                            SidebarView(store: store)
+                                .frame(width: RunLayout.clampSidebar(sidebarWidth))
+                                .keyboardPane(.sidebar)
+                                .transition(.move(edge: .leading))
+                            SidebarDivider(width: $sidebarWidth)
+                        }
+                        detail
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    detail
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // Any height, clipped: a run whose panes want more room than a short
+                    // window has must not push the hint bar (or the help) off the window.
+                    .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
+                    .clipped()
+                    if keyboard.helpOpen {
+                        KeyHelpPanel(keyboard: keyboard)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    HintBarView(keyboard: keyboard)
                 }
-            }
-            .overlayPreferenceValue(TopBarItemsKey.self, alignment: .top) { items in
-                TopBar(items: items)
+                .overlayPreferenceValue(TopBarItemsKey.self, alignment: .top) { items in
+                    TopBar(items: items)
+                }
+                if keyboard.paletteOpen {
+                    palette
+                }
             }
             .ignoresSafeArea()
         }
-        .focusedSceneValue(\.sidebarShown, $sidebarShown)
+        .environment(\.keyboard, keyboard)
+        .focusedSceneValue(\.actionState, keyboard.state())
         // The SSE socket can look alive after sleep while the daemon restarted.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.resync() }
         }
         .onReceive(NotificationCenter.default.publisher(for: Self.showSidebarNotification)) { _ in
             autoCollapsed = false
-            sidebarShown = true
+            keyboard.sidebarShown = true
         }
         .onChange(of: store.selectedRunId) {
             if let selected = store.selectedRunId { savedSelection = selected }
+            keyboard.confirmingDestroy = nil
         }
         .onChange(of: store.runs.isEmpty) {
             restoreSelection()
         }
+        .onChange(of: pane, initial: true) { keyboard.stage = pane }
+        .onChange(of: showsConversation, initial: true) { keyboard.conversationShown = showsConversation }
         .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
             let previous = windowWidth
             windowWidth = width
@@ -69,12 +97,26 @@ struct RootView: View {
         .onChange(of: showsConversation) { fold(width: windowWidth, previous: 0) }
     }
 
+    /// Cmd-K: over everything, on a scrim that closes it when clicked.
+    private var palette: some View {
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.28)
+                .contentShape(Rectangle())
+                .onTapGesture { keyboard.closePalette() }
+                .accessibilityHidden(true)
+            CommandPalette(keyboard: keyboard)
+                .padding(.top, TopBar.height + Space.xxl)
+                .padding(.horizontal, Space.l)
+        }
+        .transition(.opacity)
+    }
+
     /// The empty states offer Refresh in the top bar, where the run's actions go.
     private var refresh: some View {
         Button("Refresh") {
             Task { await store.resync() }
         }
-        .help("Read the runs again (\(Keys.refresh))")
+        .help("Read the runs again (\(ActionRegistry.label(.refresh)))")
     }
 
     @ViewBuilder
@@ -116,10 +158,10 @@ struct RootView: View {
         let shrankPast = width < foldWidth && (previous == 0 || previous >= foldWidth)
         if shrankPast, sidebarShown {
             autoCollapsed = true
-            withAnimation(.snappy) { sidebarShown = false }
+            withAnimation(.snappy) { keyboard.sidebarShown = false }
         } else if width >= foldWidth, autoCollapsed {
             autoCollapsed = false
-            withAnimation(.snappy) { sidebarShown = true }
+            withAnimation(.snappy) { keyboard.sidebarShown = true }
         }
     }
 
@@ -128,7 +170,7 @@ struct RootView: View {
     private func makeRoom() {
         guard sidebarShown else { return }
         autoCollapsed = true
-        withAnimation(.snappy) { sidebarShown = false }
+        withAnimation(.snappy) { keyboard.sidebarShown = false }
     }
 
     /// The last run a person looked at, else the one that needs them, else the newest,
@@ -141,16 +183,16 @@ struct RootView: View {
     }
 }
 
-/// Whether the runs sidebar is shown, for View > Hide Sidebar. Spelled out rather than
+/// What the keys can do now, for the menu bar's enabled items. Spelled out rather than
 /// `@Entry`: that macro's plugin ships only with Xcode.
-private struct SidebarShownKey: FocusedValueKey {
-    typealias Value = Binding<Bool>
+private struct ActionStateKey: FocusedValueKey {
+    typealias Value = ActionState
 }
 
 extension FocusedValues {
-    var sidebarShown: Binding<Bool>? {
-        get { self[SidebarShownKey.self] }
-        set { self[SidebarShownKey.self] = newValue }
+    var actionState: ActionState? {
+        get { self[ActionStateKey.self] }
+        set { self[ActionStateKey.self] = newValue }
     }
 }
 
@@ -247,7 +289,6 @@ private struct RetryButton: View {
         }
         .buttonStyle(.primary)
         .disabled(retrying)
-        .keyboardShortcut(.defaultAction)
     }
 }
 
@@ -402,7 +443,6 @@ private struct NoSelectionView: View {
                         store.selectedRunId = suggestion.runId
                     }
                     .buttonStyle(.primary)
-                    .keyboardShortcut(.defaultAction)
                     Text(RunTitle.short(task: suggestion.task, runId: suggestion.runId))
                         .readingStyle(size: TypeScale.readingSmall)
                         .foregroundStyle(.secondary)
@@ -410,10 +450,10 @@ private struct NoSelectionView: View {
                 }
             }
             Grid(alignment: .leading, horizontalSpacing: Space.m, verticalSpacing: Space.xs) {
-                shortcut("↑ ↓", "Move through runs")
-                shortcut("\(Keys.screen)  \(Keys.steps)", "Screen or steps")
-                shortcut(Keys.conversation, "Show or hide the conversation")
-                shortcut(Keys.nextFailure, "Next step that errored")
+                shortcut("j k", "Move through runs")
+                shortcut(ActionRegistry.label(.open), "Open the run that most wants you")
+                shortcut(ActionRegistry.label(.palette), "Every command, with its key")
+                shortcut(ActionRegistry.label(.help), "All keys")
             }
             .padding(.top, Space.s)
         }

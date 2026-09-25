@@ -17,32 +17,6 @@ enum StagePane: String, CaseIterable, Identifiable {
     }
 }
 
-/// What the menu bar can do to the open run (companion ADR 0001).
-struct RunCommands {
-    var pane: Binding<StagePane>
-    var showsConversation: Binding<Bool>
-    var capture: (() -> Void)?
-    var export: (() -> Void)?
-    var destroy: (() -> Void)?
-    var control: (() -> Void)?
-    var controlTitle = "Take Control"
-    var nextFailure: (() -> Void)?
-    var previousFailure: (() -> Void)?
-}
-
-/// Spelled out rather than `@Entry`: that macro's plugin ships only with Xcode, and the
-/// CI runner builds with the Command Line Tools.
-private struct RunCommandsKey: FocusedValueKey {
-    typealias Value = RunCommands
-}
-
-extension FocusedValues {
-    var runCommands: RunCommands? {
-        get { self[RunCommandsKey.self] }
-        set { self[RunCommandsKey.self] = newValue }
-    }
-}
-
 /// One run: a header naming it with its state in one line, the stage (Screen or Steps),
 /// and the conversation in a trailing column.
 struct RunView: View {
@@ -53,12 +27,13 @@ struct RunView: View {
     /// Folds the sidebar, for a conversation asked for where it does not fit beside the stage.
     var makeRoom: () -> Void = {}
 
-    @State private var confirmingDestroy = false
     @State private var capturing = false
     @State private var savingRecording = false
     @State private var failureCursor: Int?
     @AppStorage("conversationWidth") private var conversationWidth = RunLayout.conversationIdeal
+    @AppStorage("composerFocusRequest") private var composerFocusRequest = 0
     @State private var detailSize: CGSize = .zero
+    @Environment(\.keyboard) private var keyboard
 
     private var facts: RunFacts { store.facts(runId) }
     private var pilot: ControlPilot { store.pilot(for: runId) }
@@ -113,6 +88,7 @@ struct RunView: View {
             // in a narrow window would then widen the window past the screen (issue #64).
             // `conversationFit` keeps the stage at `stageMinimum` or takes the conversation away.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .keyboardPane(.stage)
             if conversationShown, let width = conversationFit {
                 ColumnDivider(width: $conversationWidth)
                 // `.id(runId)` rebuilds per run: message seqs restart at 1, so a half-typed
@@ -123,6 +99,7 @@ struct RunView: View {
                     .frame(minWidth: RunLayout.conversationMinimum, idealWidth: width, maxWidth: width)
                     .frame(maxHeight: .infinity)
                     .layoutPriority(1)
+                    .keyboardPane(.conversation)
                     .transition(.move(edge: .trailing))
             }
         }
@@ -130,18 +107,6 @@ struct RunView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle(RunTitle.short(task: store.run(runId)?.task, runId: runId))
         .topBar(leading: { tabs }, trailing: { actions })
-        .confirmationDialog(
-            "Destroy this machine?",
-            isPresented: $confirmingDestroy,
-            titleVisibility: .visible
-        ) {
-            Button("Destroy Machine", role: .destructive) {
-                Task { await store.destroy(runId: runId) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("The machine is deleted and the run ends. The coding agent is told in the conversation.")
-        }
         .task(id: runId) {
             failureCursor = nil
             await store.select(runId)
@@ -150,17 +115,36 @@ struct RunView: View {
             guard let request = store.seekRequest, request.runId == runId else { return }
             pane = request.inSteps ? .steps : .screen
         }
-        .focusedSceneValue(\.runCommands, RunCommands(
-            pane: $pane,
-            showsConversation: conversationToggle,
-            capture: canCapture ? { Task { await capture() } } : nil,
-            export: canExport ? { Task { await saveRecording() } } : nil,
-            destroy: canDestroy ? { confirmingDestroy = true } : nil,
-            control: facts.machineReady && !pilot.busy ? { toggleControl() } : nil,
-            controlTitle: driving ? "Give Back Control" : "Take Control",
-            nextFailure: facts.failures.isEmpty ? nil : { showFailure(1) },
-            previousFailure: facts.failures.isEmpty ? nil : { showFailure(-1) }
-        ))
+        .offersActions(.run, offered, refresh: runId) { perform($0) }
+    }
+
+    /// What the run's keys, menu items and palette entries can do now: only what applies.
+    private var offered: Set<ActionID> {
+        var ids: Set<ActionID> = [.goScreen, .goSteps, .goTranscript, .compose, .toggleConversation]
+        if canCapture { ids.insert(.capture) }
+        if canExport { ids.insert(.exportRecording) }
+        if facts.machineReady, !pilot.busy, !driving { ids.insert(.takeControl) }
+        if !facts.failures.isEmpty { ids.formUnion([.nextFailure, .previousFailure]) }
+        return ids
+    }
+
+    private func perform(_ id: ActionID) {
+        switch id {
+        case .goScreen: pane = .screen
+        case .goSteps: pane = .steps
+        case .goTranscript: conversationToggle.wrappedValue = true
+        case .compose:
+            conversationToggle.wrappedValue = true
+            composerFocusRequest += 1
+        case .toggleConversation:
+            withAnimation(.snappy(duration: 0.2)) { conversationToggle.wrappedValue.toggle() }
+        case .capture: Task { await capture() }
+        case .exportRecording: Task { await saveRecording() }
+        case .takeControl: toggleControl()
+        case .nextFailure: showFailure(1)
+        case .previousFailure: showFailure(-1)
+        default: break
+        }
     }
 
     @ViewBuilder
@@ -202,43 +186,51 @@ struct RunView: View {
     /// The stage's two tabs, after the wordmark; the chosen one in the brand.
     private var tabs: some View {
         SegmentedSwitch(options: StagePane.allCases.map { ($0, $0.title) }, selection: $pane)
-            .help("Show the screen (\(Keys.screen)) or the steps (\(Keys.steps))")
+            .help("Show the screen (\(ActionRegistry.label(.goScreen))) or the steps (\(ActionRegistry.label(.goSteps)))")
     }
 
     /// The run's actions, at the top bar's right edge. Only what applies to this run is
     /// offered; a finished run has no machine to capture, drive or destroy. Words, not
     /// icons: a camera and a film strip do not explain themselves.
+    @ViewBuilder
     private var actions: some View {
-        HStack(spacing: Space.s) {
-            if facts.machineReady {
-                Button("Screenshot") { Task { await capture() } }
-                    .disabled(!canCapture)
-                    .help("Capture the machine's screen now (\(Keys.capture)). It lands in the run as a step.")
-            }
-            if !(store.frames[runId] ?? []).isEmpty {
-                Button {
-                    Task { await saveRecording() }
-                } label: {
-                    HStack(spacing: Space.xs) {
-                        if savingRecording { Spinner(size: TypeScale.readingSmall) }
-                        Text("Export")
-                    }
+        if keyboard?.confirmingDestroy == runId {
+            DestroyQuestion(
+                destroy: { keyboard?.perform(.confirmDestroy, in: .confirm) },
+                keep: { keyboard?.perform(.cancelDestroy, in: .confirm) }
+            )
+        } else {
+            HStack(spacing: Space.s) {
+                if facts.machineReady {
+                    Button("Screenshot") { Task { await capture() } }
+                        .disabled(!canCapture)
+                        .help("Capture the machine's screen now (\(ActionRegistry.label(.capture))). It lands in the run as a step.")
                 }
-                .disabled(!canExport)
-                .help("Save the run's recording as a movie (\(Keys.export))")
-            }
-            if canDestroy {
-                Button("Destroy...") { confirmingDestroy = true }
-                    .buttonStyle(.quiet(tint: .failure))
-                    .help("Destroy the machine and end the run (\(Keys.destroy)). Asks first.")
-            }
-            Button(conversationShown ? "Hide Conversation" : "Conversation") {
-                withAnimation(.snappy(duration: 0.2)) { conversationToggle.wrappedValue.toggle() }
-            }
-            .help("\(conversationShown ? "Hide" : "Show") the conversation (\(Keys.conversation))")
-            if facts.machineReady {
-                // The one way to take and give back the screen.
-                ControlButton(driving: driving, busy: pilot.busy, action: toggleControl)
+                if !(store.frames[runId] ?? []).isEmpty {
+                    Button {
+                        Task { await saveRecording() }
+                    } label: {
+                        HStack(spacing: Space.xs) {
+                            if savingRecording { Spinner(size: TypeScale.readingSmall) }
+                            Text("Export")
+                        }
+                    }
+                    .disabled(!canExport)
+                    .help("Save the run's recording as a movie (\(ActionRegistry.label(.exportRecording)))")
+                }
+                if canDestroy {
+                    Button("Destroy...") { keyboard?.perform(.destroy, in: .run) }
+                        .buttonStyle(.quiet(tint: .failure))
+                        .help("Destroy the machine and end the run (\(ActionRegistry.label(.destroy))). Asks first.")
+                }
+                Button(conversationShown ? "Hide Conversation" : "Conversation") {
+                    withAnimation(.snappy(duration: 0.2)) { conversationToggle.wrappedValue.toggle() }
+                }
+                .help("\(conversationShown ? "Hide" : "Show") the conversation (\(ActionRegistry.label(.goTranscript)) goes to it)")
+                if facts.machineReady {
+                    // The one way to take and give back the screen.
+                    ControlButton(driving: driving, busy: pilot.busy, action: toggleControl)
+                }
             }
         }
     }
@@ -286,7 +278,30 @@ struct ControlButton: View {
         .disabled(busy)
         .help(driving
             ? "Give the mouse and keyboard back to the agents"
-            : "Drive the machine with this window's mouse and keyboard (\(Keys.control)). The conversation records it.")
+            : "Drive the machine with this window's mouse and keyboard (\(ActionRegistry.label(.takeControl))). The conversation records it.")
+    }
+}
+
+/// "Destroy the machine?" in the top bar, where Destroy was pressed: asked inline, never
+/// in a dialog (ADR 0005). The hint bar asks the same, with its keys.
+private struct DestroyQuestion: View {
+    let destroy: () -> Void
+    let keep: () -> Void
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        HStack(spacing: Space.s) {
+            Text("Destroy the machine?")
+                .font(Typeface.readingSemiBold.font(size: TypeScale.readingSmall))
+                .foregroundStyle(theme.color(.failure, on: .chrome))
+            Button("Keep It", action: keep)
+                .help("Leave the machine running (\(ActionRegistry.label(.cancelDestroy)))")
+            Button("Destroy", action: destroy)
+                .buttonStyle(.quiet(tint: .failure))
+                .help("Delete the machine and end the run (\(ActionRegistry.label(.confirmDestroy)))")
+        }
+        .fixedSize()
     }
 }
 
@@ -495,12 +510,12 @@ private struct FailureNavigator: View {
                     .foregroundStyle(alive ? theme.dim(on: .surface) : theme.color(.failure, on: .surface))
                     .padding(.horizontal, Space.s)
             }
-            .help("Show the next step that errored (\(Keys.nextFailure))")
+            .help("Show the next step that errored (\(ActionRegistry.label(.nextFailure)))")
             Hairline(axis: .vertical).frame(height: 14)
             Button { show(-1) } label: { Text("↑").padding(.horizontal, Space.s) }
-                .help("Previous step that errored (\(Keys.previousFailure))")
+                .help("Previous step that errored (\(ActionRegistry.label(.previousFailure)))")
             Button { show(1) } label: { Text("↓").padding(.horizontal, Space.s) }
-                .help("Next step that errored (\(Keys.nextFailure))")
+                .help("Next step that errored (\(ActionRegistry.label(.nextFailure)))")
         }
         .buttonStyle(.plain)
         .monoStyle(.monoMedium, size: TypeScale.monoSmall)
