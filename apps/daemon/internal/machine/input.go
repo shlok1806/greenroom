@@ -373,6 +373,10 @@ func (m *Manager) InputAs(ctx context.Context, runID, holder string, actions []I
 		return InputResult{}, errors.New("greenroom's verifier is in the middle of a turn on this machine and is using " +
 			"the screen; wait for its reply or verdict with agent_wait, or send a note, then try again")
 	}
+	// Refused before the lease is taken, so a bad batch leaves no trace at all.
+	if err := validateActions(actions); err != nil {
+		return InputResult{}, err
+	}
 	mc.input.asMu.Lock()
 	defer mc.input.asMu.Unlock()
 	current, fresh, err := m.TakeControl(runID, holder, 0)
@@ -419,7 +423,8 @@ const (
 	buttonHelp   = "use left, right or middle"
 )
 
-// validateActions refuses a batch with a name the helper would silently misread.
+// validateActions refuses a batch with a name the helper would silently misread, or an action it
+// would post as a no-op or at the wrong place.
 func validateActions(actions []InputAction) error {
 	for i, a := range actions {
 		if !slices.Contains(actionTypes, strings.ToLower(a.Type)) {
@@ -429,6 +434,11 @@ func validateActions(actions []InputAction) error {
 			return fmt.Errorf("action %d: unknown button %q; %s", i+1, a.Button, buttonHelp)
 		}
 		switch strings.ToLower(a.Type) {
+		case "type":
+			// The helper types nothing and the call would report success (issue #126).
+			if a.Text == "" {
+				return fmt.Errorf("action %d: type needs text: pass the characters to type", i+1)
+			}
 		case "click", "down", "up", "move":
 			// The helper posts at the pointer when a coordinate is missing (issue #85).
 			if a.X == nil || a.Y == nil {

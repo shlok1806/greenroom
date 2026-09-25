@@ -213,9 +213,10 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 		var in struct {
 			Text string `json:"text"`
 		}
-		if err := json.Unmarshal(args, &in); err != nil || in.Text == "" {
-			return "error: machine_type needs text", 0
+		if err := json.Unmarshal(args, &in); err != nil {
+			return "error: machine_type needs text: pass the characters to type", 0
 		}
+		// An empty text is refused by the machine, in the words every surface uses (issue #126).
 		return postInput(ctx, v.mgr, runID, fmt.Sprintf("typed %q", in.Text),
 			machine.InputAction{Type: "type", Text: in.Text})
 
