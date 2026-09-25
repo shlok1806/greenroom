@@ -127,6 +127,17 @@ final class MarkdownTextTests: XCTestCase {
     }
 
     /// The app reads nothing but the daemon, so a picture in a message stands as its words.
+    func testOnlyWebAndMailLinksOpen() {
+        XCTAssertEqual(MarkdownText.openableURL("https://example.com/a")?.absoluteString, "https://example.com/a")
+        XCTAssertNotNil(MarkdownText.openableURL("HTTP://example.com"))
+        XCTAssertNotNil(MarkdownText.openableURL("mailto:someone@example.com"))
+        XCTAssertNil(MarkdownText.openableURL("file:///Applications/Some.app"))
+        XCTAssertNil(MarkdownText.openableURL("x-custom-scheme://do-something"))
+        XCTAssertNil(MarkdownText.openableURL("greenroom-step:4"))
+        XCTAssertNil(MarkdownText.openableURL("relative/path"))
+        XCTAssertNil(MarkdownText.openableURL(""))
+    }
+
     func testAnImageIsItsWords() {
         XCTAssertEqual(MarkdownText.blocks("![the tip screen](https://x/y.png)"), [.paragraph([Span("the tip screen")])])
     }

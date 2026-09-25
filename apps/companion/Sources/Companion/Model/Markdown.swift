@@ -65,6 +65,18 @@ enum MarkdownText {
         return document.children.compactMap { converter.block($0) }
     }
 
+    /// Schemes a link may open. Messages quote untrusted screen and web text, so a link
+    /// to a file, an app's own scheme or anything else stays words.
+    static let openableSchemes: Set<String> = ["http", "https", "mailto"]
+
+    /// A link's destination as a URL a click may open, or nil when it must stay words.
+    static func openableURL(_ destination: String) -> URL? {
+        guard let url = URL(string: destination), let scheme = url.scheme?.lowercased(),
+              openableSchemes.contains(scheme)
+        else { return nil }
+        return url
+    }
+
     /// The text of spans, as a person would read it aloud.
     static func plain(_ spans: [Span]) -> String {
         spans.map(\.text).joined()

@@ -33,9 +33,11 @@ struct MarkdownView: View {
             }
         }
         .environment(\.openURL, OpenURLAction { url in
-            guard let step = EvidenceURL.step(url) else { return .systemAction }
-            onStep?(step)
-            return .handled
+            if let step = EvidenceURL.step(url) {
+                onStep?(step)
+                return .handled
+            }
+            return MarkdownText.openableURL(url.absoluteString) == nil ? .discarded : .systemAction
         })
     }
 
@@ -139,7 +141,7 @@ struct MarkdownView: View {
                 run.font = Typeface.monoMedium.font(size: size - 1.5)
                 run.backgroundColor = theme.highlight
                 run.foregroundColor = theme.foreground
-            } else if let link = span.link, let url = URL(string: link) {
+            } else if let link = span.link, let url = MarkdownText.openableURL(link) {
                 run.link = url
                 run.underlineStyle = .single
             }
