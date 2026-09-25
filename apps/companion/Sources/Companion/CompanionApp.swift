@@ -19,14 +19,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
+    /// A snapshot (`SnapshotMode`) can never be activated, before its window exists.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        if SnapshotMode.isActive { NSApp.setActivationPolicy(.prohibited) }
+    }
+
     /// An unbundled `swift run` binary is treated as a background process and
-    /// its window never takes keyboard focus; this makes it a regular app.
+    /// its window never takes keyboard focus; this makes it a regular app. A snapshot
+    /// stays out of the way: no Dock icon, never frontmost, never the keyboard's.
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        if !SnapshotMode.isActive {
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+        }
         router.install()
         #if DEBUG
-        SnapshotHook.runIfAsked(store: store)
+        SnapshotHook.runIfAsked(store: store, router: router)
         #endif
         // The run window is fitted to its screen the first time it shows after launch, when
         // macOS may have restored it off screen, and whenever it moves to another screen.
@@ -94,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 public enum CompanionMain {
     @MainActor
     public static func run() {
-        LegacyDefaults.forget(in: .standard)
+        LegacyDefaults.forget(in: AppDefaults.shared)
         BundledFonts.ensureRegistered()
         CompanionApp.main()
     }
@@ -145,8 +153,8 @@ struct RunMenuCommands: Commands {
     let keyboard: KeyboardModel
 
     @FocusedValue(\.actionState) private var state
-    @AppStorage(ThemePreference.key) private var theme: ThemePreference = .system
-    @AppStorage(ClickMarks.storageKey) private var showsClickMarks = true
+    @AppStorage(ThemePreference.key, store: AppDefaults.shared) private var theme: ThemePreference = .system
+    @AppStorage(ClickMarks.storageKey, store: AppDefaults.shared) private var showsClickMarks = true
 
     var body: some Commands {
         CommandGroup(before: .toolbar) {

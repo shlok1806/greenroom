@@ -28,7 +28,7 @@ enum ThemeID: String, CaseIterable, Sendable {
     }
 }
 
-/// What a person chose in View > Theme, saved with `@AppStorage(ThemePreference.key)`.
+/// What a person chose in View > Theme, saved with `@AppStorage(ThemePreference.key, store: AppDefaults.shared)`.
 /// `system` follows the Mac's appearance (ADR 0008 decision 19); every choice but an
 /// explicit high-contrast one follows Increase Contrast.
 enum ThemePreference: String, CaseIterable, Sendable {

@@ -132,6 +132,16 @@ Boot and lifecycle
 - `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`,
   `captureAlertSeconds`, `desktopPrefsSeconds`, `timeZoneSeconds`, `inputHelperSeconds`,
   `toolchainSeconds`, `desktopSeconds`, `sshSeconds`.
+- Boot phases (`bootphase.go`) show the boot while it happens: clone, start (in `Create`),
+  agent, ip, key, settings, helper, checks, ssh (in `finishBoot`), each published when it
+  starts (no `seconds`) and when it ends (`seconds`, `detail`, `error` on the one a failed
+  boot stopped at) as a `boot` lifecycle event. They live on the unexported
+  `Machine.boot`, so MCP results and `state.json` never carry them; a reattached machine has
+  none. Clone and start end before the run is known, so `Create` publishes them after
+  `created`. A machine being destroyed publishes nothing more. `internal/api` shows them as
+  `machine.boot` (`LiveMachine`) on `/api/runs/{id}` and on `run` events, and sends each as
+  a `boot` SSE event `{runId, phase}`. A new phase is a new wire value: the Companion
+  decodes it as unknown and shows its name.
 - Boot reads the image's toolchain manifest (`base.go`, `ToolchainPath`, ADR 0019) into
   `Machine.Toolchain` as the image wrote it, `{"known":false}` when absent. The daemon never
   interprets it and never assumes a toolchain. Error key `toolchainError`, never fatal.

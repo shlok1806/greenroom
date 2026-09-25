@@ -175,7 +175,7 @@ final class KeyboardModel {
             zoom.toggle(focus: state().layout.zoomFocus)
         case .themeSystem, .themeDark, .themeLight, .themeDarkContrast, .themeLightContrast:
             if let theme = ActionRegistry.themes.first(where: { $0.0 == id })?.1 {
-                UserDefaults.standard.set(theme.rawValue, forKey: ThemePreference.key)
+                AppDefaults.shared.set(theme.rawValue, forKey: ThemePreference.key)
             }
         case .open where context == .sidebar || (context == nil && pane == .sidebar):
             openFromSidebar()

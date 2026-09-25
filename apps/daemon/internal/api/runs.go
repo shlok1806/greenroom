@@ -35,8 +35,22 @@ const (
 // RunDetail is one run in full: the on-disk manifest, overlaid with the live machine and the conversation's verdict.
 type RunDetail struct {
 	machine.Manifest
-	Machine *machine.Machine      `json:"machine"`
+	Machine *LiveMachine          `json:"machine"`
 	Verdict *session.VerdictState `json:"verdict"`
+}
+
+// LiveMachine is the live machine as the companion sees it: the machine plus its boot
+// phases so far, which MCP results and state.json leave out.
+type LiveMachine struct {
+	*machine.Machine
+	Boot []machine.BootPhase `json:"boot,omitempty"`
+}
+
+func liveMachine(mc *machine.Machine) *LiveMachine {
+	if mc == nil {
+		return nil
+	}
+	return &LiveMachine{Machine: mc, Boot: mc.BootPhases()}
 }
 
 func (a *api) listRuns(w http.ResponseWriter, _ *http.Request) {
@@ -101,7 +115,7 @@ func (a *api) runDetail(w http.ResponseWriter, _ *http.Request, id string) {
 	d := RunDetail{Manifest: man, Verdict: man.Verdict}
 	for _, mc := range a.mgr.List() {
 		if mc.RunID == id {
-			d.Machine = mc
+			d.Machine = liveMachine(mc)
 		}
 	}
 	// Verdict shadows the manifest's field, so it falls back to the manifest's (possibly nil) verdict.

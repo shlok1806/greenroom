@@ -95,6 +95,24 @@ final class SSEParserTests: XCTestCase {
         XCTAssertEqual(frame.step, 15)
     }
 
+    func testBootEventDecodes() throws {
+        var parser = SSEParser()
+        XCTAssertNil(try parser.consume("event: boot"))
+        XCTAssertNil(try parser.consume(#"data: {"runId":"run-1","phase":{"phase":"agent","at":"2026-09-18T10:00:01Z"}}"#))
+        guard case .boot(let runId, let phase)? = try parser.consume("") else { return XCTFail("no boot event") }
+        XCTAssertEqual(runId, "run-1")
+        XCTAssertEqual(phase.phase, .agent)
+        XCTAssertTrue(phase.running)
+    }
+
+    /// An event this app does not know is skipped, not an error.
+    func testAnUnknownEventIsSkipped() throws {
+        var parser = SSEParser()
+        XCTAssertNil(try parser.consume("event: someday"))
+        XCTAssertNil(try parser.consume(#"data: {"runId":"run-1"}"#))
+        XCTAssertNil(try parser.consume(""))
+    }
+
     /// A malformed frame is an error, not a crash, and the parser carries on.
     func testBadJSONThrowsAndResets() throws {
         var parser = SSEParser()

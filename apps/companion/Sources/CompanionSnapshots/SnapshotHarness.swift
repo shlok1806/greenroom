@@ -391,7 +391,15 @@ final class SnapshotHarness {
         detail.verdict = VerdictState()
         detail.machine = Machine(
             runId: runId, name: detail.machineName, image: detail.image, ip: nil,
-            status: .booting, error: nil, bootSeconds: nil, createdAt: created, dir: "", control: nil
+            status: .booting, error: nil, bootSeconds: nil, createdAt: created, dir: "", control: nil,
+            boot: [
+                BootPhase(phase: .clone, at: created, seconds: 0.1, detail: detail.image),
+                BootPhase(phase: .start, at: created.addingTimeInterval(0.1), seconds: 0, detail: detail.machineName),
+                BootPhase(phase: .agent, at: created.addingTimeInterval(0.2), seconds: 14.6),
+                BootPhase(phase: .ip, at: created.addingTimeInterval(14.8), seconds: 0.2, detail: "192.168.64.12"),
+                BootPhase(phase: .key, at: created.addingTimeInterval(15), seconds: 0.4),
+                BootPhase(phase: .settings, at: created.addingTimeInterval(15.4)),
+            ]
         )
         store.details[runId] = detail
         if let index = store.runs.firstIndex(where: { $0.runId == runId }) {

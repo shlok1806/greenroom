@@ -451,10 +451,19 @@ final class RunStore: PilotHost {
             }
             return steps[runId] == nil ? .nothing : .steps(runId)
         case .run(let lifecycle):
-            if let machine = lifecycle.machine, details[lifecycle.runId] != nil {
+            if var machine = lifecycle.machine, details[lifecycle.runId] != nil {
+                // A daemon before boot phases sends none; keep what the boot events said.
+                if machine.boot.isEmpty, let held = details[lifecycle.runId]?.machine?.boot {
+                    machine.boot = held
+                }
                 details[lifecycle.runId]?.machine = machine
             }
             return .run(lifecycle.runId)
+        case .boot(let runId, let phase):
+            // Only onto a held machine: a run opened later reads every phase from its detail.
+            guard let held = details[runId]?.machine?.boot else { return .nothing }
+            details[runId]?.machine?.boot = held.merging(phase)
+            return .nothing
         case .frame(let runId, let frame):
             // Unloaded runs fetch the whole list when opened.
             guard var held = frames[runId], !held.contains(where: { $0.file == frame.file }) else {
