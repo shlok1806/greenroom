@@ -297,7 +297,7 @@ func (m *Manager) InputAs(ctx context.Context, runID, holder string, actions []I
 	defer mc.input.asMu.Unlock()
 	current, fresh, err := m.TakeControl(runID, holder, 0)
 	if errors.Is(err, ErrControlHeld) {
-		return InputResult{}, fmt.Errorf("a %s is driving this machine; try again in a moment", current.Holder)
+		return InputResult{}, &ScreenTakenError{Holder: current.Holder, Until: current.Expires}
 	}
 	if err != nil {
 		return InputResult{}, err
@@ -307,6 +307,22 @@ func (m *Manager) InputAs(ctx context.Context, runID, holder string, actions []I
 	}
 	return m.Input(ctx, runID, holder, actions)
 }
+
+// ErrScreenTaken matches the error InputAs returns while another seat holds the screen.
+var ErrScreenTaken = errors.New("another seat holds the screen")
+
+// ScreenTakenError says who holds the screen and until when (the lease renews while they drive).
+type ScreenTakenError struct {
+	Holder string
+	Until  time.Time
+}
+
+func (e *ScreenTakenError) Error() string {
+	return fmt.Sprintf("a %s is driving this machine; try again in a moment", e.Holder)
+}
+
+// Is makes errors.Is(err, ErrScreenTaken) true.
+func (e *ScreenTakenError) Is(target error) bool { return target == ErrScreenTaken }
 
 // The names the helper posts (input.swift `flags`, `mouseButton`, `perform`). Anything else is
 // refused here, before a batch posts anything: the helper drops an unknown modifier and makes an

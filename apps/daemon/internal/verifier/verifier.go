@@ -140,6 +140,44 @@ func cutOff(msg nim.Message) bool {
 	return msg.FinishReason == "length" || strings.Contains(msg.Content, "<tool_call>")
 }
 
+// screenTakenQuestion ends a turn whose input the seat holding the screen refused.
+func screenTakenQuestion(holder string, standing bool) string {
+	q := "You have the screen, so I cannot click or type. Give it back when I may use it " +
+		"(Give Back in the Companion) and send a message, and I will continue from here."
+	if holder == machine.HolderCoder {
+		q = "The coding agent is using the screen, so I cannot click or type. Let it finish or give it back " +
+			"(it is released after each input call, so try sending the task again), and I will continue from here."
+	}
+	if standing {
+		q += " My last verdict still stands."
+	}
+	return q
+}
+
+// screenHolder reports who holds the screen, if it is anyone but the verifier.
+func (v *Verifier) screenHolder(runID string) (string, bool) {
+	c, held := v.mgr.ControlState(runID)
+	if !held || c.Holder == machine.HolderVerifier {
+		return "", false
+	}
+	return c.Holder, true
+}
+
+// askForScreen ends the turn with a question asking holder for the screen back (issue #97).
+func (v *Verifier) askForScreen(store *session.Store, holder string) {
+	st := store.Verdict().Status
+	standing := st == session.Proposed || st == session.Accepted
+	v.post(store, session.Message{From: session.Verifier, Kind: session.Question, Text: screenTakenQuestion(holder, standing)})
+}
+
+func isInputTool(name string) bool {
+	switch name {
+	case "machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input":
+		return true
+	}
+	return false
+}
+
 // openTaskNudge answers a reply that would end a turn with a task still waiting for a verdict.
 const openTaskNudge = "[greenroom] Not posted: a task in this conversation is still open, and a task is " +
 	"answered with a verdict. Call report_verdict for it now (or ask, if you are blocked). If more than " +
@@ -180,6 +218,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 	msgs := withStatus(project(store.After(0)), status)
 	nudged := false
 	taskNudged := false
+	screenTaken := 0 // input refused this turn because someone else holds the screen
 
 	for step := 1; step <= v.cfg.MaxSteps; step++ {
 		// Feed in anything said mid-turn, and any machine status change.
@@ -261,6 +300,14 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 				}
 				break
 			}
+			if end, ok := endingMessage(call); ok && end.Kind == session.Verdict && end.Verdict == "inconclusive" && screenTaken > 0 {
+				if holder, held := v.screenHolder(runID); held {
+					// A verdict about who holds the screen replaces a real one on the card (issue #97).
+					res.Steps, res.Ended = step, session.Question
+					v.askForScreen(store, holder)
+					return res, nil
+				}
+			}
 			if end, ok := endingMessage(call); ok {
 				res.Steps, res.Ended = step, end.Kind
 				v.post(store, end)
@@ -269,7 +316,18 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 				}
 				return res, nil
 			}
+			if screenTaken > 0 && isInputTool(call.Name) {
+				if holder, held := v.screenHolder(runID); held {
+					// Still held: a second refusal ends the turn instead of spinning (issue #97).
+					res.Steps, res.Ended = step, session.Question
+					v.askForScreen(store, holder)
+					return res, nil
+				}
+			}
 			result, stepNo := v.runTool(ctx, runID, call)
+			if strings.HasPrefix(result, screenTakenPrefix) {
+				screenTaken++
+			}
 			// seen is not advanced past our own progress: a message someone else
 			// appended while the tool ran sits before it. projectLate skips ours.
 			v.post(store, session.Message{From: session.Verifier, Kind: session.Progress, Text: progressText(call, result), Step: stepNo})
