@@ -81,6 +81,11 @@ type Machine struct {
 	frameDone   chan struct{}      // guarded by Manager.mu; closed when the frame recorder returns
 	screen      *screenStream      // guarded by Manager.mu; the live screen, if one has started
 
+	// guestCleanups counts cleanupGuestSession calls still running. Guarded by
+	// Manager.mu and only added to while the machine is in the map, so Destroy
+	// can wait for them once it has taken the machine out. Nil until the first.
+	guestCleanups *sync.WaitGroup
+
 	// bootCancel stops finishBoot and bootDone closes when it returns. Both are
 	// set before the machine is shared, and are nil when no boot runs.
 	bootCancel context.CancelFunc
@@ -292,6 +297,7 @@ func (mc *Machine) publicLocked() *Machine {
 	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel, c.screen = nil, nil, nil, nil, nil, nil, nil
 	c.execs = nil
 	c.bootCancel, c.bootDone, c.frameDone = nil, nil, nil
+	c.guestCleanups = nil
 	return &c
 }
 
@@ -509,10 +515,14 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 	m.mu.Lock()
 	live = m.forgetLocked(mc)
 	frames := mc.frameDone
+	cleanups := mc.guestCleanups
 	m.mu.Unlock()
 	closeSessions(live)
 	if frames != nil {
 		<-frames // no frame lands in the run directory after Destroy returns
+	}
+	if cleanups != nil {
+		cleanups.Wait() // no guest exec for this machine outlives Destroy
 	}
 	m.persist()
 	mc.rec.markEnded()
