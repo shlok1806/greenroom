@@ -54,7 +54,30 @@ Rules:
 - End every turn by calling exactly one of: reply, ask, or report_verdict. Do not call report_verdict before you have evidence.
 - A verdict must cite its evidence: the step numbers and screenshot paths it rests on. A verdict about what the user sees cites at least one screenshot taken after the last action.
 - If a verdict of yours is disputed, re-examine the evidence with the objection in mind. Change your verdict if the objection holds and say why; restate it with the reason if it does not. Do not change your mind just because you were asked to.
-- If you cannot finish, report inconclusive and say what blocked you.`
+- If you cannot finish, report inconclusive and say what blocked you.
+
+` + writingRules
+
+// writingRules is how the verifier writes everything it posts. The Companion's
+// transcript is mostly the verifier's replies, questions and verdicts, and
+// padded prose made it tiring to read. Adapted from stop-slop by Hardik Pandya
+// (MIT, https://hvpandya.com) and kept short, because a
+// small reasoning model ignores a long style guide.
+// TestTheDeliveredSystemPromptCarriesTheWritingRules pins it.
+const writingRules = `How you write (the coder and a human read every message you post):
+- Lead with the finding. Your first sentence says what you saw or what you need.
+- One claim per sentence. Cite evidence as step numbers ("step 12"); do not retell what you did.
+- Do not announce what you will do, and skip openers like "On it", "Great question", "Let me" or "I'll now". Act, then report.
+- No adverbs or intensifiers (really, just, clearly, successfully). No "not X but Y" contrasts: state Y. No em dashes.
+- Use active voice and plain numbers ("$48.00", "3 of 4").
+- A verdict summary is 2 or 3 short sentences: the result, its evidence and, for a fail, the cause.
+- A reply is 1 to 3 sentences. A question is one sentence, plus the reason only when the answer depends on it.
+
+Examples:
+- Before: "On it. I'll launch it and drive the window the way a person would, then read both totals off the screen."
+  After: "Launching TipSplit to read both totals."
+- Before: "I have now thoroughly tested the app and I'm happy to report it works really well: it doesn't just show a total, it updates it live as you change the tip."
+  After: "Each pays $48.00 for a $160 bill with a 20% tip split 4 ways (step 14). Choosing 25% changed it to $50.00 (step 17)."`
 
 // visionPrompt asks for every visible string in the frontmost window, not
 // just the controls: a demo describer named the window and "no error" and
@@ -127,8 +150,8 @@ const (
 	cutOffNudge = "[greenroom] Your last message was cut off at the output limit before it finished, so nothing " +
 		"in it was received. Answer again, shorter: call the tool you meant to call, with brief arguments " +
 		"(cite a few key steps as evidence, not every step)."
-	cutOffReply = "My answers in this turn were cut off at the model's output limit before they finished, so " +
-		"nothing was reported. Send another message and I will try again, more briefly."
+	cutOffReply = "The model's output limit cut off my answers, so I reported nothing. Send a message and I " +
+		"will try again, shorter."
 )
 
 // cutOff reports whether the endpoint stopped msg at its token limit, or msg carries a tool
@@ -142,11 +165,11 @@ func cutOff(msg nim.Message) bool {
 
 // screenTakenQuestion ends a turn whose input the seat holding the screen refused.
 func screenTakenQuestion(holder string, standing bool) string {
-	q := "You have the screen, so I cannot click or type. Give it back when I may use it " +
-		"(Give Back in the Companion) and send a message, and I will continue from here."
+	q := "You have the screen, so I cannot click or type. Press Give Back in the Companion, then send a " +
+		"message and I will continue from here."
 	if holder == machine.HolderCoder {
-		q = "The coding agent is using the screen, so I cannot click or type. Let it finish or give it back " +
-			"(it is released after each input call, so try sending the task again), and I will continue from here."
+		q = "The coding agent has the screen, so I cannot click or type. It releases the screen after each " +
+			"input call. Send the task again and I will continue from here."
 	}
 	if standing {
 		q += " My last verdict still stands."
@@ -243,7 +266,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			if ctx.Err() == context.DeadlineExceeded {
 				res.Ended = session.Reply
 				v.post(store, session.Message{From: session.Verifier, Kind: session.Reply,
-					Text: fmt.Sprintf("This turn ran out of time after %s. Send another message and I will continue.", v.cfg.Budget)})
+					Text: fmt.Sprintf("I ran out of time after %s. Send a message and I will continue.", v.cfg.Budget)})
 				return res, nil
 			}
 			v.post(store, session.Message{From: session.System, Kind: session.Event, Text: "verifier turn failed: " + err.Error()})
@@ -339,7 +362,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 	// The step cap is not a verdict: say so and wait, as ask would.
 	res.Ended = session.Reply
 	v.post(store, session.Message{From: session.Verifier, Kind: session.Reply,
-		Text: fmt.Sprintf("I used all %d tool calls of this turn without finishing. Send another message and I will continue from here.", v.cfg.MaxSteps)})
+		Text: fmt.Sprintf("I used all %d tool calls for this turn and did not finish. Send a message and I will continue from here.", v.cfg.MaxSteps)})
 	return res, nil
 }
 

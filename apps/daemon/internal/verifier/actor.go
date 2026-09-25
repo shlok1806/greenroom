@@ -212,8 +212,8 @@ func (a *Actors) runTurn(ctx context.Context, runID string, store *session.Store
 		}
 		if attempt >= attempts {
 			appendMessage(a.log, store, session.Message{From: session.System, Kind: session.Event,
-				Text: fmt.Sprintf("verifier gave up on this turn after %d attempts; send a task, answer or dispute to try again "+
-					"(a human's note also starts a turn; a coding agent's note does not start a turn)", attempts)})
+				Text: fmt.Sprintf("verifier gave up on this turn after %d attempts; send a task, answer or dispute to try again. "+
+					"A human's note also starts a turn; a coding agent's note does not start a turn.", attempts)})
 			*seen = store.Len()
 			return
 		}
