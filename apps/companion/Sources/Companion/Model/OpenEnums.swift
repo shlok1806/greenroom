@@ -57,6 +57,29 @@ enum MachineStatus: OpenEnum {
     }
 }
 
+/// The stages of a machine coming up, in the daemon's order (`machine.BootPhase`).
+enum BootPhaseName: OpenEnum {
+    case clone, start, agent, ip, key, settings, helper, checks, ssh
+    case unknown(String)
+
+    static let known: [Self] = [.clone, .start, .agent, .ip, .key, .settings, .helper, .checks, .ssh]
+
+    var text: String {
+        switch self {
+        case .clone: "clone"
+        case .start: "start"
+        case .agent: "agent"
+        case .ip: "ip"
+        case .key: "key"
+        case .settings: "settings"
+        case .helper: "helper"
+        case .checks: "checks"
+        case .ssh: "ssh"
+        case .unknown(let raw): raw
+        }
+    }
+}
+
 /// The participants of ADR 0006.
 enum MessageFrom: OpenEnum {
     case coder, human, verifier, system

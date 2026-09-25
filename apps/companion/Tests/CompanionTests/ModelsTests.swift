@@ -46,6 +46,34 @@ final class ModelsTests: XCTestCase {
         XCTAssertNotNil(runs[1].destroyedAt)
     }
 
+    /// The live machine's boot phases: ended ones carry seconds, the running one none, and a
+    /// phase this app does not know decodes instead of throwing.
+    func testMachineBootPhasesDecode() throws {
+        let machine = try decode(Machine.self, """
+        {"runId":"r","name":"greenroom-r","image":"greenroom-lean-a","status":"booting","createdAt":"2026-09-18T10:00:00Z","dir":"/r",
+         "boot":[
+           {"phase":"clone","at":"2026-09-18T10:00:00.1Z","seconds":0.1,"detail":"greenroom-lean-a"},
+           {"phase":"ip","at":"2026-09-18T10:00:40Z","seconds":0,"detail":"192.168.64.5"},
+           {"phase":"warp","at":"2026-09-18T10:00:41Z","seconds":1.5},
+           {"phase":"ssh","at":"2026-09-18T10:00:42Z"}
+         ]}
+        """)
+        XCTAssertEqual(machine.boot.map(\.phase), [.clone, .ip, .unknown("warp"), .ssh])
+        XCTAssertEqual(machine.boot[0].detail, "greenroom-lean-a")
+        XCTAssertEqual(machine.boot[1].seconds, 0)
+        XCTAssertFalse(machine.boot[1].running)
+        XCTAssertTrue(machine.boot[3].running)
+    }
+
+    /// A daemon before boot phases leaves `boot` out; a machine then has none.
+    func testMachineWithoutBootPhasesDecodes() throws {
+        let machine = try decode(Machine.self, """
+        {"runId":"r","name":"greenroom-r","image":"i","status":"ready","ip":"192.168.64.5","bootSeconds":40.2,"createdAt":"2026-09-18T10:00:00Z","dir":"/r"}
+        """)
+        XCTAssertEqual(machine.boot, [])
+        XCTAssertEqual(machine.bootSeconds, 40.2)
+    }
+
     /// A daemon built before ADR 0008 leaves `frames` out entirely.
     func testRunSummaryToleratesAMissingFramesField() throws {
         let run = try decode(RunSummary.self, """

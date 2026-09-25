@@ -134,6 +134,57 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.details["run-1"]?.status, .ready)
     }
 
+    private func bootingMachine(_ boot: [BootPhase]) -> Machine {
+        Machine(runId: "run-1", name: "gr-1", image: "base", ip: nil, status: .booting, error: nil, bootSeconds: nil,
+                createdAt: .epoch, dir: "", control: nil, boot: boot)
+    }
+
+    private func phase(_ name: BootPhaseName, at: Double, seconds: Double? = nil, detail: String? = nil) -> BootPhase {
+        BootPhase(phase: name, at: Date(timeIntervalSince1970: at), seconds: seconds, detail: detail)
+    }
+
+    /// A boot event merges into the held machine with no fetch: a start appends, its end
+    /// replaces it, a repeat changes nothing.
+    func testABootEventMergesIntoTheHeldMachine() {
+        let store = store()
+        var detail = RunDetail(runId: "run-1", image: "base", machineName: "gr-1")
+        detail.machine = bootingMachine([phase(.clone, at: 0, seconds: 0.1, detail: "base")])
+        store.details["run-1"] = detail
+
+        XCTAssertEqual(store.apply(.boot(runId: "run-1", phase: phase(.agent, at: 1))), .nothing)
+        XCTAssertEqual(store.details["run-1"]?.machine?.boot.map(\.phase), [.clone, .agent])
+        XCTAssertEqual(store.details["run-1"]?.machine?.boot.last?.running, true)
+
+        let ended = phase(.agent, at: 1, seconds: 38.4)
+        XCTAssertEqual(store.apply(.boot(runId: "run-1", phase: ended)), .nothing)
+        XCTAssertEqual(store.apply(.boot(runId: "run-1", phase: ended)), .nothing)
+        XCTAssertEqual(store.details["run-1"]?.machine?.boot.map(\.phase), [.clone, .agent])
+        XCTAssertEqual(store.details["run-1"]?.machine?.boot.last?.seconds, 38.4)
+    }
+
+    /// A run not open, or not yet read, keeps nothing: its detail brings every phase.
+    func testABootEventForARunNotHeldIsIgnored() {
+        let store = store()
+        XCTAssertEqual(store.apply(.boot(runId: "run-1", phase: phase(.agent, at: 1))), .nothing)
+        XCTAssertNil(store.details["run-1"])
+    }
+
+    /// A run event from a daemon before boot phases carries none; the phases the boot
+    /// events brought stay.
+    func testARunEventWithoutPhasesKeepsTheHeldOnes() {
+        let store = store()
+        var detail = RunDetail(runId: "run-1", image: "base", machineName: "gr-1")
+        detail.machine = bootingMachine([phase(.clone, at: 0, seconds: 0.1), phase(.agent, at: 1)])
+        store.details["run-1"] = detail
+
+        store.apply(.run(LifecycleEvent(kind: .control, runId: "run-1", machine: bootingMachine([]))))
+        XCTAssertEqual(store.details["run-1"]?.machine?.boot.count, 2)
+
+        let whole = [phase(.clone, at: 0, seconds: 0.1), phase(.agent, at: 1, seconds: 3), phase(.ssh, at: 4, seconds: 1)]
+        store.apply(.run(LifecycleEvent(kind: .ready, runId: "run-1", machine: bootingMachine(whole))))
+        XCTAssertEqual(store.details["run-1"]?.machine?.boot, whole)
+    }
+
     /// Seen in the app on a destroyed run: a note sent there showed "Verifier is working"
     /// under a composer saying nothing will answer.
     func testNobodyIsWorkingOnARunWhoseVerifierStopped() {

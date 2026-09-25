@@ -15,6 +15,9 @@ struct Machine: Codable, Hashable, Sendable {
     var dir: String
     /// Who holds the mouse and keyboard, if anyone (ADR 0009).
     var control: ControlLease?
+    /// Each boot phase as it started and ended, oldest first. Empty from a daemon before
+    /// boot phases, and for a machine a restarted daemon reattached.
+    var boot: [BootPhase] = []
 }
 
 extension Machine {
@@ -30,6 +33,46 @@ extension Machine {
         createdAt = try c.decode(.createdAt, or: .epoch)
         dir = try c.decode(.dir, or: "")
         control = try c.decodeIfPresent(ControlLease.self, forKey: .control)
+        boot = try c.decode(.boot, or: [])
+    }
+}
+
+/// One stage of a machine coming up (`machine.BootPhase`): sent when it starts, with no
+/// `seconds`, and again when it ends.
+struct BootPhase: Codable, Hashable, Sendable {
+    var phase: BootPhaseName
+    var at: Date
+    /// How long it took; nil while it runs.
+    var seconds: Double?
+    /// What it produced or worked on: the image, the VM, the address.
+    var detail: String?
+    var error: String?
+
+    var running: Bool { seconds == nil }
+}
+
+extension BootPhase {
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        phase = try c.decode(.phase, or: .unknown(""))
+        at = try c.decode(.at, or: .epoch)
+        seconds = try c.decodeIfPresent(Double.self, forKey: .seconds)
+        detail = try c.decodeIfPresent(String.self, forKey: .detail)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+extension [BootPhase] {
+    /// `phase` merged in: it replaces the one of the same name (its start, or a repeat),
+    /// else it goes on the end.
+    func merging(_ phase: BootPhase) -> [BootPhase] {
+        var out = self
+        if let index = out.firstIndex(where: { $0.phase == phase.phase }) {
+            out[index] = phase
+        } else {
+            out.append(phase)
+        }
+        return out
     }
 }
 

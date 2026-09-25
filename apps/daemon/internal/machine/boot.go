@@ -39,14 +39,28 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 		timings[key] = round1(time.Since(at))
 		return err
 	}
-	err := phase("agentSeconds", func() error { return m.waitReady(ctx, mc) })
+	// shown publishes a phase to watchers as it starts and ends (bootphase.go).
+	shown := func(name string, fn func() error) error {
+		end := m.beginPhase(mc, name)
+		err := fn()
+		detail := ""
+		if name == PhaseIP {
+			detail = ip
+		}
+		end(detail, err)
+		return err
+	}
+	err := shown(PhaseAgent, func() error { return phase("agentSeconds", func() error { return m.waitReady(ctx, mc) }) })
 	if err == nil {
-		err = phase("ipSeconds", func() (err error) { ip, err = m.tart.IP(ctx, mc.Name); return err })
+		err = shown(PhaseIP, func() error {
+			return phase("ipSeconds", func() (err error) { ip, err = m.tart.IP(ctx, mc.Name); return err })
+		})
 	}
 	if err == nil {
-		err = phase("keySeconds", func() error { return m.installSSHKey(ctx, mc.Name) })
+		err = shown(PhaseKey, func() error { return phase("keySeconds", func() error { return m.installSSHKey(ctx, mc.Name) }) })
 	}
 	if err == nil {
+		endSettings := m.beginPhase(mc, PhaseSettings)
 		// Before ready, so before the frame recorder's first capture. Not fatal:
 		// the machine works with the alert up, it only covers the screen.
 		if aerr := phase("captureAlertSeconds", func() error { return approveScreenCapture(ctx, m.tart, mc.Name) }); aerr != nil {
@@ -69,8 +83,10 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 				m.Log.Warn("this machine's clock may not show the host's time zone", "runId", mc.RunID, "err", terr)
 			}
 		}
+		endSettings("", nil) // each of them is never fatal
 		// A stale image's helper is compiled here, not in the first UI call (issue #41).
-		m.bootInputHelper(boot, mc, timings)
+		_ = shown(PhaseHelper, func() error { m.bootInputHelper(boot, mc, timings); return nil })
+		endChecks := m.beginPhase(mc, PhaseChecks)
 		// What the image says about its toolchain (ADR 0019) and what is on its screen
 		// (ADR 0018), for machine_wait. Neither is fatal, and the desktop is only reported.
 		_ = phase("toolchainSeconds", func() error {
@@ -89,12 +105,15 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 			}
 			return nil
 		})
+		endChecks("", nil)
 	}
 	if err == nil {
-		err = phase("sshSeconds", func() error {
-			sshCtx, sshCancel := context.WithTimeout(boot, m.readyTimeout)
-			defer sshCancel()
-			return m.waitSSH(sshCtx, mc, ip)
+		err = shown(PhaseSSH, func() error {
+			return phase("sshSeconds", func() error {
+				sshCtx, sshCancel := context.WithTimeout(boot, m.readyTimeout)
+				defer sshCancel()
+				return m.waitSSH(sshCtx, mc, ip)
+			})
 		})
 	}
 

@@ -371,6 +371,82 @@ final class BootLogTests: XCTestCase {
         XCTAssertEqual(BootLog.took(64), "01:04")
     }
 
+    private func phase(_ name: BootPhaseName, at offset: Double, seconds: Double? = nil, detail: String? = nil) -> BootPhase {
+        BootPhase(phase: name, at: now.addingTimeInterval(offset), seconds: seconds, detail: detail)
+    }
+
+    private func detail(_ status: MachineStatus, boot: [BootPhase], bootSeconds: Double? = nil) -> RunDetail {
+        var detail = detail(status, bootSeconds: bootSeconds)
+        detail.machine?.boot = boot
+        return detail
+    }
+
+    private func phaseLines(_ status: MachineStatus, _ boot: [BootPhase], bootSeconds: Double? = nil,
+                            connecting: Date? = nil) -> [BootLine] {
+        let detail = detail(status, boot: boot, bootSeconds: bootSeconds)
+        return BootLog.lines(facts: facts(status, detail: detail, steps: [create]), detail: detail, image: nil,
+                             steps: [create], connecting: connecting)
+    }
+
+    /// One line per phase as it arrives; the one still running ticks from when it started.
+    func testEachBootPhaseIsALine() {
+        let early = phaseLines(.booting, [phase(.clone, at: -30, seconds: 0.1, detail: "greenroom-lean-a"),
+                                         phase(.start, at: -29.9, seconds: 0, detail: "greenroom-r"),
+                                         phase(.agent, at: -29.8)])
+        XCTAssertEqual(early.map(\.word), ["clone", "start", "agent"])
+        XCTAssertEqual(early[0].detail, "greenroom-lean-a")
+        XCTAssertEqual(early[0].seconds, 0.1)
+        XCTAssertEqual(early[1].detail, "greenroom-r")
+        XCTAssertEqual(early[2].detail, "waiting")
+        XCTAssertEqual(early[2].state, .working(since: now.addingTimeInterval(-29.8)))
+
+        let late = phaseLines(.booting, [phase(.clone, at: -50, seconds: 0.1, detail: "greenroom-lean-a"),
+                                        phase(.start, at: -49.9, seconds: 0, detail: "greenroom-r"),
+                                        phase(.agent, at: -49.8, seconds: 38.4),
+                                        phase(.ip, at: -11.4, seconds: 0.2, detail: "192.168.64.5"),
+                                        phase(.key, at: -11.2, seconds: 0.4),
+                                        phase(.settings, at: -10.8, seconds: 2),
+                                        phase(.helper, at: -8.8, seconds: 0.3),
+                                        phase(.checks, at: -8.5, seconds: 7.6),
+                                        phase(.ssh, at: -0.9)])
+        XCTAssertEqual(late.map(\.word), ["clone", "start", "agent", "ip", "key", "settings", "helper", "desktop", "ssh"])
+        XCTAssertEqual(late.map(\.detail), ["greenroom-lean-a", "greenroom-r", "ready", "192.168.64.5", "installed",
+                                            "applied", "ready", "checked", "waiting"])
+        XCTAssertEqual(late[2].seconds, 38.4)
+        XCTAssertEqual(late.filter { $0.state != .done }.count, 1)
+        XCTAssertEqual(late[8].state, .working(since: now.addingTimeInterval(-0.9)))
+    }
+
+    /// Between two phases nothing runs, and the boot line ticks from the last one's end.
+    func testBetweenPhasesTheBootTicks() {
+        let lines = phaseLines(.booting, [phase(.clone, at: -3, seconds: 0.1, detail: "greenroom-lean-a"),
+                                          phase(.start, at: -2.9, seconds: 0.5, detail: "greenroom-r")])
+        XCTAssertEqual(lines.map(\.word), ["clone", "start", "boot"])
+        XCTAssertEqual(lines[2].state, .working(since: now.addingTimeInterval(-2.4)))
+    }
+
+    /// Ready: every phase done, then the whole boot's time and the screen still coming.
+    func testReadyPhasesThenTheScreen() {
+        let connecting = now.addingTimeInterval(-1)
+        let lines = phaseLines(.ready, [phase(.clone, at: -40, seconds: 0.1, detail: "greenroom-lean-a"),
+                                        phase(.ip, at: -10, seconds: 0.2, detail: "192.168.64.3"),
+                                        phase(.ssh, at: -2, seconds: 0.9)],
+                               bootSeconds: 39.5, connecting: connecting)
+        XCTAssertEqual(lines.map(\.word), ["clone", "ip", "ssh", "ready", "screen"])
+        XCTAssertEqual(lines[2].detail, "ready")
+        XCTAssertEqual(lines[2].seconds, 0.9)
+        XCTAssertEqual(lines[3].detail, "greenroom-r")
+        XCTAssertEqual(lines[3].seconds, 39.5)
+        XCTAssertEqual(lines[4].state, .working(since: connecting))
+    }
+
+    /// A phase from a newer daemon shows under its own name, with what it said.
+    func testAnUnknownPhaseShowsItsOwnName() {
+        let lines = phaseLines(.booting, [phase(.unknown("warp"), at: -1, seconds: 0.3, detail: "drive")])
+        XCTAssertEqual(lines.first?.word, "warp")
+        XCTAssertEqual(lines.first?.detail, "drive")
+    }
+
     /// A finished run has no boot to show.
     func testAnEndedRunHasNoLines() {
         var gone = detail(.ready)
