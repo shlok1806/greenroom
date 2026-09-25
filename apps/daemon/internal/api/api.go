@@ -21,6 +21,9 @@ type api struct {
 
 	recMu    sync.Mutex
 	recLocks map[string]*sync.Mutex // per run, held while its recording is checked or built
+
+	upMu    sync.Mutex
+	upLocks map[string]*sync.Mutex // per run, held while its uploads are written or removed
 }
 
 // runHandler is a route under /api/runs/{id} whose run is known to exist.
@@ -28,7 +31,7 @@ type runHandler func(w http.ResponseWriter, r *http.Request, runID string)
 
 // New returns the handler for /api/. Patterns keep the /api prefix because the daemon mounts it without stripping.
 func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Handler {
-	a := &api{mgr: mgr, reg: reg, log: log, recLocks: map[string]*sync.Mutex{}}
+	a := &api{mgr: mgr, reg: reg, log: log, recLocks: map[string]*sync.Mutex{}, upLocks: map[string]*sync.Mutex{}}
 	// A human lease that ran out with nobody renewing it (the Companion quit or crashed) is
 	// recorded when it lapses, not when someone next touches the screen (issue #57). The manager
 	// announces every lapse, whichever call found it, before the take or release that follows
@@ -37,7 +40,11 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Han
 		if ev.Kind == "control" && ev.Lapsed != nil && ev.Lapsed.Holder == humanSeat {
 			a.event(ev.RunID, lapsedText(*ev.Lapsed))
 		}
+		if ev.Kind == "destroyed" {
+			go a.removeUploads(ev.RunID) // may wait for an upload in progress, so not on the manager's goroutine
+		}
 	})
+	a.sweepUploads()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/runs", a.listRuns)
 	mux.HandleFunc("GET /api/events", a.events)
@@ -59,7 +66,13 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Han
 	} {
 		mux.HandleFunc(pattern, a.withRun(h))
 	}
-	return a.jsonBodies(mux)
+	// The one write whose body is not JSON: a remote client's project as a gzipped tar. It is
+	// exempt from jsonBodies and demands application/gzip itself, which no HTML form can send
+	// (forms send urlencoded, multipart or text/plain), so a web page still cannot post it.
+	root := http.NewServeMux()
+	root.HandleFunc("PUT /api/runs/{id}/sync", a.withRun(a.uploadSync))
+	root.Handle("/", a.jsonBodies(mux))
+	return root
 }
 
 // withRun answers 404 for a run that was never recorded, so every route says the same thing about it.

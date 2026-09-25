@@ -76,7 +76,11 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   states); `GREENROOM_SNAPSHOT_MENU=1` prints the View and Run menus as AppKit holds them. `GREENROOM_SNAPSHOT_SIZE=820x560`
   sizes the window's content first.
   Never press keys that send (accept, dispute, a composer's Return) against a real run.
-- `GREENROOM_URL` overrides `http://127.0.0.1:7777` (`DaemonClient.defaultBaseURL`).
+- The daemon's address and token (`ClientConfig`, root ADR 0021): `GREENROOM_URL` with
+  `GREENROOM_TOKEN`, else `~/.greenroom/client.json` (`{"url", "token"}`, written by the
+  installer; a malformed file is logged and skipped), else `http://127.0.0.1:7777` with no
+  token. A token only goes with the address it came with. `DaemonClient.request` is the one
+  request factory and adds `Authorization: Bearer <token>` to every request.
 - The app never starts the daemon.
 - The icon is drawn at build time by `scripts/make-icon.swift`; no artwork is checked in.
 

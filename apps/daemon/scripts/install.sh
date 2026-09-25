@@ -5,11 +5,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."     # apps/daemon
 repo="$(cd ../.. && pwd)"
-# .env is git-ignored, so a worktree falls back to the main checkout's. GREENROOM_ENV overrides both.
-env_file="${GREENROOM_ENV:-$repo/.env}"
-if [ ! -f "$env_file" ]; then
-  main="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')"
-  [ -n "$main" ] && [ -f "$main/.env" ] && env_file="$main/.env"
+# .env is git-ignored, so a worktree falls back to the main checkout's. GREENROOM_ENV overrides
+# both and is used as given, even when missing: never another file in its place.
+if [ -n "${GREENROOM_ENV:-}" ]; then
+  env_file="$GREENROOM_ENV"
+else
+  env_file="$repo/.env"
+  if [ ! -f "$env_file" ]; then
+    main="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')"
+    [ -n "$main" ] && [ -f "$main/.env" ] && env_file="$main/.env"
+  fi
 fi
 echo "env file: $env_file"
 echo "verifier: ${GREENROOM_VERIFIER:-nim}"
@@ -29,7 +34,7 @@ image_source="GREENROOM_IMAGE"
 if [ -z "$image" ]; then
   local_vms="$("$tart" list --source local 2>/dev/null || true)"
   for candidate in greenroom-lean-a greenroom-base; do
-    if printf '%s\n' "$local_vms" | grep -q "^local[[:space:]]\{1,\}$candidate[[:space:]]"; then
+    if printf '%s\n' "$local_vms" | grep -q "^local[[:space:]]\{1,\}${candidate}[[:space:]]"; then
       image="$candidate"
       image_source="local image"
       break

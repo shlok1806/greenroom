@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestLocalOnlyRefusesAForeignHost(t *testing.T) {
+func TestGuardRefusesAForeignHost(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	for host, want := range map[string]int{
 		"127.0.0.1:7777":        http.StatusNoContent,
@@ -27,14 +27,17 @@ func TestLocalOnlyRefusesAForeignHost(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/runs", nil)
 		req.Host = host
 		rec := httptest.NewRecorder()
-		LocalOnly(ok).ServeHTTP(rec, req)
+		Guard(ok, "", "").ServeHTTP(rec, req)
 		if rec.Code != want {
 			t.Errorf("Host %q: status %d, want %d", host, rec.Code, want)
+		}
+		if want == http.StatusForbidden && !strings.Contains(rec.Body.String(), "loopback") {
+			t.Errorf("Host %q: body %q does not say loopback, which the Companion's advice keys off", host, rec.Body.String())
 		}
 	}
 }
 
-func TestLocalOnlyRefusesAForeignOrigin(t *testing.T) {
+func TestGuardRefusesAForeignOrigin(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	for origin, want := range map[string]int{
 		"":                       http.StatusNoContent,
@@ -52,9 +55,75 @@ func TestLocalOnlyRefusesAForeignOrigin(t *testing.T) {
 			req.Header.Set("Origin", origin)
 		}
 		rec := httptest.NewRecorder()
-		LocalOnly(ok).ServeHTTP(rec, req)
+		Guard(ok, "gr.example.com", testToken).ServeHTTP(rec, req)
 		if rec.Code != want {
 			t.Errorf("Origin %q: status %d, want %d", origin, rec.Code, want)
+		}
+	}
+}
+
+const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// Tunnel traffic arrives from loopback like local traffic; only its Host tells it apart (ADR 0021).
+func TestGuardOnThePublicHost(t *testing.T) {
+	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	const public = "gr.example.com"
+	for _, tc := range []struct {
+		name, method, path, host, auth, origin string
+		guardHost, guardToken                  string
+		want                                   int
+	}{
+		{"right token", "GET", "/api/runs", public, "Bearer " + testToken, "", public, testToken, http.StatusNoContent},
+		{"mcp with token", "POST", "/mcp", public, "Bearer " + testToken, "", public, testToken, http.StatusNoContent},
+		{"scheme in any case", "GET", "/api/runs", public, "bearer " + testToken, "", public, testToken, http.StatusNoContent},
+		{"host with port", "GET", "/api/runs", public + ":443", "Bearer " + testToken, "", public, testToken, http.StatusNoContent},
+		{"host in upper case", "GET", "/api/runs", "GR.Example.COM", "Bearer " + testToken, "", public, testToken, http.StatusNoContent},
+		{"configured in upper case with a port", "GET", "/api/runs", public, "Bearer " + testToken, "", "GR.EXAMPLE.COM:443", testToken, http.StatusNoContent},
+		{"no token", "GET", "/api/runs", public, "", "", public, testToken, http.StatusUnauthorized},
+		{"wrong token", "GET", "/api/runs", public, "Bearer " + strings.Repeat("x", len(testToken)), "", public, testToken, http.StatusUnauthorized},
+		{"token prefix", "GET", "/api/runs", public, "Bearer " + testToken[:32], "", public, testToken, http.StatusUnauthorized},
+		{"token plus more", "GET", "/api/runs", public, "Bearer " + testToken + "x", "", public, testToken, http.StatusUnauthorized},
+		{"no Bearer scheme", "GET", "/api/runs", public, testToken, "", public, testToken, http.StatusUnauthorized},
+		{"Basic scheme", "GET", "/api/runs", public, "Basic " + testToken, "", public, testToken, http.StatusUnauthorized},
+		{"Bearer and nothing", "GET", "/api/runs", public, "Bearer ", "", public, testToken, http.StatusUnauthorized},
+		{"empty token configured", "GET", "/api/runs", public, "Bearer ", "", public, "", http.StatusUnauthorized},
+		{"Origin with a good token", "GET", "/api/runs", public, "Bearer " + testToken, "https://" + public, public, testToken, http.StatusForbidden},
+		{"Origin on an install file", "GET", "/install.sh", public, "", "https://evil.example", public, testToken, http.StatusForbidden},
+		{"install.sh without token", "GET", "/install.sh", public, "", "", public, testToken, http.StatusNoContent},
+		{"install.sh HEAD without token", "HEAD", "/install.sh", public, "", "", public, testToken, http.StatusNoContent},
+		{"dl file without token", "GET", "/dl/greenroom", public, "", "", public, testToken, http.StatusNoContent},
+		{"dl nested path needs token", "GET", "/dl/a/b", public, "", "", public, testToken, http.StatusUnauthorized},
+		{"dl climbing needs token", "GET", "/dl/../api/runs", public, "", "", public, testToken, http.StatusUnauthorized},
+		{"dl directory itself needs token", "GET", "/dl/", public, "", "", public, testToken, http.StatusUnauthorized},
+		{"install.sh POST needs token", "POST", "/install.sh", public, "", "", public, testToken, http.StatusUnauthorized},
+		{"dl PUT needs token", "PUT", "/dl/greenroom", public, "", "", public, testToken, http.StatusUnauthorized},
+		{"other host with the token", "GET", "/api/runs", "evil.example", "Bearer " + testToken, "", public, testToken, http.StatusForbidden},
+		{"sub-domain of the public host", "GET", "/api/runs", "x." + public, "Bearer " + testToken, "", public, testToken, http.StatusForbidden},
+		{"public host not configured", "GET", "/install.sh", public, "", "", "", "", http.StatusForbidden},
+		{"loopback needs no token", "GET", "/api/runs", "127.0.0.1:7777", "", "", public, testToken, http.StatusNoContent},
+		{"loopback ignores a wrong token", "GET", "/api/runs", "localhost:7777", "Bearer nope", "", public, testToken, http.StatusNoContent},
+	} {
+		req := httptest.NewRequest(tc.method, "/", nil)
+		req.URL.Path = tc.path
+		req.Host = tc.host
+		if tc.auth != "" {
+			req.Header.Set("Authorization", tc.auth)
+		}
+		if tc.origin != "" {
+			req.Header.Set("Origin", tc.origin)
+		}
+		rec := httptest.NewRecorder()
+		Guard(ok, tc.guardHost, tc.guardToken).ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Errorf("%s: status %d, want %d (%s)", tc.name, rec.Code, tc.want, strings.TrimSpace(rec.Body.String()))
+		}
+		if tc.want == http.StatusUnauthorized {
+			if got := rec.Header().Get("WWW-Authenticate"); got != "Bearer" {
+				t.Errorf("%s: WWW-Authenticate %q, want Bearer", tc.name, got)
+			}
+			if body := strings.TrimSpace(rec.Body.String()); body != "unauthorized: missing or wrong token" {
+				t.Errorf("%s: body %q", tc.name, body)
+			}
 		}
 	}
 }

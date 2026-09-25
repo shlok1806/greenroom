@@ -33,18 +33,23 @@ extension DaemonError {
 /// The only thing in the app that speaks HTTP: one method per route in ADR 0007.
 final class DaemonClient: Sendable {
     let baseURL: URL
+    /// Sent as `Authorization: Bearer` on every request when set (root ADR 0021).
+    let token: String?
     private let session: URLSession
 
-    /// `GREENROOM_URL` overrides the default address.
-    static let defaultBaseURL: URL = {
-        if let raw = ProcessInfo.processInfo.environment["GREENROOM_URL"], let url = URL(string: raw) {
-            return url
-        }
-        return URL(string: "http://127.0.0.1:7777")!
-    }()
+    /// `GREENROOM_URL`, else `~/.greenroom/client.json`, else loopback (`ClientConfig`).
+    static let defaultBaseURL: URL = ClientConfig.current.baseURL
 
-    init(baseURL: URL = DaemonClient.defaultBaseURL, session: URLSession = .shared) {
+    /// The daemon this process is configured for, with its token.
+    convenience init(config: ClientConfig = .current, session: URLSession = .shared) {
+        self.init(baseURL: config.baseURL, token: config.token, session: session)
+    }
+
+    /// A daemon named by hand. It gets no token unless given one, so the configured
+    /// token never goes to another address.
+    init(baseURL: URL, token: String? = nil, session: URLSession = .shared) {
         self.baseURL = baseURL
+        self.token = token
         self.session = session
     }
 
@@ -73,18 +78,18 @@ final class DaemonClient: Sendable {
     }
 
     func artifact(runId: String, name: String) async throws -> Data {
-        try await data(URLRequest(url: url(runPath(runId, "artifacts", name))))
+        try await data(self.request(runPath(runId, "artifacts", name)))
     }
 
     /// One frame's JPEG bytes.
     func frame(runId: String, file: String) async throws -> Data {
-        try await data(URLRequest(url: url(runPath(runId, "frames", file))))
+        try await data(self.request(runPath(runId, "frames", file)))
     }
 
     /// An mp4 of the run's frames. Needs `ffmpeg` on the daemon host; without it
     /// the daemon's own error text is thrown.
     func recording(runId: String) async throws -> Data {
-        try await data(URLRequest(url: url(runPath(runId, "recording.mp4"))))
+        try await data(self.request(runPath(runId, "recording.mp4")))
     }
 
     // MARK: - Writes
@@ -120,7 +125,7 @@ final class DaemonClient: Sendable {
     }
 
     func releaseControl(runId: String) async throws {
-        var request = URLRequest(url: try url(runPath(runId, "control")))
+        var request = try self.request(runPath(runId, "control"))
         request.httpMethod = "DELETE"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         _ = try await data(request)
@@ -139,7 +144,7 @@ final class DaemonClient: Sendable {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    var request = URLRequest(url: try url(["api", "events"]))
+                    var request = try self.request(["api", "events"])
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                     request.timeoutInterval = 3600
                     let (bytes, response) = try await session.bytes(for: request)
@@ -182,7 +187,7 @@ final class DaemonClient: Sendable {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    var request = URLRequest(url: try url(runPath(runId, "screen", "live")))
+                    var request = try self.request(runPath(runId, "screen", "live"))
                     request.setValue(Self.screenStreamType, forHTTPHeaderField: "Accept")
                     // A still screen sends nothing; only the socket closing ends this.
                     request.timeoutInterval = 3600
@@ -222,6 +227,16 @@ final class DaemonClient: Sendable {
             throw DaemonError.badResponse("cannot build a URL for \(segments.joined(separator: "/"))")
         }
         return built
+    }
+
+    /// Every request the client sends starts here, so none goes without the token.
+    /// Not `httpAdditionalHeaders`: Apple reserves Authorization there.
+    private func request(_ segments: [String], query: [URLQueryItem] = []) throws -> URLRequest {
+        var request = URLRequest(url: try url(segments, query: query))
+        if let token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        return request
     }
 
     /// Sends `request` and returns the body of a 2xx answer.
@@ -272,14 +287,14 @@ final class DaemonClient: Sendable {
     }
 
     private func get<T: Decodable>(_ type: T.Type, _ path: [String], query: [URLQueryItem] = []) async throws -> T {
-        var request = URLRequest(url: try url(path, query: query))
+        var request = try self.request(path, query: query)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return try decode(type, from: await data(request))
     }
 
     @discardableResult
     private func post(_ path: [String], body: some Encodable = Empty()) async throws -> Data {
-        var request = URLRequest(url: try url(path))
+        var request = try self.request(path)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")

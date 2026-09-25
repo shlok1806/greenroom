@@ -56,7 +56,7 @@ func newHarness(t *testing.T, extra ...machine.Option) *harness {
 		}
 	})
 	reg := session.NewRegistry(mgr.Root, 2)
-	ts := httptest.NewServer(LocalOnly(New(mgr, reg, log)))
+	ts := httptest.NewServer(Guard(New(mgr, reg, log), "", ""))
 	t.Cleanup(ts.Close)
 	return &harness{t: t, url: ts.URL, mgr: mgr, reg: reg, control: control}
 }
