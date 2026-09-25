@@ -53,6 +53,9 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 ## Rules
 
 - No `.xcodeproj`. Swift 6 language mode, strict concurrency; do not opt out.
+- No SwiftUI macros (`@Entry`, `#Preview`): their plugin ships only with Xcode, and the
+  self-hosted runner may build with the Command Line Tools alone. Spell out the
+  `FocusedValueKey`/`EnvironmentKey` instead. `@Observable` is fine.
 - Dependencies are an allowlist (ADR 0007): Apple and swiftlang packages that build in
   Swift 6 mode with no warnings; swift-markdown (parse only), swift-collections,
   swift-async-algorithms and SwiftTerm. Anything else needs its own companion ADR (why,

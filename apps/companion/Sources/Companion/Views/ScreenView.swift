@@ -7,8 +7,17 @@ struct ScreenCommands {
     var goLive: (() -> Void)?
 }
 
+/// Spelled out rather than `@Entry`: that macro's plugin ships only with Xcode, and the
+/// CI runner builds with the Command Line Tools.
+private struct ScreenCommandsKey: FocusedValueKey {
+    typealias Value = ScreenCommands
+}
+
 extension FocusedValues {
-    @Entry var screenCommands: ScreenCommands?
+    var screenCommands: ScreenCommands? {
+        get { self[ScreenCommandsKey.self] }
+        set { self[ScreenCommandsKey.self] = newValue }
+    }
 }
 
 /// A player over the frames the daemon captured (ADR 0008), the live stream while
