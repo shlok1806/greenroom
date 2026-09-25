@@ -1,69 +1,137 @@
 import SwiftUI
 
 /// Every run, newest first: the ones that need a person, then the ones running, then
-/// the rest by day. A row is named by a short, distinct title and says its state in words.
+/// the rest by day. A row is named by a short, distinct title and says its state in
+/// words. Drawn on the chrome tint; the open run is filled with the brand.
 struct SidebarView: View {
     @Bindable var store: RunStore
 
     @State private var query = ""
+    @FocusState private var searchFocused: Bool
+    @Environment(\.theme) private var theme
 
     var body: some View {
         // One shared clock keeps idle times fresh.
         TimelineView(.periodic(from: .now, by: 30)) { tick in
             let titles = RunTitle.distinct(store.runs)
-            List(selection: $store.selectedRunId) {
-                ForEach(sections(now: tick.date)) { section in
-                    Section {
-                        ForEach(section.runs) { run in
-                            RunRow(
-                                run: run,
-                                title: titles[run.runId] ?? RunTitle.short(task: run.task, runId: run.runId),
-                                facts: store.facts(run.runId, now: tick.date),
-                                now: tick.date
-                            )
-                            .tag(run.runId)
+            let sections = sections(now: tick.date)
+            VStack(spacing: 0) {
+                if !store.runs.isEmpty {
+                    searchField
+                        .padding(.horizontal, Space.m)
+                        .padding(.top, Space.m)
+                }
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            ForEach(sections) { section in
+                                SectionLabel(title: section.title, count: section.pinned ? section.runs.count : nil)
+                                    .padding(.horizontal, Space.s)
+                                    .padding(.top, Space.l)
+                                    .padding(.bottom, Space.xs)
+                                ForEach(section.runs) { run in
+                                    RunRow(
+                                        run: run,
+                                        title: titles[run.runId] ?? RunTitle.short(task: run.task, runId: run.runId),
+                                        facts: store.facts(run.runId, now: tick.date),
+                                        now: tick.date,
+                                        selected: store.selectedRunId == run.runId
+                                    ) {
+                                        store.selectedRunId = run.runId
+                                    }
+                                    .id(run.runId)
+                                }
+                            }
                         }
-                    } header: {
-                        SectionTitle(title: section.title, count: section.pinned ? section.runs.count : nil)
+                        .padding(.horizontal, Space.s)
+                        .padding(.bottom, Space.m)
+                    }
+                    .overlayScrollers()
+                    .overlay { overlay }
+                    .onChange(of: store.selectedRunId) {
+                        guard let selected = store.selectedRunId else { return }
+                        withAnimation(.snappy(duration: 0.2)) { proxy.scrollTo(selected) }
                     }
                 }
+                .focusable()
+                .focusEffectDisabled()
+                .onKeyPress(.upArrow) { move(by: -1, in: sections) }
+                .onKeyPress(.downArrow) { move(by: 1, in: sections) }
             }
-            .listStyle(.sidebar)
-            .overlayScrollers()
-            .overlay { overlay }
         }
-        .modifier(SearchWhenThereIsSomethingToSearch(enabled: !store.runs.isEmpty, query: $query))
         // Only while the event stream is down or an action failed: a healthy connection
         // needs no words, and an unreachable daemon is explained in the detail.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if case .online = store.connection, !store.connected || store.lastError != nil {
                 ConnectionFooter(store: store)
-                    .background(.bar)
-                    .overlay(alignment: .top) { Divider() }
+                    .overlay(alignment: .top) { Hairline() }
             }
         }
-        .navigationTitle("Runs")
+        .ground(.chrome)
+        .background(theme.chromeTint)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: Space.s) {
+            Text("/")
+                .monoStyle(.monoMedium, size: TypeScale.monoSmall)
+                .foregroundStyle(.secondary)
+            TextField("Find a run", text: $query)
+                .textFieldStyle(.plain)
+                .font(Typeface.readingRegular.font(size: TypeScale.readingSmall))
+                .focused($searchFocused)
+                .onExitCommand { query = "" }
+            if !query.isEmpty {
+                Button("Clear") { query = "" }
+                    .buttonStyle(.textLink)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, Space.s)
+        .frame(height: 28)
+        .fieldFrame(focused: searchFocused, radius: Radius.sm)
     }
 
     @ViewBuilder
     private var overlay: some View {
         if store.runs.isEmpty {
-            switch store.connection {
-            case .connecting:
-                ProgressView().controlSize(.small)
-            case .offline, .refused:
-                Text("Not connected")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            case .online:
-                // The detail welcomes a person with no runs; the list stays quiet.
-                Text("No runs yet")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            Group {
+                switch store.connection {
+                case .connecting:
+                    HStack(spacing: Space.s) {
+                        Spinner(size: TypeScale.monoSmall)
+                        Text("connecting")
+                    }
+                case .offline, .refused:
+                    Text("Not connected")
+                case .online:
+                    // The detail welcomes a person with no runs; the list stays quiet.
+                    Text("No runs yet")
+                }
             }
+            .monoStyle(size: TypeScale.monoSmall)
+            .foregroundStyle(.secondary)
         } else if matches.isEmpty {
-            ContentUnavailableView.search(text: query)
+            VStack(spacing: Space.xs) {
+                Text("No run matches \u{201C}\(query)\u{201D}")
+                    .readingStyle(.readingMedium, size: TypeScale.readingSmall)
+                Text("Search looks at the task, the id, the time and the state.")
+                    .readingStyle(size: TypeScale.small)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(Space.l)
         }
+    }
+
+    /// Up and down move the selection through the rows in the order they are shown.
+    private func move(by delta: Int, in sections: [RunSection]) -> KeyPress.Result {
+        let order = sections.flatMap(\.runs).map(\.runId)
+        guard !order.isEmpty else { return .ignored }
+        let current = store.selectedRunId.flatMap { order.firstIndex(of: $0) }
+        let next = current.map { min(max($0 + delta, 0), order.count - 1) } ?? (delta > 0 ? 0 : order.count - 1)
+        store.selectedRunId = order[next]
+        return .handled
     }
 
     private var matches: [RunSummary] {
@@ -81,7 +149,7 @@ struct SidebarView: View {
         .contains { $0.lowercased().contains(needle) }
     }
 
-    private struct RunSection: Identifiable {
+    fileprivate struct RunSection: Identifiable {
         var title: String
         var runs: [RunSummary]
         var pinned = false
@@ -119,66 +187,56 @@ struct SidebarView: View {
     }
 }
 
-private struct SectionTitle: View {
-    let title: String
-    let count: Int?
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(title)
-            if let count {
-                Text("\(count)")
-                    .monospacedDigit()
-                    .foregroundStyle(.tertiary)
-            }
-        }
-    }
-}
-
-/// `searchable` has no disabled state; a field with nothing to search is not offered.
-private struct SearchWhenThereIsSomethingToSearch: ViewModifier {
-    let enabled: Bool
-    @Binding var query: String
-
-    func body(content: Content) -> some View {
-        if enabled {
-            content.searchable(text: $query, placement: .sidebar, prompt: "Find a run")
-        } else {
-            content
-        }
-    }
-}
-
-/// The short title, then when it started and how big it is, with its state in words.
+/// The short title in the reading face, then when it started and how big it is, with
+/// its state in a glyph and a word (both mono). The open run is filled with the brand.
 private struct RunRow: View {
     let run: RunSummary
     let title: String
     let facts: RunFacts
     let now: Date
+    let selected: Bool
+    let open: () -> Void
+
+    @Environment(\.theme) private var theme
+    @State private var hovering = false
 
     var body: some View {
         let status = facts.rowStatus(now: now)
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.body)
-                .lineLimit(2)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: Space.s) {
-                ViewThatFits(in: .horizontal) {
-                    ForEach(meta, id: \.self) { line in
-                        Text(line).lineLimit(1)
+        let ink: Color? = selected ? theme.brandText : nil
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text(title)
+                    .readingStyle(.readingMedium, size: TypeScale.readingSmall)
+                    .foregroundStyle(ink ?? theme.foreground)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: Space.s) {
+                    ViewThatFits(in: .horizontal) {
+                        ForEach(meta, id: \.self) { line in
+                            Text(line).lineLimit(1)
+                        }
                     }
+                    .font(Typeface.monoRegular.font(size: TypeScale.monoSmall))
+                    .monospacedDigit()
+                    .foregroundStyle(ink ?? theme.dim(on: .chrome))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    StatusText(text: status.text, tone: status.tone, ink: ink)
                 }
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                StatusText(text: status.text, tone: status.tone)
             }
+            .padding(.horizontal, Space.s)
+            .padding(.vertical, Space.s)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                    .fill(selected ? theme.brand : hovering ? theme.highlight : .clear)
+            )
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, Space.xs)
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
         .help(help(status: status.text))
         .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     /// One time format everywhere in the list: when the run started, and for a running
@@ -206,13 +264,16 @@ private struct ConnectionFooter: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
             if !store.connected {
-                Label("Reconnecting to live updates", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: Space.s) {
+                    Spinner(size: TypeScale.monoSmall)
+                    Text("Reconnecting to live updates")
+                }
+                .monoStyle(size: TypeScale.monoSmall)
+                .foregroundStyle(.secondary)
             }
             if let error = store.lastError {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
+                Text(error)
+                    .readingStyle(size: TypeScale.small)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
                     .textSelection(.enabled)

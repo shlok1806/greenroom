@@ -1,0 +1,30 @@
+{
+  "name": "Greenroom Dark",
+  "background": "#101010",
+  "foreground": "#d6d6d3",
+  "cursor-color": "#d6d6d3",
+  "cursor-text": "#101010",
+  "selection-background": "#3a3a3a",
+  "selection-foreground": "#f0f0ec",
+  "palette": [
+    "#1c1c1c",
+    "#ec6a64",
+    "#47e1a8",
+    "#d9b554",
+    "#80a8dc",
+    "#cb8ade",
+    "#5cc2c4",
+    "#bdbdba",
+    "#7d7d7d",
+    "#ff8c86",
+    "#94d99a",
+    "#f0cd6e",
+    "#a3c2ec",
+    "#dfa8ee",
+    "#84dadb",
+    "#f0f0ec"
+  ],
+  "greenroom-brand": "#61702b",
+  "greenroom-brand-text": "#f4f1e8",
+  "greenroom-chrome-tint": "#1a1c14"
+}

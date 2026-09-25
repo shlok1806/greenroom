@@ -9,9 +9,13 @@ let package = Package(
     ],
     targets: [
         // Everything but the entry point, so the snapshot tool can host the real views.
+        // `Resources/Fonts`: Mona Sans and Monaspace Neon with their OFL licences.
+        // `Resources/Design`: a copy of the repo's `design/`, kept equal to it by
+        // `DesignBundleTests` (`scripts/sync-design.sh` writes it).
         .target(
             name: "Companion",
-            path: "Sources/Companion"
+            path: "Sources/Companion",
+            resources: [.copy("Resources/Fonts"), .copy("Resources/Design")]
         ),
         .executableTarget(
             name: "CompanionApp",

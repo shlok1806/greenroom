@@ -27,7 +27,11 @@ The design data for greenroom's interfaces. Decisions: companion ADR 0004 and 00
   spacing scale and radii, motion timings and layout breakpoints in columns.
 
 Who reads them: the Companion (SwiftUI) today; the web dashboard later, through CSS
-generated from these files when the web starts. Nothing is generated yet.
+generated from these files when the web starts. The Companion ships a byte-for-byte copy
+in its resources (`apps/companion/Sources/Companion/Resources/Design`), because SwiftPM
+bundles only files inside a target: after changing anything here, run
+`apps/companion/scripts/sync-design.sh`. `DesignRuntimeTests` fails while the copy and
+this directory differ.
 
 `apps/companion/Tests/CompanionTests/DesignDataTests.swift` checks every file, parsing
 each into typed models rather than grepping: all keys, 16 valid colours plus the three
