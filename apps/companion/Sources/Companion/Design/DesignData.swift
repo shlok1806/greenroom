@@ -189,6 +189,9 @@ struct DesignTokens: Decodable, Sendable, Equatable {
         let runsMinWidth: Double
         let runsMaxWidth: Double
         let runsStripWidth: Double
+        /// A run row's thumbnail in the wide list: the last frame as a glyph still.
+        let runThumbnailWidth: Double
+        let runThumbnailHeight: Double
         let stageMinWidth: Double
         let conversationMinWidth: Double
         let conversationWidth: Double

@@ -24,6 +24,10 @@ type RunSummary struct {
 	Messages     int                   `json:"messages"`
 	// Task is the run's first task message, clipped: what the companion names the run by.
 	Task string `json:"task,omitempty"`
+	// LastFrame is the newest line of frames.jsonl, explicit null for a run with none: the
+	// companion draws the run's thumbnail from it (companion ADR 0006, the power-down still)
+	// and fetches the JPEG at /frames/{file}. Read with Frames, so the list costs no more.
+	LastFrame *machine.Frame `json:"lastFrame"`
 }
 
 // Statuses of a run with no live machine; a live one reports its machine.Status.
@@ -92,6 +96,10 @@ func (a *api) summary(runID string, mc *machine.Machine) RunSummary {
 	}
 	if frames, err := machine.ReadFrames(a.mgr.RunDir(runID)); err == nil {
 		s.Frames = len(frames)
+		if len(frames) > 0 {
+			last := frames[len(frames)-1]
+			s.LastFrame = &last
+		}
 	}
 	if store, err := a.reg.Get(runID); err == nil {
 		s.Messages = store.Len()

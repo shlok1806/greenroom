@@ -38,7 +38,8 @@ struct SidebarView: View {
                                         title: titles[run.runId] ?? RunTitle.short(task: run.task, runId: run.runId),
                                         facts: store.facts(run.runId, now: tick.date),
                                         now: tick.date,
-                                        selected: store.selectedRunId == run.runId
+                                        selected: store.selectedRunId == run.runId,
+                                        thumbnails: store.thumbnails
                                     ) {
                                         store.selectedRunId = run.runId
                                         onOpen()
@@ -216,14 +217,16 @@ struct SidebarView: View {
     }
 }
 
-/// The short title in the reading face, then when it started and how big it is, with
-/// its state in a glyph and a word (both mono). The open run is filled with the brand.
-private struct RunRow: View {
+/// The run's thumbnail, then the short title in the reading face, when it started and how
+/// big it is, with its state in a glyph and a word (both mono). The open run is filled
+/// with the brand.
+struct RunRow: View {
     let run: RunSummary
     let title: String
     let facts: RunFacts
     let now: Date
     let selected: Bool
+    let thumbnails: RunThumbnails
     let open: () -> Void
 
     @Environment(\.theme) private var theme
@@ -234,12 +237,17 @@ private struct RunRow: View {
         let ink: Color? = selected ? theme.brandText : nil
         Button(action: open) {
             VStack(alignment: .leading, spacing: Space.xs) {
-                Text(title)
-                    .readingStyle(.readingMedium, size: TypeScale.readingSmall)
-                    .foregroundStyle(ink ?? theme.foreground)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // The title beside the thumbnail; the time and state under both, at the
+                // row's full width, so the state reads whole at every column width.
+                HStack(alignment: .top, spacing: Space.s) {
+                    RunThumbnailView(thumbnail: thumbnails.thumbnail(run.runId), recorded: run.lastFrame != nil)
+                    Text(title)
+                        .readingStyle(.readingMedium, size: TypeScale.readingSmall)
+                        .foregroundStyle(ink ?? theme.foreground)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 HStack(spacing: Space.s) {
                     ViewThatFits(in: .horizontal) {
                         ForEach(meta, id: \.self) { line in
@@ -266,15 +274,19 @@ private struct RunRow: View {
         .help(help(status: status.text))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
+        // Asks once as the row appears and again only when the run's last frame moves on.
+        .task(id: run.lastFrame?.file) { thumbnails.request(run.runId, frame: run.lastFrame) }
     }
 
     /// One time format everywhere in the list: when the run started, and for a running
-    /// one how long it has run. Errors are counted once, in the run's header.
+    /// one how long it has run. Errors are counted once, in the run's header. Longest
+    /// first; the last is empty, so in a narrow column a long state ("Inconclusive, you
+    /// accepted") keeps its words and the time gives way, never a clipped time.
     private var meta: [String] {
         var parts = [Chrome.shortTime(run.createdAt)]
         if facts.isAlive { parts.append("running \(Chrome.span(facts.duration(now: now)))") }
         if facts.stepCount > 0 { parts.append(Chrome.plural(facts.stepCount, "step")) }
-        return (1...parts.count).reversed().map { parts.prefix($0).joined(separator: " · ") }
+        return (1...parts.count).reversed().map { parts.prefix($0).joined(separator: " · ") } + [""]
     }
 
     private func help(status: String) -> String {
@@ -282,6 +294,50 @@ private struct RunRow: View {
         if facts.isAlive { lines.append("Last activity \(Chrome.span(facts.idle(now: now))) ago.") }
         lines.append(run.runId)
         return lines.joined(separator: "\n")
+    }
+}
+
+/// A run's last frame as a glyph still (the power-down still, ADR 0006), in the theme's
+/// own ink so the list stays calm: dim dots on the ground, drawn where the picture is lit
+/// in a dark theme and where it is dark in a light one, so both read as the picture and
+/// not its negative. A run with no frames shows a quiet dotted rule; one whose still is on
+/// its way shows the empty box. The box never changes size, so a row does not move when
+/// its thumbnail lands.
+struct RunThumbnailView: View {
+    let thumbnail: RunThumbnail?
+    /// Whether the run has a frame to draw from.
+    let recorded: Bool
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        let box = RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+        Canvas { graphics, size in
+            draw(in: &graphics, size: size)
+        }
+        .frame(width: ThumbnailSampler.size.width, height: ThumbnailSampler.size.height)
+        .background(theme.background)
+        .clipShape(box)
+        .overlay(box.strokeBorder(theme.hairline, lineWidth: Space.hairline))
+        .accessibilityHidden(true)
+    }
+
+    private func draw(in graphics: inout GraphicsContext, size: CGSize) {
+        let rects: [CGRect]
+        if let thumbnail {
+            let lit = theme.id.isDark
+            for cell in ThumbnailSampler.wash(of: thumbnail.rendering, in: size, lit: lit) {
+                graphics.fill(Path(cell.rect), with: .color(theme.dim.opacity(0.3 * cell.amount)))
+            }
+            rects = ThumbnailSampler.dots(of: thumbnail.rendering, in: size, lit: lit)
+        } else if !recorded {
+            rects = ThumbnailSampler.emptyMark(in: size)
+        } else {
+            return
+        }
+        var dots = Path()
+        for rect in rects { dots.addRect(rect) }
+        graphics.fill(dots, with: .color(theme.dim))
     }
 }
 
