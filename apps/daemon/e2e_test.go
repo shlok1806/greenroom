@@ -109,6 +109,35 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("expected exit 3, got %+v", execOut)
 	}
 
+	// Issue #128: the wrapper and the command reach the guest on stdin, so every
+	// process listing is short and a pgrep for the command's own words finds
+	// nothing but itself, which pgrep never lists.
+	call("machine_exec", map[string]any{"runId": created.RunID, "command": "pgrep -fl greenroom"}, &execOut)
+	t.Logf("pgrep -fl greenroom: %q", execOut.Stdout)
+	if execOut.ExitCode != 0 || !strings.Contains(execOut.Stdout, "/bin/sh -s greenroom-exec 600") {
+		t.Fatalf("pgrep -fl greenroom did not list the wrapper's short line: %+v", execOut)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(execOut.Stdout), "\n") {
+		if len(line) > 160 || strings.Contains(line, "pgrep") {
+			t.Errorf("process line %q is long or carries the command", line)
+		}
+	}
+	call("machine_exec", map[string]any{"runId": created.RunID, "command": "pgrep -fl some-unique-token-xyz"}, &execOut)
+	if execOut.ExitCode != 1 || execOut.Stdout != "" {
+		t.Fatalf("pgrep -f for the command's own words matched something: %+v", execOut)
+	}
+	// Still as before: the timeout kills the command with exit 124 and the output
+	// so far, a background child does not hold the call, and log is /usr/bin/log.
+	call("machine_exec", map[string]any{"runId": created.RunID, "command": "echo before; sleep 30", "timeoutSeconds": 2}, &execOut)
+	if execOut.ExitCode != 124 || !execOut.TimedOut || execOut.Stdout != "before\n" {
+		t.Fatalf("timeout: %+v", execOut)
+	}
+	call("machine_exec", map[string]any{"runId": created.RunID, "command": "sleep 30 & echo started; whence -w log; echo err >&2\nnosuchcmd-greenroom"}, &execOut)
+	if execOut.ExitCode != 127 || execOut.Seconds > 10 || execOut.Stdout != "started\nlog: command\n" ||
+		!strings.HasPrefix(execOut.Stderr, "err\n") || !strings.Contains(execOut.Stderr, ":2: command not found: nosuchcmd-greenroom") {
+		t.Fatalf("background child, log and line numbers: %+v", execOut)
+	}
+
 	src := t.TempDir()
 	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("hi\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -180,6 +209,10 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("screenshot: no JPEG image content in result")
 	}
 	t.Logf("screenshot: %d bytes, %s", len(img.Data), img.MIMEType)
+	// Kept with go test -artifacts, to look at the desktop after machine_exec (issue #117).
+	if err := os.WriteFile(filepath.Join(t.ArtifactDir(), "after-exec.jpg"), img.Data, 0o644); err != nil {
+		t.Errorf("keep the screenshot: %v", err)
+	}
 
 	entries, _ := os.ReadDir(filepath.Join(root, "runs", created.RunID))
 	names := []string{}

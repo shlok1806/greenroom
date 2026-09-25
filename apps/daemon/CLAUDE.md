@@ -278,7 +278,16 @@ Evidence
 
 Exec
 
-- `machine_exec` runs `/bin/sh -c execWrapper greenroom-exec <script>`: the login zsh
+- `machine_exec` runs `tart exec -i <vm> /bin/sh -s greenroom-exec <secs>` with
+  `execScript` on stdin (ADR 0023, issue #128): the wrapper, and the command in a quoted
+  heredoc with a random delimiter, written to `$d/cmd`. zsh runs it as
+  `zsh -lc 'disable log; eval "$(<$d/cmd)"'`, so it parses and runs as `zsh -c` did (whole
+  parse first, no positional parameters); only its error prefix is `(eval):N:`, not `zsh:N:`.
+  No guest argv carries the command or the wrapper: ps shows two short lines, and a
+  `pgrep -f` run through machine_exec does not find itself. Never put either back in argv,
+  and never let anything but sh read stdin (zsh and the watchdog get `/dev/null`). The fake
+  tart logs the stdin to `exec-stdin` (`testsupport.ExecStdin`) and re-appends it to its
+  arguments, so its pattern cases see the command. The login zsh
   writes to temp files that are printed after it exits. `tart exec` returns only when
   every holder of the guest's stdout/stderr pipes closes them, so without the wrapper
   `./App &` (or `(cd x && ./App) &`) holds the call until its timeout. `cmd.WaitDelay`
@@ -378,6 +387,10 @@ Computer use (ADR 0009)
 - `validateActions` also refuses a click, down, up or move without both `x` and `y`: the
   helper would post it at the pointer (issue #85). The verifier's `machine_input` decodes with
   `DisallowUnknownFields`, so an `element` in a batch is an error, not a click at the pointer.
+  It refuses a `type` with empty text too (issue #126): the helper typed nothing and the call
+  reported success with a step. This one check covers MCP, the verifier (both brains dropped
+  their own) and the human API. `InputAs` runs it before taking the lease, so a refused batch
+  records no step and leaves no lease.
 - Coordinates are fractions 0 to 1. Only the manager converts to points (`ScreenOf`), and
   back for the UI tree; out-of-range is clamped. `machine.Shot` carries `width`, `height`,
   `scale`; never hardcode Retina 2 (the tahoe guest is 1024x768 at scale 1).
@@ -556,7 +569,7 @@ renames it to `<name>` only if that passes. A failed gate deletes the build.
   `com.apple.mobile.softwareupdated`; the first alone lets the daemon start after a reboot.
 - `check-image` (`imagecheck.go`) never writes what boot writes (approvals, desktop
   prefs): the image must pass alone. Its exercises run under a process-group watchdog like
-  `execWrapper`'s, because a blocked osascript keeps `tart exec` open after its shell dies.
+  the exec wrapper's, because a blocked osascript keeps `tart exec` open after its shell dies.
   The allowlist lives in `desktopcheck.go` and is shared with boot; widen it only for a
   window every clean desktop has, with a screenshot as evidence.
 

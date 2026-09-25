@@ -38,7 +38,7 @@ type ExecResult struct {
 	Step            int     `json:"step"` // its number in steps.jsonl
 }
 
-// execTimedOutExit and execTimedOutNote are how execWrapper reports a timeout.
+// execTimedOutExit and execTimedOutNote are how the exec wrapper reports a timeout.
 const (
 	execTimedOutExit = 124
 	execTimedOutNote = "greenroom: timed out after "
@@ -69,12 +69,29 @@ func (m *Manager) Exec(ctx context.Context, runID, command, cwd string, timeout 
 	}
 }
 
-// execWrapper runs a machine_exec command ($1) in a login zsh with its output
-// in files, then prints them. tart exec returns only when every holder of the
-// guest's stdout and stderr pipes has closed them, so a command that leaves a
-// child running (`./App &`, `(cd x && ./App) &`) would hold the call until its
-// timeout. Children inherit files instead, and a file never blocks anyone.
-// Output that a background child writes after the shell exits is not returned.
+// execShell is the guest command machine_exec runs, followed by the timeout in
+// seconds: /bin/sh reading execScript from stdin (tart exec -i). Neither the
+// wrapper nor the command is in any argv, so the guest's ps shows
+// `/bin/sh -s greenroom-exec 600` and a `pgrep -f <pattern>` run through
+// machine_exec cannot match its own wrapper (issue #128). "greenroom-exec" is
+// only $1, a name for the listing; the timeout is $2.
+var execShell = []string{"/bin/sh", "-s", "greenroom-exec"}
+
+// execWrapperHead and execWrapperTail are the wrapper execScript puts around a
+// machine_exec command. The head makes the temp dir and starts a quoted
+// heredoc that writes the command to $d/cmd verbatim; the tail runs it in a
+// login zsh with its output in files, then prints them. tart exec returns only
+// when every holder of the guest's stdout and stderr pipes has closed them, so
+// a command that leaves a child running (`./App &`, `(cd x && ./App) &`) would
+// hold the call until its timeout. Children inherit files instead, and a file
+// never blocks anyone. Output that a background child writes after the shell
+// exits is not returned.
+//
+// zsh gets the command as `eval "$(<$d/cmd)"`, not as a script file, so it runs
+// as `zsh -c` ran it: parsed whole before any of it runs, $0 and no positional
+// parameters as before, `return` ending it. Its errors say "(eval):N:" where
+// they said "zsh:N:". The argv holds only the short temp path, which mktemp
+// makes from letters and digits, so it needs no quoting.
 //
 // $2 is the timeout in seconds, 0 for none. The host cannot kill a guest
 // process (killing tart exec leaves it running, issue #28), so the guest does:
@@ -85,15 +102,18 @@ func (m *Manager) Exec(ctx context.Context, runID, command, cwd string, timeout 
 // running. The wrapper's own stderr goes to /dev/null so the shell's job notices
 // never reach the caller; the command's stderr is written to fd 3, which zsh and
 // the watchdog do not inherit (a child holding it would hold the call open).
+// Nothing but sh reads stdin: zsh and the watchdog get /dev/null.
 //
 // The login zsh is not interactive, so it never reads /etc/zshrc, where macOS
 // runs `disable log` so that log is /usr/bin/log and not zsh's builtin (issue
-// #40). The wrapper does the same before the command, on its first line so the
-// command's own line numbers in zsh's errors stay as they were.
-const execWrapper = `exec 3>&2 2>/dev/null
+// #40). The wrapper does the same before the eval, so the command's own line
+// numbers in zsh's errors stay as they were.
+const (
+	execWrapperHead = `exec 3>&2 2>/dev/null
 d=$(mktemp -d /tmp/greenroom-exec.XXXXXX) || exit 125
-set -m
-/bin/zsh -lc "disable log 2>/dev/null; $1" >"$d/out" 2>"$d/err" </dev/null 3>&- &
+`
+	execWrapperTail = `set -m
+/bin/zsh -lc "disable log 2>/dev/null; eval \"\$(<$d/cmd)\"" >"$d/out" 2>"$d/err" </dev/null 3>&- &
 z=$!
 w=
 if [ "${2:-0}" -gt 0 ]; then
@@ -111,7 +131,22 @@ cat "$d/out"
 cat "$d/err" >&3
 [ -f "$d/timedout" ] && echo "` + execTimedOutNote + `$2 s; the command and its children were killed" >&3
 rm -rf "$d"
-exit $s`
+exit $s
+`
+)
+
+// execScript is the whole of what execShell reads on stdin for command: the
+// wrapper with the command in a quoted heredoc, which the shell copies byte for
+// byte. Its delimiter is random and checked against the command, so no line of
+// a command can end the heredoc early.
+func execScript(command string) string {
+	for {
+		delim := "GREENROOM_CMD_" + rand.Text()
+		if !strings.Contains(command, delim) {
+			return execWrapperHead + `cat >"$d/cmd" <<'` + delim + "'\n" + command + "\n" + delim + "\n" + execWrapperTail
+		}
+	}
+}
 
 // cdCommand is the shell command that enters a machine_exec cwd, or "" for
 // none. A leading ~ means the guest home, as in a shell; anything else is

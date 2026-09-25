@@ -504,7 +504,7 @@ func TestExecPassesTheWorkingDirectory(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
 	h.call("machine_exec", map[string]any{"runId": runID, "command": "pwd", "cwd": "work/app"}, nil)
-	if !strings.Contains(testsupport.Calls(t, h.control), "cd 'work/app'") {
+	if !strings.Contains(testsupport.ExecStdin(t, h.control), "cd 'work/app'") {
 		t.Error("the cwd never reached the guest command")
 	}
 }
@@ -513,8 +513,8 @@ func TestExecReadsATildeCwdAsTheGuestHome(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
 	h.call("machine_exec", map[string]any{"runId": runID, "command": "pwd", "cwd": "~/work/app"}, nil)
-	if !strings.Contains(testsupport.Calls(t, h.control), `cd "$HOME"/'work/app'`) {
-		t.Errorf("a ~ cwd was not entered from the guest home\ncalls:\n%s", testsupport.Calls(t, h.control))
+	if !strings.Contains(testsupport.ExecStdin(t, h.control), `cd "$HOME"/'work/app'`) {
+		t.Errorf("a ~ cwd was not entered from the guest home\nstdin:\n%s", testsupport.ExecStdin(t, h.control))
 	}
 }
 
@@ -1175,6 +1175,23 @@ func TestTypeSendsOneBatchOneStep(t *testing.T) {
 
 	if n := h.inputSteps(runID); n != 1 {
 		t.Fatalf("machine_input steps = %d, want 1", n)
+	}
+}
+
+// Issue #126: an empty machine_type is an error, posts nothing and records no step.
+func TestTypeRefusesEmptyText(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+
+	res := h.raw("machine_type", map[string]any{"runId": runID, "text": ""})
+	if !res.IsError || !strings.Contains(text(res), "type needs text: pass the characters to type") {
+		t.Fatalf("machine_type with no text: %s, want the type-needs-text error", text(res))
+	}
+	if posted := postedActions(t, h.control); len(posted) != 0 {
+		t.Errorf("the guest was sent %+v", posted)
+	}
+	if n := h.inputSteps(runID); n != 0 {
+		t.Errorf("machine_input steps = %d, want 0", n)
 	}
 }
 
