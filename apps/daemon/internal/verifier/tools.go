@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
@@ -168,7 +169,8 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 			Cwd     string `json:"cwd"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil || strings.TrimSpace(in.Command) == "" {
-			return "error: machine_exec needs a command", 0
+			return `error: machine_exec needs a command: pass the shell command to run in "command", like {"command": "ls"}` +
+				argsProblem(args, err), 0
 		}
 		res, err := v.mgr.Exec(ctx, runID, in.Command, in.Cwd, execTimeout)
 		if err != nil {
@@ -205,30 +207,34 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 			Clicks  int      `json:"clicks"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
-			return "error: machine_click needs an element id or x and y", 0
+			return "error: machine_click needs element, an id from your latest machine_ui, or x and y as numbers " +
+				"from 0 to 1" + argsProblem(args, err), 0
 		}
 		return click(ctx, v.mgr, runID, in.Element, in.X, in.Y, in.Button, in.Clicks)
 
 	case "machine_type":
 		var in struct {
-			Text string `json:"text"`
+			Text looseString `json:"text"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil || in.Text == "" {
-			return "error: machine_type needs text", 0
+			return `error: machine_type needs text: pass the characters to type in "text", like {"text": "hello"}; ` +
+				"to press a key such as return or tab, use machine_key" + argsProblem(args, err), 0
 		}
-		return postInput(ctx, v.mgr, runID, fmt.Sprintf("typed %q", in.Text),
-			machine.InputAction{Type: "type", Text: in.Text})
+		text := string(in.Text)
+		return postInput(ctx, v.mgr, runID, fmt.Sprintf("typed %q", text),
+			machine.InputAction{Type: "type", Text: text})
 
 	case "machine_key":
 		var in struct {
-			Key  string   `json:"key"`
-			Mods []string `json:"mods"`
+			Key  looseString `json:"key"`
+			Mods []string    `json:"mods"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil || in.Key == "" {
-			return "error: machine_key needs a key", 0
+			return `error: machine_key needs a key: pass one key name in "key", like {"key": "return"} or ` +
+				`{"key": "a", "mods": ["cmd"]}; to type text, use machine_type` + argsProblem(args, err), 0
 		}
-		return postInput(ctx, v.mgr, runID, "pressed "+keyLabel(in.Key, in.Mods),
-			machine.InputAction{Type: "key", Key: in.Key, Mods: in.Mods})
+		return postInput(ctx, v.mgr, runID, "pressed "+keyLabel(string(in.Key), in.Mods),
+			machine.InputAction{Type: "key", Key: string(in.Key), Mods: in.Mods})
 
 	case "machine_scroll":
 		var in struct {
@@ -238,7 +244,8 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 			DeltaY float64  `json:"deltaY"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
-			return "error: machine_scroll needs deltaX or deltaY", 0
+			return "error: machine_scroll needs deltaX or deltaY as numbers of points, like {\"deltaY\": 200} to " +
+				"scroll down" + argsProblem(args, err), 0
 		}
 		return postInput(ctx, v.mgr, runID, fmt.Sprintf("scrolled (deltaX %.0f, deltaY %.0f)", in.DeltaX, in.DeltaY),
 			machine.InputAction{Type: "scroll", X: in.X, Y: in.Y, DeltaX: in.DeltaX, DeltaY: in.DeltaY})
@@ -263,6 +270,45 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 	default:
 		return "error: no tool named " + call.Name, 0
 	}
+}
+
+// looseString is a string argument that also takes a number, as written. A model typing a bill
+// of 160 may send {"text": 160}, which a plain string field refused as no text at all (issue #125).
+type looseString string
+
+func (s *looseString) UnmarshalJSON(b []byte) error {
+	var str string
+	if err := json.Unmarshal(b, &str); err == nil {
+		*s = looseString(str)
+		return nil
+	}
+	var n json.Number
+	if err := json.Unmarshal(b, &n); err == nil {
+		*s = looseString(n.String())
+		return nil
+	}
+	return fmt.Errorf("want a string, got %s", clip(string(b), 80))
+}
+
+// argsProblem says what was wrong with a refused call's arguments, so a wrong field name or type
+// is visible to the model and in the log: " (this call sent: value)" or the decode error.
+func argsProblem(args []byte, err error) string {
+	if err != nil {
+		return " (your arguments did not parse: " + clip(err.Error(), 200) + ")"
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(args, &fields) != nil {
+		return ""
+	}
+	if len(fields) == 0 {
+		return " (this call sent no fields)"
+	}
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return " (this call sent: " + strings.Join(names, ", ") + ")"
 }
 
 func (v *Verifier) describe(ctx context.Context, png []byte) (string, error) {

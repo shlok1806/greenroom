@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -133,7 +132,7 @@ func (v *Verifier) Model() string { return v.cfg.Model }
 
 // TurnResult says how a turn ended.
 type TurnResult struct {
-	Ended   session.Kind // reply, question or verdict, or "" when the budget ran out
+	Ended   session.Kind // reply, question or verdict
 	Steps   int
 	Tokens  int
 	Seconds float64
@@ -188,9 +187,13 @@ func (v *Verifier) screenHolder(runID string) (string, bool) {
 
 // askForScreen ends the turn with a question asking holder for the screen back (issue #97).
 func (v *Verifier) askForScreen(store *session.Store, holder string) {
+	v.post(store, session.Message{From: session.Verifier, Kind: session.Question, Text: screenTakenQuestion(holder, standingVerdict(store))})
+}
+
+// standingVerdict reports whether the run has a verdict a question must say still stands.
+func standingVerdict(store *session.Store) bool {
 	st := store.Verdict().Status
-	standing := st == session.Proposed || st == session.Accepted
-	v.post(store, session.Message{From: session.Verifier, Kind: session.Question, Text: screenTakenQuestion(holder, standing)})
+	return st == session.Proposed || st == session.Accepted
 }
 
 func isInputTool(name string) bool {
@@ -241,7 +244,8 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 	msgs := withStatus(project(store.After(0)), status)
 	nudged := false
 	taskNudged := false
-	screenTaken := 0 // input refused this turn because someone else holds the screen
+	screenTaken := 0    // input refused this turn because someone else holds the screen
+	failed := repeats{} // failing tool calls this turn, by call and error (issue #125)
 
 	for step := 1; step <= v.cfg.MaxSteps; step++ {
 		// Feed in anything said mid-turn, and any machine status change.
@@ -264,10 +268,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			}
 			// The turn's own budget running out is a graceful stop, not a failure.
 			if ctx.Err() == context.DeadlineExceeded {
-				res.Ended = session.Reply
-				v.post(store, session.Message{From: session.Verifier, Kind: session.Reply,
-					Text: fmt.Sprintf("I ran out of time after %s. Send a message and I will continue.", v.cfg.Budget)})
-				return res, nil
+				return v.endAtLimit(parent, runID, store, msgs, session.StopTime, screenTaken, started, res)
 			}
 			v.post(store, session.Message{From: session.System, Kind: session.Event, Text: "verifier turn failed: " + err.Error()})
 			return res, err
@@ -323,20 +324,9 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 				}
 				break
 			}
-			if end, ok := endingMessage(call); ok && end.Kind == session.Verdict && end.Verdict == "inconclusive" && screenTaken > 0 {
-				if holder, held := v.screenHolder(runID); held {
-					// A verdict about who holds the screen replaces a real one on the card (issue #97).
-					res.Steps, res.Ended = step, session.Question
-					v.askForScreen(store, holder)
-					return res, nil
-				}
-			}
 			if end, ok := endingMessage(call); ok {
-				res.Steps, res.Ended = step, end.Kind
-				v.post(store, end)
-				if end.Kind == session.Verdict {
-					v.log.Info("verifier verdict", "runId", runID, "verdict", end.Verdict, "steps", step)
-				}
+				res.Steps = step
+				res.Ended = v.postEnding(store, runID, end, screenTaken, step, since(started))
 				return res, nil
 			}
 			if screenTaken > 0 && isInputTool(call.Name) {
@@ -351,19 +341,23 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			if strings.HasPrefix(result, screenTakenPrefix) {
 				screenTaken++
 			}
+			result, stuck := v.guardRepeat(runID, failed, call, result)
 			// seen is not advanced past our own progress: a message someone else
 			// appended while the tool ran sits before it. projectLate skips ours.
 			v.post(store, session.Message{From: session.Verifier, Kind: session.Progress, Text: progressText(call, result), Step: stepNo})
 			msgs = append(msgs, nim.Message{Role: "tool", ToolCallID: call.ID, Content: result})
+			if stuck {
+				// The same call failed the same way repeatStopAt times: the person sees the blocker (issue #125).
+				res.Steps, res.Ended = step, session.Question
+				v.askAboutRepeat(store, call, result)
+				return res, nil
+			}
 		}
 		res.Steps = step
 	}
 
-	// The step cap is not a verdict: say so and wait, as ask would.
-	res.Ended = session.Reply
-	v.post(store, session.Message{From: session.Verifier, Kind: session.Reply,
-		Text: fmt.Sprintf("I used all %d tool calls for this turn and did not finish. Send a message and I will continue from here.", v.cfg.MaxSteps)})
-	return res, nil
+	// The step cap is not a verdict: ask for one if a task is open, else say so and wait.
+	return v.endAtLimit(parent, runID, store, msgs, session.StopSteps, screenTaken, started, res)
 }
 
 func (v *Verifier) post(store *session.Store, m session.Message) {

@@ -305,6 +305,31 @@ Conversation and verifier
   with `openTaskNudge` for `report_verdict` or `ask`. A message arriving mid-turn made the
   model answer it and leave the task without a verdict (issue #89). Once per turn, never on
   the last step, so a model that replies again is heard.
+- A limit is not a verdict, but a task left open at one says nothing to whoever waits on it
+  (issue #127). At the step cap or the budget, with a task open, `endAtLimit` makes one
+  closing call (`closingPrompt`, only `report_verdict` and `ask` offered) on a fresh
+  `closingTimeout` (90 s) context from the actor's, since at the budget the turn's own is
+  dead. Its verdict or question is posted as any other (`postEnding`, so the #97 rule
+  holds). With no task open, or when that call fails, is cut off or answers in prose or
+  with another tool, the turn posts the old limit reply with `stop` (`session.StopSteps`
+  or `StopTime`). Only a verifier reply may carry `stop` (`session.validate`); `agent_wait`
+  returns it on the message and its description tells the coder what it means. A
+  last-step cut-off still ends in `cutOffReply`, with no closing call and no `stop`.
+- Machine status snapshots (`snapshot` in `context.go`) ignore the turn context's
+  cancellation, so a dead budget never reads as "Machine status: gone" to the closing call.
+- A failing tool call (a result starting `error:`) is counted per turn by tool, canonical
+  arguments (`canonicalArgs`: sorted keys, no spacing) and error text (`repeats`, issue
+  #125). The second identical failure gets `repeatWarning` appended; the third posts its
+  progress and ends the turn with a question naming the call, its arguments and the error
+  (`repeatQuestion`, "My last verdict still stands." when one does). Another call leaves
+  the counts alone; a success of the same call clears its counts. Screen-taken refusals are
+  left to the #97 rule. Every refused call's raw arguments are logged at warn
+  ("verifier tool call refused").
+- Verifier tool errors say what to send instead and name the fields that arrived
+  (`argsProblem`), so a wrong field name is visible. `machine_type` text and `machine_key`
+  key take a number as written (`looseString`): `{"text": 160}` was refused as no text.
+  `progressText` keeps pretty-printed arguments on one line, or `splitProgress` would
+  project them next turn as a call with arguments `{`.
 - `project` rebuilds the verifier's own past messages (progress, reply, ask, verdict) as
   the assistant tool calls that made them, with results; never as assistant prose. A
   model imitates its history: projected as "[I reported verdict ...]" text, it answered a
@@ -313,7 +338,7 @@ Conversation and verifier
 - The verifier writes plainly: `writingRules` (adapted from stop-slop, MIT) ends the system
   prompt and the reply, ask and report_verdict argument descriptions repeat its limits. Keep
   it short; the small NIM model ignores a long style guide. Daemon-authored verifier texts
-  (budget, step cap, cut-off, screen taken) follow the same rules.
+  (budget, step cap, closing prompt, repeat question, cut-off, screen taken) follow the same rules.
   `TestTheDeliveredSystemPromptCarriesTheWritingRules` pins it. The Companion matches
   "nobody will answer" and "nothing will answer" in system events; keep both phrases.
 - Every action that changes a machine lands in the transcript. Lifecycle events come only

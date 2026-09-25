@@ -1,6 +1,8 @@
 package mcpserver
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,6 +126,39 @@ func TestAgentWaitGathersProgressUntilTheTurnEnds(t *testing.T) {
 	if len(got.Messages) != 3 || got.Messages[2].Kind != session.Verdict || got.Last != 4 {
 		t.Fatalf("wait returned %d messages ending at %d, want both progress lines and the verdict in one call: %+v",
 			len(got.Messages), got.Last, got.Messages)
+	}
+}
+
+// Issue #127: a verifier turn that stopped at its limit is marked, so the coder can tell it
+// from a plain reply and continue it or check by hand instead of waiting.
+func TestAgentWaitShowsWhenTheVerifierStoppedAtItsLimit(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.call("agent_send", map[string]any{"runId": runID, "kind": "task", "text": "Check the picker."}, nil)
+	if _, err := h.store(runID).Append(session.Message{From: session.Verifier, Kind: session.Reply,
+		Text: "I used all 40 tool calls for this turn and did not finish.", Stop: session.StopSteps}); err != nil {
+		t.Fatal(err)
+	}
+
+	res := h.call("agent_wait", map[string]any{"runId": runID, "after": 1, "timeoutSeconds": 5}, nil)
+	raw, _ := json.Marshal(res.StructuredContent)
+	if !strings.Contains(string(raw), `"stop":"steps"`) {
+		t.Fatalf("agent_wait returned %s, want the reply marked stop steps", raw)
+	}
+	var got transcriptResult
+	_ = json.Unmarshal(raw, &got)
+	if len(got.Messages) != 1 || got.Messages[0].Stop != session.StopSteps {
+		t.Errorf("messages = %+v, want the one reply with stop steps", got.Messages)
+	}
+
+	tools, err := h.session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name == "agent_wait" && !strings.Contains(tool.Description, "stop set (steps or time)") {
+			t.Errorf("agent_wait's description does not explain stop: %s", tool.Description)
+		}
 	}
 }
 

@@ -159,6 +159,38 @@ func TestValidationRejectsTheWrongSender(t *testing.T) {
 	}
 }
 
+// Only a verifier reply may say it stopped at a limit (issue #127).
+func TestOnlyAVerifierReplyCarriesAStop(t *testing.T) {
+	s, dir := open(t)
+	must(t, s, Message{From: Coder, Kind: Task, Text: "build it"})
+	for _, m := range []Message{
+		{From: Coder, Kind: Note, Text: "x", Stop: StopSteps},
+		{From: Human, Kind: Task, Text: "x", Stop: StopTime},
+		{From: Verifier, Kind: Question, Text: "x", Stop: StopSteps},
+		{From: Verifier, Kind: Verdict, Verdict: "pass", Text: "x", Stop: StopTime},
+		{From: Verifier, Kind: Progress, Stop: StopSteps},
+		{From: System, Kind: Event, Text: "x", Stop: StopTime},
+		{From: Verifier, Kind: Reply, Text: "x", Stop: "tokens"},
+	} {
+		if _, err := s.Append(m); err == nil || !strings.Contains(err.Error(), "stop") {
+			t.Errorf("append %s from %s with stop %q = %v, want an error naming stop", m.Kind, m.From, m.Stop, err)
+		}
+	}
+	for _, stop := range []string{StopSteps, StopTime} {
+		got := must(t, s, Message{From: Verifier, Kind: Reply, Text: "I stopped.", Stop: stop})
+		if got.Stop != stop {
+			t.Errorf("stop = %q, want %q", got.Stop, stop)
+		}
+	}
+	reopened, err := Open(dir, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all := reopened.After(0); len(all) != 3 || all[1].Stop != StopSteps || all[2].Stop != StopTime {
+		t.Errorf("after reopening = %+v, want both stops kept", all)
+	}
+}
+
 func TestRepliesMustPointAtTheRightKind(t *testing.T) {
 	s, _ := open(t)
 	must(t, s, Message{From: Coder, Kind: Task, Text: "build"})
