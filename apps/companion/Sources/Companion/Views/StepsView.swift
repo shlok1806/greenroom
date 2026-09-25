@@ -34,7 +34,7 @@ struct StepsView: View {
                     store.clearFocus()
                 }, record: nil)
                 .padding(.bottom, Space.s)
-                Divider()
+                Hairline()
             }
             table
         }
@@ -73,17 +73,9 @@ struct StepsView: View {
             .overlayScrollers()
             .overlay {
                 if allSteps.isEmpty {
-                    ContentUnavailableView(
-                        "No steps yet",
-                        systemImage: "list.bullet.rectangle",
-                        description: Text("A step is recorded for every tool call against the machine.")
-                    )
+                    QuietEmpty(title: "No steps yet", message: "A step is recorded for every tool call against the machine.")
                 } else if steps.isEmpty {
-                    ContentUnavailableView(
-                        "No failed steps",
-                        systemImage: "checkmark.circle",
-                        description: Text("Every tool call in this run succeeded.")
-                    )
+                    QuietEmpty(title: "No failed steps", message: "Every tool call in this run succeeded.")
                 }
             }
             .onAppear {
@@ -142,16 +134,14 @@ struct StepsView: View {
     }
 }
 
-/// Column widths shared by the header and every row.
+/// Widths shared by the header and every row.
 private enum StepColumn {
-    static let seq: CGFloat = 36
-    static let icon: CGFloat = 18
-    static let title: CGFloat = 112
-    static let time: CGFloat = 60
-    static let duration: CGFloat = 60
-    static let gap: CGFloat = 10
+    static let glyph: CGFloat = 14
+    static let seq: CGFloat = 32
+    static let duration: CGFloat = 64
+    static let gap: CGFloat = Space.s
     static let horizontal: CGFloat = Space.l
-    static let detailInset: CGFloat = horizontal + seq + gap
+    static let detailInset: CGFloat = horizontal + glyph + gap + seq + gap
 }
 
 private struct StepsHeader: View {
@@ -160,46 +150,31 @@ private struct StepsHeader: View {
     @Binding var errorsOnly: Bool
     let following: Binding<Bool>?
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: Space.m) {
-                Text(Chrome.plural(count, "step"))
-                    .font(.headline)
-                Spacer(minLength: Space.s)
-                if let following {
-                    Toggle("Follow newest", isOn: following)
-                        .toggleStyle(.checkbox)
-                        .help("Keep the newest step in view while the run is live")
-                }
-                Toggle(failures > 0 ? "Only the \(failures) that errored" : "Only errors", isOn: $errorsOnly)
-                    .toggleStyle(.checkbox)
-                    .disabled(failures == 0 && !errorsOnly)
-                    .help("Show only the steps whose tool call failed or whose command exited non-zero")
-            }
-            .font(.callout)
-            .controlSize(.small)
-            .padding(.horizontal, StepColumn.horizontal)
-            .padding(.vertical, Space.s)
+    @Environment(\.theme) private var theme
 
-            HStack(spacing: StepColumn.gap) {
-                Text("Step").frame(width: StepColumn.seq, alignment: .trailing)
-                Text("Tool").frame(width: StepColumn.icon + StepColumn.gap + StepColumn.title, alignment: .leading)
-                Text("Detail").lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                Text("Time").frame(width: StepColumn.time, alignment: .trailing)
-                    .help("Your local time (\(Chrome.zone))")
-                Text("Took").frame(width: StepColumn.duration, alignment: .trailing)
+    var body: some View {
+        HStack(spacing: Space.l) {
+            SectionLabel(title: Chrome.plural(count, "step"))
+            Spacer(minLength: Space.s)
+            if let following {
+                Toggle("Follow newest", isOn: following)
+                    .help("Keep the newest step in view while the run is live")
             }
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, StepColumn.horizontal)
-            .padding(.bottom, 6)
+            Toggle(failures > 0 ? "Only the \(failures) that errored" : "Only errors", isOn: $errorsOnly)
+                .disabled(failures == 0 && !errorsOnly)
+                .help("Show only the steps whose tool call failed or whose command exited non-zero")
         }
+        .padding(.horizontal, StepColumn.horizontal)
+        .padding(.vertical, Space.s)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .bottom) { Divider() }
+        .background(theme.background)
+        .overlay(alignment: .bottom) { Hairline() }
     }
 }
 
+/// One step in plain words (ADR 0008): a glyph for how it went, its number, what it did
+/// as a sentence, and at most two facts (a failure badge, how long it took). The tool,
+/// its time and its raw input and output are one click away.
 private struct StepRow: View {
     let store: RunStore
     let runId: String
@@ -208,8 +183,7 @@ private struct StepRow: View {
     @Binding var expanded: Bool
 
     @State private var hovering = false
-
-    private var entry: ToolCatalog.Entry { ToolCatalog.entry(for: step.tool) }
+    @Environment(\.theme) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -227,7 +201,7 @@ private struct StepRow: View {
                 StepDetail(store: store, runId: runId, step: step)
                     .padding(.leading, StepColumn.detailInset)
                     .padding(.trailing, StepColumn.horizontal)
-                    .padding(.bottom, Space.m)
+                    .padding(.bottom, Space.l)
                     .transition(.opacity)
             }
         }
@@ -235,77 +209,58 @@ private struct StepRow: View {
         .background(background)
         .overlay(alignment: .leading) {
             if highlighted {
-                Rectangle().fill(Color.accentColor).frame(width: 3)
+                Rectangle().fill(theme.brand).frame(width: 3)
             }
         }
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Palette.hairline.opacity(0.6)).frame(height: 1)
-        }
+        .overlay(alignment: .bottom) { Hairline() }
         .onHover { hovering = $0 }
     }
 
-    private var failureColour: AnyShapeStyle {
-        step.outcome.isFailure ? AnyShapeStyle(Palette.failure) : AnyShapeStyle(.primary)
-    }
+    private var failed: Bool { step.outcome.isFailure }
 
     private var summaryLine: some View {
         HStack(spacing: StepColumn.gap) {
+            Text(failed ? "✗" : "✓")
+                .foregroundStyle(failed ? theme.color(.failure) : theme.dim)
+                .frame(width: StepColumn.glyph)
+                .accessibilityLabel(failed ? "Errored" : "Done")
+
             Text("\(step.seq)")
-                .font(.callout.monospacedDigit())
+                .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .frame(width: StepColumn.seq, alignment: .trailing)
 
-            HStack(spacing: StepColumn.gap) {
-                Image(systemName: step.outcome.isFailure ? "exclamationmark.triangle.fill" : entry.symbol)
-                    .font(.callout)
-                    .foregroundStyle(step.outcome.isFailure ? AnyShapeStyle(Palette.failure) : AnyShapeStyle(.secondary))
-                    .frame(width: StepColumn.icon)
-                Text(entry.title)
-                    .font(.body)
-                    .foregroundStyle(failureColour)
-                    .lineLimit(1)
-                    .frame(width: StepColumn.title, alignment: .leading)
-                    .help(step.tool)
-            }
-
-            HStack(spacing: 6) {
+            HStack(spacing: Space.s) {
                 if step.isRisky {
-                    Image(systemName: "exclamationmark.octagon.fill")
-                        .font(.caption)
-                        .foregroundStyle(Palette.attention)
+                    Text("!")
+                        .fontWeight(.bold)
+                        .foregroundStyle(theme.color(.attention))
                         .help("This command can destroy data or change the machine for good")
+                        .accessibilityLabel("Risky command")
                 }
-                Text(StepSummary.line(for: step))
-                    .font(.callout.monospaced())
-                    .foregroundStyle(.secondary)
+                Text(StepSummary.phrase(for: step, in: store.steps[runId] ?? []))
+                    .foregroundStyle(failed ? theme.color(.failure) : theme.foreground)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
                     .help(detailHelp)
                 if let badge {
                     Text(badge)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Palette.failure)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Palette.failure.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.chip))
+                        .font(Typeface.monoMedium.font(size: TypeScale.monoSmall))
+                        .foregroundStyle(theme.color(.failure))
                         .fixedSize()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(Chrome.shortTime(step.at))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: StepColumn.time, alignment: .trailing)
-                .help(Chrome.stamp(step.at))
-
             Text(Chrome.duration(step.durationMs))
-                .font(.callout.monospacedDigit())
+                .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .frame(width: StepColumn.duration, alignment: .trailing)
+                .help("\(Chrome.stamp(step.at)) (\(Chrome.zone))")
         }
+        .monoStyle()
         .padding(.horizontal, StepColumn.horizontal)
-        .padding(.vertical, 7)
+        .padding(.vertical, Space.s)
         .contentShape(Rectangle())
     }
 
@@ -318,20 +273,19 @@ private struct StepRow: View {
     }
 
     private var detailHelp: String {
+        let raw = "\(step.tool): \(StepSummary.line(for: step))"
         switch step.outcome {
-        case .error(let error): "\(StepSummary.line(for: step))\n\nThe tool call failed: \(error)"
-        default: StepSummary.line(for: step)
+        case .error(let error): return "\(raw)\n\nThe tool call failed: \(error)"
+        default: return raw
         }
     }
 
     @ViewBuilder
     private var background: some View {
         if highlighted {
-            Color.accentColor.opacity(0.10)
-        } else if expanded {
-            Color.primary.opacity(0.02)
-        } else if hovering {
-            Color.primary.opacity(0.05)
+            theme.brand.opacity(0.10)
+        } else if hovering || expanded {
+            theme.highlight
         } else {
             Color.clear
         }
@@ -342,6 +296,8 @@ private struct StepDetail: View {
     let store: RunStore
     let runId: String
     let step: Step
+
+    @Environment(\.theme) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.m) {
@@ -364,18 +320,21 @@ private struct StepDetail: View {
         VStack(alignment: .leading, spacing: Space.s) {
             StepThumbnail(store: store, runId: runId, step: step.seq)
                 .aspectRatio(4 / 3, contentMode: .fit)
-            Button {
+            Button("Show on Screen") {
                 store.requestSeek(runId: runId, step: step.seq)
-            } label: {
-                Label("Show on Screen", systemImage: "play.rectangle")
             }
-            .controlSize(.small)
+            .buttonStyle(.quiet(small: true))
             .help("Open the recording at this step")
         }
     }
 
     private var dataColumn: some View {
         VStack(alignment: .leading, spacing: Space.m) {
+            // The raw record, for whoever needs it: the tool's own name, then its JSON.
+            Text("\(step.tool)  ·  \(Chrome.stamp(step.at))  ·  took \(Chrome.duration(step.durationMs))")
+                .monoStyle(size: TypeScale.monoSmall)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
             if let input = step.input {
                 block("Input", input.prettyPrinted)
             }
@@ -385,10 +344,6 @@ private struct StepDetail: View {
                 block(step.error != nil ? "Partial output" : "Output", output.prettyPrinted)
                     .help(step.error != nil ? "What came back before the tool call failed. Its values, exitCode 0 included, are not a result." : "")
             }
-            Text("\(step.tool)  ·  \(Chrome.stamp(step.at))  ·  took \(Chrome.duration(step.durationMs))")
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -399,22 +354,22 @@ private struct StepDetail: View {
         case .ok:
             EmptyView()
         case .exit(let code):
-            Label("The command ran and exited \(code).", systemImage: "xmark.octagon.fill")
-                .font(.callout.weight(.medium))
-                .foregroundStyle(Palette.failure)
+            Text("✗ The command ran and exited \(code).")
+                .readingStyle(.readingMedium, size: TypeScale.readingSmall)
+                .foregroundStyle(theme.color(.failure))
         case .error(let error):
             VStack(alignment: .leading, spacing: Space.xs) {
-                Label("The tool call failed. The command's result is unknown.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(Palette.failure)
+                Text("✗ The tool call failed. The command's result is unknown.")
+                    .readingStyle(.readingMedium, size: TypeScale.readingSmall)
+                    .foregroundStyle(theme.color(.failure))
                 Text(error)
-                    .font(.callout.monospaced())
-                    .foregroundStyle(Palette.failure)
+                    .monoStyle()
+                    .foregroundStyle(theme.color(.failure, on: .surface))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(Space.s)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Palette.failure.opacity(0.08), in: RoundedRectangle(cornerRadius: Radius.control))
+                    .panel(radius: Radius.sm, edge: theme.color(.failure))
             }
         }
     }
@@ -422,13 +377,11 @@ private struct StepDetail: View {
     /// JSON keeps its lines and scrolls sideways; long blocks scroll inside a fixed height.
     private func block(_ title: String, _ text: String) -> some View {
         VStack(alignment: .leading, spacing: Space.xs) {
-            Text(title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+            SectionLabel(title: title)
             let long = text.reduce(0) { $1 == "\n" ? $0 + 1 : $0 } > 14
             ScrollView(long ? [.horizontal, .vertical] : .horizontal) {
                 Text(text)
-                    .font(.callout.monospaced())
+                    .monoStyle(size: TypeScale.small)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: true)
                     .padding(Space.s)
@@ -436,8 +389,7 @@ private struct StepDetail: View {
             }
             .frame(height: long ? 240 : nil)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.fill.quinary, in: RoundedRectangle(cornerRadius: Radius.control))
-            .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Palette.hairline.opacity(0.6)))
+            .panel(radius: Radius.sm)
         }
     }
 }

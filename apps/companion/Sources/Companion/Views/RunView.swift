@@ -30,8 +30,8 @@ struct RunCommands {
     var previousFailure: (() -> Void)?
 }
 
-// An explicit key rather than `@Entry`: the macro needs the SwiftUIMacros compiler
-// plugin, which a Command Line Tools toolchain does not ship.
+/// Spelled out rather than `@Entry`: that macro's plugin ships only with Xcode, and the
+/// CI runner builds with the Command Line Tools.
 private struct RunCommandsKey: FocusedValueKey {
     typealias Value = RunCommands
 }
@@ -97,14 +97,14 @@ struct RunView: View {
                     failureCursor: failureCursor,
                     showFailure: showFailure
                 )
-                Divider()
+                Hairline()
                 // Hidden conversation: the verdict must still be read, not shrink to a chip.
                 if !conversationShown {
                     VerdictCard(store: store, runId: runId, facts: facts, compact: true,
                                 maxHeight: RunLayout.verdictCardMaximum(column: detailSize.height))
                         .id(VerdictCard.identity(runId: runId, verdict: facts.verdict))
                         .padding(.horizontal, Space.l)
-                        .padding(.top, Space.m)
+                        .padding(.top, Space.l)
                 }
                 stage
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -129,9 +129,7 @@ struct RunView: View {
         .onGeometryChange(for: CGSize.self) { $0.size } action: { detailSize = $0 }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle(RunTitle.short(task: store.run(runId)?.task, runId: runId))
-        // The header names the run; the toolbar title would say it twice.
-        .toolbar(removing: .title)
-        .toolbar { toolbar }
+        .topBar(leading: { tabs }, trailing: { actions })
         .confirmationDialog(
             "Destroy this machine?",
             isPresented: $confirmingDestroy,
@@ -201,75 +199,47 @@ struct RunView: View {
         }
     }
 
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            Picker("View", selection: $pane) {
-                ForEach(StagePane.allCases) { item in
-                    Text(item.title).tag(item)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
+    /// The stage's two tabs, after the wordmark; the chosen one in the brand.
+    private var tabs: some View {
+        SegmentedSwitch(options: StagePane.allCases.map { ($0, $0.title) }, selection: $pane)
             .help("Show the screen (\(Keys.screen)) or the steps (\(Keys.steps))")
-        }
-        // Only what applies to this run is offered; a finished run has no machine to
-        // capture, drive or destroy.
-        // Words beside every icon: a camera, a film strip and a sidebar do not explain
-        // themselves. Only what applies to this run is offered.
-        ToolbarItemGroup(placement: .primaryAction) {
+    }
+
+    /// The run's actions, at the top bar's right edge. Only what applies to this run is
+    /// offered; a finished run has no machine to capture, drive or destroy. Words, not
+    /// icons: a camera and a film strip do not explain themselves.
+    private var actions: some View {
+        HStack(spacing: Space.s) {
             if facts.machineReady {
-                Button {
-                    Task { await capture() }
-                } label: {
-                    Label("Screenshot", systemImage: "camera")
-                        .labelStyle(.titleAndIcon)
-                }
-                .disabled(!canCapture)
-                .help("Capture the machine's screen now (\(Keys.capture)). It lands in the run as a step.")
+                Button("Screenshot") { Task { await capture() } }
+                    .disabled(!canCapture)
+                    .help("Capture the machine's screen now (\(Keys.capture)). It lands in the run as a step.")
             }
             if !(store.frames[runId] ?? []).isEmpty {
                 Button {
                     Task { await saveRecording() }
                 } label: {
-                    if savingRecording {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Export", systemImage: "square.and.arrow.down")
-                            .labelStyle(.titleAndIcon)
+                    HStack(spacing: Space.xs) {
+                        if savingRecording { Spinner(size: TypeScale.readingSmall) }
+                        Text("Export")
                     }
                 }
                 .disabled(!canExport)
                 .help("Save the run's recording as a movie (\(Keys.export))")
             }
-        }
-        if facts.machineReady {
-            // The one way to take and give back the screen.
-            ToolbarItem(placement: .primaryAction) {
-                ControlButton(driving: driving, busy: pilot.busy, action: toggleControl)
+            if canDestroy {
+                Button("Destroy...") { confirmingDestroy = true }
+                    .buttonStyle(.quiet(tint: .failure))
+                    .help("Destroy the machine and end the run (\(Keys.destroy)). Asks first.")
             }
-        }
-        if canDestroy {
-            ToolbarItem(placement: .primaryAction) {
-                Button(role: .destructive) {
-                    confirmingDestroy = true
-                } label: {
-                    Label("Destroy...", systemImage: "trash")
-                        .labelStyle(.titleAndIcon)
-                        .foregroundStyle(Palette.failure)
-                }
-                .help("Destroy the machine and end the run (\(Keys.destroy)). Asks first.")
-            }
-        }
-        ToolbarItem(placement: .primaryAction) {
-            Button {
+            Button(conversationShown ? "Hide Conversation" : "Conversation") {
                 withAnimation(.snappy(duration: 0.2)) { conversationToggle.wrappedValue.toggle() }
-            } label: {
-                Label("Conversation", systemImage: "sidebar.trailing")
-                    .labelStyle(.titleAndIcon)
             }
             .help("\(conversationShown ? "Hide" : "Show") the conversation (\(Keys.conversation))")
+            if facts.machineReady {
+                // The one way to take and give back the screen.
+                ControlButton(driving: driving, busy: pilot.busy, action: toggleControl)
+            }
         }
     }
 
@@ -304,12 +274,15 @@ struct ControlButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Label(driving ? "Give Back" : "Take Control", systemImage: driving ? "hand.raised.fill" : "cursorarrow.click.2")
-                .labelStyle(.titleAndIcon)
+        Group {
+            if driving {
+                Button("Give Back", action: action)
+                    .buttonStyle(.quiet(tint: .driving))
+            } else {
+                Button("Take Control", action: action)
+                    .buttonStyle(.primary)
+            }
         }
-        .buttonStyle(.bordered)
-        .tint(driving ? Palette.driving : nil)
         .disabled(busy)
         .help(driving
             ? "Give the mouse and keyboard back to the agents"
@@ -366,6 +339,11 @@ enum RunLayout {
         min(max(width, conversationMinimum), conversationMaximum)
     }
 
+    /// A sidebar width a person dragged, kept to the sidebar's range.
+    static func clampSidebar(_ width: Double) -> Double {
+        min(max(width, sidebarMinimum), sidebarMaximum)
+    }
+
     /// The width a person chose, given back when the window is too narrow for it: the
     /// stage keeps its minimum first. Nil when the conversation does not fit beside the
     /// stage at all; the window then shows the verdict above the stage (the spec's
@@ -410,9 +388,7 @@ private struct ColumnDivider: View {
     @State private var start: Double?
 
     var body: some View {
-        Rectangle()
-            .fill(Palette.hairline)
-            .frame(width: 1)
+        Hairline(axis: .vertical)
             .frame(maxHeight: .infinity)
             .overlay {
                 // A wider grip than the line, as NSSplitView gives.
@@ -439,8 +415,9 @@ private struct ColumnDivider: View {
 
 // MARK: - Header
 
-/// The run's short name, its task, and one status line that says where it is, who is
-/// acting and when anything last happened. Machine facts are in the info popover.
+/// The run's short name in the heading cut, its task in the reading face, and one mono
+/// status line that says where it is, who is acting and when anything last happened.
+/// Machine facts are behind Details.
 private struct RunHeader: View {
     let store: RunStore
     let runId: String
@@ -461,10 +438,10 @@ private struct RunHeader: View {
     private var fullTask: String { RunTitle.subtitle(task: task, alive: facts.isAlive) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Space.s) {
             HStack(alignment: .firstTextBaseline, spacing: Space.s) {
                 Text(title)
-                    .font(.title3.weight(.semibold))
+                    .headingStyle(size: TypeScale.title)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(fullTask)
@@ -475,7 +452,7 @@ private struct RunHeader: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: Space.s) {
                 Text(fullTask)
-                    .font(.callout)
+                    .readingStyle(size: TypeScale.readingSmall)
                     .foregroundStyle(.secondary)
                     .lineLimit(expanded ? nil : 1)
                     .truncationMode(.tail)
@@ -485,8 +462,7 @@ private struct RunHeader: View {
                 Button(expanded ? "Less" : "Details") {
                     withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
                 }
-                .buttonStyle(.link)
-                .font(.callout)
+                .buttonStyle(.textLink)
                 .fixedSize()
                 .help("The whole task, and the machine, image and run id")
             }
@@ -497,11 +473,12 @@ private struct RunHeader: View {
             RunStatusLine(store: store, runId: runId, facts: facts)
         }
         .padding(.horizontal, Space.l)
-        .padding(.vertical, Space.m)
+        .padding(.top, Space.m)
+        .padding(.bottom, Space.m)
     }
 }
 
-/// "2 failed" with previous and next, cycling the failed steps in the Steps stage.
+/// "2 steps errored" with previous and next, cycling the failed steps in the Steps stage.
 private struct FailureNavigator: View {
     let failures: [Int]
     let cursor: Int?
@@ -509,27 +486,26 @@ private struct FailureNavigator: View {
     let alive: Bool
     let show: (Int) -> Void
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
         HStack(spacing: 0) {
-            Button {
-                show(1)
-            } label: {
-                Label(label, systemImage: "exclamationmark.triangle.fill")
-                    .labelStyle(.titleAndIcon)
-                    .foregroundStyle(alive ? AnyShapeStyle(.secondary) : AnyShapeStyle(Palette.failure))
-                    .padding(.horizontal, 6)
+            Button { show(1) } label: {
+                Text("✗ " + label)
+                    .foregroundStyle(alive ? theme.dim(on: .surface) : theme.color(.failure, on: .surface))
+                    .padding(.horizontal, Space.s)
             }
             .help("Show the next step that errored (\(Keys.nextFailure))")
-            Divider().frame(height: 14)
-            Button { show(-1) } label: { Image(systemName: "chevron.up").padding(.horizontal, 4) }
+            Hairline(axis: .vertical).frame(height: 14)
+            Button { show(-1) } label: { Text("↑").padding(.horizontal, Space.s) }
                 .help("Previous step that errored (\(Keys.previousFailure))")
-            Button { show(1) } label: { Image(systemName: "chevron.down").padding(.horizontal, 4) }
+            Button { show(1) } label: { Text("↓").padding(.horizontal, Space.s) }
                 .help("Next step that errored (\(Keys.nextFailure))")
         }
         .buttonStyle(.plain)
-        .font(.callout.weight(.medium))
-        .padding(.vertical, 3)
-        .background(alive ? AnyShapeStyle(.fill.quaternary) : AnyShapeStyle(Palette.failure.opacity(0.1)), in: Capsule())
+        .monoStyle(.monoMedium, size: TypeScale.monoSmall)
+        .frame(height: 24)
+        .panel(radius: Radius.sm)
         .fixedSize()
     }
 
@@ -547,6 +523,8 @@ struct RunStatusLine: View {
     let runId: String
     let facts: RunFacts
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
         // Ticks every second while alive, so "8s ago" stays true.
         TimelineView(.periodic(from: .now, by: facts.isAlive ? 1 : 3600)) { tick in
@@ -557,7 +535,7 @@ struct RunStatusLine: View {
                     line(phase: phase(now: tick.date), parts: Array(parts.prefix(kept)))
                 }
             }
-            .font(.callout)
+            .monoStyle(size: TypeScale.monoSmall)
             .monospacedDigit()
             .frame(maxWidth: .infinity, alignment: .leading)
             .help("Times are your local time (\(Chrome.zone)). The machine's own clock may show UTC.")
@@ -571,7 +549,7 @@ struct RunStatusLine: View {
         HStack(spacing: Space.s) {
             phase.fixedSize()
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
-                Text("·").foregroundStyle(.tertiary)
+                Text("·").foregroundStyle(.secondary)
                 Text(part)
                     .foregroundStyle(.secondary)
                     .fixedSize()
@@ -583,19 +561,19 @@ struct RunStatusLine: View {
     private func phase(now: Date) -> some View {
         switch facts.phase {
         case .booting:
-            HStack(spacing: 5) {
-                ProgressView().controlSize(.mini)
-                Text("Booting").foregroundStyle(.secondary)
+            HStack(spacing: Space.xs) {
+                Spinner(size: TypeScale.monoSmall)
+                Text("Booting")
             }
         case .live:
-            HStack(spacing: 5) {
+            HStack(spacing: Space.xs) {
                 LiveMark()
-                Text("Live").foregroundStyle(Palette.live)
+                Text("Live").foregroundStyle(theme.color(.live))
             }
             .fontWeight(.semibold)
         case .idle:
-            Label("No activity for \(Chrome.span(facts.idle(now: now)))", systemImage: "clock.badge.exclamationmark")
-                .foregroundStyle(Palette.attention)
+            Text("! No activity for \(Chrome.span(facts.idle(now: now)))")
+                .foregroundStyle(theme.color(.attention))
                 .fontWeight(.semibold)
                 .help("The machine is up but nothing has happened for \(Chrome.span(facts.idle(now: now))).")
         case .ended(let ending):
@@ -604,16 +582,16 @@ struct RunStatusLine: View {
                 .fontWeight(.semibold)
                 .help(Self.endedHelp(ending))
         case .failed(let reason):
-            Label("Failed to boot", systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(Palette.failure)
+            Text("✗ Failed to boot")
+                .foregroundStyle(theme.color(.failure))
                 .fontWeight(.semibold)
                 .help(reason ?? "")
         }
     }
 
     private func endedTone(_ ending: RunFacts.Ending) -> Color {
-        if case .lost = ending { return Palette.failure }
-        return .secondary
+        if case .lost = ending { return theme.color(.failure) }
+        return theme.foreground
     }
 
     /// "Ended 20:35", "Ended 19:29, machine lost", "Ended 20:35, you destroyed it".
@@ -668,15 +646,14 @@ private struct IdleActions: View {
     var body: some View {
         HStack(spacing: Space.s) {
             Text("Nothing has happened for a while. The coding agent sees a message the next time it checks in.")
-                .font(.callout)
+                .readingStyle(size: TypeScale.readingSmall)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
             Spacer(minLength: Space.s)
             Button("Write a Message") { focusRequest += 1 }
-                .controlSize(.small)
+                .buttonStyle(.quiet(small: true))
                 .help("Put the cursor in the conversation's message field")
         }
-        .padding(.top, Space.xxs)
     }
 }
 
@@ -689,7 +666,7 @@ private struct RunInfo: View {
     var body: some View {
         let detail = store.details[runId]
         let summary = store.run(runId)
-        Grid(alignment: .leading, horizontalSpacing: Space.m, verticalSpacing: 4) {
+        Grid(alignment: .leading, horizontalSpacing: Space.m, verticalSpacing: Space.xs) {
             row("Started", "\(Chrome.stamp(facts.started)) (\(Chrome.zone))")
             if let ended = facts.ended { row("Ended", "\(Chrome.stamp(ended)) (\(Chrome.zone))") }
             row("Duration", Chrome.clock(facts.duration(now: Date())))
@@ -700,20 +677,27 @@ private struct RunInfo: View {
             row("Frames", Chrome.count(store.frames[runId]?.count ?? summary?.frames ?? 0))
             row("Messages", Chrome.count(facts.messageCount))
             GridRow {
-                Text("Run").foregroundStyle(.secondary)
-                HStack {
-                    Text(runId).font(.callout.monospaced()).textSelection(.enabled)
+                label("Run")
+                HStack(spacing: Space.s) {
+                    Text(runId).textSelection(.enabled)
                     CopyButton(text: runId, label: "Copy")
                 }
             }
         }
-        .font(.callout)
+        .monoStyle(size: TypeScale.monoSmall)
         .padding(.vertical, Space.xs)
     }
 
-    private func row(_ label: String, _ value: String) -> some View {
+    private func label(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(Typeface.monoMedium.font(size: TypeScale.label))
+            .tracking(0.8)
+            .foregroundStyle(.secondary)
+    }
+
+    private func row(_ name: String, _ value: String) -> some View {
         GridRow {
-            Text(label).foregroundStyle(.secondary)
+            label(name)
             Text(value).textSelection(.enabled)
         }
     }

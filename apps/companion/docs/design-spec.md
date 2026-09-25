@@ -1,22 +1,28 @@
 # Design spec: Greenroom Companion
 
 The companion is where a person watches an agent's run, judges its verdict and steps in.
-It is glyph-native: a character-cell grid, monospace type, box-drawing borders and an ANSI
-theme, in a native app with real springs, real video and a real mouse. The school is
-Charm's (Bubble Tea, Lip Gloss, Glamour); the app is not a terminal and does not pretend
-to be one.
+It reads like a calm, mostly proportional product, Browserbase's session viewer more than
+a terminal, with the terminal kept as an accent: a block cursor, mono chrome and data, key
+hints, a glyph loader, a decoded verdict. Prose (verifier replies, notes, the task, the
+verdict reason) sets in a proportional face so it is comfortable at length. The school is
+still Charm's (Bubble Tea, Lip Gloss, Glamour) for the accent, not for the whole surface;
+the app is not a terminal and does not pretend to be one.
 
-Decisions: companion ADR 0004 (the grid, type, colour, cursor, layout, rendering), 0005
-(keys and the action registry), 0006 (motion and signature moments), 0007 (dependency
-allowlist), with 0002 and 0003 (run state, verdict trust, one vocabulary) still in force.
+Decisions: companion ADR 0004 (grid, type, colour, cursor, layout, rendering), 0005 (keys
+and the action registry), 0006 (motion and signature moments), 0007 (dependency
+allowlist), 0008 (readable type and the olive brand, amending 0004's type and colour
+decisions), with 0002 and 0003 (run state, verdict trust, one vocabulary) still in force.
 Data: `design/themes/*.json` and `design/tokens.json` at the repo root. Research:
 `design-research.md`. Terms (run, verdict state, frame, lease, driving, cell, voice) are in
 `../CONTEXT.md`.
 
 This spec replaces the round-2 spec (system text styles, system colours, a
-`NavigationSplitView` of three columns). The risky parts are marked **pending the
-prototype**. The prototype lives on branch `prototype/glyph-ui` and is never merged; it
-exists to answer those questions and is then thrown away.
+`NavigationSplitView` of three columns) and carries ADR 0008's readability revision. The
+risky parts still open are marked **pending the prototype**. The prototype lives on branch
+`prototype/glyph-ui` and is never merged; it exists to answer those questions and is then
+thrown away. The "monospace prose at length" and "Radon or Argon" questions ADR 0004 left
+pending are answered by ADR 0008 (proportional prose; the per-voice faces are dropped) and
+no longer appear below as open questions.
 
 ## Who and what for
 
@@ -34,12 +40,12 @@ window the steps sit under the screen as a timeline, so all four are visible at 
 ## Information architecture
 
 ```
-Window (one grid)
+Window (one layout, chrome on the mono grid, prose proportional)
 ├─ Runs: pinned "Needs you" and "Running", then days, newest first; / searches
 ├─ Run
 │  ├─ Header row: the task (the run's name), state in words, time, hash
 │  ├─ Stage
-│  │  ├─ Screen: live stream or recording, cut into the grid as a window
+│  │  ├─ Screen: live stream or recording, cut into the layout as a panel
 │  │  └─ Steps: a timeline under the screen (wide), a one-row track (medium)
 │  └─ Conversation
 │     ├─ Verdict card, pinned: outcome, state and who decided, evidence, accept / dispute
@@ -55,79 +61,100 @@ Window (one grid)
   its history; older verdicts read as superseded.
 - Screen and Steps are no longer tabs. They share the stage and move together.
 
-## The grid
+## Spacing, chrome and the accent (ADR 0008)
 
-Everything sits on one character-cell grid.
+There is no strict character-cell grid over the whole window any more. In its place: a
+4/8 pt spacing scale (`tokens.json` `spacing`), thin 1 px hairlines, quiet panels and
+small radii (`tokens.json` `radii`: 4, 6, 8 pt). This is the Browserbase-like register:
+generous whitespace, calm surfaces, chrome that gets out of the way of what is being read.
 
-- The cell is measured from the base face (`tokens.json` `cell`: Monaspace Neon, 13 pt,
-  line height 1.35). A `GridMetrics` environment value holds the cell size, rounded to
-  whole backing pixels so rows never drift. At 13 pt a cell is about 7.8 x 18 pt.
-- Sizes, gutters, insets and pane edges are whole cells. There are no point values in a
-  view: a view asks `GridMetrics` for `n` columns or rows.
-- Panes resize in cell steps. A divider drag snaps to the next column.
-- All text is monospace, prose included. Headings are bold or coloured, never larger:
-  one size on the whole grid.
-- Borders are real box-drawing glyphs (`┌─┐│└┘├┤`, rounded `╭╮╰╯` for cards) drawn in cells.
-  A border takes a cell; a pane's inner width is its width minus two.
-- **The one exception** is the live machine screen. It is real video at its own aspect
-  ratio and breaks the grid. It is framed as a window cut into the grid: the grid's
-  border runs around the cut, and the gap between the picture and the border is filled
-  with background, never stretched video.
+- **Spacing.** Every gap, inset and gutter is a multiple of the 4 pt unit
+  (`tokens.json` `spacing.scale`: 4, 8, 12, 16, 24, 32, 48). A view asks for a step on the
+  scale, never a bare point value.
+- **Panels and cards.** A quiet panel is a flat fill with a 1 px hairline edge (dim, at
+  rest) and a small radius (4 pt for a row or chip, 6 pt for a card, 8 pt for a sheet or
+  the screen's frame). Box-drawing glyph borders (`┌─┐│└┘├┤`, rounded `╭╮╰╯`) are gone as
+  the default frame for every pane; they no longer draw the whole window.
+- **The mono grid still exists, narrower in scope.** Chrome and data (step and command
+  rows, code, output, ids, times, the hint bar, small uppercase section labels) still
+  measure from the base mono face (`tokens.json` `cell`: Monaspace Neon, 13 pt, line
+  height 1.35), so those rows and the hint bar still line up cell to cell. It governs
+  those elements and the layout breakpoints (Layout, below), not the whole window.
+- **The terminal is the accent, not the surface.** What still reads as terminal: the
+  block cursor, mono labels and key hints, the glyph loader and spinner, the verdict's
+  decode-in, the boot reveal. Everything else (panels, the transcript's prose, the
+  verdict card's body) is quiet chrome around that accent.
+- **The one exception, as before,** is the live machine screen. It is real video at its
+  own aspect ratio. It is framed as a panel cut into the layout: a hairline and an 8 pt
+  radius run around the cut, and the gap between the picture and the frame is filled with
+  background, never stretched video.
 
-## Type: one face per voice
+## Type: what is being read, not who is speaking (ADR 0008)
 
-Monaspace (OFL, bundled with the app). Its five faces share metrics, so a line can change
-voice without moving the grid.
+Two faces, both bundled with the app under the OFL: Monaspace Neon for chrome and data,
+Mona Sans for anything read as sentences.
 
-| Voice | Face | Used for |
+| Kind | Face | Used for |
 | --- | --- | --- |
-| Chrome | Neon | Runs, headers, hint bar, labels, verdict card frame |
-| Coder | Neon | The coding agent's messages |
-| Verifier | Xenon (slab) | The verifier's messages and verdict text |
-| Human | Radon (handwriting) | The person's messages and drafts. Fallback: Argon |
-| Machine | Krypton | Tool output, shell output, step input and output |
+| Mono (`tokens.json` `type.mono`) | Monaspace Neon | Step and command rows, code, output, ids, times, key hints, small uppercase section labels, the hint bar, the verdict card's frame and headline |
+| Reading (`tokens.json` `type.reading`) | Mona Sans, 14-15 pt, line height about 1.5 | Verifier replies, human notes, the task, the verdict reason, questions, empty-state copy |
+| Reading heading (`tokens.json` `type.readingHeading`) | Mona Sans, a heavier and slightly wider cut | Section and card headings set in prose, at the same size as reading text |
 
-- A person may override the chrome and coder font in settings (any monospace face; the
-  grid re-measures). The verifier, human and machine voices stay fixed, because the voice
-  is how a line says who spoke.
-- A voice is never the only sign of the speaker: each message group is headed by the
-  sender's name in words.
-- Markdown in messages renders onto the grid (Glamour style): headings bold and coloured,
-  emphasis italic, code in the machine voice, lists with glyph bullets, block quotes with a
-  `│` rule. Nothing changes size.
+- The five Monaspace voice faces (Xenon for the verifier, Radon with its Argon fallback
+  for the human, Krypton for machine output) are gone. A line is no longer told apart by
+  its typeface.
+- **A speaker is a label and a colour, not a face.** Each message group is headed by the
+  sender's name in words, and carries a thin coloured left edge (the sender's role
+  colour) down its side. This is the only place a role colour is used for identity rather
+  than status; it is not a pass/fail/attention colour and is not gated by the contrast
+  test the same way, since it sits beside the text, not under it.
+- A person may still override the mono face in settings (any monospace face; the mono
+  grid re-measures). The reading face stays fixed.
+- Markdown in messages renders in the reading face (Glamour style, proportionally):
+  headings in the heavier reading-heading cut, emphasis italic, inline code and code
+  blocks in the mono face, lists with glyph bullets, block quotes with a `│` rule.
+- Reading text wraps at a measure that stays comfortable at the transcript's column width
+  (56 to 80 columns' worth of width, not a hard character count, since it is proportional).
 
-**Pending the prototype:**
-
-- *Monospace prose at length.* Long verifier replies and task text may read worse in a
-  monospace face than in a proportional one. If they do, the fallback is a 72-column
-  measure, a looser line height for prose rows (whole rows only, 1.5 instead of 1.35) and
-  more paragraph spacing. Monospace stays; a proportional face would break the grid and
-  is not a fallback.
-- *Radon or Argon for the human.* Radon may read as too cute beside the others. If it
-  does, the human voice is Argon, and `tokens.json` `type.human` changes. Nothing else
-  moves.
-
-## Colour: the palette is an ANSI theme
+## Colour: an ANSI theme plus a brand (ADR 0004, revised by ADR 0008)
 
 A theme is a background, a foreground, 16 palette colours, a cursor and a selection, in
-Ghostty's keys (`design/themes/*.json`). The first-party themes are monochrome: a neutral
-near-black and a warm paper, each with a high-contrast variant. Hue is reserved for
-meaning.
+Ghostty's keys (`design/themes/*.json`), plus three Greenroom extensions beyond that
+shape: `brand`, `brandText` and `chromeTint` (`tokens.json` `themeKeys` names the theme
+keys, `greenroom-brand`, `greenroom-brand-text`, `greenroom-chrome-tint`). The first-party
+themes are a neutral near-black and a warm paper, each with a high-contrast variant. Hue
+is reserved for meaning and for the brand.
+
+The Ghostty `cursor-color`, `cursor-text` and `selection-*` keys apply only inside the
+terminal-screen well. The app's own cursor, selected run and active tab draw in `brand`
+and `brandText`, never in those keys.
 
 | Role | Slot | Meaning | Where |
 | --- | --- | --- | --- |
-| pass | 2 green | a pass | block-letter outcome, "Pass, you accepted" |
+| pass | 2, bluer emerald | a pass | block-letter outcome, "Pass, you accepted", small status marks (always with `✓` and the word "Pass") |
 | failure | 1 red | a fail verdict, a failed step, a lost machine | FAIL, failed steps and their track marks, "Ended: machine lost" |
 | attention | 3 yellow | needs you | "Needs review", "Contested", "Idle 6m", question cards |
 | live | 6 cyan | live | "Live", the live mark on the track |
 | driving | 5 magenta | you are driving | the hint bar while driving, the screen's border, the switch |
-| dim | 8 bright black | secondary text | timestamps, hashes, counts, borders at rest |
+| dim | 8 bright black | secondary text | timestamps, hashes, counts, hairlines at rest |
+| brand | `greenroom-brand`, olive | the product's identity, on large calm surfaces and actions | primary buttons, the selected run, the active tab, the block cursor, the wordmark `greenroom█`, a faint tint (`chromeTint`) on the sidebar and top bar |
+| chromeTint | `greenroom-chrome-tint` | a faint brand tint behind chrome | the sidebar and top-bar backgrounds only; content areas (screen, steps, transcript) stay neutral so screenshots read true |
 | none | foreground | everything else, booting, offline, finished, inconclusive | words |
 
-- Roles use the normal slots 1 to 6, not the bright ones. In a light theme the bright
-  slots are lighter and fall below 4.5:1 on paper; the normal slots hold in every theme,
-  so one mapping serves all four. Bright slots are for imported shell output (SwiftTerm)
-  and never carry meaning.
+- Roles use the normal ANSI slots 1 to 6, not the bright ones. In a light theme the
+  bright slots are lighter and fall below the text threshold on paper; the normal slots
+  hold in every theme, so one mapping serves all four. Bright slots are for imported
+  shell output (SwiftTerm) and never carry meaning.
+- **Pass moved to a bluer, brighter emerald** (hue about 158-160, versus the previous
+  plain green around 126-134) so it cannot be mistaken for the olive brand. It is used
+  only on small status marks, never on a large surface, and always with `✓` and the word
+  "Pass".
+- **Brand is olive**, about `#4B5320` in the light theme, lifted in dark so it reads on
+  near-black, deeper again in light-hc for the button-label contrast that variant needs.
+  It is deliberately kept off content areas: the screen, steps and transcript stay
+  neutral so a screenshot of evidence reads true, not tinted by the brand.
+- Olive and pass emerald are checked to be visibly different hues, not just different by
+  the numbers: at least 25 degrees apart in HSL, per theme.
 - Dim text is bright black. It is for secondary text only, never the only carrier of a
   state.
 - Every state is also a word. Colour never stands alone.
@@ -136,19 +163,28 @@ meaning.
   colour (ADR 0003).
 - Emphasis is weight, inverse video or the foreground against dim, never a new hue.
 - Contrast is measured, not judged by eye. `DesignDataTests` checks every theme: the
-  foreground and every role against the background at 4.5:1 (7:1 in a high-contrast
-  theme), dim at 3:1 (7:1). A theme that fails does not ship. The measured values are in
-  ADR 0004.
-- Later: import a Ghostty or iTerm theme. An imported theme passes the same check or is
-  refused with the failing role named.
+  foreground and every role, including dim, against the background at 4.5:1 (7:1 in a
+  high-contrast theme; dim's own threshold was 3:1 before ADR 0008 raised it to match).
+  It also checks `brand` against the background at 3:1 (a large-surface, non-text use),
+  `brandText` against `brand` at the text threshold (4.5:1, 7:1 hc), `chromeTint` against
+  the foreground at the text threshold (so chrome text stays readable on the tint), and
+  the brand/pass hue distance. A theme that fails does not ship. The measured values are
+  in ADR 0004 (the original palette) and ADR 0008 (this revision).
+- Later: import a Ghostty or iTerm theme. It will not carry `brand`, `brandText` or
+  `chromeTint` (Ghostty has no such concept); the app fills those three from a fixed
+  default rather than refusing the import. The 16-colour palette still passes the same
+  check or is refused with the failing role named.
 
 ## The cursor
 
-The brand is monochrome, and its mark is a block cursor in inverse video: `█`. The logo
-is `greenroom█`; the icon is `█`.
+The brand's mark is a block cursor in inverse video: `█`. The logo is `greenroom█`; the
+icon is `█`. Since ADR 0008 the brand carries a colour (olive), and the cursor carries it:
+its cell fills with `brand` and the glyph or row beneath draws in `brandText`, the same
+pairing a primary button uses. The shape stays the signature; the colour now says which
+product it is.
 
 - The cursor marks keyboard focus. The focused row, card or step shows the cursor at its
-  leading cell, and the row is drawn in inverse video.
+  leading position, and the row is drawn in inverse video (brand-filled).
 - It also marks the agent's attention. While the agent runs a step, a second cursor sits
   on that step in the timeline; while it writes, on the message being written. It
   **blinks** while the agent thinks and is **steady** while it acts.
@@ -160,28 +196,32 @@ eye away from what the person is reading. If it does, the agent's cursor stays i
 timeline only (never in the transcript), and it stops following while the person is
 scrolling or has focus in another pane.
 
-## Layout: adaptive by cell columns
+## Layout: adaptive by column breakpoints (ADR 0004, narrowed by ADR 0008)
 
-The window's width in columns picks one of three layouts (`tokens.json` `layout`).
+The window's width, measured in the mono grid's columns, picks one of three layouts
+(`tokens.json` `layout`). The measurement stays column-based for a stable, testable
+threshold; the panes it arranges are the hairline-and-radius panels above, not a
+box-drawing grid.
 
 **Wide (200 columns and more).** Closes issue #23.
 
 ```
-╭ runs ─────────╮╭ screen ─────────────────────────╮╭ conversation ───────────╮
-│ Needs you     ││                                  ││ ╭ verdict ────────────╮ │
-│ █ TipSplit    ││         (live video)             ││ │ PASS  Needs review  │ │
-│ Running       ││                                  ││ ╰─────────────────────╯ │
-│   Login flow  │╰──────────────────────────────────╯│ transcript ...          │
-│ Today         │╭ steps ───────────────────────────╮│                         │
-│   ...         ││ 14 ✓ click "Split"          0.4s ││                         │
-│               ││ 15 ✗ type "48.00"           1.2s ││ > composer              │
-╰───────────────╯╰──────────────────────────────────╯╰─────────────────────────╯
+  runs             |  screen                           |  conversation
+ ------------------+------------------------------------+---------------------------
+  Needs you        |                                    |   PASS   Needs review
+  █ TipSplit       |          (live video)              |  ------------------------
+  Running          |                                    |  transcript ...
+    Login flow     | ----------------------------------- |
+  Today            |  14 ✓ Clicked "Split"        0.4s  |
+    ...            |  15 ✗ Typed "48.00"          1.2s  |  > composer
+ ------------------+------------------------------------+---------------------------
  ↑↓ runs  ⏎ open  / search  t take control  ␣ play  ? more
 ```
 
 - Runs: 32 columns. Screen and steps share the middle column; the timeline takes the rows
   under the screen. Conversation: 56 to 80 columns, so the transcript keeps its measure at
-  every width and the extra width goes to the screen.
+  every width and the extra width goes to the screen. Panel edges are hairlines, not
+  drawn box borders; the sketch above uses plain rules only to show the arrangement.
 
 **Medium (140 to 199 columns).**
 
@@ -206,9 +246,11 @@ Rules:
 
 ## Rendering
 
-Approach C: real SwiftUI views snapped to the grid, with small effect layers.
+Approach C: real SwiftUI views, with small effect layers.
 
-- Content is real SwiftUI text and views laid out in cells through `GridMetrics`.
+- Content is real SwiftUI text and views. Chrome and data snap to the mono grid through
+  `GridMetrics`; reading text lays out at its own proportional metrics, on the spacing
+  scale rather than in cells.
 - Each effect is a small Canvas or Metal layer owned by one component: decode, draw,
   spinner, dither, cursor. An effect never owns content. The text exists as real text
   first; the effect draws over it and then gets out of the way.
@@ -266,31 +308,35 @@ These may exceed the motion budget. Each is short and plays once per event.
 ## Components
 
 Beautiful UI (research section 5) is the reference inventory for agent-interface
-components. We port its components and interactions into SwiftUI, drawn in our grid,
+components. We port its components and interactions into SwiftUI, drawn in our spacing,
 type and theme; its look (Inter, rounded cards, shadows, a blue accent) is not adopted.
-Ported behaviour is credited under its MIT licence (ADR 0007).
+Ported behaviour is credited under its MIT licence (ADR 0007). Plain words come first
+throughout (ADR 0008): a row states what happened in a sentence a person would say, the
+raw tool name, JSON or command is one expand (`⏎`) away, and a row carries at most two
+secondary facts, so it stays scannable.
 
 | Ours | Beautiful UI | Behaviour we port |
 | --- | --- | --- |
-| `StepsTimeline`, `StepTrack` | Thinking trace (`ThinkingState`, steps variant) | a running step shows the tick spinner; done steps turn to muted checks (`✓` in dim); the trace settles when the run stops working and stays expandable per step |
-| `ToolCallGroup`, `ToolCallLine` | Tool Chips | one line per tool call: name, short summary, state glyph; groups fold |
+| `StepsTimeline`, `StepTrack` | Thinking trace (`ThinkingState`, steps variant) | a step reads as a sentence ("Clicked Bill field", "Typed 120", "Took a screenshot") with at most two secondary facts (a duration, a state); a running step shows the tick spinner; done steps turn to muted checks (`✓` in dim); `⏎` expands a step to its raw tool name and JSON; the trace settles when the run stops working |
+| `ToolCallGroup`, `ToolCallLine` | Tool Chips | one line per tool call in plain words ("Ran swift test"), state glyph, at most two secondary facts; the raw command is behind `⏎`; groups fold |
 | `VerdictCard`, `QuestionCard` | Approval Card | the decision stated in plain words, the evidence under it, the actions named by what they do, the result replacing the actions after the choice |
 | `ScreenWindow` | Agent Screen | a resting framed capture; open to a full viewer (our `z` zoom); "teach a task" becomes take control (`t`); a `REC` label while driving is recorded into the evidence; a connecting state inside the frame |
 | `RunRow` | Task Rows | a row per run with running, failed and done states: tick, `✗`, `✓`, and the state in words |
 | `Loader` | Loading State (Drive) | a 3 x 3 pixel grid with a chevron wavefront, drawn with block glyphs (`█` on `░`); a shimmering label; a live elapsed timer in tabular figures; Reduce Motion freezes the grid, the timer still ticks |
 | `CommandPalette` | Search | a live filter as you type; an empty state that says what was searched and offers the nearest action |
-| `MarkdownGrid` with `EvidenceChip` | Streaming Text | the reply streams at its real rate; inline citations become evidence chips that seek the step; follow-ups offered as registry actions |
-| `ShellOutput`, `DiffView` | Code Block | code in the machine voice; a unified diff with `+` and `-` in the pass and failure roles, never colour alone |
+| `MarkdownGrid` with `EvidenceChip` | Streaming Text | the reply streams at its real rate, in the reading face; inline citations become evidence chips that seek the step; follow-ups offered as registry actions |
+| `ShellOutput`, `DiffView` | Code Block | code and output in the mono face; a unified diff with `+` and `-` in the pass and failure roles, never colour alone |
 
 The rest, in our own terms:
 
-- `GridMetrics` (environment), `CellFrame` (a view sized in cells), `BoxBorder` (glyph
-  border with an optional title in the top edge).
+- `GridMetrics` (environment, mono grid only), `SpacingScale` (the 4/8 pt steps),
+  `Panel` (hairline edge, small radius, an optional title).
 - `RunList`, `RunStrip` (medium: one glyph per run).
 - `RunHeader` (task, state in words, time, hash).
 - `SourceLabel` (live, connecting, recording 3:05 of 11:34, driving).
-- `Transcript`, `MessageGroup` (sender in words, voice face, kind, time), `EventLine`.
-- `Composer` (human voice), `Spinner` (tick), `Cursor`.
+- `Transcript`, `MessageGroup` (sender in words, a coloured left edge, kind, time),
+  `EventLine`.
+- `Composer` (reading face), `Spinner` (tick), `Cursor` (brand-filled).
 - `HintBar`, `HelpOverlay` (`?`, the hint bar expanded in place).
 - `OfflineView`, `WelcomeView`.
 
@@ -377,17 +423,23 @@ We own accessibility; the system gives us nothing for custom chrome.
   label is announced as its final text; effect layers are `accessibilityHidden`; the
   cursor mirrors real accessibility focus, never the other way round.
 - **Words, not colour.** Every state and verdict reads as words ("Finished, pass, you
-  accepted"). A voice face is never the only sign of the speaker.
+  accepted"). A sender's label is never the only sign of who spoke; the coloured left
+  edge is a second cue, not the only one.
 - **Reduce Motion.** Every change is instant, the spinner is a static `…`, the cursor
   does not blink, signature moments are skipped and their end state shown.
-- **Contrast.** The high-contrast themes meet WCAG AAA 7:1 for text and every role. The
+- **Contrast.** The high-contrast themes meet WCAG AAA 7:1 for the foreground and every
+  role, dim included (ADR 0008 raised dim from 3:1 to match). `brandText` on `brand` and
+  the foreground on `chromeTint` meet the same 7:1 in `-hc`, 4.5:1 otherwise; `brand`
+  itself meets the 3:1 large-surface minimum against the background in every theme. The
   app follows Increase Contrast by switching to the high-contrast variant of the current
   theme. The contrast test gates every theme.
-- **Targets.** Anything clickable is at least 3 cells wide and one row tall, and at least
-  20 x 20 pt: a row that is one cell tall takes the whole row's width as its target.
+- **Targets.** Anything clickable is at least 44 x 20 pt, and at least as wide as three
+  mono cells where it sits in the mono grid: a row that is one row tall takes the whole
+  row's width as its target.
 - **Labels.** Every control has an accessibility label and its registry key as the
-  shortcut hint. Box-drawing borders and glyph bullets are hidden from VoiceOver.
+  shortcut hint. Hairline panel edges and glyph bullets are hidden from VoiceOver.
 - **Keyboard-only.** Everything the mouse does has a registry action, except giving back
   control while driving, which by design is a click.
-- **Text size.** The cell size follows a text-size setting (11 to 18 pt); the layout
-  recomputes columns and may change layout.
+- **Text size.** The mono cell size and the reading size both follow a text-size setting;
+  the mono grid recomputes columns for chrome and data and may change layout, and reading
+  text reflows at its own measure.
