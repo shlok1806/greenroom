@@ -81,7 +81,7 @@ final class ActionRegistryTests: XCTestCase {
             .moveDown: "j", .moveUp: "k", .open: "⏎", .search: "/", .capture: "c", .takeControl: "t",
             .accept: "a", .dispute: "d", .undo: "u", .play: "space", .help: "?", .back: "esc",
             .palette: "⌘K", .destroy: "⌘⌫", .goSteps: "g s", .goTranscript: "g t", .goRuns: "g r",
-            .previousFrame: "←", .nextFrame: "→", .refresh: "⌘R",
+            .previousFrame: "←", .nextFrame: "→", .refresh: "⌘R", .zoom: "z",
         ]
         for (id, label) in expected {
             XCTAssertEqual(ActionRegistry.spec(id).keyLabel, label, "\(id)")
@@ -324,7 +324,7 @@ final class ActionRegistryTests: XCTestCase {
         let bar = HintBar.content(onScreen())
         XCTAssertEqual(bar.context, "screen")
         let keys = bar.hints.map(\.key)
-        XCTAssertEqual(keys, ["space", "← →", "/", "tab", "esc", "?"])
+        XCTAssertEqual(keys, ["space", "← →", "z", "/", "tab", "esc", "?"])
         XCTAssertFalse(keys.contains("a"), "accept shown with no verdict to review")
         XCTAssertFalse(keys.contains("t"), "take control shown with no machine")
         XCTAssertEqual(keys.last, "?")
@@ -359,6 +359,61 @@ final class ActionRegistryTests: XCTestCase {
         let waitingForG = HintBar.content(onScreen { $0.pendingPrefix = .char("g") })
         XCTAssertEqual(waitingForG.mode, .prefix)
         XCTAssertEqual(Set(waitingForG.hints.map(\.key)), ["v", "s", "t", "r", "c"])
+    }
+
+    // MARK: - Zoom (layer 3)
+
+    /// `z` zooms the focused pane, in every pane, and only with a run open.
+    func testZZoomsTheFocusedPane() {
+        let spec = ActionRegistry.spec(.zoom)
+        XCTAssertEqual(spec.keyLabel, "z")
+        XCTAssertEqual(Set(spec.contexts), [.sidebar, .screen, .steps, .conversation])
+        XCTAssertFalse(spec.destructive)
+        XCTAssertEqual(spec.menu, .view)
+        XCTAssertTrue(spec.inPalette)
+        XCTAssertEqual(KeyResolver.resolve(chord("z"), onScreen()), .perform(.zoom, .screen))
+        XCTAssertEqual(KeyResolver.resolve(chord("z"), onScreen { $0.stage = .steps }), .perform(.zoom, .steps))
+        XCTAssertEqual(KeyResolver.resolve(chord("z"), onScreen { $0.pane = .conversation }), .perform(.zoom, .conversation))
+        // No run open: nothing to zoom, the key does nothing.
+        var runs = ActionState()
+        runs.runCount = 3
+        XCTAssertEqual(KeyResolver.resolve(chord("z"), runs), .swallow)
+        XCTAssertEqual(ActionRules.whyDisabled(.zoom, runs), "Open a run first")
+    }
+
+    /// While zoomed the hint bar says `z restore` and names the zoomed pane; esc restores
+    /// before anything else it would do.
+    func testTheHintBarWhileZoomed() {
+        let zoomed = onScreen { $0.zoomed = .screen }
+        let bar = HintBar.content(zoomed)
+        XCTAssertEqual(bar.context, "screen zoomed")
+        XCTAssertEqual(bar.hints.first { $0.id == .zoom }?.title, "restore")
+        XCTAssertEqual(HintBar.content(onScreen()).hints.first { $0.id == .zoom }?.title, "zoom")
+        XCTAssertTrue(ActionRules.canGoBack(zoomed))
+        XCTAssertEqual(KeyResolver.resolve(.escape, zoomed), .perform(.back, .global))
+        XCTAssertEqual(KeyResolver.resolve(chord("z"), zoomed), .perform(.zoom, .screen))
+        // Typing and driving own their keys: `z` types, or goes to the guest.
+        XCTAssertEqual(KeyResolver.resolve(chord("z"), onScreen { $0.responder = .text }), .pass)
+        XCTAssertEqual(KeyResolver.resolve(chord("z"), onScreen { $0.driving = true; $0.responder = .guest }), .pass)
+    }
+
+    /// A narrow window shows one pane: the hint bar leads with it and `tab` names the next.
+    func testTheNarrowHintBarNamesThePaneAndTheNext() {
+        let narrow = onScreen { $0.widthClass = .narrow }
+        let bar = HintBar.content(narrow)
+        XCTAssertEqual(bar.context, "screen")
+        XCTAssertEqual(bar.hints.first { $0.id == .nextPane }?.title, "→ conversation")
+        let onConversation = HintBar.content(onScreen { $0.widthClass = .narrow; $0.pane = .conversation })
+        XCTAssertEqual(onConversation.hints.first { $0.id == .nextPane }?.title, "→ runs")
+        // Wide windows keep the short word.
+        XCTAssertEqual(HintBar.content(onScreen()).hints.first { $0.id == .nextPane }?.title, "pane")
+    }
+
+    /// The runs opened over a folded window: esc puts them away.
+    func testEscPutsAwayTheRunsOpenedOverTheRun() {
+        let overlay = onScreen { $0.widthClass = .medium; $0.pane = .sidebar }
+        XCTAssertTrue(overlay.runsOverlay)
+        XCTAssertTrue(ActionRules.canGoBack(overlay))
     }
 
     func testHelpToggleReadsMoreOrLess() {

@@ -9,6 +9,9 @@ import SwiftUI
 struct ScreenView: View {
     let store: RunStore
     let runId: String
+    /// On screen. The layout keeps a covered or zoomed-away screen in the tree, so its
+    /// player and the lease live on; it stops the live stream and takes no input then.
+    var visible = true
 
     @State private var player = PlayerModel()
     @State private var image: NSImage?
@@ -32,7 +35,7 @@ struct ScreenView: View {
 
     /// Following live on a ready machine streams the screen (ADR 0011); the
     /// past, and any moment the stream is down, come from the recording.
-    private var wantsLive: Bool { onScreen && player.live && machineIsReady }
+    private var wantsLive: Bool { onScreen && visible && player.live && machineIsReady }
     private var showsLive: Bool { wantsLive && live?.phase == .playing && live?.pixelSize != nil }
 
     private let tick = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
@@ -56,7 +59,9 @@ struct ScreenView: View {
         .offersActions(.screen, screenActions, refresh: runId) { perform($0) }
         .offersActions(.run, machineIsReady && !player.live && !driving ? [.followLive] : [], refresh: runId) { _ in goLive() }
         .onAppear {
-            focused = true
+            // After the layout has placed it: a claim made before that is dropped, and the
+            // window then gives the keyboard to the first text field (the run search).
+            Task { @MainActor in focused = true }
             onScreen = true
             pilot = store.pilot(for: runId)
             syncFrames()
@@ -128,6 +133,15 @@ struct ScreenView: View {
         .task(id: player.current?.file) {
             await loadCurrentImage()
         }
+        .preference(key: PlayheadStepKey.self, value: playheadStep)
+    }
+
+    /// The step at the playhead: the newest while following live.
+    private var playheadStep: Int? {
+        let steps = store.steps[runId] ?? []
+        if player.live || player.current == nil { return steps.last?.seq }
+        guard let frame = player.current else { return nil }
+        return steps.last { $0.seq <= frame.step }?.seq
     }
 
     private var screenActions: Set<ActionID> {
@@ -196,13 +210,6 @@ struct ScreenView: View {
                     endedReason: driving ? nil : pilot?.endedReason,
                     goLive: goLive
                 )
-                RecentSteps(
-                    store: store,
-                    runId: runId,
-                    steps: store.steps[runId] ?? [],
-                    upTo: player.live ? nil : player.current?.step
-                )
-                .padding(.top, Space.m)
             }
             Spacer(minLength: Space.m)
         }
@@ -235,7 +242,9 @@ struct ScreenView: View {
                         .opacity(showsLive ? 1 : 0)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                InputSurface(imageSize: pictureSize, active: driving) { actions in
+                // Covered by another pane, the surface lets go of the keyboard, so keys
+                // never go to a machine the person cannot see; the lease stays.
+                InputSurface(imageSize: pictureSize, active: driving && visible) { actions in
                     pilot?.send(actions)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -721,81 +730,6 @@ private struct SourceChip: View {
         case .recording: "A recorded frame; times are since the run started"
         case .driving: "Your mouse and keys go to the machine"
         }
-    }
-}
-
-/// The last few steps under the player, so the Screen answers "what did it just do".
-/// While following live it is the newest; in the past it is the steps up to the frame.
-private struct RecentSteps: View {
-    let store: RunStore
-    let runId: String
-    let steps: [Step]
-    let upTo: Int?
-
-    var body: some View {
-        let shown = Array(steps.filter { upTo == nil || $0.seq <= upTo! }.suffix(4))
-        if !shown.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .firstTextBaseline) {
-                    SectionLabel(title: upTo == nil ? "Recent steps" : "Steps up to here")
-                    Spacer()
-                    Button("All Steps") { store.requestSeek(runId: runId, step: shown.last?.seq ?? 0, inSteps: true) }
-                        .buttonStyle(.textLink)
-                        .help("Open the Steps stage (\(ActionRegistry.label(.goSteps)))")
-                }
-                .padding(.bottom, Space.xs)
-                ForEach(shown.reversed(), id: \.self) { step in
-                    RecentStepRow(step: step, phrase: StepSummary.phrase(for: step, in: steps)) {
-                        store.requestSeek(runId: runId, step: step.seq, inSteps: true)
-                    }
-                }
-            }
-            .padding(.horizontal, Space.l)
-        }
-    }
-}
-
-private struct RecentStepRow: View {
-    let step: Step
-    let phrase: String
-    let open: () -> Void
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        let failed = step.outcome.isFailure
-        Button(action: open) {
-            HStack(spacing: Space.s) {
-                Text(failed ? "✗" : "✓")
-                    .foregroundStyle(failed ? theme.color(.failure) : theme.dim)
-                    .frame(width: 14)
-                Text("\(step.seq)")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .frame(width: 28, alignment: .trailing)
-                Text(phrase)
-                    .foregroundStyle(failed ? theme.color(.failure) : theme.foreground)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if case .exit(let code) = step.outcome {
-                    Text("exit \(code)").foregroundStyle(theme.color(.failure))
-                } else if case .error = step.outcome {
-                    Text("error").foregroundStyle(theme.color(.failure))
-                }
-                Text(Chrome.shortTime(step.at))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .help("\(Chrome.stamp(step.at)) (\(Chrome.zone))")
-            }
-            .monoStyle(size: TypeScale.small)
-            .padding(.horizontal, Space.xs)
-            .padding(.vertical, Space.xs)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverHighlight(radius: Radius.sm)
-        .help("Open step \(step.seq) in Steps")
     }
 }
 

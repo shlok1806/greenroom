@@ -114,7 +114,8 @@ Mona Sans for anything read as sentences.
   headings in the heavier reading-heading cut, emphasis italic, inline code and code
   blocks in the mono face, lists with glyph bullets, block quotes with a `│` rule.
 - Reading text wraps at a measure that stays comfortable at the transcript's column width
-  (56 to 80 columns' worth of width, not a hard character count, since it is proportional).
+  (340 to 560 pt beside the stage, at most 760 pt zoomed; a width, not a character count,
+  since it is proportional).
 
 ## Colour: an ANSI theme plus a brand (ADR 0004, revised by ADR 0008)
 
@@ -196,52 +197,93 @@ eye away from what the person is reading. If it does, the agent's cursor stays i
 timeline only (never in the transcript), and it stops following while the person is
 scrolling or has focus in another pane.
 
-## Layout: adaptive by column breakpoints (ADR 0004, narrowed by ADR 0008)
+## Layout: adaptive by width class (ADR 0004 decision 8, in points since ADR 0008)
 
-The window's width, measured in the mono grid's columns, picks one of three layouts
-(`tokens.json` `layout`). The measurement stays column-based for a stable, testable
-threshold; the panes it arranges are the hairline-and-radius panels above, not a
-box-drawing grid.
+The window's width picks one of three layouts. The breakpoints and pane sizes are points
+in `tokens.json` `layout` (ADR 0008 lets widths be points rather than cells): wide at
+1280 pt and more, medium from 960 pt, narrow under that. `Model/PaneLayout.swift` works
+out what shows and where, from the width class, focus, zoom and what the person asked
+for; three custom layouts (`Views/PaneLayouts.swift`) place the panes where it says.
 
-**Wide (200 columns and more).** Closes issue #23.
+**Every pane stays in the view tree in every arrangement.** A pane that is not shown is
+placed under what shows, drawn at no opacity, takes no clicks and is hidden from
+VoiceOver. Nothing is rebuilt by a resize or a zoom, which is what keeps the live screen,
+the control lease, the player's place and a half-typed draft.
+
+**Wide (1280 pt and more).** Closes issue #23.
 
 ```
   runs             |  screen                           |  conversation
  ------------------+------------------------------------+---------------------------
   Needs you        |                                    |   PASS   Needs review
-  █ TipSplit       |          (live video)              |  ------------------------
-  Running          |                                    |  transcript ...
-    Login flow     | ----------------------------------- |
-  Today            |  14 ✓ Clicked "Split"        0.4s  |
-    ...            |  15 ✗ Typed "48.00"          1.2s  |  > composer
+  █ TipSplit       |          (picture, fitted)         |  ------------------------
+  Running          |  ▶ ─────●────  Recording 4:17      |  transcript ...
+  Today            | ----------------------------------- |
+    ...            |  22 ✓ Clicked People +       39 ms |
+                   | ▌23 ✓ Read TipSplit         648 ms |  > composer
  ------------------+------------------------------------+---------------------------
- ↑↓ runs  ⏎ open  / search  t take control  ␣ play  ? more
+ ↑↓ runs  ⏎ open  z zoom  / search  tab pane  ? more
 ```
 
-- Runs: 32 columns. Screen and steps share the middle column; the timeline takes the rows
-  under the screen. Conversation: 56 to 80 columns, so the transcript keeps its measure at
-  every width and the extra width goes to the screen. Panel edges are hairlines, not
-  drawn box borders; the sketch above uses plain rules only to show the arrangement.
+- Runs: a 280 pt column (dragged between 240 and 380). Screen and steps share the middle:
+  Screen and Steps are no longer tabs. The screen takes the height its picture needs at
+  the stage's width, up to what the steps list keeps (200 pt or 30% of the stage,
+  whichever is more); the list takes the rest, so there is no empty band between them.
+- The list follows the picture: the step at the playhead is marked (its number in the
+  foreground, a quiet edge) and kept in view until the person moves through the list
+  themselves. Clicking a step shows it on the screen.
+- Conversation: 440 pt by default, dragged between 340 and 560, so the transcript keeps
+  its measure at every width; every extra point goes to the stage, never to an empty
+  margin. It gives way (the verdict card moves above the stage) only where it would take
+  the stage under its 440 pt minimum.
+- Hiding the runs (Ctrl-Cmd-S) folds them to the medium strip.
 
-**Medium (140 to 199 columns).**
+**Medium (960 to 1279 pt).**
 
-- Runs collapse to a strip of status glyphs, 3 columns wide: one glyph per run with its
-  state in the glyph and the title on focus or hover.
-- Steps shrink to a one-row track under the screen: one cell per step, failures in red,
-  the playhead as the cursor.
+- The runs fold to a 48 pt strip of status marks: one per run in the list's order, its
+  state in the glyph, its title and state in the tooltip; a click opens that run. The
+  strip's `»`, `g r`, esc and `/` open the whole list over the run (on a scrim); a click
+  beside it, esc, or opening a run puts it away.
+- The steps fold to a one-row track under the screen: a cell per step, errored ones in
+  the failure role, the step at the screen's playhead full height in the foreground, and
+  that step in words beside it (the hovered one while hovering). A click on a cell shows
+  that step; "All Steps" or `g s` opens the list under the screen (half the stage), and
+  "Fold" or `g v` folds it back.
 
-**Narrow (under 140 columns).**
+**Narrow (under 960 pt, the window's minimum is 820).**
 
-- One pane at a time: runs, stage or conversation. `tab` cycles. The hint bar names the
-  current pane and the next one (`tab → conversation`).
+- One pane at a time: runs, stage or conversation. `tab` cycles them; the hint bar leads
+  with the pane's name and says where `tab` goes (`tab → conversation`); a switch in the
+  top bar names them for the mouse. The stage is the screen with the one-row track.
+- The verdict card stays with the conversation, one pane away (above the stage it left
+  the screen a thumbnail); `a` or `d` brings the conversation forward first.
 
-**Zoom.** `z` zooms the focused pane to the whole window (tmux style); `z` again restores
-the layout. Zoom settles on a spring. While zoomed the hint bar says `z restore`.
+**Zoom.** `z` zooms the focused pane to the whole window (tmux style): the runs, the
+screen, the steps or the conversation (the stage's focused part, not the whole stage).
+`z` again or esc restores it; esc restores before it backs out of anything else, and
+focus moving to another pane restores too. The top bar (with Give Back) and the hint bar
+stay. A zoomed conversation keeps a 760 pt reading measure, centred, with its rules
+edge to edge. While zoomed the hint bar leads with `screen zoomed` and says `z restore`.
+
+**Motion.** A change of width class, a zoom, the runs opening over the run and the help
+move on the settle spring (`tokens.json` `motion.settle`, about 300 ms). Reduce Motion
+makes each instant.
+
+**Focus.** The pane with the keys shows it quietly, not only in the hint bar: a 2 pt
+brand rule along its top edge (1 pt vanished into the hairline under the top bar), and
+its label, where it has one ("Conversation", "26 STEPS"), in the brand as text
+(`Theme.brandInk`). Drawn only where more than one pane shows.
+
+**Help.** `?` opens the full help as a sheet over the panes, above the hint bar, at most
+45% of the window's height (`layout.helpMaxShare`); it never pushes the panes up.
 
 Rules:
 
-- Widths are whole columns. The thresholds are in `tokens.json`, not in views.
-- A layout change never moves focus and never drops a draft.
+- The thresholds and sizes are in `tokens.json`, not in views.
+- A layout change never moves focus except to keep it on a pane that shows (the runs
+  folded to their strip do not open over the run by themselves) and never drops a draft.
+- The lease is never touched by layout: a covered screen keeps it, its input surface
+  lets go of the keyboard, and its live stream stops until it shows again.
 - Compare mode (two runs side by side) is later.
 
 ## Rendering
@@ -411,7 +453,8 @@ it.
 | Ctrl-Cmd-S | Show or hide the runs | anywhere |
 | Cmd-Backspace | Destroy the machine (asked inline: `⏎` destroys, any other key keeps it) | a machine |
 | `⏎`, Cmd-`⏎` / `⇧⏎`, `⌥⏎` | Send / new line | composer |
-| `z`, `m` | Zoom the focused pane; click marks on or off | later layers |
+| `z` | Zoom the focused pane to the window; `z` again (or esc) restores | a run open |
+| `m` | Click marks on or off | later layers |
 
 The registry (`Model/ActionRegistry.swift`) is the source of truth since the registry PR
 (ADR 0005, decision 6); this table follows it. Showing or hiding the conversation and the

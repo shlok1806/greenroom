@@ -187,6 +187,7 @@ struct RunMenuCommands: Commands {
         switch spec.id {
         case .toggleSidebar: current.sidebarShown ? "Hide Sidebar" : "Show Sidebar"
         case .toggleConversation: current.conversationShown ? "Hide Conversation" : "Show Conversation"
+        case .zoom: current.zoomed == nil ? "Zoom Focused Pane" : "Restore Pane"
         default: spec.menuTitle ?? spec.title
         }
     }

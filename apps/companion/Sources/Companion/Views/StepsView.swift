@@ -6,6 +6,18 @@ import SwiftUI
 struct StepsView: View {
     let store: RunStore
     let runId: String
+    /// Has the keyboard: its label takes the brand.
+    var focused = false
+    /// Folds the list back to its one-row track (medium and narrow windows), when it can.
+    var collapse: (() -> Void)?
+    /// Opened from the verdict, the way back; off beside the screen, whose bar has it.
+    var showsEvidenceBar = true
+    /// The step at the screen's playhead, beside the list (a wide window): its row is
+    /// marked and kept in view, so the list and the picture show the same moment.
+    var playhead: Int?
+    /// Takes SwiftUI focus when it appears, so no text field takes the keyboard; off
+    /// beside the screen, which does that already (two claims cancel out).
+    var claimsFocus = true
 
     @State private var expanded: Set<Step> = []
     @AppStorage("stepsErrorsOnly") private var errorsOnly = false
@@ -13,7 +25,9 @@ struct StepsView: View {
     @State private var following = true
     /// The keyboard's row: `j` and `k` move it, `⏎` opens it.
     @State private var cursor: Step?
-    @FocusState private var focused: Bool
+    /// The person moved through the list themselves: it stops following the playhead.
+    @State private var browsing = false
+    @FocusState private var hasFocus: Bool
     @Environment(\.keyboard) private var keyboard
 
     private var allSteps: [Step] { store.steps[runId] ?? [] }
@@ -31,7 +45,7 @@ struct StepsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if fromVerdict, let focusedStep {
+            if showsEvidenceBar, fromVerdict, let focusedStep {
                 EvidenceBar(step: focusedStep, back: backToVerdict, record: nil)
                 .padding(.bottom, Space.s)
                 Hairline()
@@ -45,8 +59,8 @@ struct StepsView: View {
         store.clearFocus()
     }
 
-    /// The cursor shows only while the stage has the keyboard: it mirrors real focus.
-    private var cursorShown: Bool { keyboard?.pane == .stage }
+    /// The cursor shows only while the steps have the keyboard: it mirrors real focus.
+    private var cursorShown: Bool { keyboard?.pane == .stage && keyboard?.stage == .steps }
 
     private var offered: Set<ActionID> {
         var ids: Set<ActionID> = []
@@ -65,6 +79,7 @@ struct StepsView: View {
             let next = at.map { min(max($0 + delta, 0), steps.count - 1) } ?? (delta > 0 ? 0 : steps.count - 1)
             cursor = steps[next]
             following = false
+            browsing = true
             proxy.scrollTo(steps[next])
         case .open:
             guard let cursor else { return }
@@ -96,6 +111,7 @@ struct StepsView: View {
                                 step: step,
                                 highlighted: step.seq == focusedStep,
                                 cursor: cursorShown && step == cursor,
+                                atPlayhead: step.seq == playhead,
                                 expanded: Binding(
                                     get: { expanded.contains(step) },
                                     set: { open in
@@ -109,7 +125,9 @@ struct StepsView: View {
                             count: allSteps.count,
                             failures: facts.failures.count,
                             errorsOnly: $errorsOnly,
-                            following: facts.isAlive ? $following : nil
+                            following: facts.isAlive ? $following : nil,
+                            focused: focused,
+                            collapse: collapse
                         )
                     }
                 }
@@ -124,9 +142,12 @@ struct StepsView: View {
             }
             .onAppear {
                 // The stage, not the composer, takes the keyboard when Steps opens.
-                focused = true
+                if claimsFocus { hasFocus = true }
                 if let focusedStep {
                     reveal(focusedStep, proxy: proxy)
+                } else if playhead != nil, !facts.isAlive {
+                    // Opened beside the picture: at the step it shows.
+                    showPlayhead(proxy)
                 } else {
                     openFirstFailure()
                     // Following a live run opens at the newest step, not at step 1 (#59):
@@ -143,6 +164,8 @@ struct StepsView: View {
                 guard let focusedStep else { return }
                 reveal(focusedStep, proxy: proxy)
             }
+            // The list follows the picture until the person moves through it themselves.
+            .onChange(of: playhead) { showPlayhead(proxy) }
             .onChange(of: allSteps.count) {
                 guard following, facts.isAlive, let last = steps.last else { return }
                 // The row's identity in the lazy stack is the `Step`, not its seq.
@@ -152,7 +175,21 @@ struct StepsView: View {
         }
         .focusable()
         .focusEffectDisabled()
-        .focused($focused)
+        .focused($hasFocus)
+    }
+
+    /// Keeps the playhead's step in view, the keyboard's row on it, until the person moves
+    /// through the list themselves or a step was asked for.
+    private func showPlayhead(_ proxy: ScrollViewProxy) {
+        guard !browsing, focusedStep == nil, let playhead,
+              let step = steps.first(where: { $0.seq == playhead }) else { return }
+        cursor = step
+        // As `reveal`: bring the row in, then place it once it has laid out.
+        proxy.scrollTo(step, anchor: .center)
+        Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            proxy.scrollTo(step, anchor: .center)
+        }
     }
 
     private func reveal(_ number: Int, proxy: ScrollViewProxy) {
@@ -194,12 +231,14 @@ private struct StepsHeader: View {
     let failures: Int
     @Binding var errorsOnly: Bool
     let following: Binding<Bool>?
+    var focused = false
+    var collapse: (() -> Void)?
 
     @Environment(\.theme) private var theme
 
     var body: some View {
         HStack(spacing: Space.l) {
-            SectionLabel(title: Chrome.plural(count, "step"))
+            SectionLabel(title: Chrome.plural(count, "step"), ink: focused ? theme.brandInk(on: .background) : nil)
             Spacer(minLength: Space.s)
             if let following {
                 Toggle("Follow newest", isOn: following)
@@ -208,6 +247,11 @@ private struct StepsHeader: View {
             Toggle(failures > 0 ? "Only the \(failures) that errored" : "Only errors", isOn: $errorsOnly)
                 .disabled(failures == 0 && !errorsOnly)
                 .help("Show only the steps whose tool call failed or whose command exited non-zero")
+            if let collapse {
+                Button("Fold ⌃", action: collapse)
+                    .buttonStyle(.textLink)
+                    .help("Fold the steps back to one row under the screen (\(ActionRegistry.label(.goScreen)))")
+            }
         }
         .padding(.horizontal, StepColumn.horizontal)
         .padding(.vertical, Space.s)
@@ -227,6 +271,8 @@ private struct StepRow: View {
     let highlighted: Bool
     /// The keyboard's row: the brand cursor at its leading edge.
     var cursor = false
+    /// The step the screen is showing: its number in the foreground, a quiet edge.
+    var atPlayhead = false
     @Binding var expanded: Bool
 
     @State private var hovering = false
@@ -257,6 +303,8 @@ private struct StepRow: View {
         .overlay(alignment: .leading) {
             if highlighted || cursor {
                 Rectangle().fill(theme.brand).frame(width: 3)
+            } else if atPlayhead {
+                Rectangle().fill(theme.foreground.opacity(0.55)).frame(width: 2)
             }
         }
         .overlay(alignment: .bottom) { Hairline() }
@@ -274,7 +322,8 @@ private struct StepRow: View {
 
             Text("\(step.seq)")
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .fontWeight(atPlayhead ? .bold : nil)
+                .foregroundStyle(atPlayhead ? AnyShapeStyle(theme.foreground) : AnyShapeStyle(.secondary))
                 .frame(width: StepColumn.seq, alignment: .trailing)
 
             HStack(spacing: Space.s) {
@@ -331,7 +380,7 @@ private struct StepRow: View {
     private var background: some View {
         if highlighted {
             theme.brand.opacity(0.10)
-        } else if hovering || expanded || cursor {
+        } else if hovering || expanded || cursor || atPlayhead {
             theme.highlight
         } else {
             Color.clear
@@ -438,5 +487,121 @@ private struct StepDetail: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .panel(radius: Radius.sm)
         }
+    }
+}
+
+// MARK: - The one-row track
+
+/// The steps folded to one row under the screen (medium and narrow windows, ADR 0004
+/// decision 8): a cell per step, failures in the failure role, the step at the screen's
+/// playhead drawn full height in the foreground, and that step in words beside it. A
+/// click on a cell shows its step on the screen; hovering names it; "All Steps" opens
+/// the list (`g s`).
+struct StepsTrack: View {
+    let store: RunStore
+    let runId: String
+    /// The step at the screen's playhead (`PlayheadStepKey`).
+    let playhead: Int?
+    let expand: () -> Void
+
+    @State private var hovered: Int?
+    @Environment(\.theme) private var theme
+
+    private var steps: [Step] { store.steps[runId] ?? [] }
+
+    var body: some View {
+        let steps = steps
+        HStack(spacing: Space.m) {
+            SectionLabel(title: Chrome.plural(steps.count, "step"))
+                .fixedSize()
+            if !steps.isEmpty {
+                cells(steps)
+                    .frame(height: 16)
+                    .frame(minWidth: 80)
+                // The words first: the cells take whatever is left.
+                label(steps)
+                    .frame(minWidth: 120, idealWidth: 240, maxWidth: 260, alignment: .leading)
+                    .layoutPriority(1)
+            } else {
+                Spacer(minLength: 0)
+            }
+            Button("All Steps ⌄", action: expand)
+                .buttonStyle(.textLink)
+                .fixedSize()
+                .help("Show every step under the screen (\(ActionRegistry.label(.goSteps)))")
+        }
+        .padding(.horizontal, Space.l)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .top) { Hairline() }
+    }
+
+    /// The hovered step, else the one at the playhead: its number and what it did.
+    @ViewBuilder
+    private func label(_ steps: [Step]) -> some View {
+        let seq = hoveredSeq(steps) ?? playhead
+        if let seq, let step = steps.first(where: { $0.seq == seq }) {
+            HStack(spacing: Space.s) {
+                Text("\(step.seq)")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                Text(StepSummary.phrase(for: step, in: steps))
+                    .foregroundStyle(step.outcome.isFailure ? theme.color(.failure) : theme.foreground)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .monoStyle(size: TypeScale.small)
+        } else {
+            Color.clear.frame(height: 1)
+        }
+    }
+
+    private func cells(_ steps: [Step]) -> some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            let pitch = width / Double(max(steps.count, 1))
+            // A gap between cells while there is room for one.
+            let gap: Double = pitch >= 4 ? 1 : 0
+            let current = hoveredSeq(steps) ?? playhead
+            Canvas { context, _ in
+                for (index, step) in steps.enumerated() {
+                    let failed = step.outcome.isFailure
+                    let isCurrent = step.seq == current
+                    let cellHeight = isCurrent ? height : height * 0.55
+                    let rect = CGRect(x: Double(index) * pitch, y: (height - cellHeight) / 2,
+                                      width: max(pitch - gap, 1), height: cellHeight)
+                    let ink: Color = isCurrent ? theme.foreground
+                        : failed ? theme.color(.failure) : theme.dim.opacity(0.55)
+                    context.fill(Path(roundedRect: rect, cornerRadius: min(1, rect.width / 2)), with: .color(ink))
+                }
+            }
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let point): hovered = index(at: point.x, pitch: pitch, count: steps.count)
+                case .ended: hovered = nil
+                }
+            }
+            .gesture(
+                SpatialTapGesture().onEnded { value in
+                    guard let at = index(at: value.location.x, pitch: pitch, count: steps.count) else { return }
+                    store.requestSeek(runId: runId, step: steps[at].seq)
+                }
+            )
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Steps")
+        .accessibilityValue(playhead.map { "at step \($0) of \(steps.count)" } ?? "\(steps.count) steps")
+        .help("A cell per step; red ones errored. Click one to show it on the screen.")
+    }
+
+    private func hoveredSeq(_ steps: [Step]) -> Int? {
+        hovered.flatMap { steps.indices.contains($0) ? steps[$0].seq : nil }
+    }
+
+    private func index(at x: Double, pitch: Double, count: Int) -> Int? {
+        guard count > 0, pitch > 0 else { return nil }
+        return min(max(Int(x / pitch), 0), count - 1)
     }
 }

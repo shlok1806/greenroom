@@ -24,7 +24,8 @@ The design data for greenroom's interfaces. Decisions: companion ADR 0004 and 00
 - `tokens.json`: cell metrics for the mono face, the two type faces (`mono` for chrome
   and data, `reading` and `readingHeading` for prose), the reading size and line height,
   the palette slot for each ANSI-slot semantic role, the `themeKeys` names above, the
-  spacing scale and radii, motion timings and layout breakpoints in columns.
+  spacing scale and radii, motion timings, and the layout's width-class breakpoints and
+  pane sizes, in points (`layout`).
 
 Who reads them: the Companion (SwiftUI) today; the web dashboard later, through CSS
 generated from these files when the web starts. The Companion ships a byte-for-byte copy

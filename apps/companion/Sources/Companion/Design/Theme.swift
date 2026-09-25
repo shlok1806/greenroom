@@ -184,6 +184,10 @@ struct Theme: Equatable, Sendable {
     /// Behind the sidebar and the top bar only; content stays on `background`.
     var chromeTint: Color { chromeTintRGB.color }
 
+    /// The brand as text on `ground` (a focused pane's label): moved toward the foreground
+    /// just far enough to read, as `legible` does for a role.
+    func brandInk(on ground: Ground) -> Color { legible(brandRGB, on: ground).color }
+
     // MARK: Derived surfaces (no hue of their own)
 
     /// A quiet panel: a card, a code block, a chip. Barely off the ground; a

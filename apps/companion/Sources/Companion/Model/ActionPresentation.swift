@@ -76,7 +76,33 @@ enum HintBar {
         var out = hints(in: live, s)
         out.append(KeyHint(id: .help, key: ActionRegistry.label(.help), title: s.helpOpen ? "less" : "more"))
         let mode: HintBarContent.Mode = s.driving ? .drivingElsewhere : .normal
-        return HintBarContent(mode: mode, context: live.first?.title, hints: out, undo: undo)
+        var context = live.first?.title
+        if let zoomed = s.zoomed, let name = context { context = zoomed.pane == s.pane ? "\(name) zoomed" : name }
+        return HintBarContent(mode: mode, context: context, hints: out, undo: undo)
+    }
+
+    /// A pane as the hint bar names it: the runs, the stage by its focused part, the
+    /// conversation.
+    static func paneName(_ pane: FocusPane, stage: StagePane) -> String {
+        switch pane {
+        case .sidebar: ActionContext.sidebar.title
+        case .stage: stage == .screen ? ActionContext.screen.title : ActionContext.steps.title
+        case .conversation: ActionContext.conversation.title
+        }
+    }
+
+    /// The hint's word where it depends on the state: `z` restores while zoomed, and in a
+    /// narrow window `tab` names the pane it goes to (`tab → conversation`).
+    private static func word(_ spec: ActionSpec, in context: ActionContext, _ s: ActionState) -> String {
+        switch spec.id {
+        case .zoom where s.zoomed != nil:
+            return "restore"
+        case .nextPane where s.widthClass == .narrow && s.zoomed == nil:
+            let next = s.layout.cycled(from: s.pane, by: 1)
+            return "→ " + paneName(next, stage: s.stage)
+        default:
+            return spec.hintWord(in: context)
+        }
     }
 
     /// The trailing hint: the palette, everywhere it opens.
@@ -104,7 +130,7 @@ enum HintBar {
         for (spec, context, _) in found {
             let key = spec.hintLabel ?? spec.keyLabel
             guard shownKeys.insert(key).inserted else { continue }
-            out.append(KeyHint(id: spec.id, key: key, title: spec.hintWord(in: context), context: context))
+            out.append(KeyHint(id: spec.id, key: key, title: word(spec, in: context, s), context: context))
         }
         return out
     }
@@ -174,6 +200,7 @@ enum KeyHelp {
         case .undo: "undo within 5 s"
         case .palette: "commands"
         case .toggleSidebar: "show or hide runs"
+        case .zoom: "zoom or restore the pane"
         case .leave: "leave the field"
         default: spec.title.lowercased()
         }

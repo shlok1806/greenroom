@@ -15,13 +15,15 @@ at the repo root.
 
 ADR 0004 to 0006, as amended by 0008, describe the new window being built layer by layer.
 Layer 1 (foundation and restyle) has landed: the theme, the two bundled faces, the spacing
-and radii, the window's own chrome, and every view restyled in that language on the
-round-2 layout (Screen and Steps tabs, the runs sidebar, the conversation column). Layer 2
+and radii, the window's own chrome, and every view restyled in that language. Layer 2
 (keys) has landed: the action registry, the key router, the hint bar with its `?` help,
 the Cmd-K palette, the menu bar built from the registry, and the 5 s undo on accept and
-dispute. Not yet built: the adaptive column layout and zoom (`z`), the motion vocabulary
-and signature moments, click marks (`m`), `GridMetrics`. Until a layer lands, the rules
-below that name round-2 behaviour describe the code as it is.
+dispute. Layer 3 (layout) has landed: the three width classes, the screen with the steps
+under it (no more Screen and Steps tabs), the runs strip and the one-row steps track, one
+pane at a time in a narrow window, and `z` zoom (design spec, Layout). Not yet built: the
+motion vocabulary beyond the settle spring and signature moments, click marks (`m`),
+`GridMetrics`. Until a layer lands, the rules below that name round-2 behaviour describe
+the code as it is.
 
 ## Commands
 
@@ -56,12 +58,14 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
 
 - `GREENROOM_SNAPSHOT=<dir>` (debug builds only, `SnapshotHook` in `WindowChrome.swift`):
   the real app, against whatever daemon it talks to, opens `GREENROOM_SNAPSHOT_RUN`
-  on `GREENROOM_SNAPSHOT_PANE` (`screen` or `steps`), writes the window in each theme
+  with `GREENROOM_SNAPSHOT_PANE` (`screen` or `steps`: the stage part with the keys, and
+  in a medium or narrow window whether the steps list is open), writes the window in each theme
   of `GREENROOM_SNAPSHOT_THEMES` (default `dark,light,dark-hc,light-hc`) to
   `<dir>/<GREENROOM_SNAPSHOT_NAME>-<theme>.png` with `cacheDisplay` (no screen-recording
   permission), puts the person's theme back and quits. It shows a window on screen; the
   harness above does not. `GREENROOM_SNAPSHOT_KEYS` (comma-separated: `g`, `?`, `cmd+k`,
-  `esc`, `enter`, `shift+enter`, `text:words`) posts real key events through the app's
+  `esc`, `enter`, `tab`, `z`, `shift+enter`, `text:words`; `g,v,z` zooms the screen, `g,t,z`
+  the transcript) posts real key events through the app's
   queue first, so the router sees them as typed (hint bar, help, palette, composer
   states); `GREENROOM_SNAPSHOT_MENU=1` prints the View and Run menus as AppKit holds them. `GREENROOM_SNAPSHOT_SIZE=820x560`
   sizes the window's content first.
@@ -106,7 +110,9 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
     (dates, coders) and `EventStream.swift` (SSE) hold the rest of the wire layer.
   - `ScreenControl`, `FrameTimeline`, `StepSummary`, `RichText` are pure value types with
     a test per rule. `ControlPilot` holds the lease and send queue; it talks through
-    `ControlClient` and `PilotHost` so its tests need no daemon.
+    `ControlClient` and `PilotHost` so its tests need no daemon. `PaneLayout` (the width
+    classes, `ZoomState`, what `tab` cycles, every pane's frame) is pure too; the views
+    place panes only through its three containers in `Views/PaneLayouts.swift`.
     `Views/InputSurface.swift` (the guest's input) and `Views/KeyRouter.swift` (the app's
     one key monitor) are the only AppKit event code.
   - `Model/RunFacts.swift` is the one derived state per run (phase, whose turn, last
@@ -137,8 +143,12 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
 - The app only calls the API: no tart, no ssh, no run directory on disk. Missing
   capability means a new daemon route.
 - Never add a way to take the lease without a matching way to give it back (Give Back,
-  leaving the Screen stage, run change, machine not ready, quit). Quit waits up to 2 s for the release
-  (`AppDelegate.applicationShouldTerminate`); every way out lets go of a held button first.
+  run change, machine not ready, quit). Layout never gives it back and never strands it:
+  a zoom, a width class change or a narrow window's pane switch keeps `ScreenView` in the
+  tree, covered; its `InputSurface` lets go of the keyboard (`active: driving && visible`)
+  and Give Back stays in the top bar. `KeyRoutingTests` drives through all of them. Quit
+  waits up to 2 s for the release (`AppDelegate.applicationShouldTerminate`); every way
+  out lets go of a held button first.
 - The heartbeat renews with `renewControl` (`{"renew": true}`), never `takeControl`: another
   window on the same human seat may have given the screen back, and a take would undo that
   silently (#100). A refused renewal ends driving like any other failure.
@@ -151,14 +161,16 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   the daemon's positive `deltaY` scrolls down, AppKit's positive `scrollingDeltaY` scrolls up.
 - `KeyTranslator`: anything with cmd/ctrl, or with no character (return, arrows, F-keys),
   is a named `key`; everything else is `type` with the produced characters.
-- Live screen (ADR 0011): streams only while the Screen stage is on screen, following live,
-  on a ready machine. Anything else stops it, and the recording shows (also whenever the
-  stream is down, with a status line under the track). `ScreenStream.swift` is the pure wire
+- Live screen (ADR 0011): streams only while the screen shows (`ScreenView.visible`: not
+  covered by a zoom or another narrow pane), following live, on a ready machine. Anything
+  else stops it, and the recording shows (also whenever the stream is down, with a status
+  line under the track). `ScreenStream.swift` is the pure wire
   layer; `LiveScreen` owns the connection. Frames never hop through the main actor, and the
   renderer is only touched on `VideoOutput`'s queue. A decoder failure reconnects, because a
   new connection is how the daemon is asked for a keyframe.
 - `LiveScreenHostView` puts the display layer on `ScreenGeometry.fitted`, so the video
-  and `InputSurface` share one letterbox. Do not size the layer any other way.
+  and `InputSurface` share one letterbox. Do not size the layer any other way; the stage
+  resizing (a zoom, the steps opening) only changes the view's bounds.
 - Stream errors: back off 1, 2, 4 ... 10 s, re-read everything open, reconnect. The
   backoff resets once a connection opens. A resync drops what is held for runs that are
   not open (the daemon may have restarted with other data), and a read that lands after
@@ -237,7 +249,10 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   `RunTitle.distinct`), never by its id. The sidebar pins "Needs You" and "Running"
   above the days; a row is the title, start time and counts, and its state in words.
 - The verdict's Accept and Dispute live only in `VerdictCard`, pinned above the
-  conversation (or above the stage when the conversation is hidden). Its headline is the
+  conversation (or above the stage when the conversation is hidden or has no room). A
+  narrow window keeps it with the conversation, one pane away; `a` and `d` bring the
+  card forward first (out of a zoom, to the conversation). A hidden conversation holds
+  no card (its reason field would take the keyboard out of sight). Its headline is the
   state and who decided (`VerdictReview`); a verdict an agent accepted says no human
   reviewed it. The transcript shows the live verdict as one line, never a second card.
 - Each colour means one thing: the roles above, through `Theme.color(_:on:)`,
@@ -265,26 +280,49 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   presenter goes away leaves the window unable to take a click. Ask inline.
 - The player shows one source chip (live, connecting, recording, driving). Take Control
   / Give Back exists once, in the top bar (`RunView.actions`, published with `.topBar`).
-- Nothing but click marks is drawn over the Screen stage's picture. The driving bar sits above it, and
+  The top bar survives every zoom and width class.
+- Nothing but click marks is drawn over the screen's picture. The driving bar sits above it, and
   position, the step under the pointer, live state and stream errors go under the track.
   The well takes the picture's shape, so there is no letterbox.
 - The window has its own chrome (`.windowStyle(.hiddenTitleBar)`, `WindowConfigurator`):
   no system toolbar, title or `NavigationSplitView`. `RootView` is the themed root, the
   top bar (drawn from the `TopBarItemsKey` preference the open view sets with
-  `.topBar`), a hand-made runs sidebar (`SidebarDivider`, width in `@AppStorage`,
-  View > Hide Sidebar through the `sidebarShown` focused value) and the detail.
-  `WindowConfigurator` keeps the traffic lights centred in the 44 pt top bar; AppKit puts
-  them back on many passes, so it re-places them on every window update.
-- The conversation column is a hand-made split (`ColumnDivider`), not `.inspector` as
-  ADR 0001 says, nor `HSplitView`: inside `NavigationSplitView` both add hundreds of points to the window's
-  minimum width, even while hidden. Widths live in `RunLayout` (stage at least 440, the
-  spec). Narrow windows give way in the spec's order: below
-  `RunLayout.sidebarFoldWidth` (of the sidebar's measured width; 1032 for an ideal
-  sidebar with the conversation) `RootView` folds the sidebar,
-  only while shrinking, so a sidebar shown by hand stays; where the conversation then has
-  no room beside the stage (`RunLayout.conversation` is nil) it gives way and the verdict
-  card moves above the stage, and asking for it folds the sidebar; the player bar's
-  second line wraps.
+  `.topBar`), the panes and the hint bar. `WindowConfigurator` keeps the traffic lights
+  centred in the 44 pt top bar; AppKit puts them back on many passes, so it re-places
+  them on every window update.
+- Layout (ADR 0004 decision 8; design spec, Layout): the window's width picks a
+  `WidthClass` from `tokens.json` `layout` (points: wide from 1280, medium from 960,
+  narrow under that). `KeyboardModel` holds the class, focus and `ZoomState`;
+  `KeyboardModel.layout` is the `PaneLayout` every view reads. Wide: runs column
+  (`SidebarDivider`, width in `@AppStorage`), stage (screen, then the steps list),
+  conversation (`ColumnDivider`, 340 to 560 pt; it gives way before the stage's 440 pt
+  minimum, and the verdict card moves above the stage). Medium: `RunsStrip` (the whole
+  list opens over the run while the runs have the keys, `PaneLayout.runsOverlay`) and
+  the one-row `StepsTrack` (the list while the steps have the keys). Narrow: the focused
+  pane alone; `tab` cycles `PaneLayout.cycle`. Ctrl-Cmd-S folds a wide window's runs to
+  the strip. A width change never opens the runs over the run (`settleFocus`).
+- The splits are hand-made (`SidebarDivider`, `ColumnDivider`, custom `Layout`s), not
+  `.inspector` as ADR 0001 says, nor `HSplitView` or `NavigationSplitView`: those add
+  hundreds of points to the window's minimum width, even while hidden. The custom
+  layouts report no minimum.
+- Every pane stays in the tree in every arrangement (`paneShown`: no opacity, no hits,
+  hidden from VoiceOver, under what shows). Never put a pane behind an `if` on the width
+  class or zoom: `ScreenView` would give the lease back on `onDisappear` and lose the
+  player's place, and the composer its draft. Mark panes with `keyboardPane(_:active:)`
+  and `stagePart(_:active:)` so a click on a hidden one does not move focus.
+- `z` zooms the focused pane (the stage's focused part, not the whole stage); `z` or esc
+  restores (esc before anything else it does), and focus moving to another pane restores.
+  Zoom, a width class change, the runs overlay and the help move on
+  `PaneMotion.settle` (`tokens.json` `motion.settle`), instant under Reduce Motion,
+  through `.animation(_:value: layout)` in `RootView`.
+- Keyboard focus is drawn, not only named in the hint bar: `focusRule` (a 2 pt brand
+  rule on the pane's top edge) and the pane's label in `Theme.brandInk`, only where more
+  than one pane shows.
+- `?` opens `KeyHelpPanel` as a sheet over the panes above the hint bar, at most
+  `layout.helpMaxShare` of the window; it never pushes the panes up.
+- The steps list beside the screen follows the playhead (`PlayheadStepKey`, from
+  `ScreenView`) until the person moves through it (`j`/`k`); the one-row track reads the
+  same key.
 - No hard minimum width on the stage: the detail's minimum adds to the window's, and
   showing the sidebar in a narrow window then widens the window past the screen (#64).
   The harness prints "window grew" when that happens; check its `G` (1024 x 660) shots.
@@ -295,8 +333,8 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   and alerts are smaller than `RunLayout.windowMinimum` and would be grown to it.
 - While driving, keys follow focus: the screen while it was clicked last (Command
   shortcuts included), the composer once it is clicked. "Give Back", clicked, returns the
-  screen (in the bar above the picture, the player and the toolbar). Taking control from
-  the toolbar or menu switches the stage to the Screen first.
+  screen (in the top bar). Taking control from the top bar or menu brings the screen
+  forward first (`KeyboardModel.showScreen`: the stage, its screen, no zoom elsewhere).
 - Every step and tool-call row reads in plain words (`StepSummary.phrase`: "Clicked Bill
   field", "Typed 120", "Pressed ⌘A", "Ran swift test", "Took a screenshot"); the tool
   name, time and raw JSON are one click (expand) away. A click is named by the control
@@ -370,6 +408,9 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
 - `ScrollViewReader.scrollTo` in a `LazyVStack` finds a row it has not built only by its
   `ForEach` identity (Steps: the `Step`), never by an `.id` set inside the row. Scroll to
   the identity first, then to the inner id once the row exists (`StepsView.reveal`).
+- `ScreenView` claims SwiftUI focus a turn after it appears (`Task`), once the layout has
+  placed it: claimed at once it was dropped and the window gave the keyboard to the run
+  search. `StepsView` beside the screen does not claim (`claimsFocus`): two claims cancel.
 - `HostedViewTests` host real views in an off-display, never-key `NSWindow` (title, scroll
   position, keys into a field editor). The app is `.prohibited`, so there is no key window:
   code that needs one (`NSApp.sendAction(_:to: nil ...)`, `NSApp.keyWindow`) does nothing there,

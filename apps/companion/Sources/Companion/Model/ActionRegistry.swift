@@ -188,7 +188,7 @@ enum ActionID: String, CaseIterable, Sendable {
     case moveDown, moveUp, open, back, nextPane, previousPane, search
     case goSteps, goScreen, goTranscript, goRuns, compose, latest
     // The window
-    case palette, help, refresh, toggleSidebar, toggleConversation
+    case palette, help, refresh, toggleSidebar, toggleConversation, zoom
     case themeSystem, themeDark, themeLight, themeDarkContrast, themeLightContrast
     // The run
     case takeControl, giveBack, capture, exportRecording, followLive
@@ -288,6 +288,10 @@ enum ActionRegistry {
                    contexts: [.global], group: .window, menu: .view),
         ActionSpec(id: .toggleConversation, title: "Show or hide the conversation", keys: [],
                    contexts: [.run], group: .window, menu: .view),
+        // The pane with the keys fills the window; `z` again (or esc) puts it back.
+        ActionSpec(id: .zoom, title: "Zoom the focused pane", keys: [KeyBinding(.char("z"))],
+                   contexts: [.sidebar, .screen, .steps, .conversation], group: .window, hint: 9,
+                   hintTitle: "zoom", menu: .view, menuTitle: "Zoom Focused Pane"),
         ActionSpec(id: .themeSystem, title: "Theme: match the system", keys: [], contexts: [.global], group: .window),
         ActionSpec(id: .themeDark, title: "Theme: dark", keys: [], contexts: [.global], group: .window),
         ActionSpec(id: .themeLight, title: "Theme: light", keys: [], contexts: [.global], group: .window),
@@ -423,6 +427,9 @@ struct ActionState: Equatable, Sendable {
     var runCount = 0
     var sidebarShown = true
     var conversationShown = true
+    /// The window's width class and what is zoomed (`PaneLayout`).
+    var widthClass: WidthClass = .wide
+    var zoomed: ZoomTarget?
     /// The open run's verdict is proposed or contested, and no choice on it is waiting
     /// out its undo.
     var verdictOpenForReview = false
@@ -436,6 +443,15 @@ struct ActionState: Equatable, Sendable {
     var available: Set<HandlerKey> = []
 
     var typing: Bool { responder == .text }
+
+    /// The window's arrangement as these facts give it.
+    var layout: PaneLayout {
+        PaneLayout(widthClass: widthClass, focus: pane, stage: stage, zoom: zoomed, runOpen: runOpen,
+                   hasRuns: runCount > 0, sidebarShown: sidebarShown, conversationShown: conversationShown)
+    }
+
+    /// The runs are open over the run from their strip.
+    var runsOverlay: Bool { layout.runsOverlay }
     var drivingFocused: Bool { driving && responder == .guest }
     var undoPending: Bool { undoSeconds != nil }
 
@@ -483,6 +499,7 @@ enum ActionRules {
              .themeSystem, .themeDark, .themeLight, .themeDarkContrast, .themeLightContrast:
             return true
         case .nextPane, .previousPane: return s.runOpen
+        case .zoom: return s.zoomed != nil || s.layout.zoomFocus != nil
         case .search: return s.runCount > 0
         case .back: return canGoBack(s)
         case .open:
@@ -509,7 +526,8 @@ enum ActionRules {
     }
 
     static func canGoBack(_ s: ActionState) -> Bool {
-        s.helpOpen || s.pendingPrefix != nil || s.offersAnywhere(.backToVerdict) || (s.runOpen && s.pane != .sidebar)
+        s.helpOpen || s.pendingPrefix != nil || s.zoomed != nil || s.offersAnywhere(.backToVerdict) || s.runsOverlay
+            || (s.runOpen && s.pane != .sidebar)
     }
 
     /// Why a disabled action cannot run, for the palette's dim rows.
@@ -530,6 +548,7 @@ enum ActionRules {
         case .backToVerdict: return "No evidence is open"
         case .search: return "No runs yet"
         case .nextPane, .previousPane: return "Open a run first"
+        case .zoom: return "Open a run first"
         case .back: return "Already at the runs"
         default: return "Not available here"
         }

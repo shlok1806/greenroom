@@ -192,12 +192,15 @@ private struct UndoHintView: View {
 /// right now. `?` or `esc` folds it.
 struct KeyHelpPanel: View {
     let keyboard: KeyboardModel
+    /// The sheet's tallest, over the panes (`tokens.json` `layout.helpMaxShare` of the
+    /// window); past it the groups scroll.
+    var maximumHeight: CGFloat = 320
 
     @Environment(\.theme) private var theme
 
-    /// Past this the groups scroll, so the window's own panes keep their room.
-    private static let maximumHeight: CGFloat = 280
     private static let keyColumn: CGFloat = 44
+    /// The heading row and the sheet's padding, which do not scroll.
+    private static let chrome: CGFloat = 56
 
     var body: some View {
         let groups = KeyHelp.groups(keyboard.state())
@@ -222,7 +225,7 @@ struct KeyHelpPanel: View {
             }
             .scrollBounceBehavior(.basedOnSize)
             .overlayScrollers()
-            .frame(maxHeight: Self.maximumHeight)
+            .frame(maxHeight: max(maximumHeight - Self.chrome, 80))
             .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, Space.l)
@@ -232,6 +235,8 @@ struct KeyHelpPanel: View {
         .ground(.chrome)
         .background(theme.chromeTint)
         .overlay(alignment: .top) { Hairline() }
+        // A sheet over the panes, not a band that pushes them up.
+        .shadow(color: .black.opacity(0.16), radius: 10, y: -2)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("All keys")
     }
