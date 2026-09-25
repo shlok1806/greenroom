@@ -357,11 +357,22 @@ extension RunTitle {
             let rest = text[range.upperBound...].trimmingCharacters(in: .whitespaces)
             if rest.hasPrefix(".") || rest.isEmpty {
                 let next = rest.drop { $0 == "." || $0 == " " }
-                return next.isEmpty ? subject : "\(subject): \(next.prefix(1).lowercased())\(next.dropFirst())"
+                return next.isEmpty ? subject : "\(subject): \(sentenceCased(String(next)))"
             }
             return "\(subject) \(rest)"
         }
         return text
+    }
+
+    /// A sentence's first word lowercased when it is only capitalized for the sentence:
+    /// one capital followed only by lowercase letters ("Verify" to "verify", "A" to "a").
+    /// An acronym ("UI", "API"), a name with more capitals ("TipSplit") and the pronoun
+    /// "I" keep theirs (issue #96).
+    private static func sentenceCased(_ text: String) -> String {
+        let word = text.prefix { $0.isLetter }
+        guard word != "I", word.first?.isUppercase == true,
+              word.dropFirst().allSatisfy({ $0.isLowercase }) else { return text }
+        return text.prefix(1).lowercased() + text.dropFirst()
     }
 
     private static func withoutAsides(_ text: String) -> String {

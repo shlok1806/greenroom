@@ -51,6 +51,8 @@ final class SnapshotHarness {
         var unreachable = false
         /// Shows the sidebar by hand after the window folded it, as a person would.
         var showSidebar = false
+        /// The width the person dragged the sidebar to.
+        var sidebarWidth = RunLayout.sidebarIdeal
     }
 
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
@@ -180,6 +182,9 @@ final class SnapshotHarness {
             Scenario(name: "25-guest-steps", sizes: [Self.guest], runId: Self.citedRun, pane: .steps),
             Scenario(name: "25b-guest-sidebar-by-hand", sizes: [Self.guest], runId: Self.citedRun, showSidebar: true),
             Scenario(name: "25c-small-sidebar-by-hand", sizes: [Self.small], runId: Self.citedRun, showSidebar: true),
+            // The narrowest sidebar: every row still shows when it started beside its state (issue #99).
+            Scenario(name: "25d-guest-narrowest-sidebar", sizes: [Self.guest], runId: Self.citedRun, showSidebar: true,
+                     sidebarWidth: RunLayout.sidebarMinimum),
             Scenario(name: "26-guest-no-conversation", sizes: [Self.guest], runId: Self.citedRun, conversation: false),
             // A run with no task and only system events: the header and a short transcript.
             Scenario(name: "27-no-task-few-events", sizes: [Self.guest, Self.medium], runId: Self.noTaskRun),
@@ -377,6 +382,7 @@ final class SnapshotHarness {
         defaults.set(scenario.pane.rawValue, forKey: "stagePane")
         defaults.set(scenario.conversation, forKey: "showsConversation")
         defaults.set(false, forKey: "stepsErrorsOnly")
+        defaults.set(scenario.sidebarWidth, forKey: "sidebarWidth")
         defaults.set(scenario.runId ?? "none", forKey: "selectedRunId")
 
         let client: DaemonClient

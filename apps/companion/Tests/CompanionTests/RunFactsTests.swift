@@ -303,6 +303,12 @@ final class TitleAndWordsTests: XCTestCase {
         XCTAssertEqual(RunTitle.neutral("TipSplit is on screen with Bill 120"), "TipSplit with Bill 120")
         XCTAssertEqual(RunTitle.neutral("TipSplit is running on screen. Verify it works"), "TipSplit: verify it works")
         XCTAssertEqual(RunTitle.neutral("Build the app"), "Build the app")
+        // #96: an acronym or a name keeps its capitals ("uI only", "aPI docs" before).
+        XCTAssertEqual(RunTitle.neutral("TipSplit is running. UI only: set Bill 84.00"), "TipSplit: UI only: set Bill 84.00")
+        XCTAssertEqual(RunTitle.neutral("Safari is open. API docs page"), "Safari: API docs page")
+        XCTAssertEqual(RunTitle.neutral("Safari is open. TipSplit renders"), "Safari: TipSplit renders")
+        XCTAssertEqual(RunTitle.neutral("Safari is open. I think it hangs"), "Safari: I think it hangs")
+        XCTAssertEqual(RunTitle.neutral("TipSplit is running. A tip of 18% shows"), "TipSplit: a tip of 18% shows")
         // Long subjects are a sentence, not a name: left alone.
         XCTAssertEqual(RunTitle.neutral("The thing I asked about yesterday is running"), "The thing I asked about yesterday is running")
     }
