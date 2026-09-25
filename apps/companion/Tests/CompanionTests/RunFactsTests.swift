@@ -308,6 +308,7 @@ final class TitleAndWordsTests: XCTestCase {
         XCTAssertEqual(RunTitle.neutral("Safari is open. API docs page"), "Safari: API docs page")
         XCTAssertEqual(RunTitle.neutral("Safari is open. TipSplit renders"), "Safari: TipSplit renders")
         XCTAssertEqual(RunTitle.neutral("Safari is open. I think it hangs"), "Safari: I think it hangs")
+        XCTAssertEqual(RunTitle.neutral("TipSplit is running. A tip of 18% shows"), "TipSplit: a tip of 18% shows")
         // Long subjects are a sentence, not a name: left alone.
         XCTAssertEqual(RunTitle.neutral("The thing I asked about yesterday is running"), "The thing I asked about yesterday is running")
     }
