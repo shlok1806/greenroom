@@ -87,6 +87,19 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(withFrames.frames, 42)
     }
 
+    /// The newest frame, what the row's thumbnail is drawn from: explicit null for a run
+    /// with none, absent from a daemon before it.
+    func testRunSummaryDecodesItsLastFrame() throws {
+        let base = #""runId":"run-1","createdAt":"2026-09-18T10:00:00Z","status":"finished","steps":1,"lastActivity":"2026-09-18T10:00:01Z","messages":1"#
+        let withFrame = try decode(RunSummary.self, """
+        {\(base),"frames":2,"lastFrame":{"at":"2026-09-18T10:00:02Z","file":"1758300002123.jpg","step":15,"bytes":98304}}
+        """)
+        XCTAssertEqual(withFrame.lastFrame?.file, "1758300002123.jpg")
+        XCTAssertEqual(withFrame.lastFrame?.step, 15)
+        XCTAssertNil(try decode(RunSummary.self, "{\(base),\"lastFrame\":null}").lastFrame)
+        XCTAssertNil(try decode(RunSummary.self, "{\(base)}").lastFrame)
+    }
+
     /// One frame of a run's recording (ADR 0008).
     func testFrameDecodes() throws {
         let frames = try decode([Frame].self, """

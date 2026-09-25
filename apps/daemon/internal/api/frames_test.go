@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -174,5 +176,102 @@ func TestEventStreamDeliversFrameEvents(t *testing.T) {
 	}
 	if fd.RunID != runID || fd.File == "" {
 		t.Errorf("frame event = %+v, want runId %q and a file name", fd, runID)
+	}
+}
+
+// --- the run list's last frame (the companion's thumbnail, companion ADR 0006) ---
+
+// listed returns the run list's entry for runID, and the raw JSON object it came from.
+func listed(t *testing.T, h *harness, runID string) (RunSummary, map[string]json.RawMessage) {
+	t.Helper()
+	res, body := h.do(http.MethodGet, "/api/runs", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/runs: status %d: %s", res.StatusCode, body)
+	}
+	var runs []RunSummary
+	var raws []map[string]json.RawMessage
+	if err := json.Unmarshal(body, &runs); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(body, &raws); err != nil {
+		t.Fatal(err)
+	}
+	for i, r := range runs {
+		if r.RunID == runID {
+			return r, raws[i]
+		}
+	}
+	t.Fatalf("run %s is not listed: %s", runID, body)
+	return RunSummary{}, nil
+}
+
+func TestRunListCarriesTheNewestFrameAndItServes(t *testing.T) {
+	h := newHarness(t, machine.WithFrameInterval(30*time.Millisecond))
+	runID := h.ready()
+	h.putShot()
+	waitForFrame(t, h, runID)
+	// Destroyed, the run is finished and its frame log stops growing, so the list and
+	// /frames can be compared.
+	if err := h.mgr.Destroy(context.Background(), runID); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+
+	var frames []machine.Frame
+	h.get("/api/runs/"+runID+"/frames", &frames)
+	s, _ := listed(t, h, runID)
+	if s.DestroyedAt == nil {
+		t.Fatalf("summary = %+v, want a finished run", s)
+	}
+	if s.LastFrame == nil {
+		t.Fatalf("a finished run with %d frames lists no lastFrame", len(frames))
+	}
+	if newest := frames[len(frames)-1]; *s.LastFrame != newest {
+		t.Errorf("lastFrame = %+v, want the newest frame %+v", *s.LastFrame, newest)
+	}
+	res, body := h.do(http.MethodGet, "/api/runs/"+runID+"/frames/"+s.LastFrame.File, nil)
+	if res.StatusCode != http.StatusOK || len(body) != s.LastFrame.Bytes {
+		t.Errorf("GET lastFrame: status %d, %d bytes, want 200 and %d bytes", res.StatusCode, len(body), s.LastFrame.Bytes)
+	}
+}
+
+func TestRunListSaysNullForARunWithNoFrames(t *testing.T) {
+	h := newHarness(t) // frames off
+	runID := h.ready()
+
+	s, raw := listed(t, h, runID)
+	if s.LastFrame != nil {
+		t.Errorf("lastFrame = %+v, want none", *s.LastFrame)
+	}
+	if got, ok := raw["lastFrame"]; !ok || string(got) != "null" {
+		t.Errorf("lastFrame is %q (present %v), want an explicit null like verdict", got, ok)
+	}
+}
+
+func TestRunListSkipsATornLastFrameLine(t *testing.T) {
+	h := newHarness(t, machine.WithFrameInterval(30*time.Millisecond))
+	runID := h.ready()
+	h.putShot()
+	waitForFrame(t, h, runID)
+	if err := h.mgr.Destroy(context.Background(), runID); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+	before, _ := listed(t, h, runID)
+
+	// A crash mid-append leaves a line with no newline; it is not a frame yet.
+	f, err := os.OpenFile(filepath.Join(h.mgr.RunDir(runID), "frames.jsonl"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"at":"2030-01-01T00:00:00Z","file":"999`); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	after, _ := listed(t, h, runID)
+	if after.LastFrame == nil || before.LastFrame == nil || *after.LastFrame != *before.LastFrame {
+		t.Errorf("lastFrame after a torn line = %+v, want it unchanged at %+v", after.LastFrame, before.LastFrame)
+	}
+	if after.Frames != before.Frames {
+		t.Errorf("frames = %d, want %d", after.Frames, before.Frames)
 	}
 }

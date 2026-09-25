@@ -257,6 +257,9 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     var frames: Int?
     /// The first task message, clipped by the daemon. Optional so an older daemon still decodes.
     var task: String?
+    /// The newest recorded frame, what the row's thumbnail is drawn from. nil for a run
+    /// with none, and from a daemon before it (the row then shows the empty mark).
+    var lastFrame: Frame?
 
     var id: String { runId }
 
@@ -272,7 +275,8 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         lastActivity: Date? = nil,
         messages: Int = 0,
         frames: Int? = nil,
-        task: String? = nil
+        task: String? = nil,
+        lastFrame: Frame? = nil
     ) {
         self.runId = runId
         self.createdAt = createdAt
@@ -286,6 +290,7 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         self.messages = messages
         self.frames = frames
         self.task = task
+        self.lastFrame = lastFrame
     }
 
     init(from decoder: any Decoder) throws {
@@ -302,6 +307,7 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         messages = try c.decode(.messages, or: 0)
         frames = try c.decodeIfPresent(Int.self, forKey: .frames)
         task = try c.decodeIfPresent(String.self, forKey: .task)
+        lastFrame = try c.decodeIfPresent(Frame.self, forKey: .lastFrame)
     }
 }
 

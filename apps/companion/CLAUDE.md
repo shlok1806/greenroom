@@ -8,8 +8,8 @@ run state, colour meanings, verdict trust, the snapshot tool), `0003` (verdict a
 status vocabulary, the daemon changes the UI waits on), `0004` (the glyph-native interface
 on a character grid), `0005` (keys and the action registry), `0006` (motion, signature
 moments, click marks), `0007` (the dependency allowlist), `0008` (readable type and the
-olive brand, amending 0004's type and colour decisions) and `0009` (transcript cards and
-the Markdown renderer). Design: `docs/design-spec.md`
+olive brand, amending 0004's type and colour decisions), `0009` (transcript cards and
+the Markdown renderer) and `0010` (run thumbnails from the last frame). Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -74,7 +74,8 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   screen, `g,t,z` the transcript) hands key events to `KeyRouter.inject`, the router first
   and then the window's responders, as typed keys go (hint bar, help, palette, composer
   states); `GREENROOM_SNAPSHOT_MENU=1` prints the View and Run menus as AppKit holds them.
-  `GREENROOM_SNAPSHOT_SIZE=820x560` sizes the window's content first.
+  `GREENROOM_SNAPSHOT_SIZE=820x560` sizes the window's content first, and
+  `GREENROOM_SNAPSHOT_RUNS_WIDTH=380` the wide window's runs column.
 - A snapshot is a camera, never a seat. A launch once took the key window, opened the
   live run that needed review instead of the requested one and took the person's typing,
   which started an accept on a real verdict. So in `SnapshotMode`:
@@ -304,8 +305,16 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
     before a stop's flush still sees the frame) or the recording frame's `NSImage`. The
     main actor only receives the drawn still.
   - Power-down: a machine ending while its picture shows dissolves that picture into glyphs
-    and holds it, then the well shows the recording. It is local to the view: the still is
-    not kept as the run's thumbnail (ADR 0006 says it is; that needs a daemon route).
+    and holds it, then the well shows the recording. The moment itself is local to the view.
+  - Run thumbnails (ADR 0010, `Model/RunThumbnails.swift`, drawn by `RunThumbnailView` in
+    `SidebarView.swift`): the run's last recorded frame (`RunSummary.lastFrame`, from
+    `/api/runs`) as the same braille dither, fetched lazily by the row as it appears
+    (`RunThumbnails.request`), decoded downsampled and sampled off the main actor, held as
+    the rendering in a byte-bounded LRU (`ThumbnailCache`) and drawn in the theme's dim on a
+    whole-point dot lattice (crisp at 1x). One fetch per run per frame per session; a frame
+    the daemon refused is not asked for again. A live run's `lastFrame` follows `frame`
+    events no faster than `RunThumbnails.liveRefresh` (`advances`, in `apply`). The box is
+    always reserved, so rows never move. The strip keeps its marks.
   - House lights (`HouseLights.down`): down exactly while the hint bar says every key goes to
     the machine (`drivingFocused`). Lit holes are reported with `.houseLightsLit()`: the
     well, the driving bar, Give Back and the hint bar. The scrim takes no clicks, so Give
@@ -337,7 +346,8 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
     verdict-lands fail, `GREENROOM_SNAPSHOTS_FAIL_RUN` (default a TipSplit fail).
 - A run is named by a short title from its task (`RunTitle.short`, made distinct with
   `RunTitle.distinct`), never by its id. The sidebar pins "Needs You" and "Running"
-  above the days; a row is the title, start time and counts, and its state in words.
+  above the days; a row is the thumbnail and title, then the start time and counts and its
+  state in words under both (the time gives way before the state is clipped).
 - The verdict's Accept and Dispute live only in `VerdictCard`, pinned above the
   conversation (or above the stage when the conversation is hidden or has no room). A
   narrow window keeps it with the conversation, one pane away; `a` and `d` bring the

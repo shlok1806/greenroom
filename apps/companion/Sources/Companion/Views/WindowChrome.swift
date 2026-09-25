@@ -201,7 +201,8 @@ struct Wordmark: View {
 /// in, open `GREENROOM_SNAPSHOT_RUN` (a run id; a run the daemon does not list fails the
 /// snapshot) if given, on `GREENROOM_SNAPSHOT_PANE` (`screen` or `steps`) if given, press
 /// `GREENROOM_SNAPSHOT_KEYS` if given (comma-separated: `g`, `?`, `cmd+k`, `esc`,
-/// `enter`, `tab`, `shift+enter`, `text:words`), then write the window to
+/// `enter`, `tab`, `shift+enter`, `text:words`), with the runs column
+/// `GREENROOM_SNAPSHOT_RUNS_WIDTH` points wide if given, then write the window to
 /// `<dir>/<GREENROOM_SNAPSHOT_NAME or "window">-<theme>.png` in each theme of
 /// `GREENROOM_SNAPSHOT_THEMES` (default all four) and quit. The window draws itself
 /// (`cacheDisplay`), so it needs no screen-recording permission.
@@ -229,6 +230,10 @@ enum SnapshotHook {
             // So the first selection is already the requested run, not the newest or the
             // one that needs the person.
             if let run { defaults.set(run, forKey: "selectedRunId") }
+            // `GREENROOM_SNAPSHOT_RUNS_WIDTH=380`: the wide window's runs column, as dragged.
+            if let width = environment["GREENROOM_SNAPSHOT_RUNS_WIDTH"].flatMap(Double.init) {
+                defaults.set(width, forKey: "sidebarWidth")
+            }
 
             var window: NSWindow?
             for _ in 0..<100 {

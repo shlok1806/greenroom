@@ -236,7 +236,9 @@ Evidence
   current step; it never claims a number. The first capture failure and the first recovery
   after it are logged, never fatal. A host that sleeps (lid closed) suspends the VM: frames
   stop for the whole sleep, and the first capture after wake can fail once with "could not
-  create image from display".
+  create image from display". `/api/runs` names each run's newest frame as `lastFrame`
+  (explicit null for none), read with the frame count, never decoded: the Companion's
+  thumbnail (companion ADR 0010).
 - A guest command's non-zero exit is `ExitCode`, not an `error`. `error` means tart failed.
 - Last activity (`Manager.LastActivity`, `/api/runs` `lastActivity`, `machine_list`
   `idleSeconds`, the host-limit error) is the newest step end or message, never a frame:
