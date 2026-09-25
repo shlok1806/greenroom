@@ -4,14 +4,18 @@ import SwiftUI
 
 /// A player over the frames the daemon captured (ADR 0008), the live stream while
 /// following a ready machine (ADR 0011), and while the lease is held, the machine's
-/// mouse and keys (ADR 0009). Nothing is drawn over the picture except the driving
-/// badge; position lives under the track.
+/// mouse and keys (ADR 0009). The stage: a quiet title row (the machine and where the
+/// picture comes from), the always-dark well, and the player under it. Nothing is drawn
+/// over the picture; position lives under the track. A well with no picture says why in
+/// words, or shows the loader while the machine boots or the live screen connects.
 struct ScreenView: View {
     let store: RunStore
     let runId: String
     /// On screen. The layout keeps a covered or zoomed-away screen in the tree, so its
     /// player and the lease live on; it stops the live stream and takes no input then.
     var visible = true
+    /// Has the keyboard: its label takes the brand, as the steps' does.
+    var hasKeys = false
 
     @State private var player = PlayerModel()
     @State private var image: NSImage?
@@ -26,6 +30,8 @@ struct ScreenView: View {
     /// Where the player was before evidence was opened, for "Back to verdict".
     @State private var returnPoint: (index: Int, live: Bool)?
     @State private var evidenceStep: Int?
+    /// When the live screen began connecting, for the loader's timer.
+    @State private var connectingSince: Date?
     @AppStorage("showsConversation") private var showsConversation = true
     @FocusState private var focused: Bool
     @Environment(\.theme) private var theme
@@ -97,6 +103,9 @@ struct ScreenView: View {
         .onChange(of: wantsLive) {
             syncLive()
         }
+        .onChange(of: sourceState == .connecting, initial: true) { _, connecting in
+            connectingSince = connecting ? (connectingSince ?? Date()) : nil
+        }
         .onChange(of: machineIsReady) { _, ready in
             guard !ready, let pilot else { return }
             Task { await pilot.release() }
@@ -136,10 +145,11 @@ struct ScreenView: View {
         .preference(key: PlayheadStepKey.self, value: playheadStep)
     }
 
-    /// The step at the playhead: the newest while following live.
+    /// The step at the playhead: the newest while following a live machine. A finished run
+    /// "follows" only its last frame, which may be older than its last step (the destroy).
     private var playheadStep: Int? {
         let steps = store.steps[runId] ?? []
-        if player.live || player.current == nil { return steps.last?.seq }
+        if (player.live && machineIsReady) || player.current == nil { return steps.last?.seq }
         guard let frame = player.current else { return nil }
         return steps.last { $0.seq <= frame.step }?.seq
     }
@@ -148,7 +158,7 @@ struct ScreenView: View {
         var ids: Set<ActionID> = []
         if returnPoint != nil { ids.insert(.backToVerdict) }
         guard !driving else { return ids }
-        if player.frames.count > 1 { ids.formUnion([.play, .previousFrame, .nextFrame]) }
+        if player.frames.count > 1 { ids.formUnion([.play, .previousFrame, .nextFrame, .speed]) }
         if machineIsReady ? !player.live : player.index < player.frames.count - 1 { ids.insert(.latest) }
         return ids
     }
@@ -156,6 +166,7 @@ struct ScreenView: View {
     private func perform(_ id: ActionID) {
         switch id {
         case .play: player.playing.toggle()
+        case .speed: player.speed = player.speed == .normal ? .fast : .normal
         case .previousFrame: step(by: -1)
         case .nextFrame: step(by: 1)
         case .latest:
@@ -189,8 +200,12 @@ struct ScreenView: View {
                     store.requestSeek(runId: runId, step: evidenceStep, fromVerdict: true, inSteps: true)
                 })
             }
+            titleRow
+                .padding(.horizontal, Space.l)
+                .padding(.top, driving ? Space.m : Space.l)
+                .padding(.bottom, Space.s)
             well
-                .padding([.horizontal, .top], Space.l)
+                .padding(.horizontal, Space.l)
                 .padding(.bottom, hasPlayer ? Space.m : Space.l)
                 .layoutPriority(1)
             // A booting machine or an empty run has nothing to play or take.
@@ -200,12 +215,9 @@ struct ScreenView: View {
                     steps: store.steps[runId] ?? [],
                     verdict: store.verdict(runId),
                     supersededEvidence: supersededEvidence,
-                    origin: facts.started,
-                    total: facts.duration(now: Date()),
                     hoverIndex: $hoverIndex,
                     driving: driving,
                     machineIsReady: machineIsReady,
-                    source: sourceState,
                     liveFailure: liveFailure,
                     endedReason: driving ? nil : pilot?.endedReason,
                     goLive: goLive
@@ -213,6 +225,40 @@ struct ScreenView: View {
             }
             Spacer(minLength: Space.m)
         }
+    }
+
+    /// The machine by its image, quiet, and where the picture comes from. Only once there
+    /// is a machine or a recording: before that the well says it all.
+    private var titleRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+            SectionLabel(title: "Screen", ink: hasKeys ? theme.brandInk(on: .background) : nil)
+                .fixedSize()
+            if let machineName {
+                Text(machineName)
+                    .monoStyle(size: TypeScale.monoSmall)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help("The machine's image")
+            }
+            Spacer(minLength: Space.s)
+            if hasPlayer {
+                SourceLabel(state: hoverSource ?? sourceState)
+            }
+        }
+        .frame(minHeight: 18)
+    }
+
+    private var machineName: String? {
+        let image = store.details[runId]?.machine?.image ?? store.run(runId)?.image
+        return image.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// While hovering the track the source line previews the time under the pointer.
+    private var hoverSource: ScreenSourceState? {
+        guard let hoverIndex, !driving else { return nil }
+        return .recording(position: FrameTimeline.offset(player.frames, at: hoverIndex, from: facts.started),
+                          total: facts.duration(now: Date()))
     }
 
     // MARK: - Picture
@@ -263,39 +309,61 @@ struct ScreenView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// The well with no picture: why, in words, in the dark theme's ink (the well is dark
+    /// in every theme). Work that takes a while shows the loader with its timer.
     @ViewBuilder
     private var emptyWell: some View {
-        // The well is dark in every theme: its words take the dark theme's ink.
         Group {
-            if case .booting = facts.phase {
-                VStack(spacing: Space.s) {
-                    HStack(spacing: Space.s) {
-                        Spinner()
-                        Text("booting machine")
-                    }
-                    .monoStyle()
-                    .foregroundStyle(theme.wellInk)
-                    Text("Its screen appears here once it is ready.")
-                        .readingStyle(size: TypeScale.readingSmall)
-                        .foregroundStyle(theme.wellDim)
+            switch WellState.of(facts: facts, frames: store.frames[runId], connecting: sourceState == .connecting) {
+            case .booting:
+                wellWords(loader: Loader(label: "Booting the machine", since: facts.started,
+                                         ink: theme.wellInk, dim: theme.wellDim),
+                          message: "Its screen appears here once it is ready.")
+            case .connecting:
+                wellWords(loader: Loader(label: "Connecting to the screen", since: connectingSince ?? Date(),
+                                         ink: theme.wellInk, dim: theme.wellDim),
+                          message: "The machine's screen shows here as it happens.")
+            case .reading:
+                HStack(spacing: Space.s) {
+                    Spinner(size: TypeScale.small)
+                    Text("Reading the recording")
                 }
-            } else if !player.frames.isEmpty {
+                .monoStyle(size: TypeScale.small)
+                .foregroundStyle(theme.wellDim)
+            case .loadingFrame:
                 Spinner().foregroundStyle(theme.wellDim)
-            } else {
-                VStack(spacing: Space.xs) {
-                    Text("No recording")
-                        .headingStyle()
-                        .foregroundStyle(theme.wellInk)
-                    Text(machineIsReady
-                        ? "Recording starts when the machine is ready."
-                        : "This run ended without any frames captured.")
-                        .readingStyle(size: TypeScale.readingSmall)
-                        .foregroundStyle(theme.wellDim)
-                }
+            case .failedToStart(let reason):
+                wellWords(title: "The machine did not start", message: reason ?? "It failed while booting, so nothing was recorded.")
+            case .waitingForFirstFrame:
+                wellWords(title: "No recording yet", message: "The first frame is taken a few seconds after the machine is ready.")
+            case .noFrames:
+                wellWords(title: "No recording", message: "This run ended without any frames captured.")
             }
         }
         .multilineTextAlignment(.center)
         .padding(Space.l)
+    }
+
+    private func wellWords(loader: Loader, message: String) -> some View {
+        VStack(spacing: Space.m) {
+            loader
+            Text(message)
+                .readingStyle(size: TypeScale.readingSmall)
+                .foregroundStyle(theme.wellDim)
+        }
+    }
+
+    private func wellWords(title: String, message: String) -> some View {
+        VStack(spacing: Space.xs) {
+            Text(title)
+                .headingStyle()
+                .foregroundStyle(theme.wellInk)
+            Text(message)
+                .readingStyle(size: TypeScale.readingSmall)
+                .foregroundStyle(theme.wellDim)
+                .lineLimit(4)
+        }
+        .frame(maxWidth: 420)
     }
 
     /// Where the picture comes from: exactly one of live, connecting, recording, driving.
@@ -483,377 +551,5 @@ private struct DrivingBar: View {
         .background(theme.color(.driving), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("You have control of the machine")
-    }
-}
-
-// MARK: - Player bar
-
-/// Where the picture comes from, as one chip: never "live" and "connecting" at once.
-enum ScreenSourceState: Equatable {
-    case live
-    case connecting
-    /// The recording, at `position` of `total` since the run started.
-    case recording(position: TimeInterval, total: TimeInterval)
-    case driving
-}
-
-/// Play, speed, the track, the one state chip, and where the playhead is.
-private struct PlayerBar: View {
-    @Binding var player: PlayerModel
-    let steps: [Step]
-    let verdict: VerdictState?
-    /// Verdicts the conversation has replaced, whose evidence stays marked as superseded.
-    let supersededEvidence: Set<Int>
-    /// The run's start: every time here is measured from it, as in the header.
-    let origin: Date
-    let total: TimeInterval
-    @Binding var hoverIndex: Int?
-    let driving: Bool
-    let machineIsReady: Bool
-    let source: ScreenSourceState
-    let liveFailure: String?
-    let endedReason: String?
-    let goLive: () -> Void
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
-            HStack(spacing: Space.m) {
-                Button {
-                    player.playing.toggle()
-                } label: {
-                    Text(player.playing ? "❚❚" : "▶")
-                        .font(Typeface.monoBold.font(size: TypeScale.small))
-                        .frame(width: 28, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .hoverHighlight(radius: Radius.sm)
-                .disabled(player.frames.count < 2 || driving)
-                .help(player.playing ? "Pause (\(ActionRegistry.label(.play)))" : "Play the recording (\(ActionRegistry.label(.play)))")
-                .accessibilityLabel(player.playing ? "Pause" : "Play")
-
-                FrameTrack(
-                    frames: player.frames,
-                    index: player.index,
-                    marks: marks,
-                    enabled: !driving,
-                    hoverIndex: $hoverIndex
-                ) { newIndex in
-                    player.live = false
-                    player.index = newIndex
-                }
-                .frame(height: 24)
-
-                SourceChip(state: hoverState ?? source)
-            }
-
-            // In a narrow stage the legend and Go Live wrap under the position (the spec's
-            // last step for narrow windows), never pushing the stage wider than its column.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: Space.m) {
-                    speed
-                    position
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    legend
-                    liveButton
-                }
-                VStack(alignment: .leading, spacing: Space.s) {
-                    HStack(spacing: Space.m) {
-                        speed
-                        position
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    HStack(spacing: Space.m) {
-                        legend
-                        Spacer(minLength: 0)
-                        liveButton
-                    }
-                }
-            }
-
-            if let liveFailure {
-                statusLine("· The live screen is unavailable, so this is the recording: \(liveFailure)", tint: theme.dim)
-            }
-            // Outside the ready check: a stopped machine hides the button but keeps the reason.
-            if let endedReason {
-                statusLine("! Control ended: \(endedReason)", tint: theme.color(.attention))
-            }
-        }
-        .padding(.horizontal, Space.l)
-    }
-
-    private var speed: some View {
-        SegmentedSwitch(options: [(PlayerModel.Speed.normal, "1×"), (PlayerModel.Speed.fast, "4×")],
-                        selection: $player.speed, small: true)
-            .disabled(driving)
-            .help("Playback speed")
-    }
-
-    @ViewBuilder
-    private var liveButton: some View {
-        if machineIsReady, !player.live, !driving {
-            Button("Go Live →") { goLive() }
-                .buttonStyle(.quiet(small: true))
-                .fixedSize()
-            .help("Jump to the machine's screen now (\(ActionRegistry.label(.followLive)))")
-        }
-    }
-
-    /// While hovering the track the chip previews the time under the pointer.
-    private var hoverState: ScreenSourceState? {
-        guard let hoverIndex else { return nil }
-        return .recording(position: FrameTimeline.offset(player.frames, at: hoverIndex, from: origin), total: total)
-    }
-
-    private func statusLine(_ text: String, tint: Color) -> some View {
-        Text(text)
-            .monoStyle(size: TypeScale.monoSmall)
-            .foregroundStyle(tint)
-            .lineLimit(2)
-            .truncationMode(.tail)
-            .textSelection(.enabled)
-            .help(text)
-    }
-
-    /// The step at the pointer while hovering, else at the playhead. The detail gives
-    /// way from the middle, so the start and end of a command stay readable.
-    private var position: some View {
-        let index = hoverIndex ?? player.index
-        let frame = player.frames.indices.contains(index) ? player.frames[index] : nil
-        let step = frame.flatMap { frame in steps.last { $0.seq <= frame.step } }
-        return HStack(spacing: Space.s) {
-            if let step {
-                Text("Step \(step.seq)")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                Text(StepSummary.phrase(for: step, in: steps))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    // A small ideal width: the bar's one-line layout is chosen by what
-                    // must fit, not by how long a command is.
-                    .frame(minWidth: 0, idealWidth: 60, maxWidth: .infinity, alignment: .leading)
-                    .layoutPriority(-1)
-            } else if player.frames.isEmpty {
-                Text("No frames yet").foregroundStyle(.secondary)
-            }
-        }
-        .monoStyle(size: TypeScale.small)
-        .lineLimit(1)
-        .help(frame.map { "\(Chrome.stamp($0.at)) (\(Chrome.zone))\n\($0.file)" } ?? "")
-    }
-
-    @ViewBuilder
-    private var legend: some View {
-        let marks = marks
-        if !marks.failed.isEmpty || !marks.evidence.isEmpty {
-            HStack(spacing: Space.m) {
-                if !marks.failed.isEmpty {
-                    HStack(spacing: Space.xs) {
-                        Text("●").foregroundStyle(theme.color(.failure))
-                        Text("errored")
-                    }
-                }
-                if !marks.evidence.isEmpty {
-                    HStack(spacing: Space.xs) {
-                        Text("◆").foregroundStyle(theme.outcome(marks.verdict))
-                        Text("evidence")
-                    }
-                }
-                if !marks.superseded.isEmpty {
-                    HStack(spacing: Space.xs) {
-                        Text("◇")
-                        Text("earlier")
-                    }
-                }
-            }
-            .monoStyle(size: TypeScale.monoSmall)
-            .foregroundStyle(.secondary)
-            .fixedSize()
-            .help("Marks on the track: red dots are steps that errored, filled diamonds the steps the verdict cites, hollow ones steps a superseded verdict cited")
-        }
-    }
-
-    private var marks: TrackMarks {
-        let failed = Set(steps.filter { $0.outcome.isFailure }.map(\.seq))
-        let evidence = Set((verdict?.evidence ?? []).compactMap { Evidence.parse($0).step })
-        return TrackMarks(failed: failed, evidence: evidence, superseded: supersededEvidence.subtracting(evidence),
-                          verdict: verdict?.verdict)
-    }
-}
-
-struct TrackMarks {
-    var failed: Set<Int>
-    var evidence: Set<Int>
-    var superseded: Set<Int>
-    var verdict: String?
-}
-
-/// Live, connecting, the recording's position, or driving: one chip, one truth.
-private struct SourceChip: View {
-    let state: ScreenSourceState
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        HStack(spacing: Space.xs) {
-            switch state {
-            case .live:
-                LiveMark()
-                Text("Live").foregroundStyle(theme.color(.live, on: .surface))
-            case .connecting:
-                Spinner(size: TypeScale.monoSmall)
-                Text("Connecting")
-            case .recording(let position, let total):
-                Text("Recording \(Chrome.clock(position)) of \(Chrome.clock(total))")
-                    .monospacedDigit()
-            case .driving:
-                Text("●")
-                Text("Live, you have control")
-            }
-        }
-        .monoStyle(.monoMedium, size: TypeScale.monoSmall)
-        .foregroundStyle(state == .driving ? theme.color(.driving, on: .surface) : theme.foreground)
-        .padding(.horizontal, Space.s)
-        .frame(height: 22)
-        .panel(radius: Radius.sm)
-        .fixedSize()
-        .help(help)
-    }
-
-    private var help: String {
-        switch state {
-        case .live: "The machine's screen as it happens"
-        case .connecting: "Asking the machine for its live screen; the recording shows meanwhile"
-        case .recording: "A recorded frame; times are since the run started"
-        case .driving: "Your mouse and keys go to the machine"
-        }
-    }
-}
-
-/// A seek track with a tick wherever a new step began, and marks for failed steps and
-/// the verdicts' evidence. Idle stretches are squeezed so steps do not bunch up; marks
-/// closer than a few points merge into one, with the count in its tooltip.
-private struct FrameTrack: View {
-    let frames: [Frame]
-    let index: Int
-    let marks: TrackMarks
-    var enabled: Bool = true
-    @Binding var hoverIndex: Int?
-    let onSeek: (Int) -> Void
-
-    private static let trackHeight: CGFloat = 4
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let timeline = FrameTimeline(frames: frames, width: width)
-            let playhead = timeline.x(of: index)
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(theme.hairline)
-                    .frame(height: Self.trackHeight)
-
-                Capsule()
-                    .fill(enabled ? theme.foreground.opacity(0.55) : theme.dim)
-                    .frame(width: max(playhead, Self.trackHeight), height: Self.trackHeight)
-
-                ForEach(timeline.ticks(for: frames), id: \.index) { tick in
-                    Rectangle()
-                        .fill(theme.dim.opacity(0.7))
-                        .frame(width: 1, height: 9)
-                        .offset(x: min(tick.x, width - 1))
-                }
-
-                let merged = FrameTimeline.cluster(
-                    timeline.marks(for: frames, failed: marks.failed, evidence: marks.evidence.union(marks.superseded),
-                                   verdict: marks.verdict),
-                    minGap: 8
-                )
-                ForEach(merged, id: \.first.step) { group in
-                    markView(group.first, superseded: marks.superseded.contains(group.first.step) && !marks.evidence.contains(group.first.step))
-                        .frame(width: 11, height: 11)
-                        .contentShape(Rectangle())
-                        .help(markHelp(group))
-                        .offset(x: min(max(group.first.x - 5.5, 0), width - 11), y: -9)
-                }
-
-                if let hoverIndex, enabled {
-                    Rectangle()
-                        .fill(theme.dim)
-                        .frame(width: 1, height: 14)
-                        .offset(x: min(max(timeline.x(of: hoverIndex), 0), width - 1))
-                        .allowsHitTesting(false)
-                }
-
-                // Clamped so the playhead does not hang off either end.
-                Circle()
-                    .fill(theme.foreground)
-                    .overlay(Circle().strokeBorder(theme.background, lineWidth: 2))
-                    .frame(width: 12, height: 12)
-                    .offset(x: min(max(playhead - 6, 0), max(width - 12, 0)))
-                    .opacity(frames.isEmpty ? 0 : 1)
-                    .allowsHitTesting(false)
-            }
-            .frame(width: width, height: geometry.size.height, alignment: .leading)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        guard enabled, frames.count > 1 else { return }
-                        onSeek(timeline.index(atX: value.location.x))
-                    }
-            )
-            .onContinuousHover { phase in
-                switch phase {
-                case .active(let point):
-                    guard enabled, frames.count > 1 else { return }
-                    hoverIndex = timeline.index(atX: point.x)
-                case .ended:
-                    hoverIndex = nil
-                }
-            }
-            .opacity(frames.count > 1 ? 1 : 0.4)
-        }
-        .accessibilityElement()
-        .accessibilityLabel("Recording position")
-        .accessibilityValue(frames.isEmpty ? "no frames" : "frame \(index + 1) of \(frames.count)")
-        .accessibilityAdjustableAction { direction in
-            guard enabled, !frames.isEmpty else { return }
-            switch direction {
-            case .increment: onSeek(min(index + 1, frames.count - 1))
-            case .decrement: onSeek(max(index - 1, 0))
-            @unknown default: break
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func markView(_ mark: FrameTimeline.Mark, superseded: Bool) -> some View {
-        switch mark.kind {
-        case .failure:
-            Circle()
-                .fill(theme.color(.failure))
-                .frame(width: 7, height: 7)
-        case .evidence(let verdict):
-            Text(superseded ? "◇" : "◆")
-                .font(.system(size: TypeScale.mark, weight: .bold))
-                .foregroundStyle(superseded ? theme.dim : theme.outcome(verdict))
-        }
-    }
-
-    private func markHelp(_ group: FrameTimeline.MarkGroup) -> String {
-        let steps = group.marks.map { "\($0.step)" }.joined(separator: ", ")
-        if group.marks.count > 1 { return "Steps \(steps)" + (group.marks.contains { $0.kind == .failure } ? ", some errored" : "") }
-        switch group.first.kind {
-        case .failure: return "Step \(steps) errored"
-        case .evidence: return marks.superseded.contains(group.first.step) && !marks.evidence.contains(group.first.step)
-            ? "Step \(steps) was cited by an earlier, superseded verdict"
-            : "Step \(steps) is cited by the verdict"
-        }
     }
 }

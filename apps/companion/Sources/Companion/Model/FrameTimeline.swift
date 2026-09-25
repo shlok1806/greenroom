@@ -134,6 +134,40 @@ struct FrameTimeline: Equatable, Sendable {
         return out
     }
 
+    /// A step's tick on the scrubber: where it begins, and whether it errored.
+    struct StepTick: Equatable, Sendable {
+        var x: Double
+        var step: Int
+        var failed: Bool
+    }
+
+    /// The scrubber's ticks: one where each step begins, and one for every step that
+    /// errored even where no frame boundary shows it (steps quicker than the capture
+    /// interval), drawn in the failure role. Plain ticks closer than `minGap` points to
+    /// one already kept are dropped, so hundreds of steps do not merge into a grey band;
+    /// an errored tick is never dropped for a plain one, and replaces a plain one it lands
+    /// on. Errored ticks closer than `minGap` to each other merge into the first.
+    func stepTicks(for frames: [Frame], failed: Set<Int>, minGap: Double = 5) -> [StepTick] {
+        guard count > 1, width > 0, !frames.isEmpty else { return [] }
+        var candidates = ticks(for: frames, minGap: 0).map { StepTick(x: $0.x, step: $0.step, failed: failed.contains($0.step)) }
+        let placed = Set(candidates.map(\.step))
+        for step in failed.subtracting(placed).sorted() {
+            guard let index = FrameTimeline.index(ofStep: step, in: frames) else { continue }
+            candidates.append(StepTick(x: x(of: index), step: step, failed: true))
+        }
+        // Errored first, so a plain tick never claims the room an errored one needs.
+        var kept: [StepTick] = []
+        for tick in candidates.filter(\.failed).sorted(by: { ($0.x, $0.step) < ($1.x, $1.step) }) {
+            if let last = kept.last, tick.x - last.x < minGap { continue }
+            kept.append(tick)
+        }
+        for tick in candidates.filter({ !$0.failed }) {
+            if kept.contains(where: { abs($0.x - tick.x) < minGap }) { continue }
+            kept.append(tick)
+        }
+        return kept.sorted { ($0.x, $0.step) < ($1.x, $1.step) }
+    }
+
     /// Where each step begins. Ticks closer than `minGap` points are dropped so
     /// hundreds of steps do not merge into a grey band.
     func ticks(for frames: [Frame], minGap: Double = 5) -> [Tick] {

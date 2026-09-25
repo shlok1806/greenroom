@@ -128,7 +128,7 @@ struct RunView: View {
                 // Resets itself by hand per run, since it has a lease to give back first.
                 // `visible` stops the live stream while another pane covers it; the lease
                 // stays (Give Back is in the top bar).
-                ScreenView(store: store, runId: runId, visible: layout.screenShown)
+                ScreenView(store: store, runId: runId, visible: layout.screenShown, hasKeys: focused(.stage, .screen))
                     .focusRule(focused(.stage, .screen))
                     .paneShown(layout.screenShown)
                     .stagePart(.screen, active: layout.screenShown)

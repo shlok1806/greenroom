@@ -194,7 +194,7 @@ enum ActionID: String, CaseIterable, Sendable {
     case takeControl, giveBack, capture, exportRecording, followLive
     case nextFailure, previousFailure, destroy, confirmDestroy, cancelDestroy
     // The screen
-    case play, previousFrame, nextFrame, backToVerdict
+    case play, previousFrame, nextFrame, speed, backToVerdict
     // The verdict
     case accept, dispute, undo
     // Writing
@@ -330,6 +330,8 @@ enum ActionRegistry {
                    contexts: [.screen], group: .screen),
         ActionSpec(id: .nextFrame, title: "Next frame", keys: [KeyBinding(.right)],
                    contexts: [.screen], group: .screen, hint: 4, hintTitle: "frame", hintLabel: "← →"),
+        ActionSpec(id: .speed, title: "Play at 1× or 4×", keys: [KeyBinding(.char("f"))],
+                   contexts: [.screen], group: .screen),
         ActionSpec(id: .backToVerdict, title: "Back to the verdict", keys: [],
                    contexts: [.screen, .steps], group: .screen),
     ]
@@ -544,7 +546,7 @@ enum ActionRules {
         case .destroy: return "This run has no machine"
         case .nextFailure, .previousFailure: return "No step errored"
         case .exportRecording: return "No recording yet"
-        case .play, .previousFrame, .nextFrame: return "Show the screen, with a recording"
+        case .play, .previousFrame, .nextFrame, .speed: return "Show the screen, with a recording"
         case .backToVerdict: return "No evidence is open"
         case .search: return "No runs yet"
         case .nextPane, .previousPane: return "Open a run first"
