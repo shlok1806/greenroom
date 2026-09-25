@@ -1,6 +1,7 @@
 package verifier
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -23,7 +24,7 @@ const (
 // machineStatus is one line describing runID's machine. Wait with a zero
 // timeout returns a snapshot at once, so it is cheap to ask every step.
 func machineStatus(ctx context.Context, mgr *machine.Manager, runID string) string {
-	mc, err := mgr.Wait(ctx, runID, 0)
+	mc, err := snapshot(ctx, mgr, runID)
 	if err != nil || mc == nil {
 		return "Machine status: gone. " + deadAdvice
 	}
@@ -47,7 +48,7 @@ func machineStatus(ctx context.Context, mgr *machine.Manager, runID string) stri
 // unusable says why runID's machine cannot be driven right now, or "". The
 // manager would refuse anyway; this makes the refusal readable.
 func unusable(ctx context.Context, mgr *machine.Manager, runID string) string {
-	mc, err := mgr.Wait(ctx, runID, 0)
+	mc, err := snapshot(ctx, mgr, runID)
 	if err != nil || mc == nil {
 		return "there is no machine for this run any more"
 	}
@@ -58,6 +59,13 @@ func unusable(ctx context.Context, mgr *machine.Manager, runID string) string {
 		return "the machine is still booting"
 	}
 	return "the machine failed to boot: " + orElse(mc.Error, "no reason recorded")
+}
+
+// snapshot is runID's machine now. A turn whose budget ran out must not read its machine as
+// gone: the closing call at the limit still sees this status (issue #127), so the snapshot
+// ignores ctx's cancellation. A zero-timeout Wait never blocks.
+func snapshot(ctx context.Context, mgr *machine.Manager, runID string) (*machine.Machine, error) {
+	return mgr.Wait(context.WithoutCancel(ctx), runID, 0)
 }
 
 // withStatus inserts the machine status right after the system prompt.
@@ -165,7 +173,21 @@ func speaker(m session.Message) string {
 // progressText packs a tool call and its result into a progress message.
 // splitProgress is its inverse; the format is shared by both brains.
 func progressText(call nim.ToolCall, result string) string {
-	return call.Name + " " + call.Arguments + "\n" + result
+	return call.Name + " " + oneLine(call.Arguments) + "\n" + result
+}
+
+// oneLine keeps a call's arguments on the progress text's first line. A model that sends
+// pretty-printed JSON would otherwise be projected back, next turn, as a call whose arguments
+// are "{" and whose result starts with its own fields: a broken call for it to imitate.
+func oneLine(args string) string {
+	if !strings.ContainsAny(args, "\r\n") {
+		return args
+	}
+	var b bytes.Buffer
+	if json.Compact(&b, []byte(args)) == nil {
+		return b.String()
+	}
+	return strings.Join(strings.Fields(args), " ")
 }
 
 func splitProgress(text string) (name, args, result string) {

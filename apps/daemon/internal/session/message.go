@@ -44,7 +44,15 @@ type Message struct {
 	Step     int       `json:"step,omitempty"`     // progress: the step in steps.jsonl
 	Verdict  string    `json:"verdict,omitempty"`  // verdict: pass, fail, inconclusive
 	Evidence []string  `json:"evidence,omitempty"` // verdict: artifact paths and step refs
+	Stop     string    `json:"stop,omitempty"`     // verifier reply: the limit that ended its turn (issue #127)
 }
+
+// Stop values: the verifier's turn ended at its step cap or its time budget with no verdict
+// (issue #127). Only a verifier reply carries one, so a client can tell it from a plain answer.
+const (
+	StopSteps = "steps"
+	StopTime  = "time"
+)
 
 // StartsTurn reports whether the verifier should act on this message.
 func (m Message) StartsTurn() bool {
@@ -99,6 +107,14 @@ func validate(m Message) error {
 		case "pass", "fail", "inconclusive":
 		default:
 			return fmt.Errorf("a verdict must be pass, fail or inconclusive, not %q", m.Verdict)
+		}
+	}
+	if m.Stop != "" {
+		if m.Kind != Reply || m.From != Verifier {
+			return fmt.Errorf("only a verifier reply may carry stop, not a %s from %s", m.Kind, m.From)
+		}
+		if m.Stop != StopSteps && m.Stop != StopTime {
+			return fmt.Errorf("stop must be %s or %s, not %q", StopSteps, StopTime, m.Stop)
 		}
 	}
 	if m.Text == "" && m.Kind != Accept && m.Kind != Progress {
