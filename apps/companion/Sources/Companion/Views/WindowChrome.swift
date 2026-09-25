@@ -12,7 +12,7 @@ import SwiftUI
 struct ThemedRoot<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
-    @AppStorage(ThemePreference.key) private var preference: ThemePreference = .system
+    @AppStorage(ThemePreference.key, store: AppDefaults.shared) private var preference: ThemePreference = .system
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -197,44 +197,62 @@ struct Wordmark: View {
 #if DEBUG
 // MARK: - Design screenshots from the running app
 
-/// `GREENROOM_SNAPSHOT=<dir>` (debug builds only): once the runs are in, open
-/// `GREENROOM_SNAPSHOT_RUN` (a run id) if given, on `GREENROOM_SNAPSHOT_PANE` (`screen`
-/// or `steps`) if given, press `GREENROOM_SNAPSHOT_KEYS` if given (comma-separated:
-/// `g`, `?`, `cmd+k`, `esc`, `enter`, `tab`, `shift+enter`, `text:words`), then write the window to
+/// `GREENROOM_SNAPSHOT=<dir>` (debug builds only, `SnapshotMode`): once the run list is
+/// in, open `GREENROOM_SNAPSHOT_RUN` (a run id; a run the daemon does not list fails the
+/// snapshot) if given, on `GREENROOM_SNAPSHOT_PANE` (`screen` or `steps`) if given, press
+/// `GREENROOM_SNAPSHOT_KEYS` if given (comma-separated: `g`, `?`, `cmd+k`, `esc`,
+/// `enter`, `tab`, `shift+enter`, `text:words`), then write the window to
 /// `<dir>/<GREENROOM_SNAPSHOT_NAME or "window">-<theme>.png` in each theme of
-/// `GREENROOM_SNAPSHOT_THEMES` (default all four), put the person's theme back and quit.
-/// The window draws itself (`cacheDisplay`), so it needs no screen-recording permission.
+/// `GREENROOM_SNAPSHOT_THEMES` (default all four) and quit. The window draws itself
+/// (`cacheDisplay`), so it needs no screen-recording permission.
+///
+/// A snapshot is a camera, never a seat. The app runs `.prohibited` and its window can
+/// never be key or main, so a person typing elsewhere is never typing into it; the key
+/// router swallows every real event; the daemon client refuses every write; settings go
+/// to a scratch domain thrown away at the end. Anything that breaks one of these, or a
+/// requested run that is not there, fails the snapshot with a message and exit status 1.
 @MainActor
 enum SnapshotHook {
-    static func runIfAsked(store: RunStore) {
+    static func runIfAsked(store: RunStore, router: KeyRouter) {
         let environment = ProcessInfo.processInfo.environment
-        guard let directory = environment["GREENROOM_SNAPSHOT"], !directory.isEmpty else { return }
+        guard SnapshotMode.isActive, let directory = environment["GREENROOM_SNAPSHOT"] else { return }
         let name = environment["GREENROOM_SNAPSHOT_NAME"] ?? "window"
         let themes = (environment["GREENROOM_SNAPSHOT_THEMES"] ?? "dark,light,dark-hc,light-hc")
             .split(separator: ",").compactMap { ThemePreference(rawValue: String($0)) }
-        let run = environment["GREENROOM_SNAPSHOT_RUN"]
+        let run = environment["GREENROOM_SNAPSHOT_RUN"].flatMap { $0.isEmpty ? nil : $0 }
         let pane = environment["GREENROOM_SNAPSHOT_PANE"].flatMap(StagePane.init(rawValue:))
+        let keys = (environment["GREENROOM_SNAPSHOT_KEYS"] ?? "").split(separator: ",").map(String.init)
         Task {
-            let defaults = UserDefaults.standard
-            let saved = defaults.string(forKey: ThemePreference.key)
-            let savedPane = defaults.string(forKey: "stagePane")
+            // The scratch domain (`AppDefaults`): the person's own settings are never written.
+            let defaults = AppDefaults.shared
             if let pane { defaults.set(pane.rawValue, forKey: "stagePane") }
-            for _ in 0..<150 where store.runs.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
-            if let run, !run.isEmpty { store.selectedRunId = run }
+            // So the first selection is already the requested run, not the newest or the
+            // one that needs the person.
+            if let run { defaults.set(run, forKey: "selectedRunId") }
+
+            var window: NSWindow?
+            for _ in 0..<100 {
+                window = NSApp.windows.first(where: AppDelegate.isRunWindow)
+                if window != nil { break }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard let window else { return fail(store, "the run window never opened") }
+            seal(window)
+            do { try assertNotAPerson(window) } catch { return fail(store, "\(error)") }
+
+            for _ in 0..<150 where store.reachable != true { try? await Task.sleep(for: .milliseconds(100)) }
+            if let breach = open(run, in: store) { return fail(store, "\(breach)") }
             // `GREENROOM_SNAPSHOT_SIZE=820x560`: the window's content at that size.
             let size = (environment["GREENROOM_SNAPSHOT_SIZE"] ?? "").split(separator: "x").compactMap { Double($0) }
-            if size.count == 2, let window = NSApp.windows.first(where: AppDelegate.isRunWindow) {
-                window.setContentSize(CGSize(width: size[0], height: size[1]))
-            }
+            if size.count == 2 { window.setContentSize(CGSize(width: size[0], height: size[1])) }
             try? await Task.sleep(for: .seconds(4))
-            // Real key events through the app's own queue, so the router sees them as typed.
-            let keys = (environment["GREENROOM_SNAPSHOT_KEYS"] ?? "").split(separator: ",").map(String.init)
-            if let window = NSApp.windows.first(where: AppDelegate.isRunWindow), !keys.isEmpty {
-                window.makeKeyAndOrderFront(nil)
+            // Real key events handed to the router as typed ones would be; the window
+            // stays unkeyed, so the person's own keys go where they were going.
+            if !keys.isEmpty {
                 for token in keys {
                     let presses = token.hasPrefix("text:") ? token.dropFirst(5).map { String($0) } : [token]
                     for press in presses {
-                        post(press, to: window)
+                        if let event = keyEvent(press, in: window) { router.inject(event, into: window) }
                         try? await Task.sleep(for: .milliseconds(250))
                     }
                 }
@@ -244,7 +262,12 @@ enum SnapshotHook {
             for theme in themes {
                 defaults.set(theme.rawValue, forKey: ThemePreference.key)
                 try? await Task.sleep(for: .seconds(1.5))
-                guard let window = NSApp.windows.first(where: AppDelegate.isRunWindow) else { continue }
+                // A key may open another run (`j`), which is the snapshot's own doing; only a
+                // selection that drifted with no keys pressed is a fault.
+                if let run, keys.isEmpty, store.selectedRunId != run {
+                    return fail(store, "the window left run \(run) for \(store.selectedRunId ?? "no run")")
+                }
+                do { try assertNotAPerson(window) } catch { return fail(store, "\(error)") }
                 // A window under others gets no display pass of its own, so the new
                 // theme would reach the picture one capture late: draw it now.
                 window.contentView?.layoutSubtreeIfNeeded()
@@ -254,11 +277,67 @@ enum SnapshotHook {
                 write(window, to: file)
             }
             if environment["GREENROOM_SNAPSHOT_MENU"] != nil { printMenus() }
-            if let saved { defaults.set(saved, forKey: ThemePreference.key) } else { defaults.removeObject(forKey: ThemePreference.key) }
-            // Keys may have moved the stage's focus (`g s`); the person's own comes back.
-            if let savedPane { defaults.set(savedPane, forKey: "stagePane") } else { defaults.removeObject(forKey: "stagePane") }
+            finish(store)
             NSApp.terminate(nil)
         }
+    }
+
+    struct Breach: Error, CustomStringConvertible {
+        var description: String
+    }
+
+    /// Opens the requested run once the list is in, or says why the snapshot cannot go
+    /// on: the list never answered, or it does not hold the run. Another run is never
+    /// shown in its place.
+    static func open(_ run: String?, in store: RunStore) -> Breach? {
+        guard store.reachable == true else {
+            return Breach(description: "greenroom at \(store.client.baseURL.absoluteString) did not answer the run list")
+        }
+        guard let run else { return nil }
+        guard store.runs.contains(where: { $0.runId == run }) else {
+            return Breach(description: "run \(run) is not in greenroom's list of \(store.runs.count) runs; no other run is shown in its place")
+        }
+        store.selectedRunId = run
+        return nil
+    }
+
+    /// The window can never be key or main: its class answers no, for every window of it
+    /// in this process (a snapshot process has only this one). Its frame and state are not
+    /// saved, so the person's window comes back where they left it.
+    static func seal(_ window: NSWindow) {
+        let never: @convention(block) (AnyObject) -> Bool = { _ in false }
+        let implementation = imp_implementationWithBlock(never)
+        let windowClass: AnyClass = window.classForCoder
+        for selector in [#selector(getter: NSWindow.canBecomeKey), #selector(getter: NSWindow.canBecomeMain)] {
+            guard let method = class_getInstanceMethod(windowClass, selector) else { continue }
+            class_replaceMethod(windowClass, selector, implementation, method_getTypeEncoding(method))
+        }
+        window.setFrameAutosaveName("")
+        window.isRestorable = false
+    }
+
+    /// Throws when the app is active or its window key or main: then a person's keys could
+    /// land in it.
+    static func assertNotAPerson(_ window: NSWindow) throws {
+        if window.canBecomeKey || window.canBecomeMain {
+            throw Breach(description: "the snapshot window could become key")
+        }
+        if NSApp.isActive || window.isKeyWindow || window.isMainWindow || NSApp.keyWindow != nil {
+            throw Breach(description: "the snapshot app became active or its window key; a person's keys could reach it")
+        }
+    }
+
+    /// Nothing held goes out, and the scratch settings go.
+    private static func finish(_ store: RunStore) {
+        store.undoVerdictChoice()
+        AppDefaults.discardScratch()
+    }
+
+    /// Stops the snapshot loudly: a message on stderr and exit status 1.
+    private static func fail(_ store: RunStore, _ reason: String) {
+        finish(store)
+        FileHandle.standardError.write(Data("snapshot failed: \(reason)\n".utf8))
+        exit(1)
     }
 
     /// The View and Run menus as AppKit holds them: title, key equivalent, enabled.
@@ -281,7 +360,7 @@ enum SnapshotHook {
     }
 
     /// A key press, as the keyboard would make it: `cmd+k`, `shift+enter`, `esc`, `j`.
-    private static func post(_ token: String, to window: NSWindow) {
+    static func keyEvent(_ token: String, in window: NSWindow) -> NSEvent? {
         var parts = token.split(separator: "+").map(String.init)
         let name = parts.popLast() ?? token
         var flags: NSEvent.ModifierFlags = []
@@ -302,12 +381,11 @@ enum SnapshotHook {
         // A typed character carries itself (KeyChord reads it from there); 50 is a key
         // code no rule names.
         let (code, characters) = named[name] ?? (50, name)
-        guard let event = NSEvent.keyEvent(
+        return NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: flags,
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
             characters: characters, charactersIgnoringModifiers: characters.lowercased(), isARepeat: false, keyCode: code
-        ) else { return }
-        NSApp.postEvent(event, atStart: false)
+        )
     }
 
     /// The whole window, title bar and traffic lights included, as the window draws it.

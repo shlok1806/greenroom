@@ -17,8 +17,8 @@ struct RunView: View {
     @State private var failureCursor: Int?
     /// The step at the screen's playhead, for the one-row steps track.
     @State private var playhead: Int?
-    @AppStorage("conversationWidth") private var conversationWidth = RunLayout.conversationIdeal
-    @AppStorage("composerFocusRequest") private var composerFocusRequest = 0
+    @AppStorage("conversationWidth", store: AppDefaults.shared) private var conversationWidth = RunLayout.conversationIdeal
+    @AppStorage("composerFocusRequest", store: AppDefaults.shared) private var composerFocusRequest = 0
     @State private var detailSize: CGSize = .zero
     /// The verdict this view has shown for its run, so a new one can be told from one
     /// that was already there (`VerdictLanding.lands`).
@@ -751,7 +751,7 @@ private struct IdleActions: View {
     let store: RunStore
     let runId: String
 
-    @AppStorage("composerFocusRequest") private var focusRequest = 0
+    @AppStorage("composerFocusRequest", store: AppDefaults.shared) private var focusRequest = 0
     @Environment(\.keyboard) private var keyboard
 
     var body: some View {

@@ -33,7 +33,7 @@ struct ConversationView: View {
     /// Whether the newest message has been scrolled to at least once.
     @State private var anchored = false
     @State private var userScrolled = false
-    @AppStorage("showsToolCalls") private var showsToolCalls = true
+    @AppStorage("showsToolCalls", store: AppDefaults.shared) private var showsToolCalls = true
     @State private var columnHeight: Double = 0
     /// The keyboard's row (an item's id): `j` and `k` move it, `⏎` shows its step.
     @State private var cursor: Int?
@@ -304,7 +304,7 @@ private struct Composer: View {
 
     private var canSend: Bool { !sending && !offline && !isBlank(draft) }
 
-    @AppStorage("composerFocusRequest") private var focusRequest = 0
+    @AppStorage("composerFocusRequest", store: AppDefaults.shared) private var focusRequest = 0
 
     @Environment(\.theme) private var theme
 
