@@ -66,7 +66,7 @@ func TestLoadEnvFileWithoutAFileIsFine(t *testing.T) {
 	}
 }
 
-// ADR 0018: with GREENROOM_VISION_MODEL unset the verifier sees the screen through kimi-k3, the
+// ADR 0020: with GREENROOM_VISION_MODEL unset the verifier sees the screen through kimi-k3, the
 // describer both evaluations chose; a set value wins, and "none" turns seeing off.
 func TestVisionModelDefaultsToTheEvaluatedDescriber(t *testing.T) {
 	for raw, want := range map[string]string{

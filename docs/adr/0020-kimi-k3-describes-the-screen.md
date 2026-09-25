@@ -1,4 +1,4 @@
-# 0018. kimi-k3 describes the screen by default; the brain stays nemotron-3-ultra
+# 0020. kimi-k3 describes the screen by default; the brain stays nemotron-3-ultra
 
 Date: 2026-09-24
 Status: accepted. Supersedes the screen-reading model in ADR 0005 and its rule that the
