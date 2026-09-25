@@ -152,6 +152,20 @@ struct DesignTokens: Decodable, Sendable, Equatable {
             let dim: Double
         }
 
+        /// Characters scramble, then settle left to right (ADR 0006 `decode`): the last
+        /// settles at `maxMs`, and the scramble changes glyph every `frameMs`.
+        struct Decode: Decodable, Sendable, Equatable {
+            let maxMs: Int
+            let frameMs: Int
+        }
+
+        /// A card's border traces itself (ADR 0006 `draw`).
+        struct Draw: Decodable, Sendable, Equatable {
+            let maxMs: Int
+        }
+
+        let decode: Decode
+        let draw: Draw
         let spinner: Spinner
         let loader: Loader
         let clickMark: ClickMark

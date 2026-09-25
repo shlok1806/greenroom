@@ -20,7 +20,11 @@ struct RunView: View {
     @AppStorage("conversationWidth") private var conversationWidth = RunLayout.conversationIdeal
     @AppStorage("composerFocusRequest") private var composerFocusRequest = 0
     @State private var detailSize: CGSize = .zero
+    /// The verdict this view has shown for its run, so a new one can be told from one
+    /// that was already there (`VerdictLanding.lands`).
+    @State private var verdictOnScreen: VerdictLanding.OnScreen?
     @Environment(\.keyboard) private var keyboard
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var facts: RunFacts { store.facts(runId) }
     private var pilot: ControlPilot { store.pilot(for: runId) }
@@ -84,7 +88,11 @@ struct RunView: View {
         .topBar(leading: { paneSwitch }, trailing: { actions })
         .task(id: runId) {
             failureCursor = nil
+            verdictOnScreen = VerdictLanding.OnScreen(runId: runId, seq: store.facts(runId).verdict?.seq)
             await store.select(runId)
+        }
+        .onChange(of: facts.verdict?.seq) { _, seq in
+            verdictChanged(to: seq)
         }
         .onChange(of: store.seekRequest) {
             guard let request = store.seekRequest, request.runId == runId else { return }
@@ -199,6 +207,35 @@ struct RunView: View {
         case .nextFailure: showFailure(1)
         case .previousFailure: showFailure(-1)
         default: break
+        }
+    }
+
+    /// A verdict arrived while the run was open (ADR 0006, Verdict lands): its outcome
+    /// decodes in, its card draws, VoiceOver hears it once, and a fail moves the run to its
+    /// first failing step, through the same actions a key or the card's evidence use.
+    private func verdictChanged(to seq: Int?) {
+        let onScreen = verdictOnScreen
+        verdictOnScreen = VerdictLanding.OnScreen(runId: runId, seq: seq)
+        guard let seq, VerdictLanding.lands(onScreen: onScreen, runId: runId, current: seq,
+                                            arrivedLive: store.liveVerdicts[runId]),
+              let verdict = facts.verdict else { return }
+        let cited = (verdict.evidence ?? []).lazy.map(Evidence.parse).compactMap(\.step).first
+        let plan = VerdictLanding.plan(
+            outcome: verdict.verdict, failures: facts.failures, cited: cited, reduceMotion: reduceMotion,
+            typing: keyboard?.responder == .text,
+            driving: driving || pilot.busy || keyboard?.responder == .guest
+        )
+        store.verdictMoment = VerdictMoment(runId: runId, seq: seq, start: Date(), plays: plan.plays)
+        AccessibilityNotification.Announcement(plan.announcement).post()
+        switch plan.focus {
+        case .firstFailure:
+            // The registry's next error, from the top: the first step that errored.
+            failureCursor = nil
+            if let keyboard { keyboard.perform(.nextFailure) } else { showFailure(1) }
+        case .cited(let step):
+            store.requestSeek(runId: runId, step: step, fromVerdict: true, inSteps: true)
+        case nil:
+            break
         }
     }
 
