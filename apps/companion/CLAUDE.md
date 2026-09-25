@@ -7,14 +7,16 @@ package's own `docs/adr/0001` (the run window, superseded by 0004), `0002` (one 
 run state, colour meanings, verdict trust, the snapshot tool), `0003` (verdict actions, one
 status vocabulary, the daemon changes the UI waits on), `0004` (the glyph-native interface
 on a character grid), `0005` (keys and the action registry), `0006` (motion, signature
-moments, click marks) and `0007` (the dependency allowlist). Design: `docs/design-spec.md`
-(grid, voices, roles, layout, motion, states, keys), `docs/design-research.md`. Design
-data: `design/themes/*.json` and `design/tokens.json` at the repo root.
+moments, click marks), `0007` (the dependency allowlist) and `0008` (readable type and the
+olive brand, amending 0004's type and colour decisions). Design: `docs/design-spec.md`
+(spacing and the accent, type, roles and the brand, layout, motion, states, keys),
+`docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
+at the repo root.
 
 The views still draw the round-2 window (system styles, `NavigationSplitView`,
-`Theme.swift`). ADR 0004 to 0006 describe the glyph-native window being built layer by
-layer; until a layer lands, the rules below that name round-2 types describe the code as
-it is, and the new rules apply to everything built from now on.
+`Theme.swift`). ADR 0004 to 0006, as amended by 0008, describe the new window being built
+layer by layer; until a layer lands, the rules below that name round-2 types describe the
+code as it is, and the new rules apply to everything built from now on.
 
 ## Commands
 
@@ -51,6 +53,9 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 ## Rules
 
 - No `.xcodeproj`. Swift 6 language mode, strict concurrency; do not opt out.
+- No SwiftUI macros (`@Entry`, `#Preview`): their plugin ships only with Xcode, and the
+  self-hosted runner may build with the Command Line Tools alone. Spell out the
+  `FocusedValueKey`/`EnvironmentKey` instead. `@Observable` is fine.
 - Dependencies are an allowlist (ADR 0007): Apple and swiftlang packages that build in
   Swift 6 mode with no warnings; swift-markdown (parse only), swift-collections,
   swift-async-algorithms and SwiftTerm. Anything else needs its own companion ADR (why,
@@ -58,10 +63,13 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   Textual and MarkdownUI (they break the grid), animation libraries, Highlightr.
 - Beautiful UI's components are ported as behaviour, credited under MIT in the app's
   acknowledgements; no code from it is copied into the Mac app (ADR 0007).
-- `design/` is the source of colours, faces, cell metrics, motion timings and layout
-  thresholds. `DesignDataTests` gates it: every role maps to a slot, every theme meets
-  its contrast (4.5:1 text and roles, 3:1 dim; 7:1 for all in `-hc` themes). Change a
-  colour in the JSON, never in Swift.
+- `design/` is the source of colours, faces, cell metrics, spacing, radii, motion timings
+  and layout thresholds. `DesignDataTests` gates it: every role maps to a slot, every
+  theme meets its contrast (4.5:1 for the foreground and every role, dim included; 7:1
+  for all of them in `-hc` themes), `brand` clears 3:1 against the background,
+  `brandText` and the foreground on `chromeTint` clear the same 4.5:1 / 7:1 text
+  threshold, and `brand` and `pass` sit at least 25 degrees apart in hue (ADR 0008).
+  Change a colour in the JSON, never in Swift.
 - Layering: `Views -> RunStore -> DaemonClient -> HTTP`.
   - Views never build URLs, decode JSON or keep their own copy of a run.
   - `Model/RunStore.swift` is the single `@Observable @MainActor` source of truth.
@@ -124,16 +132,30 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 
 ## UI rules
 
-- The grid (ADR 0004): every size, gutter, inset and pane edge is whole cells from
-  `GridMetrics`; no point values in views. All text is monospace at one size; headings are
-  bold or coloured, never larger. Borders are box-drawing glyphs. The live screen is the
-  only thing off the grid, framed as a window cut into it.
-- Voices: Neon for chrome and the coder, Xenon for the verifier, Radon (fallback Argon)
-  for the human, Krypton for machine and tool output. Read faces from `tokens.json`
-  `type`. A voice is never the only sign of who spoke; the sender is named in words.
-- Colour is an ANSI theme; views use roles, never slots or hex: pass (2), failure (1),
-  attention (3), live (6), driving (5), dim (8). Hue only for meaning; emphasis is weight
-  or inverse video. Every state is also a word. Bright slots never carry meaning.
+- No strict cell grid over the whole window (ADR 0008 narrows ADR 0004's grid rule).
+  Chrome and data (step and command rows, code, output, ids, times, key hints, small
+  uppercase labels) snap to the mono grid from `GridMetrics`; everything else uses the
+  4/8 pt spacing scale from `tokens.json` `spacing`, with thin 1 px hairlines and small
+  radii (`tokens.json` `radii`) instead of a box-drawing frame on every pane. The live
+  screen is the one thing off the spacing scale, framed as a panel cut into the layout.
+- Type follows what is being read, not who is speaking (ADR 0008): `tokens.json`
+  `type.mono` (Monaspace Neon) for chrome and data, `type.reading` and
+  `type.readingHeading` (Mona Sans, 14-15 pt, line height about 1.5) for anything read as
+  sentences (verifier replies, notes, the task, the verdict reason, questions,
+  empty-state copy). The five per-voice faces (Xenon, Radon, Argon, Krypton) are gone;
+  `MessageGroup` tells a sender apart by its name in words and a thin coloured left edge,
+  never by a typeface.
+- Colour is an ANSI theme plus a brand; views use roles, never slots or hex: pass (2, a
+  bluer emerald since ADR 0008, used only on small status marks), failure (1), attention
+  (3), live (6), driving (5), dim (8, now 4.5:1 / 7:1 like every other role). `brand`
+  (olive) and `chromeTint` are two more theme keys (`greenroom-brand`,
+  `greenroom-brand-text`, `greenroom-chrome-tint`, named in `tokens.json` `themeKeys`),
+  not ANSI slots: `brand` marks large calm surfaces and actions (primary buttons, the
+  selected run, the active tab, the cursor, the wordmark) and never the content areas
+  (screen, steps, transcript), which stay neutral so a screenshot of evidence reads true;
+  `chromeTint` is the faint brand tint behind the sidebar and top bar only. Hue only for
+  meaning and the brand; emphasis is weight or inverse video. Every state is also a word.
+  Bright slots never carry meaning.
 - Every key is an action in the one registry (ADR 0005). The hint bar, `?` help, Cmd-K
   and the menu bar read it; a test fails on a shortcut declared anywhere else. Nothing
   destructive has a bare key. Accept and dispute send after a 5 s undo. A typing context

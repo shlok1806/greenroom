@@ -30,8 +30,17 @@ struct RunCommands {
     var previousFailure: (() -> Void)?
 }
 
+/// Spelled out rather than `@Entry`: that macro's plugin ships only with Xcode, and the
+/// CI runner builds with the Command Line Tools.
+private struct RunCommandsKey: FocusedValueKey {
+    typealias Value = RunCommands
+}
+
 extension FocusedValues {
-    @Entry var runCommands: RunCommands?
+    var runCommands: RunCommands? {
+        get { self[RunCommandsKey.self] }
+        set { self[RunCommandsKey.self] = newValue }
+    }
 }
 
 /// One run: a header naming it with its state in one line, the stage (Screen or Steps),

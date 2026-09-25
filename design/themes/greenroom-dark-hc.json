@@ -9,13 +9,13 @@
   "palette": [
     "#000000",
     "#ff8f87",
-    "#7fe08a",
+    "#65ecba",
     "#ffd866",
     "#9cc4ff",
     "#f0a8ff",
     "#6fe6e8",
     "#e6e6e6",
-    "#a8a8a8",
+    "#9b9b9b",
     "#ffb0aa",
     "#a8f0b0",
     "#ffe699",
@@ -23,5 +23,8 @@
     "#f6c6ff",
     "#a0f0f2",
     "#ffffff"
-  ]
+  ],
+  "greenroom-brand": "#92a73e",
+  "greenroom-brand-text": "#000000",
+  "greenroom-chrome-tint": "#0d0f06"
 }
