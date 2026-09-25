@@ -62,7 +62,8 @@ type Machine struct {
 
 	// Control is the screen-control lease (ADR 0009). It is replaced, never
 	// edited in place, so snapshots can share it.
-	Control *Control `json:"control,omitempty"`
+	Control *Control    `json:"control,omitempty"`
+	lapse   *time.Timer // clears Control when it runs out (armLapseLocked)
 
 	rec   *recorder
 	ready chan struct{} // closed once Status leaves Booting
@@ -138,6 +139,8 @@ type LifecycleEvent struct {
 	Machine *Machine `json:"machine,omitempty"`
 	Step    int      `json:"step,omitempty"`
 	Frame   *Frame   `json:"frame,omitempty"`
+	// Lapsed is the lease that ran out with nobody renewing it, on a "control" event (issue #57).
+	Lapsed *Control `json:"lapsed,omitempty"`
 }
 
 // Option adjusts a Manager before it touches the disk or the host.
@@ -292,6 +295,10 @@ func (m *Manager) emitStep(runID string, seq int) {
 // publicLocked copies mc without its internal handles. The caller holds m.mu.
 func (mc *Machine) publicLocked() *Machine {
 	c := *mc
+	if c.Control != nil && !time.Now().UTC().Before(c.Control.Expires) {
+		c.Control = nil // lapsed, whether or not the lapse timer has run yet
+	}
+	c.lapse = nil
 	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel, c.screen = nil, nil, nil, nil, nil, nil, nil
 	c.execs, c.cleanups = nil, nil
 	c.bootCancel, c.bootDone, c.frameDone = nil, nil, nil
@@ -542,8 +549,13 @@ func (m *Manager) forgetLocked(mc *Machine) []*PTYSession {
 }
 
 // detachLocked stops the frame recorder and the live screen, and detaches the
-// sessions. It is safe to repeat.
+// sessions. It is safe to repeat. The lease goes too: a machine that is going away is driven by
+// nobody, and a lease left on it would be announced as a lapse after it was destroyed.
 func (m *Manager) detachLocked(mc *Machine) []*PTYSession {
+	if mc.lapse != nil {
+		mc.lapse.Stop()
+	}
+	mc.Control = nil
 	if mc.frameCancel != nil {
 		mc.frameCancel()
 	}

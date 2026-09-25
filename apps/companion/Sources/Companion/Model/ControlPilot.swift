@@ -4,6 +4,8 @@ import Observation
 /// The three lease routes, so `ControlPilot` is testable without a daemon.
 protocol ControlClient: Sendable {
     func takeControl(runId: String) async throws -> ControlResponse
+    /// Extends the lease this app holds and never takes a new one (#100).
+    func renewControl(runId: String) async throws -> ControlResponse
     func releaseControl(runId: String) async throws
     func input(runId: String, actions: [InputAction]) async throws -> InputResult
 }
@@ -170,7 +172,9 @@ final class ControlPilot {
                 try? await Task.sleep(for: renewal)
                 guard let self, !Task.isCancelled, self.active else { return }
                 do {
-                    let answer = try await self.client.takeControl(runId: self.runId)
+                    // A renewal, not a take: another window of the same seat may have given the
+                    // screen back, and taking it again would undo that silently (#100).
+                    let answer = try await self.client.renewControl(runId: self.runId)
                     guard answer.control != nil else { throw ControlError.refused }
                 } catch {
                     if Task.isCancelled { return }

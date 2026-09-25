@@ -31,13 +31,22 @@ func (a *api) screenshot(w http.ResponseWriter, r *http.Request, id string) {
 
 func (a *api) takeControl(w http.ResponseWriter, r *http.Request, id string) {
 	var in struct {
-		TTLSeconds int `json:"ttlSeconds"`
+		TTLSeconds int  `json:"ttlSeconds"`
+		Renew      bool `json:"renew"` // extend the lease this seat holds; never take a new one (issue #100)
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in) // an empty body takes the default lease
-	c, fresh, lapsed, err := a.mgr.TakeControlReporting(id, humanSeat, time.Duration(in.TTLSeconds)*time.Second)
-	if lapsed != nil && lapsed.Holder == humanSeat {
-		a.event(id, lapsedText(*lapsed))
+	if in.Renew {
+		c, err := a.mgr.RenewControl(id, humanSeat)
+		if err != nil {
+			a.failControl(w, id, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, controlOut{Control: &c})
+		return
 	}
+	// A lease this replaces because it lapsed is announced by the manager, and posted by New's
+	// listener, before TakeControl returns.
+	c, fresh, err := a.mgr.TakeControl(id, humanSeat, time.Duration(in.TTLSeconds)*time.Second)
 	if err != nil {
 		a.failControl(w, id, err)
 		return
@@ -63,11 +72,8 @@ func (a *api) releaseControl(w http.ResponseWriter, _ *http.Request, id string) 
 		a.failControl(w, id, err)
 		return
 	}
-	switch {
-	case !held || c.Holder != humanSeat:
-	case c.Lapsed(time.Now()):
-		a.event(id, lapsedText(c))
-	default:
+	// A lapsed lease is not held: the manager announced its lapse instead.
+	if held && c.Holder == humanSeat {
 		a.event(id, "human gave the screen back after "+actionCount(c.Actions))
 	}
 	writeJSON(w, http.StatusOK, controlOut{})

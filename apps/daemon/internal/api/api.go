@@ -29,6 +29,15 @@ type runHandler func(w http.ResponseWriter, r *http.Request, runID string)
 // New returns the handler for /api/. Patterns keep the /api prefix because the daemon mounts it without stripping.
 func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Handler {
 	a := &api{mgr: mgr, reg: reg, log: log, recLocks: map[string]*sync.Mutex{}}
+	// A human lease that ran out with nobody renewing it (the Companion quit or crashed) is
+	// recorded when it lapses, not when someone next touches the screen (issue #57). The manager
+	// announces every lapse, whichever call found it, before the take or release that follows
+	// returns; posting synchronously keeps "lost control" ahead of the next "took control".
+	mgr.Listen(func(ev machine.LifecycleEvent) {
+		if ev.Kind == "control" && ev.Lapsed != nil && ev.Lapsed.Holder == humanSeat {
+			a.event(ev.RunID, lapsedText(*ev.Lapsed))
+		}
+	})
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/runs", a.listRuns)
 	mux.HandleFunc("GET /api/events", a.events)

@@ -95,6 +95,9 @@ type inputState struct {
 	uiMu   sync.Mutex
 	ui     map[string]*UITree // each reader's last machine_ui read, which its clicks aim at (issue #35)
 	asMu   sync.Mutex         // serializes InputAs so one call's release cannot end another's lease
+	// ctlMu serializes each lease change with the events it emits, taken before Manager.mu: a
+	// take that follows a lapse returns only once the lapse was announced (lapseLocked).
+	ctlMu sync.Mutex
 
 	screenMu sync.Mutex // serializes starting the live screen
 
@@ -113,51 +116,45 @@ func helperSourceDir() string {
 // TakeControl gives holder the machine's mouse and keyboard, or renews its
 // lease. A second holder is refused, not queued. fresh is false for a
 // renewal, so the caller announces a handover only once. A renewal with no
-// ttl keeps the lease's own.
+// ttl keeps the lease's own. A lease this replaces because it ran out is
+// announced as lapsed first, whoever takes (issue #57).
 func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Control, fresh bool, err error) {
-	lease, fresh, _, err = m.TakeControlReporting(runID, holder, ttl)
-	return lease, fresh, err
-}
-
-// TakeControlReporting is TakeControl that also returns the lease a fresh one replaced after it
-// lapsed, if any. Expiry is lazy, so this is the first moment anyone can say it lapsed (issue #57).
-func (m *Manager) TakeControlReporting(runID, holder string, ttl time.Duration) (lease Control, fresh bool, lapsed *Control, err error) {
 	mc, err := m.get(runID)
 	if err != nil {
-		return Control{}, false, nil, err
+		return Control{}, false, err
 	}
+	mc.input.ctlMu.Lock()
+	defer mc.input.ctlMu.Unlock()
 	now := time.Now().UTC()
 
 	m.mu.Lock()
+	lapsed := m.lapseLocked(mc, now)
 	current := mc.Control
-	live := current != nil && now.Before(current.Expires)
-	if live && current.Holder != holder {
+	if current != nil && current.Holder != holder {
 		m.mu.Unlock()
-		return *current, false, nil, fmt.Errorf("%w: %s has it until %s",
+		return *current, false, fmt.Errorf("%w: %s has it until %s",
 			ErrControlHeld, current.Holder, current.Expires.Format(time.RFC3339))
 	}
-	if current != nil && !live {
-		old := *current
-		lapsed = &old
-	}
-	fresh = !live
+	fresh = current == nil
 	if ttl <= 0 {
 		ttl = ControlTTL
-		if live && current.ttl > 0 {
+		if !fresh && current.ttl > 0 {
 			ttl = current.ttl
 		}
 	}
 	lease = Control{Holder: holder, Since: now, Expires: now.Add(ttl), ttl: ttl}
-	if live {
+	if !fresh {
 		lease.Since, lease.Actions = current.Since, current.Actions
 	}
 	mc.Control = &lease
+	m.armLapseLocked(mc)
 	m.mu.Unlock()
 
+	m.announce(lapsed)
 	if fresh {
 		m.emit(LifecycleEvent{Kind: "control", RunID: runID, Machine: m.snapshot(mc)})
 	}
-	return lease, fresh, lapsed, nil
+	return lease, fresh, nil
 }
 
 // TTL is how long the lease lasts without input or renewal.
@@ -168,24 +165,26 @@ func (c Control) TTL() time.Duration {
 	return c.ttl
 }
 
-// Lapsed reports whether the lease had expired by now.
-func (c Control) Lapsed(now time.Time) bool { return !now.Before(c.Expires) }
-
 // ReleaseControl hands the screen back. Releasing a lease nobody holds is not
 // an error, since quit, tab change and timeout may all race to release. An
-// empty holder releases whoever holds it.
+// empty holder releases whoever holds it. A lease that already ran out is not
+// held: it is announced as lapsed instead.
 func (m *Manager) ReleaseControl(runID, holder string) (Control, bool, error) {
 	mc, err := m.get(runID)
 	if err != nil {
 		return Control{}, false, err
 	}
+	mc.input.ctlMu.Lock()
+	defer mc.input.ctlMu.Unlock()
 	m.mu.Lock()
+	lapsed := m.lapseLocked(mc, time.Now().UTC())
 	current := mc.Control
 	if current == nil {
 		m.mu.Unlock()
+		m.announce(lapsed)
 		return Control{}, false, nil
 	}
-	if holder != "" && current.Holder != holder && time.Now().UTC().Before(current.Expires) {
+	if holder != "" && current.Holder != holder {
 		m.mu.Unlock()
 		return *current, false, fmt.Errorf("%w: %s has it", ErrControlHeld, current.Holder)
 	}
@@ -229,7 +228,88 @@ func (m *Manager) claimActions(mc *Machine, holder string, n int) error {
 	}
 	next.Expires = now.Add(next.ttl)
 	mc.Control = &next
+	m.armLapseLocked(mc)
 	return nil
+}
+
+// armLapseLocked makes sure mc's lease is cleared, and its lapse announced, once it runs out
+// with nobody renewing it: a holder that dies never touches it again (issue #57).
+func (m *Manager) armLapseLocked(mc *Machine) {
+	if mc.Control == nil {
+		return
+	}
+	d := time.Until(mc.Control.Expires) + 20*time.Millisecond
+	if mc.lapse == nil {
+		mc.lapse = time.AfterFunc(d, func() { m.checkLapse(mc) })
+		return
+	}
+	mc.lapse.Reset(d)
+}
+
+// checkLapse is the lapse timer: it clears a lease that ran out and announces it.
+func (m *Manager) checkLapse(mc *Machine) {
+	mc.input.ctlMu.Lock()
+	defer mc.input.ctlMu.Unlock()
+	now := time.Now().UTC()
+	m.mu.Lock()
+	if mc.Control != nil && now.Before(mc.Control.Expires) {
+		m.armLapseLocked(mc) // renewed meanwhile
+		m.mu.Unlock()
+		return
+	}
+	lapsed := m.lapseLocked(mc, now)
+	m.mu.Unlock()
+	m.announce(lapsed)
+}
+
+// lapseLocked clears mc's lease if it ran out by now, and returns the "control" event that
+// announces it, carrying the lapsed lease, or nil. The caller passes it to announce after
+// releasing m.mu and before releasing ctlMu. Every path that finds an expired lease comes here,
+// so each lapse is announced exactly once, before the take or release that found it returns. A
+// machine being destroyed announces nothing: that would land after "destroyed" and reopen the
+// conversation the daemon evicted.
+func (m *Manager) lapseLocked(mc *Machine, now time.Time) *LifecycleEvent {
+	c := mc.Control
+	if c == nil || now.Before(c.Expires) {
+		return nil
+	}
+	mc.Control = nil
+	if !m.liveLocked(mc) {
+		return nil
+	}
+	old := *c
+	return &LifecycleEvent{Kind: "control", RunID: mc.RunID, Machine: mc.publicLocked(), Lapsed: &old}
+}
+
+// announce emits a lapse from lapseLocked, if there is one.
+func (m *Manager) announce(lapsed *LifecycleEvent) {
+	if lapsed != nil {
+		m.emit(*lapsed)
+	}
+}
+
+// RenewControl extends holder's live lease and never takes a new one, so a seat that lost the
+// screen (given back by another window of the same seat, or lapsed) is told so (issue #100).
+func (m *Manager) RenewControl(runID, holder string) (Control, error) {
+	mc, err := m.get(runID)
+	if err != nil {
+		return Control{}, err
+	}
+	now := time.Now().UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current := mc.Control
+	if current == nil || !now.Before(current.Expires) || current.Holder != holder {
+		return Control{}, fmt.Errorf("%w: the screen was given back or its lease lapsed; take control again to drive", ErrNoControl)
+	}
+	next := *current
+	if next.ttl <= 0 {
+		next.ttl = ControlTTL
+	}
+	next.Expires = now.Add(next.ttl)
+	mc.Control = &next
+	m.armLapseLocked(mc)
+	return next, nil
 }
 
 // ScreenOf returns the guest's display size, installing the input helper on

@@ -267,3 +267,52 @@ func conversationCount(h *harness, runID, text string) int {
 	}
 	return n
 }
+
+// Issue #57, remainder: when the Companion holding the lease dies, nothing touched the lease
+// again, so no lapse was posted and the run detail kept showing it as held. The lapse is posted
+// when the lease runs out, and the detail stops showing it.
+func TestALeaseNobodyRenewsIsRecordedWhenItLapses(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.postJSON("/api/runs/"+runID+"/control", map[string]any{"ttlSeconds": 1}, nil)
+	deadline := time.Now().Add(5 * time.Second)
+	for conversationCount(h, runID, "human lost control of the screen") == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("no lapse was posted for a lease nobody renewed")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	var d RunDetail
+	h.get("/api/runs/"+runID, &d)
+	if d.Machine != nil && d.Machine.Control != nil {
+		t.Errorf("the run detail still shows the lapsed lease: %+v", d.Machine.Control)
+	}
+	// A retake afterwards posts no second lapse for the same lease.
+	h.take(runID)
+	if n := conversationCount(h, runID, "human lost control of the screen"); n != 1 {
+		t.Errorf("%d lapse events, want 1", n)
+	}
+}
+
+// Issue #100: two Companions share the human seat; one's Give Back was undone by the other's
+// next renewal, which took a fresh lease. A renewal never takes a lease; it says the screen went.
+func TestARenewalAfterAGiveBackIsRefused(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.take(runID)
+	if code, body := h.status(http.MethodDelete, "/api/runs/"+runID+"/control", nil); code != http.StatusOK {
+		t.Fatalf("release: %d %s", code, body)
+	}
+	code, body := h.status(http.MethodPost, "/api/runs/"+runID+"/control", map[string]any{"renew": true})
+	if code != http.StatusConflict || !strings.Contains(body, "given back") {
+		t.Fatalf("renewal after a give back = %d %s, want 409 saying the screen was given back", code, body)
+	}
+	if n := conversationCount(h, runID, "took control"); n != 1 {
+		t.Errorf("%d takes posted, want 1: the renewal must not take the screen", n)
+	}
+	// A renewal of a live lease still renews.
+	h.take(runID)
+	if code, body := h.status(http.MethodPost, "/api/runs/"+runID+"/control", map[string]any{"renew": true}); code != http.StatusOK {
+		t.Fatalf("renewal of a held lease = %d %s", code, body)
+	}
+}

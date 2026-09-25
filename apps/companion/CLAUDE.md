@@ -123,6 +123,9 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
 - Never add a way to take the lease without a matching way to give it back (Give Back,
   leaving the Screen stage, run change, machine not ready, quit). Quit waits up to 2 s for the release
   (`AppDelegate.applicationShouldTerminate`); every way out lets go of a held button first.
+- The heartbeat renews with `renewControl` (`{"renew": true}`), never `takeControl`: another
+  window on the same human seat may have given the screen back, and a take would undo that
+  silently (#100). A refused renewal ends driving like any other failure.
 - Control that breaks under the person (input or renewal fails) is never silent:
   `ControlPilot.endedReason` shows the daemon's words under the player and the run is re-read.
 - While driving with the screen focused, Command shortcuts (Cmd-Q too) go to the guest.
