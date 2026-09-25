@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
 // humanSeat holds every lease taken through this API: one seat per participant kind, not per window (ADR 0009).
@@ -61,7 +62,7 @@ func (a *api) takeControl(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	if fresh {
-		a.event(id, "human took control of the screen")
+		a.controlEvent(id, "human took control of the screen", session.ControlTaken)
 	}
 	writeJSON(w, http.StatusOK, controlOut{Control: &c, Screen: &screen})
 }
@@ -74,7 +75,7 @@ func (a *api) releaseControl(w http.ResponseWriter, _ *http.Request, id string) 
 	}
 	// A lapsed lease is not held: the manager announced its lapse instead.
 	if held && c.Holder == humanSeat {
-		a.event(id, "human gave the screen back after "+actionCount(c.Actions))
+		a.controlEvent(id, "human gave the screen back after "+actionCount(c.Actions), session.ControlReturned)
 	}
 	writeJSON(w, http.StatusOK, controlOut{})
 }

@@ -94,6 +94,10 @@ type inputState struct {
 	screen atomic.Pointer[Screen] // set once installed; screenshots read it without mu
 	uiMu   sync.Mutex
 	ui     map[string]*UITree // each reader's last machine_ui read, which its clicks aim at (issue #35)
+	looks  map[string]uint64  // each reader's handovers count as of its latest look (issue #124)
+	// handovers counts the times the screen changed hands under anyone but the verifier: a fresh
+	// take, a release or a lapse. A verifier input aimed before the latest one is refused (issue #124).
+	handovers atomic.Uint64
 	asMu   sync.Mutex         // serializes InputAs so one call's release cannot end another's lease
 	// ctlMu serializes each lease change with the events it emits, taken before Manager.mu: a
 	// take that follows a lapse returns only once the lapse was announced (lapseLocked).
@@ -136,6 +140,9 @@ func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Co
 			ErrControlHeld, current.Holder, current.Expires.Format(time.RFC3339))
 	}
 	fresh = current == nil
+	if fresh && holder != HolderVerifier {
+		mc.input.handovers.Add(1)
+	}
 	if ttl <= 0 {
 		ttl = ControlTTL
 		if !fresh && current.ttl > 0 {
@@ -189,6 +196,9 @@ func (m *Manager) ReleaseControl(runID, holder string) (Control, bool, error) {
 		return *current, false, fmt.Errorf("%w: %s has it", ErrControlHeld, current.Holder)
 	}
 	mc.Control = nil
+	if current.Holder != HolderVerifier {
+		mc.input.handovers.Add(1)
+	}
 	m.mu.Unlock()
 
 	m.emit(LifecycleEvent{Kind: "control", RunID: runID, Machine: m.snapshot(mc)})
@@ -274,6 +284,9 @@ func (m *Manager) lapseLocked(mc *Machine, now time.Time) *LifecycleEvent {
 		return nil
 	}
 	mc.Control = nil
+	if c.Holder != HolderVerifier {
+		mc.input.handovers.Add(1)
+	}
 	if !m.liveLocked(mc) {
 		return nil
 	}
@@ -385,7 +398,39 @@ func (m *Manager) InputAs(ctx context.Context, runID, holder string, actions []I
 	if fresh {
 		defer func() { _, _, _ = m.ReleaseControl(runID, holder) }()
 	}
+	// Checked after the take, so a human's lease that it found lapsed counts, and a human who
+	// holds the screen is a ScreenTakenError, not this (issue #124).
+	if holder == HolderVerifier && mc.staleLook(holder) {
+		return InputResult{}, ErrStaleLook
+	}
 	return m.Input(ctx, runID, holder, actions)
+}
+
+// ErrStaleLook refuses a verifier input when someone else took, gave back or lost the screen
+// after the verifier's latest machine_ui or machine_screenshot: a plan made on the old screen
+// would be carried out on a new one (issue #124). Its text is what the model reads.
+var ErrStaleLook = errors.New("the screen changed hands since your last look; call machine_ui (or machine_screenshot) before any input")
+
+// noteLook records that reader looked at the screen as of handover count at, read before the
+// look began: a handover during the look leaves it stale.
+func (mc *Machine) noteLook(reader string, at uint64) {
+	if reader == "" {
+		return
+	}
+	mc.input.uiMu.Lock()
+	defer mc.input.uiMu.Unlock()
+	if mc.input.looks == nil {
+		mc.input.looks = map[string]uint64{}
+	}
+	mc.input.looks[reader] = max(mc.input.looks[reader], at)
+}
+
+// staleLook reports whether the screen changed hands after reader's latest look. A reader that
+// never looked is stale once anyone else has held the screen.
+func (mc *Machine) staleLook(reader string) bool {
+	mc.input.uiMu.Lock()
+	defer mc.input.uiMu.Unlock()
+	return mc.input.looks[reader] < mc.input.handovers.Load()
 }
 
 // ErrScreenTaken matches the error InputAs returns while another seat holds the screen.

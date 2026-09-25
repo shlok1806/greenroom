@@ -188,17 +188,27 @@ func TestTheStepCapWithoutAnOpenTaskMakesNoClosingCall(t *testing.T) {
 	}
 }
 
-// A closing inconclusive about a screen someone else holds is the question asking for it (issue #97).
+// A closing inconclusive about a screen someone else holds is the question asking for it (issue
+// #97). A refused input now ends the turn at once (issue #124), so here the screen is taken
+// mid-turn and the verifier runs out of steps without trying to click.
 func TestAClosingInconclusiveWhileTheScreenIsTakenIsAQuestion(t *testing.T) {
 	mgr, runID, _ := ready(t)
-	if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
-		t.Fatalf("TakeControl: %v", err)
-	}
-	replies := append(execs(5), toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
-		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "A human is driving."}))
-	model := &scriptedModel{replies: replies}
-	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
+	replies := append(execs(6), toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "A human is driving."}))
+	model := &scriptedModel{replies: replies}
+	model.onReasoning = func(n int) {
+		if n != 1 {
+			return
+		}
+		if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
+			t.Errorf("TakeControl: %v", err)
+		}
+		if _, err := store.Append(session.Message{From: session.System, Kind: session.Event,
+			Text: "human took control of the screen", Control: session.ControlTaken}); err != nil {
+			t.Errorf("append: %v", err)
+		}
+	}
+	v := newVerifier(t, mgr, model.start(t))
 	postTask(t, store, "Click it.")
 
 	res, err := v.Turn(context.Background(), runID, store)

@@ -29,12 +29,14 @@ const maxLoggedArgs = 500
 type repeats map[string]int
 
 // record counts call's result and returns how many times this turn call failed with this exact
-// error, or 0 for a success. A screen-taken refusal is neither: Turn handles it (issue #97).
+// error, or 0 for a success. A screen-taken refusal is neither: Turn handles it (issue #97). A
+// look at the screen answers a stale-look refusal, so it clears those counts (issue #124).
 func (r repeats) record(call nim.ToolCall, result string) int {
 	key := callKey(call) + "\x00"
 	if !strings.HasPrefix(result, "error:") {
+		look := call.Name == "machine_ui" || call.Name == "machine_screenshot"
 		for k := range r {
-			if strings.HasPrefix(k, key) {
+			if strings.HasPrefix(k, key) || look && strings.Contains(k, "\x00"+staleLookPrefix) {
 				delete(r, k)
 			}
 		}

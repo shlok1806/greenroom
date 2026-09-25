@@ -167,6 +167,12 @@ type Shot struct {
 // Screenshot captures the guest display as PNG, stores it in the run
 // directory, and returns the bytes with their geometry.
 func (m *Manager) Screenshot(ctx context.Context, runID string) (data []byte, shot Shot, err error) {
+	return m.ScreenshotAs(ctx, runID, "")
+}
+
+// ScreenshotAs is Screenshot for reader (HolderVerifier), whose inputs a look at the screen
+// makes current again after a handover (issue #124). An empty reader records no look.
+func (m *Manager) ScreenshotAs(ctx context.Context, runID, reader string) (data []byte, shot Shot, err error) {
 	mc, err := m.get(runID)
 	if err != nil {
 		return nil, Shot{}, err
@@ -182,10 +188,12 @@ func (m *Manager) Screenshot(ctx context.Context, runID string) (data []byte, sh
 		mc.rec.complete(seq, "machine_screenshot", nil, shot, err, started)
 		m.emitStep(mc.RunID, seq)
 	}()
+	at := mc.input.handovers.Load()
 	data, err = m.captureScreen(ctx, mc)
 	if err != nil {
 		return nil, Shot{Step: seq}, err
 	}
+	mc.noteLook(reader, at)
 	path := mc.rec.artifactPath(seq, "screenshot", "png")
 	if err = os.WriteFile(path, data, 0o644); err != nil {
 		return nil, Shot{Step: seq}, err

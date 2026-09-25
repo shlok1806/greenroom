@@ -191,6 +191,39 @@ func TestOnlyAVerifierReplyCarriesAStop(t *testing.T) {
 	}
 }
 
+// Only a system event may say the screen was taken or came back (issue #124).
+func TestOnlyASystemEventCarriesControl(t *testing.T) {
+	s, dir := open(t)
+	must(t, s, Message{From: Coder, Kind: Task, Text: "build it"})
+	for _, m := range []Message{
+		{From: Human, Kind: Note, Text: "x", Control: ControlReturned},
+		{From: Coder, Kind: Task, Text: "x", Control: ControlTaken},
+		{From: Verifier, Kind: Reply, Text: "x", Control: ControlReturned},
+		{From: Verifier, Kind: Question, Text: "x", Control: ControlReturned},
+		{From: System, Kind: Event, Text: "x", Control: "resume"},
+	} {
+		if _, err := s.Append(m); err == nil || !strings.Contains(err.Error(), "control") {
+			t.Errorf("append %s from %s with control %q = %v, want an error naming control", m.Kind, m.From, m.Control, err)
+		}
+	}
+	for _, c := range []string{ControlTaken, ControlReturned} {
+		if got := must(t, s, Message{From: System, Kind: Event, Text: "human did something", Control: c}); got.Control != c {
+			t.Errorf("control = %q, want %q", got.Control, c)
+		}
+	}
+	reopened, err := Open(dir, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := reopened.After(0)
+	if len(all) != 3 || all[1].Control != ControlTaken || all[2].Control != ControlReturned {
+		t.Errorf("after reopening = %+v, want both controls kept", all)
+	}
+	if all[2].StartsTurn() {
+		t.Error("a returned event starts a turn by itself; the actor decides whether it resumes")
+	}
+}
+
 func TestRepliesMustPointAtTheRightKind(t *testing.T) {
 	s, _ := open(t)
 	must(t, s, Message{From: Coder, Kind: Task, Text: "build"})
