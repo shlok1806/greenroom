@@ -7,14 +7,19 @@ package's own `docs/adr/0001` (the run window, superseded by 0004), `0002` (one 
 run state, colour meanings, verdict trust, the snapshot tool), `0003` (verdict actions, one
 status vocabulary, the daemon changes the UI waits on), `0004` (the glyph-native interface
 on a character grid), `0005` (keys and the action registry), `0006` (motion, signature
-moments, click marks) and `0007` (the dependency allowlist). Design: `docs/design-spec.md`
-(grid, voices, roles, layout, motion, states, keys), `docs/design-research.md`. Design
-data: `design/themes/*.json` and `design/tokens.json` at the repo root.
+moments, click marks), `0007` (the dependency allowlist) and `0008` (readable type and the
+olive brand, amending 0004's type and colour decisions). Design: `docs/design-spec.md`
+(spacing and the accent, type, roles and the brand, layout, motion, states, keys),
+`docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
+at the repo root.
 
-The views still draw the round-2 window (system styles, `NavigationSplitView`,
-`Theme.swift`). ADR 0004 to 0006 describe the glyph-native window being built layer by
-layer; until a layer lands, the rules below that name round-2 types describe the code as
-it is, and the new rules apply to everything built from now on.
+ADR 0004 to 0006, as amended by 0008, describe the new window being built layer by layer.
+Layer 1 (foundation and restyle) has landed: the theme, the two bundled faces, the spacing
+and radii, the window's own chrome, and every view restyled in that language on the
+round-2 layout (Screen and Steps tabs, the runs sidebar, the conversation column). Not yet
+built: the adaptive column layout and zoom, the action registry, hint bar and Cmd-K, the
+motion vocabulary and signature moments, click marks, `GridMetrics`. Until a layer lands,
+the rules below that name round-2 behaviour describe the code as it is.
 
 ## Commands
 
@@ -27,6 +32,9 @@ scripts/bundle.sh                            # .build/Companion.app, ad-hoc sign
 scripts/install.sh                           # bundle, replace /Applications/Greenroom Companion.app, open
 swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   .build/out/Products/Debug/CompanionSnapshots   # design screenshots, see below
+scripts/sync-design.sh                       # copy design/ into the bundled resources
+swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
+  .build/out/Products/Debug/Companion        # the running app, written in all four themes
 ```
 
 - Targets: `Companion` is a library holding everything; `CompanionApp` is the one-line
@@ -44,6 +52,13 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 - `swift build -c release` of the whole package fails (the harness uses `@testable`);
   release builds take `--product Companion`, as `bundle.sh` does.
 
+- `GREENROOM_SNAPSHOT=<dir>` (debug builds only, `SnapshotHook` in `WindowChrome.swift`):
+  the real app, against whatever daemon it talks to, opens `GREENROOM_SNAPSHOT_RUN`
+  on `GREENROOM_SNAPSHOT_PANE` (`screen` or `steps`), writes the window in each theme
+  of `GREENROOM_SNAPSHOT_THEMES` (default `dark,light,dark-hc,light-hc`) to
+  `<dir>/<GREENROOM_SNAPSHOT_NAME>-<theme>.png` with `cacheDisplay` (no screen-recording
+  permission), puts the person's theme back and quits. It shows a window on screen; the
+  harness above does not.
 - `GREENROOM_URL` overrides `http://127.0.0.1:7777` (`DaemonClient.defaultBaseURL`).
 - The app never starts the daemon.
 - The icon is drawn at build time by `scripts/make-icon.swift`; no artwork is checked in.
@@ -51,6 +66,9 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 ## Rules
 
 - No `.xcodeproj`. Swift 6 language mode, strict concurrency; do not opt out.
+- No SwiftUI macros (`@Entry`, `#Preview`): their plugin ships only with Xcode, and the
+  self-hosted runner may build with the Command Line Tools alone. Spell out the
+  `FocusedValueKey`/`EnvironmentKey` instead. `@Observable` is fine.
 - Dependencies are an allowlist (ADR 0007): Apple and swiftlang packages that build in
   Swift 6 mode with no warnings; swift-markdown (parse only), swift-collections,
   swift-async-algorithms and SwiftTerm. Anything else needs its own companion ADR (why,
@@ -58,10 +76,20 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   Textual and MarkdownUI (they break the grid), animation libraries, Highlightr.
 - Beautiful UI's components are ported as behaviour, credited under MIT in the app's
   acknowledgements; no code from it is copied into the Mac app (ADR 0007).
-- `design/` is the source of colours, faces, cell metrics, motion timings and layout
-  thresholds. `DesignDataTests` gates it: every role maps to a slot, every theme meets
-  its contrast (4.5:1 text and roles, 3:1 dim; 7:1 for all in `-hc` themes). Change a
-  colour in the JSON, never in Swift.
+- `design/` is the source of colours, faces, cell metrics, spacing, radii, motion timings
+  and layout thresholds. The app ships a copy (`Sources/Companion/Resources/Design`,
+  written by `scripts/sync-design.sh`, read by `DesignData.shared`); SwiftPM bundles only
+  files inside a target. `DesignRuntimeTests` fails when the copy and `design/` differ,
+  so run the script after every change there. `DesignDataTests` gates the data: every
+  role maps to a slot, every theme meets its contrast (4.5:1 for the foreground and every role, dim included; 7:1
+  for all of them in `-hc` themes), `brand` clears 3:1 against the background,
+  `brandText` and the foreground on `chromeTint` clear the same 4.5:1 / 7:1 text
+  threshold, and `brand` and `pass` sit at least 25 degrees apart in hue (ADR 0008).
+  Change a colour in the JSON, never in Swift. The only colours Swift works out are
+  derived ones with no hue of their own (`Theme.surface`, `hairline`, `highlight`) and
+  `Theme.legible`, which moves a role or dim toward the foreground just far enough to
+  keep 4.5:1 (7:1 `-hc`) on a ground other than the background (`Ground.surface`, the
+  `chrome` tint); `DesignRuntimeTests` checks every role on every ground.
 - Layering: `Views -> RunStore -> DaemonClient -> HTTP`.
   - Views never build URLs, decode JSON or keep their own copy of a run.
   - `Model/RunStore.swift` is the single `@Observable @MainActor` source of truth.
@@ -79,8 +107,15 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   - `Model/RunPresentation.swift` and `Model/VerdictReview.swift` hold the pure
     presentation rules (titles, evidence, tool names, transcript grouping, connection
     state, who decided a verdict, checks against the record), each with a test.
-  - `Views/Theme.swift` is the design tokens (`Space`, `Radius`, `Palette`) and shared
-    components. No spacing, radius or state colour literals elsewhere.
+  - `Design/` is the design system: `DesignData` (the bundled `design/`, `AppResources`),
+    `Theme` (roles, brand, grounds, `ThemePreference`, the `\.theme` and `\.ground`
+    environment values) and `Typography` (`BundledFonts`, `Typeface`, `TypeScale`,
+    `readingStyle`, `monoStyle`, `headingStyle`). `Views/Components.swift` holds `Space`
+    and `Radius` (read from the tokens), the panel, hairline, section label, spinner,
+    status text and the button, toggle and switch styles; `Views/WindowChrome.swift` the
+    themed root, the window, the top bar and the wordmark. No spacing, radius, colour,
+    face or point-size literal elsewhere: views ask for a `TypeScale` step, a `Space`
+    step and a role.
   - Menu commands reach the open run through focused scene values (`RunCommands`,
     `ScreenCommands`); they never hold their own state.
 - The app only calls the API: no tart, no ssh, no run directory on disk. Missing
@@ -127,16 +162,30 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 
 ## UI rules
 
-- The grid (ADR 0004): every size, gutter, inset and pane edge is whole cells from
-  `GridMetrics`; no point values in views. All text is monospace at one size; headings are
-  bold or coloured, never larger. Borders are box-drawing glyphs. The live screen is the
-  only thing off the grid, framed as a window cut into it.
-- Voices: Neon for chrome and the coder, Xenon for the verifier, Radon (fallback Argon)
-  for the human, Krypton for machine and tool output. Read faces from `tokens.json`
-  `type`. A voice is never the only sign of who spoke; the sender is named in words.
-- Colour is an ANSI theme; views use roles, never slots or hex: pass (2), failure (1),
-  attention (3), live (6), driving (5), dim (8). Hue only for meaning; emphasis is weight
-  or inverse video. Every state is also a word. Bright slots never carry meaning.
+- No strict cell grid over the whole window (ADR 0008 narrows ADR 0004's grid rule).
+  Chrome and data (step and command rows, code, output, ids, times, key hints, small
+  uppercase labels) snap to the mono grid from `GridMetrics`; everything else uses the
+  4/8 pt spacing scale from `tokens.json` `spacing`, with thin 1 px hairlines and small
+  radii (`tokens.json` `radii`) instead of a box-drawing frame on every pane. The live
+  screen is the one thing off the spacing scale, framed as a panel cut into the layout.
+- Type follows what is being read, not who is speaking (ADR 0008): `tokens.json`
+  `type.mono` (Monaspace Neon) for chrome and data, `type.reading` and
+  `type.readingHeading` (Mona Sans, 14-15 pt, line height about 1.5) for anything read as
+  sentences (verifier replies, notes, the task, the verdict reason, questions,
+  empty-state copy). The five per-voice faces (Xenon, Radon, Argon, Krypton) are gone;
+  `MessageGroup` tells a sender apart by its name in words and a thin coloured left edge,
+  never by a typeface.
+- Colour is an ANSI theme plus a brand; views use roles, never slots or hex: pass (2, a
+  bluer emerald since ADR 0008, used only on small status marks), failure (1), attention
+  (3), live (6), driving (5), dim (8, now 4.5:1 / 7:1 like every other role). `brand`
+  (olive) and `chromeTint` are two more theme keys (`greenroom-brand`,
+  `greenroom-brand-text`, `greenroom-chrome-tint`, named in `tokens.json` `themeKeys`),
+  not ANSI slots: `brand` marks large calm surfaces and actions (primary buttons, the
+  selected run, the active tab, the cursor, the wordmark) and never the content areas
+  (screen, steps, transcript), which stay neutral so a screenshot of evidence reads true;
+  `chromeTint` is the faint brand tint behind the sidebar and top bar only. Hue only for
+  meaning and the brand; emphasis is weight or inverse video. Every state is also a word.
+  Bright slots never carry meaning.
 - Every key is an action in the one registry (ADR 0005). The hint bar, `?` help, Cmd-K
   and the menu bar read it; a test fails on a shortcut declared anywhere else. Nothing
   destructive has a bare key. Accept and dispute send after a 5 s undo. A typing context
@@ -153,10 +202,10 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   conversation (or above the stage when the conversation is hidden). Its headline is the
   state and who decided (`VerdictReview`); a verdict an agent accepted says no human
   reviewed it. The transcript shows the live verdict as one line, never a second card.
-- Each colour means one thing. Until the theme layer lands, `Palette` maps them to
-  system colours (green pass, red failure, orange needs you, teal live, the system accent
-  for driving); after it, the roles above. Booting and offline carry none. Every state
-  is also a word, and the words are one vocabulary (ADR 0003): the sidebar's
+- Each colour means one thing: the roles above, through `Theme.color(_:on:)`,
+  `tone(_:on:)` and `outcome(_:on:)`. Booting and offline carry none. Every state is also
+  a glyph and a word (`StatusText`: `●` live, `!` needs you, `✓` pass, `✗` failure, the
+  tick while working), and the words are one vocabulary (ADR 0003): the sidebar's
   `rowStatus` and the card's `VerdictReview.state` must say the same thing.
 - A verdict's actions are only the ones the daemon's session rules accept. When it
   refuses (an agent-accepted verdict), the card says so and offers the nearest real
@@ -177,10 +226,17 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   flow has no sheet, alert or dialog: accepting rebuilds the card, and a sheet whose
   presenter goes away leaves the window unable to take a click. Ask inline.
 - The player shows one source chip (live, connecting, recording, driving). Take Control
-  / Give Back exists once, in the toolbar.
+  / Give Back exists once, in the top bar (`RunView.actions`, published with `.topBar`).
 - Nothing but click marks is drawn over the Screen stage's picture. The driving bar sits above it, and
   position, the step under the pointer, live state and stream errors go under the track.
   The well takes the picture's shape, so there is no letterbox.
+- The window has its own chrome (`.windowStyle(.hiddenTitleBar)`, `WindowConfigurator`):
+  no system toolbar, title or `NavigationSplitView`. `RootView` is the themed root, the
+  top bar (drawn from the `TopBarItemsKey` preference the open view sets with
+  `.topBar`), a hand-made runs sidebar (`SidebarDivider`, width in `@AppStorage`,
+  View > Hide Sidebar through the `sidebarShown` focused value) and the detail.
+  `WindowConfigurator` keeps the traffic lights centred in the 44 pt top bar; AppKit puts
+  them back on many passes, so it re-places them on every window update.
 - The conversation column is a hand-made split (`ColumnDivider`), not `.inspector` as
   ADR 0001 says, nor `HSplitView`: inside `NavigationSplitView` both add hundreds of points to the window's
   minimum width, even while hidden. Widths live in `RunLayout` (stage at least 440, the
@@ -203,8 +259,12 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   shortcuts included), the composer once it is clicked. "Give Back", clicked, returns the
   screen (in the bar above the picture, the player and the toolbar). Taking control from
   the toolbar or menu switches the stage to the Screen first.
-- Every list row has a readable summary (`StepSummary`), not raw JSON, and every
-  `machine_*` tool a title (`ToolCatalog`). Input keys the daemon records for itself
+- Every step and tool-call row reads in plain words (`StepSummary.phrase`: "Clicked Bill
+  field", "Typed 120", "Pressed ⌘A", "Ran swift test", "Took a screenshot"); the tool
+  name, time and raw JSON are one click (expand) away. A click is named by the control
+  under it in the latest earlier `machine_ui` read (`StepSummary.hit`, `name`), else by
+  its place. `StepSummary.line` stays the terse data form (evidence captions, search), and
+  every `machine_*` tool has a title (`ToolCatalog`). Input keys the daemon records for itself
   (`reader` on `machine_ui`) never show. A tool-call row whose step is not held reads its
   progress message through the same rules (`StepSummary.line(ofProgress:)`).
 - Only `RunView` sets a `.navigationTitle` (the run's short title); with no run open the
@@ -222,7 +282,27 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
   `Chrome.runHash` takes the id's tail for display.
 - Durations go through `Chrome.clock`, or an 8-hour run reads "476:12".
 
+- Sender identity in the transcript is the name in words plus a 2 pt left edge
+  (`Theme.edge`: the person in the brand, the verifier in the foreground, the rest a
+  hairline). Messages are not bubbles and all sit on the left.
+- Section labels are small uppercase mono (`SectionLabel`) with whitespace around them,
+  never a drawn rule (`today ─── 3`).
+- Prose (`readingStyle`) sits at `tokens.json` `reading.lineHeight` (1.45): the gap is
+  worked out from the face's own line (`Typeface.lineSpacing`), never a fraction of the
+  size added on top.
+
 ## Gotchas
+
+- The fonts register per process (`BundledFonts.ensureRegistered`, from `CompanionMain`
+  and from every `Typeface` use). In the `.app` the resource bundle is in
+  `Contents/Resources` (`scripts/bundle.sh` copies it and fails without it);
+  `AppResources` looks there before `Bundle.module`, which would stop the process when
+  it finds no bundle beside the executable. Xcode's build system writes the bundle with
+  `Contents/Resources` inside, the Command Line Tools a flat one; `Bundle.resourceURL`
+  finds both. To check a build shows Mona Sans and not a fallback, `lsof -p <pid> | grep
+  otf` on the running app.
+- A vertical `TextField` sizes to its placeholder wrapped at a narrow width first: a long
+  placeholder makes the composer two lines tall with one line of text. Keep them short.
 
 - Never split the SSE body with `URLSession.AsyncBytes.lines`. It drops empty lines, and
   the empty line ends an SSE frame, so no event is ever dispatched. `SSELineSplitter`

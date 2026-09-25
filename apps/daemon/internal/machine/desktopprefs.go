@@ -33,7 +33,7 @@ import (
 //     password (admin in the base image).
 //
 // Every key is read back, so a key macOS renamed fails loudly rather than
-// silently doing nothing. Keep images/scripts/greenroom-tcc.sh in step.
+// silently doing nothing.
 const desktopPrefsScript = `set -e
 defaults write com.apple.WindowManager EnableStandardClickToShowDesktop -bool false
 defaults write NSGlobalDomain NSQuitAlwaysKeepsWindows -bool false

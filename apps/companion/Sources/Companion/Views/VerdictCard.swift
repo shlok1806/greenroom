@@ -21,6 +21,7 @@ struct VerdictCard: View {
     @State private var headlineHeight: CGFloat = 0
     @State private var actionsHeight: CGFloat = 0
     @FocusState private var reasonFocused: Bool
+    @Environment(\.theme) private var theme
 
     /// Kept by the store: accepting rebuilds this card, and no draft or confirmation may
     /// live in a view that goes away under it. No sheet, alert or dialog in this flow.
@@ -56,16 +57,13 @@ struct VerdictCard: View {
     // MARK: - No verdict
 
     private var none: some View {
-        HStack(spacing: Space.s) {
-            Image(systemName: "seal")
-                .foregroundStyle(.tertiary)
-            Text("No verdict")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+            Text("◇ No verdict")
+                .monoStyle(.monoMedium, size: TypeScale.monoSmall)
             Text(facts.isAlive
                 ? "The verifier proposes one when it has checked the task."
                 : "This run ended without one.")
-                .font(.callout)
+                .readingStyle(size: TypeScale.readingSmall)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -73,7 +71,7 @@ struct VerdictCard: View {
         }
         .padding(.horizontal, Space.m)
         .padding(.vertical, Space.s)
-        .background(.fill.quinary, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .panel()
     }
 
     // MARK: - A verdict
@@ -82,7 +80,10 @@ struct VerdictCard: View {
         let messages = store.messages[runId] ?? []
         let review = VerdictReview.of(verdict, messages: messages, verifierListens: facts.verifierListens)
         let checks = VerdictCheck.checks(verdict, messages: messages, steps: store.steps[runId])
-        let tint = Palette.outcome(verdict.verdict)
+        // Only a verdict a person closed takes its outcome's colour (ADR 0003); an
+        // agent-accepted one keeps its word, not its colour.
+        let closedByPerson = verdict.status == .accepted && review.humanReviewed
+        let tint = closedByPerson ? theme.outcome(verdict.verdict, on: .surface) : theme.foreground
         let words = TranscriptText.clean(text(verdict))
         let detailed = expanded && !compact
         return VStack(alignment: .leading, spacing: Space.s) {
@@ -95,21 +96,22 @@ struct VerdictCard: View {
                 VStack(alignment: .leading, spacing: Space.s) {
                     outcome(verdict, tint: tint)
                     if let note = review.note {
-                        Label(note, systemImage: review.humanReviewed ? "info.circle" : "person.crop.circle.badge.questionmark")
-                            .font(.callout)
-                            .foregroundStyle(verdict.status == .accepted && !review.humanReviewed ? Palette.attention : .secondary)
+                        Text((review.humanReviewed ? "" : "! ") + note)
+                            .readingStyle(size: TypeScale.readingSmall)
+                            .foregroundStyle(verdict.status == .accepted && !review.humanReviewed
+                                ? theme.color(.attention, on: .surface) : theme.dim(on: .surface))
                     }
                     // Short reasons in full; long ones to three lines until opened. Numbers are
                     // what a reviewer checks, so two lines was never enough.
                     Text(words)
-                        .font(.callout)
+                        .readingStyle()
                         .lineLimit(detailed || words.count <= 280 ? nil : 3)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                     ForEach(checks, id: \.self) { check in
-                        Label(check.text, systemImage: "exclamationmark.triangle.fill")
-                            .font(.callout.weight(.medium))
-                            .foregroundStyle(check == .noEvidence ? Palette.failure : Palette.attention)
+                        Text("! " + check.text)
+                            .readingStyle(.readingMedium, size: TypeScale.readingSmall)
+                            .foregroundStyle(theme.color(check == .noEvidence ? .failure : .attention, on: .surface))
                     }
                     evidence(verdict, words: words, detailed: detailed)
                     if detailed || verdict.status == .contested {
@@ -132,11 +134,7 @@ struct VerdictCard: View {
         }
         .padding(Space.m)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(background(verdict, review: review, tint: tint), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .strokeBorder(stroke(verdict, review: review, tint: tint), lineWidth: 1)
-        )
+        .panel()
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Verdict, \(review.state), \(Chrome.outcomeTitle(verdict.verdict))")
     }
@@ -152,44 +150,40 @@ struct VerdictCard: View {
     /// State and decider first: that is what decides whether to trust the rest.
     private func headline(_ review: VerdictReview, verdict: VerdictState) -> some View {
         let urgent = !review.humanReviewed && verdict.status != .rejected
-        return HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(review.state.uppercased())
-                .font(.caption.weight(.bold))
-                .tracking(0.6)
-                .foregroundStyle(urgent ? Palette.attention : .secondary)
+        return HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+            Text((urgent ? "! " : "") + review.state.uppercased())
+                .font(Typeface.monoBold.font(size: TypeScale.label))
+                .tracking(0.8)
+                .foregroundStyle(urgent ? theme.color(.attention, on: .surface) : theme.dim(on: .surface))
+                .fixedSize()
             Text(review.decision)
-                .font(.callout)
+                .readingStyle(size: TypeScale.small)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: Space.s)
             if !compact {
-                Button {
+                Button(expanded ? "Less ▴" : "Evidence ▾") {
                     withAnimation(.snappy(duration: 0.2)) { store.updateVerdictDraft(runId) { $0.expanded.toggle() } }
-                } label: {
-                    Label(expanded ? "Less" : "Evidence", systemImage: expanded ? "chevron.up" : "chevron.down")
-                        .labelStyle(.titleAndIcon)
-                        .font(.callout)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.textLink)
+                .fixedSize()
                 .help(expanded ? "Fold the verdict" : "Show each cited step's picture, what it claims there, and the disputes")
             }
         }
     }
 
     private func outcome(_ verdict: VerdictState, tint: Color) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: Chrome.outcomeSymbol(verdict.verdict))
-                .foregroundStyle(tint)
-            Text(Chrome.outcomeTitle(verdict.verdict))
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+            Text("\(Chrome.outcomeGlyph(verdict.verdict)) \(Chrome.outcomeTitle(verdict.verdict))")
+                .headingStyle(size: TypeScale.title)
                 .foregroundStyle(tint)
             if verdict.status.isOpen {
                 Text("proposed by the verifier")
-                    .font(.callout)
+                    .readingStyle(size: TypeScale.readingSmall)
                     .foregroundStyle(.secondary)
             }
         }
-        .font(.title3.weight(.semibold))
     }
 
     private func text(_ verdict: VerdictState) -> String {
@@ -221,9 +215,9 @@ struct VerdictCard: View {
                     }
                 }
             } else {
-                HStack(spacing: Space.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.s) {
                     Text("Cites")
-                        .font(.callout)
+                        .readingStyle(size: TypeScale.readingSmall)
                         .foregroundStyle(.secondary)
                     FlowLayout(spacing: Space.xs) {
                         ForEach(items, id: \.self) { item in
@@ -264,30 +258,28 @@ struct VerdictCard: View {
         let history = DisputeRecord.history(for: verdict, in: messages)
         if !history.isEmpty {
             VStack(alignment: .leading, spacing: Space.s) {
-                Text(history.count == 1 ? "1 dispute" : "\(history.count) disputes")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                SectionLabel(title: history.count == 1 ? "1 dispute" : "\(history.count) disputes")
                 ForEach(Array(history.enumerated()), id: \.offset) { _, record in
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(record.dispute.from.displayName) disputed at \(Chrome.shortTime(record.dispute.at))")
-                            .font(.caption.weight(.medium))
+                            .monoStyle(.monoMedium, size: TypeScale.monoSmall)
                         Text(TranscriptText.clean(record.dispute.text))
-                            .font(.callout)
+                            .readingStyle(size: TypeScale.readingSmall)
                             .lineLimit(2)
                         if let answer = record.answer {
                             Text("Verifier answered with \(answer.kind == .verdict ? "a \(Chrome.outcomeTitle(answer.verdict)) verdict" : "a \(answer.kind.text)"): \(TranscriptText.clean(answer.text))")
-                                .font(.callout)
+                                .readingStyle(size: TypeScale.readingSmall)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
                         } else {
-                            Text("No answer from the verifier yet")
-                                .font(.callout)
-                                .foregroundStyle(Palette.attention)
+                            Text("! No answer from the verifier yet")
+                                .readingStyle(size: TypeScale.readingSmall)
+                                .foregroundStyle(theme.color(.attention, on: .surface))
                         }
                     }
                     .padding(.leading, Space.s)
                     .overlay(alignment: .leading) {
-                        Rectangle().fill(Palette.hairline).frame(width: 2)
+                        Rectangle().fill(theme.hairline).frame(width: 2)
                     }
                 }
             }
@@ -303,10 +295,10 @@ struct VerdictCard: View {
         let draft = draft
         let newer = VerdictReview.newerTask(than: verdict.seq, in: store.messages[runId] ?? [])
         if let newer {
-            Label(VerdictReview.staleNote(verdictSeq: verdict.seq, newerTask: newer,
-                                            verifierListens: facts.verifierListens), systemImage: "clock.arrow.circlepath")
-                .font(.callout)
-                .foregroundStyle(Palette.attention)
+            Text("! " + VerdictReview.staleNote(verdictSeq: verdict.seq, newerTask: newer,
+                                                verifierListens: facts.verifierListens))
+                .readingStyle(size: TypeScale.readingSmall)
+                .foregroundStyle(theme.color(.attention, on: .surface))
         }
         if verdict.status.isOpen || unreviewed {
             VStack(alignment: .leading, spacing: Space.s) {
@@ -317,7 +309,7 @@ struct VerdictCard: View {
                 } else {
                     Text(VerdictReview.explanation(verdict, unreviewed: unreviewed,
                                                    verifierListens: facts.verifierListens, alive: facts.isAlive))
-                        .font(.callout)
+                        .readingStyle(size: TypeScale.readingSmall)
                         .foregroundStyle(.secondary)
                     // Mac order: the primary action last, on the right, apart from the other.
                     HStack(spacing: Space.s) {
@@ -336,15 +328,14 @@ struct VerdictCard: View {
                                 .help("Close it as rejected, with your reason")
                             Spacer(minLength: Space.l)
                             Button("Accept \(outcome)") { run { await store.requestAccept(runId: runId) } }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.primary)
                             .disabled(sending)
                             .help("Agree with this \(outcome.lowercased()) verdict. This closes it.")
                         }
                     }
                 }
             }
-            .controlSize(.regular)
-            .padding(.top, Space.xxs)
+            .padding(.top, Space.xs)
         }
     }
 
@@ -352,17 +343,16 @@ struct VerdictCard: View {
     /// presenter goes away leaves the window unable to take a click.
     private func acceptConfirmation(outcome: String) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
-            Label("You have not opened any step or screenshot this verdict cites. Accepting closes the verdict for good.",
-                  systemImage: "exclamationmark.triangle.fill")
-                .font(.callout)
-                .foregroundStyle(Palette.attention)
+            Text("! You have not opened any step or screenshot this verdict cites. Accepting closes the verdict for good.")
+                .readingStyle(size: TypeScale.readingSmall)
+                .foregroundStyle(theme.color(.attention, on: .surface))
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button("Cancel") { store.updateVerdictDraft(runId) { $0.confirmingAccept = false } }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Accept \(outcome) anyway") { run { await store.acceptVerdict(runId: runId) } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.primary)
                     .disabled(sending)
             }
         }
@@ -374,10 +364,10 @@ struct VerdictCard: View {
                       text: reason, axis: .vertical)
                 .lineLimit(2...6)
                 .textFieldStyle(.plain)
+                .font(Typeface.readingRegular.font(size: TypeScale.readingSmall))
                 .focused($reasonFocused)
                 .padding(Space.s)
-                .background(.background, in: RoundedRectangle(cornerRadius: Radius.control))
-                .overlay(RoundedRectangle(cornerRadius: Radius.control).strokeBorder(Palette.hairline))
+                .fieldFrame(focused: reasonFocused, radius: Radius.sm)
                 .onAppear { reasonFocused = true }
             HStack {
                 Button("Cancel") { store.updateVerdictDraft(runId) { $0.action = nil } }
@@ -386,7 +376,7 @@ struct VerdictCard: View {
                 Button(action == .reject ? "Reject \(outcome)" : "Send Re-check") {
                     run { await store.sendVerdictAction(runId: runId) }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.primary)
                 .disabled(sending || draft.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -398,21 +388,6 @@ struct VerdictCard: View {
             await work()
             sending = false
         }
-    }
-
-    // MARK: - Style
-
-    /// Only a verdict a person accepted is filled with its outcome; everything waiting on
-    /// someone is outlined in the attention colour, solid, not dashed.
-    private func background(_ verdict: VerdictState, review: VerdictReview, tint: Color) -> AnyShapeStyle {
-        if verdict.status == .accepted, review.humanReviewed { return AnyShapeStyle(tint.opacity(0.12)) }
-        return AnyShapeStyle(.fill.quinary)
-    }
-
-    private func stroke(_ verdict: VerdictState, review: VerdictReview, tint: Color) -> Color {
-        if verdict.status == .accepted, review.humanReviewed { return tint.opacity(0.35) }
-        if verdict.status == .rejected { return Palette.hairline }
-        return Palette.attention.opacity(0.55)
     }
 }
 
@@ -427,22 +402,21 @@ struct EvidenceLink: View {
 
     @State private var hovering = false
     @State private var preview = false
+    @Environment(\.theme) private var theme
 
     var body: some View {
         if let step = item.step {
             Button(action: open) {
-                HStack(spacing: 3) {
-                    Text(item.label)
-                        .underline(hovering)
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 8, weight: .bold))
-                }
-                .font(.callout.weight(.medium))
-                .foregroundStyle(Color.accentColor)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.accentColor.opacity(hovering ? 0.14 : 0.08), in: RoundedRectangle(cornerRadius: Radius.chip))
-                .contentShape(Rectangle())
+                Text("\(item.label) ↗")
+                    .underline(hovering)
+                    .font(Typeface.monoMedium.font(size: TypeScale.monoSmall))
+                    .foregroundStyle(theme.foreground)
+                    .padding(.horizontal, Space.s)
+                    .padding(.vertical, 2)
+                    .background(hovering ? theme.highlight : theme.background,
+                                in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.sm, style: .continuous).strokeBorder(theme.hairline))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .onHover { inside in
@@ -459,7 +433,7 @@ struct EvidenceLink: View {
             }
             .help("Show step \(step) on the screen")
         } else {
-            Chip(text: item.label, symbol: "text.quote")
+            Chip(text: item.label)
                 .textSelection(.enabled)
         }
     }
@@ -475,6 +449,8 @@ private struct EvidenceRow: View {
     let show: () -> Void
     let record: () -> Void
 
+    @Environment(\.theme) private var theme
+
     private var step: Step? {
         guard let number = item.step else { return nil }
         return store.steps[runId]?.first { $0.seq == number }
@@ -487,21 +463,21 @@ private struct EvidenceRow: View {
                     EvidenceLink(store: store, runId: runId, item: .step(number), open: show)
                 }
                 if let step {
-                    Text(ToolCatalog.entry(for: step.tool).title + outcomeText(step))
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(step.outcome.isFailure ? Palette.failure : .primary)
+                    Text(StepSummary.phrase(for: step, in: store.steps[runId] ?? []) + outcomeText(step))
+                        .monoStyle(.monoMedium, size: TypeScale.small)
+                        .foregroundStyle(step.outcome.isFailure ? theme.color(.failure, on: .surface) : theme.foreground)
+                        .lineLimit(1)
                 } else if item.step != nil {
-                    Text("Not in the run's record")
-                        .font(.callout)
-                        .foregroundStyle(Palette.failure)
+                    Text("✗ Not in the run's record")
+                        .monoStyle(size: TypeScale.small)
+                        .foregroundStyle(theme.color(.failure, on: .surface))
                 } else {
-                    Text(item.label).font(.callout)
+                    Text(item.label).readingStyle(size: TypeScale.readingSmall)
                 }
                 Spacer(minLength: 0)
                 if item.step != nil {
                     Button("Step Record", action: record)
-                        .buttonStyle(.link)
-                        .font(.callout)
+                        .buttonStyle(.textLink)
                         .help("Open this step's input and output in Steps")
                 }
             }
@@ -518,7 +494,7 @@ private struct EvidenceRow: View {
             ClaimsRow(claims: claims, label: "It claims here")
             if let step {
                 Text(StepExcerpt.text(step))
-                    .font(.caption.monospaced())
+                    .monoStyle(size: TypeScale.monoSmall)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
                     .textSelection(.enabled)
@@ -542,17 +518,11 @@ private struct ClaimsRow: View {
 
     var body: some View {
         if !claims.isEmpty {
-            HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
-                Text(label)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                SectionLabel(title: label)
                 FlowLayout(spacing: Space.xs) {
                     ForEach(claims, id: \.self) { value in
-                        Text(value)
-                            .font(.callout.monospacedDigit().weight(.semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: Radius.chip))
+                        Chip(text: value)
                     }
                 }
             }
@@ -581,23 +551,27 @@ struct StepThumbnail: View {
 
     @State private var image: NSImage?
     @State private var loaded = false
+    @Environment(\.theme) private var theme
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: Radius.chip + 2, style: .continuous).fill(Palette.well)
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous).fill(theme.well)
             if let image {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.medium)
                     .scaledToFit()
-            } else if loaded {
-                Image(systemName: "photo").foregroundStyle(.tertiary)
             } else {
-                ProgressView().controlSize(.small)
+                // The well is dark in every theme, so its words take the dark theme's dim.
+                Group {
+                    if loaded { Text("no picture") } else { Spinner(size: TypeScale.monoSmall) }
+                }
+                .monoStyle(size: TypeScale.monoSmall)
+                .foregroundStyle(theme.wellDim)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: Radius.chip + 2, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Radius.chip + 2, style: .continuous).strokeBorder(Palette.hairline))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Radius.md, style: .continuous).strokeBorder(theme.hairline))
         // Again once the steps or frames arrive: a thumbnail drawn first has neither.
         .task(id: "\(step)-\(store.steps[runId]?.count ?? -1)-\(store.frames[runId]?.count ?? -1)") {
             guard image == nil else { return }

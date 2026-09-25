@@ -148,6 +148,8 @@ func TestPrepareGuestSurfacesReadableGuestFailures(t *testing.T) {
 		{"the compile fails", "fail-input-install", "install the input helper"},
 		{"the ssh key cannot be written", "fail-keyinstall", "install the ssh key"},
 		{"the helper does not answer", "input-down", "verify the input helper"},
+		{"a base profile read-back fails", "fail-base", "appleevents-user-tart-guest-agent-com.apple.Safari"},
+		{"the toolchain cannot be measured", "fail-toolchain", "measure the toolchain"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -24,8 +24,9 @@ What exists today:
 - Verifier on NVIDIA NIM or in `manual` mode.
 - Companion app: runs, transcript, steps, screen player, live H.264 screen (ADR 0011),
   take control.
-- Packer recipe for `greenroom-base` (TCC, first-boot seed disk) and an unbuilt
-  `greenroom-xcode` recipe.
+- One image recipe, `apps/daemon/scripts/build-image.sh`: base and lean layers, a
+  toolchain manifest, and a dialog gate that fails the build on any prompt or stray app
+  (ADR 0018, ADR 0019).
 
 ## Next steps
 
@@ -33,11 +34,9 @@ In rough priority order.
 
 1. **Build and launch a real Mac app end to end.** The last M1 item. Needs a SwiftPM app
    first (fits the base image), then Xcode.
-2. **One `greenroom-base`.** `images/greenroom-base.pkr.hcl` (TCC, firstboot, display) and
-   `apps/daemon/scripts/build-image.sh` (input helper, ssh key) both produce a VM named
-   `greenroom-base` with different contents. Merge them.
-3. **Build `greenroom-xcode`.** Needs ~200 GB free and a hand-downloaded `.xip`
-   (`09-image-strategy.md`).
+2. **Xcode.** No Xcode layer yet (ADR 0019): needs ~200 GB free and a hand-downloaded
+   `.xip`. Until then images report their toolchain in `machine_wait`.
+3. (Done: one image recipe, ADR 0018.)
 4. **Sync as a boot phase.** `machine_create` takes a project path and reports ready once
    synced (`10-build-transport.md`, option C). Decide on mutagen (SSPL licence question)
    versus rsync.
@@ -47,10 +46,8 @@ In rough priority order.
    endpoint.
 6. **Tart behind an interface** (ADR 0010). Today `internal/tart` is the only caller, but
    `Manager` holds a concrete `*tart.Client`.
-7. Open issues: #7 (GPU crash dialog in graphics mode; graphics retired by ADR 0016,
-   so it can close as won't fix), #22 (nothing installs `packer`),
-   #23 (transcript wastes a wide window; layout decided in companion ADR 0004, not built
-   yet).
+7. Open issues: #23 (transcript wastes a wide window; layout decided in companion ADR 0004,
+   not built yet).
 
 Not planned: fleet, multi-host, PR posting, warm machines (resume is not faster than cold
 boot on the base image; see `10-build-transport.md`).

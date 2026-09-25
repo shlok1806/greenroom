@@ -50,15 +50,23 @@ are in the root `CONTEXT-MAP.md`.
   Coordinates are fractions 0 to 1, never pixels.
 - **Batch**: actions sent in one request, one step in the evidence. The queue is trimmed
   while a request is in flight (`InputBatch.coalesced`).
-- **Cell**: one character position on the window's grid, sized from the base face
-  (`design/tokens.json` `cell`). Every size and edge is whole cells (ADR 0004).
-- **Voice**: who is speaking, shown by a Monaspace face: chrome and coder (Neon),
-  verifier (Xenon), human (Radon, fallback Argon), machine (Krypton).
+- **Cell**: one character position on the mono grid, sized from the base face
+  (`design/tokens.json` `cell`). Chrome and data (step and command rows, code, output,
+  ids, times, key hints, section labels) size to whole cells; the rest of the window sizes
+  from the spacing scale, not cells (ADR 0004, narrowed by ADR 0008).
+- **Voice**: who is speaking (chrome, coder, verifier, human, machine). Since ADR 0008 a
+  voice is shown by a sender label in words and a thin coloured left edge on the message
+  group, not by a typeface: all reading text sets in one face (Mona Sans), all chrome and
+  data in one mono face (Monaspace Neon).
 - **Theme**: an ANSI palette (background, foreground, 16 slots, cursor, selection) in
-  Ghostty's keys, `design/themes/*.json`. A **slot** is one of its 16 colours (0 to 15).
-  A **role** is a meaning mapped to a slot: pass, failure, attention, live, driving, dim.
-- **Cursor**: the block `█` in inverse video. Marks keyboard focus, and the agent's
-  current step or message (blinks while it thinks).
+  Ghostty's keys, `design/themes/*.json`, plus three Greenroom extensions beyond that
+  shape (`greenroom-brand`, `greenroom-brand-text`, `greenroom-chrome-tint`, ADR 0008). A
+  **slot** is one of the 16 ANSI colours (0 to 15). A **role** is a meaning mapped to a
+  slot: pass, failure, attention, live, driving, dim. **Brand** and **chromeTint** are
+  Greenroom's own roles, held as those three extension keys rather than a slot.
+- **Cursor**: the block `█` in inverse video, filled with the brand colour since ADR
+  0008. Marks keyboard focus, and the agent's current step or message (blinks while it
+  thinks).
 - **Hint bar**: the bottom row of the grid listing the keys that work in the current
   context; `?` expands it into full help.
 - **Action registry**: the one list of actions (name, key, context, enabled) that the hint

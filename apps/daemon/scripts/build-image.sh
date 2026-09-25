@@ -1,10 +1,14 @@
 #!/bin/bash
-# Build the greenroom base image (issue #12): clone the default OCI image, boot it, run
-# `greenroom prepare-image` to bake in the input helper, ssh key, screen-capture approvals and desktop
-# preferences, and stop it.
-# Clones then skip the ~27 s first-control cost. -force replaces an existing image.
+# Build a greenroom image, the only recipe there is (ADR 0018): clone the default OCI image,
+# boot it, run `greenroom prepare-image` (input helper, ssh key, screen-capture approvals,
+# desktop preferences, the base profile in machine/guest/base.sh, the toolchain manifest,
+# Software Update off), stop it, and then run the dialog gate, `greenroom check-image`, on a
+# clone of a clone of it, before and after an in-guest reboot. The image is built under
+# <name>-building and takes its name only when the gate passes; a failed gate deletes it and
+# exits 1, leaving any existing <name> as it was. -force replaces an existing image.
 # -lean also applies the lean profile (machine/guest/lean.sh, docs/image-experiment):
 #   scripts/build-image.sh -lean -name greenroom-lean-a
+# The gate's screenshots and report go to $GREENROOM_CHECK_OUT, else a new temp directory.
 set -euo pipefail
 
 cd "$(dirname "$0")/.." # apps/daemon
@@ -55,12 +59,16 @@ if [ "$state" = "running" ]; then
   echo "a VM named $name is already running. Stop it yourself ($tart stop $name) and try again." >&2
   exit 1
 fi
-if [ -n "$state" ]; then
-  if [ -z "$force" ]; then
-    echo "a stopped VM named $name already exists. Pass -force to delete and rebuild it." >&2
-    exit 1
-  fi
-  echo "deleting the existing $name ($force via -force)"
+if [ -n "$state" ] && [ -z "$force" ]; then
+  echo "a stopped VM named $name already exists. Pass -force to rebuild it." >&2
+  exit 1
+fi
+
+# Build under a temporary name, so a failed build or gate never leaves a half image behind the real name.
+final="$name"
+name="$final-building"
+if "$tart" list --source local --format json 2>/dev/null | jq -e --arg n "$name" 'any(.[]; .Name == $n)' >/dev/null; then
+  echo "deleting a leftover $name from an earlier build"
   "$tart" delete "$name"
 fi
 
@@ -99,8 +107,14 @@ if [ -z "$ready" ]; then
 fi
 echo "guest agent is up"
 
-echo "preparing the guest (compiling the input helper, installing the ssh key, pre-approving screen capture, setting desktop preferences${lean:+, applying the lean profile})"
-go run . prepare-image -tart "$tart" -vm "$name" $lean
+echo "preparing the guest (input helper, ssh key, screen capture, desktop preferences, base profile, toolchain manifest${lean:+, lean profile}, Software Update off)"
+greenroom="$log.greenroom"
+go build -o "$greenroom" .
+if ! "$greenroom" prepare-image -tart "$tart" -vm "$name" $lean; then
+  cleanup
+  "$tart" delete "$name" || true
+  exit 1
+fi
 
 trap - EXIT
 echo "stopping $name"
@@ -117,6 +131,23 @@ wait "$run_pid" 2>/dev/null || true
 rm -f "$log" # kept only when something failed, since the messages above point at it
 echo "$name is stopped"
 
+# The dialog gate needs a VM slot of its own; the build VM has stopped.
+out="${GREENROOM_CHECK_OUT:-$(mktemp -d -t greenroom-check)}"
+echo "dialog check (clone of a clone, before and after a reboot); screenshots in $out"
+if ! "$greenroom" check-image -tart "$tart" -image "$name" -out "$out"; then
+  echo "$name failed the dialog check; deleting it. $final is unchanged. Screenshots and report: $out" >&2
+  "$tart" delete "$name" || true
+  rm -f "$greenroom"
+  exit 1
+fi
+rm -f "$greenroom"
+
+if "$tart" list --source local --format json 2>/dev/null | jq -e --arg n "$final" 'any(.[]; .Name == $n)' >/dev/null; then
+  echo "replacing the existing $final (-force)"
+  "$tart" delete "$final"
+fi
+"$tart" rename "$name" "$final"
+
 echo
-echo "image ready: $name"
-echo "run the daemon against it with: greenroom serve -image $name"
+echo "image ready: $final"
+echo "run the daemon against it with: greenroom serve -image $final"

@@ -29,6 +29,7 @@ func absInt(v int) int {
 }
 
 func TestEndToEndInput(t *testing.T) {
+	waitForAFreeSlot(t)
 	root := t.TempDir()
 	mgr, err := machine.NewManager(root, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err != nil {
@@ -38,7 +39,7 @@ func TestEndToEndInput(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	created, err := mgr.Create(ctx, defaultImage)
+	created, err := mgr.Create(ctx, greenroomBaseImage())
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -58,14 +59,14 @@ func TestEndToEndInput(t *testing.T) {
 	}
 	t.Logf("machine %s at %s booted in %.1fs", runID, mc.IP, mc.BootSeconds)
 
-	// The first ScreenOf compiles the guest helper; its latency is issue #12's baseline.
+	// The first ScreenOf compiles the guest helper unless the image baked it (issue #12).
 	started := time.Now()
 	screen, err := mgr.ScreenOf(ctx, runID)
 	firstInputLatency := time.Since(started)
 	if err != nil {
 		t.Fatalf("ScreenOf: %v", err)
 	}
-	t.Logf("screen: %dx%d; first ScreenOf (compiles the helper in the guest) took %s", screen.Width, screen.Height, firstInputLatency)
+	t.Logf("screen: %dx%d; first ScreenOf took %s", screen.Width, screen.Height, firstInputLatency)
 	if screen.Width <= 100 || screen.Height <= 100 {
 		t.Fatalf("implausible screen size: %+v", screen)
 	}

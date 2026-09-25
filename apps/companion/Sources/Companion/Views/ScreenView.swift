@@ -7,8 +7,17 @@ struct ScreenCommands {
     var goLive: (() -> Void)?
 }
 
+/// Spelled out rather than `@Entry`: that macro's plugin ships only with Xcode, and the
+/// CI runner builds with the Command Line Tools.
+private struct ScreenCommandsKey: FocusedValueKey {
+    typealias Value = ScreenCommands
+}
+
 extension FocusedValues {
-    @Entry var screenCommands: ScreenCommands?
+    var screenCommands: ScreenCommands? {
+        get { self[ScreenCommandsKey.self] }
+        set { self[ScreenCommandsKey.self] = newValue }
+    }
 }
 
 /// A player over the frames the daemon captured (ADR 0008), the live stream while
@@ -34,6 +43,7 @@ struct ScreenView: View {
     @State private var evidenceStep: Int?
     @AppStorage("showsConversation") private var showsConversation = true
     @FocusState private var focused: Bool
+    @Environment(\.theme) private var theme
 
     private var facts: RunFacts { store.facts(runId) }
     private var driving: Bool { pilot?.active == true }
@@ -162,7 +172,7 @@ struct ScreenView: View {
             if driving {
                 DrivingBar(screen: pilot?.screen)
                     .padding(.horizontal, Space.l)
-                    .padding(.top, Space.m)
+                    .padding(.top, Space.l)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             } else if let evidenceStep, !facts.isAlive || returnPoint != nil, facts.verdict != nil {
                 // A live run too, once evidence was opened from the card: the way back
@@ -216,7 +226,7 @@ struct ScreenView: View {
     private var well: some View {
         let shape = pictureSize ?? CGSize(width: 4, height: 3)
         return ZStack {
-            Palette.well
+            theme.well
             if let pictureSize {
                 if let image, !showsLive {
                     Image(nsImage: image)
@@ -240,11 +250,10 @@ struct ScreenView: View {
             }
         }
         .aspectRatio(shape, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.well, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
-                .strokeBorder(driving ? AnyShapeStyle(Palette.driving) : AnyShapeStyle(Palette.hairline),
-                              lineWidth: driving ? 3 : 1)
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                .strokeBorder(driving ? theme.color(.driving) : theme.hairline, lineWidth: driving ? 3 : Space.hairline)
                 .allowsHitTesting(false)
         }
         .animation(.snappy(duration: 0.2), value: driving)
@@ -253,26 +262,37 @@ struct ScreenView: View {
 
     @ViewBuilder
     private var emptyWell: some View {
-        if case .booting = facts.phase {
-            VStack(spacing: Space.m) {
-                ProgressView().controlSize(.regular)
-                Text("The machine is starting")
-                    .font(.headline)
-                Text("Its screen appears here once it is ready.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        } else if !player.frames.isEmpty {
-            ProgressView().controlSize(.small)
-        } else {
-            ContentUnavailableView {
-                Label("No recording", systemImage: "film")
-            } description: {
-                Text(machineIsReady
-                    ? "Recording starts when the machine is ready."
-                    : "This run ended without any frames captured.")
+        // The well is dark in every theme: its words take the dark theme's ink.
+        Group {
+            if case .booting = facts.phase {
+                VStack(spacing: Space.s) {
+                    HStack(spacing: Space.s) {
+                        Spinner()
+                        Text("booting machine")
+                    }
+                    .monoStyle()
+                    .foregroundStyle(theme.wellInk)
+                    Text("Its screen appears here once it is ready.")
+                        .readingStyle(size: TypeScale.readingSmall)
+                        .foregroundStyle(theme.wellDim)
+                }
+            } else if !player.frames.isEmpty {
+                Spinner().foregroundStyle(theme.wellDim)
+            } else {
+                VStack(spacing: Space.xs) {
+                    Text("No recording")
+                        .headingStyle()
+                        .foregroundStyle(theme.wellInk)
+                    Text(machineIsReady
+                        ? "Recording starts when the machine is ready."
+                        : "This run ended without any frames captured.")
+                        .readingStyle(size: TypeScale.readingSmall)
+                        .foregroundStyle(theme.wellDim)
+                }
             }
         }
+        .multilineTextAlignment(.center)
+        .padding(Space.l)
     }
 
     /// Where the picture comes from: exactly one of live, connecting, recording, driving.
@@ -414,31 +434,25 @@ struct EvidenceBar: View {
     var body: some View {
         HStack(spacing: Space.s) {
             if let back {
-                Button(action: back) {
-                    Label("Back to Verdict", systemImage: "chevron.backward")
-                }
-                .controlSize(.small)
-                .keyboardShortcut(.escape, modifiers: [])
-                .help("Return to where you were (Esc)")
+                Button("← Back to Verdict", action: back)
+                    .buttonStyle(.quiet(small: true))
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .help("Return to where you were (Esc)")
             }
-            Image(systemName: "diamond.fill")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(.secondary)
-            Text("Step \(step), cited by the verdict")
-                .font(.callout)
+            Text("◆ Step \(step), cited by the verdict")
+                .monoStyle(size: TypeScale.monoSmall)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
             if let record {
                 Button("Step Record", action: record)
-                    .buttonStyle(.link)
-                    .font(.callout)
+                    .buttonStyle(.textLink)
                     .help("Open this step's input and output in Steps")
             }
         }
         .padding(.horizontal, Space.l)
-        .padding(.top, Space.s)
+        .padding(.top, Space.m)
     }
 }
 
@@ -447,27 +461,24 @@ struct EvidenceBar: View {
 private struct DrivingBar: View {
     let screen: GuestScreen?
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
-        HStack(spacing: Space.s) {
-            Image(systemName: "cursorarrow.click.2")
-            VStack(alignment: .leading, spacing: 0) {
-                Text("You have control")
-                    .font(.callout.weight(.semibold))
-                Text("Your keys and clicks go to the machine\(screen.map { " (\($0.label))" } ?? "")")
-                    .font(.caption)
-                    .opacity(0.85)
-            }
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+            Text("You have control")
+                .readingStyle(.readingSemiBold, size: TypeScale.readingSmall)
+            Text("Your keys and clicks go to the machine\(screen.map { " (\($0.label))" } ?? "")")
+                .readingStyle(size: TypeScale.small)
             Spacer(minLength: Space.s)
-            Text("Give Back is in the toolbar")
-                .font(.caption.weight(.medium))
-                .opacity(0.9)
+            Text("Give Back is in the top bar")
+                .monoStyle(.monoMedium, size: TypeScale.monoSmall)
         }
-        .foregroundStyle(.white)
-        .padding(.leading, Space.m)
-        .padding(.trailing, Space.s)
-        .padding(.vertical, 6)
+        // The ground as ink: it clears the text threshold on the driving role in every theme.
+        .foregroundStyle(theme.background)
+        .padding(.horizontal, Space.m)
+        .padding(.vertical, Space.s)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.driving, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .background(theme.color(.driving), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("You have control of the machine")
     }
@@ -502,19 +513,21 @@ private struct PlayerBar: View {
     let endedReason: String?
     let goLive: () -> Void
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {
             HStack(spacing: Space.m) {
                 Button {
                     player.playing.toggle()
                 } label: {
-                    Image(systemName: player.playing ? "pause.fill" : "play.fill")
-                        .font(.system(size: 13, weight: .semibold))
+                    Text(player.playing ? "❚❚" : "▶")
+                        .font(Typeface.monoBold.font(size: TypeScale.small))
                         .frame(width: 28, height: 24)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .hoverHighlight(radius: 6)
+                .hoverHighlight(radius: Radius.sm)
                 .disabled(player.frames.count < 2 || driving)
                 .help(player.playing ? "Pause (Space)" : "Play the recording (Space)")
                 .accessibilityLabel(player.playing ? "Pause" : "Play")
@@ -559,39 +572,29 @@ private struct PlayerBar: View {
             }
 
             if let liveFailure {
-                statusLine("The live screen is unavailable, so this is the recording: \(liveFailure)", symbol: "video.slash", tint: .secondary)
+                statusLine("· The live screen is unavailable, so this is the recording: \(liveFailure)", tint: theme.dim)
             }
             // Outside the ready check: a stopped machine hides the button but keeps the reason.
             if let endedReason {
-                statusLine("Control ended: \(endedReason)", symbol: "exclamationmark.triangle.fill", tint: Palette.attention)
+                statusLine("! Control ended: \(endedReason)", tint: theme.color(.attention))
             }
         }
         .padding(.horizontal, Space.l)
     }
 
     private var speed: some View {
-        Picker("Speed", selection: $player.speed) {
-            Text("1×").tag(PlayerModel.Speed.normal)
-            Text("4×").tag(PlayerModel.Speed.fast)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.small)
-        .fixedSize()
-        .disabled(driving)
-        .help("Playback speed")
+        SegmentedSwitch(options: [(PlayerModel.Speed.normal, "1×"), (PlayerModel.Speed.fast, "4×")],
+                        selection: $player.speed, small: true)
+            .disabled(driving)
+            .help("Playback speed")
     }
 
     @ViewBuilder
     private var liveButton: some View {
         if machineIsReady, !player.live, !driving {
-            Button {
-                goLive()
-            } label: {
-                Label("Go Live", systemImage: "forward.end.fill")
-            }
-            .controlSize(.small)
-            .fixedSize()
+            Button("Go Live →") { goLive() }
+                .buttonStyle(.quiet(small: true))
+                .fixedSize()
             .help("Jump to the machine's screen now (\(Keys.live))")
         }
     }
@@ -602,9 +605,9 @@ private struct PlayerBar: View {
         return .recording(position: FrameTimeline.offset(player.frames, at: hoverIndex, from: origin), total: total)
     }
 
-    private func statusLine(_ text: String, symbol: String, tint: Color) -> some View {
-        Label(text, systemImage: symbol)
-            .font(.caption)
+    private func statusLine(_ text: String, tint: Color) -> some View {
+        Text(text)
+            .monoStyle(size: TypeScale.monoSmall)
             .foregroundStyle(tint)
             .lineLimit(2)
             .truncationMode(.tail)
@@ -618,33 +621,24 @@ private struct PlayerBar: View {
         let index = hoverIndex ?? player.index
         let frame = player.frames.indices.contains(index) ? player.frames[index] : nil
         let step = frame.flatMap { frame in steps.last { $0.seq <= frame.step } }
-        return HStack(spacing: 5) {
+        return HStack(spacing: Space.s) {
             if let step {
-                let entry = ToolCatalog.entry(for: step.tool)
                 Text("Step \(step.seq)")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .fixedSize()
-                Image(systemName: entry.symbol)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(entry.title)
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                Text(StepSummary.line(for: step))
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                Text(StepSummary.phrase(for: step, in: steps))
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
                     // A small ideal width: the bar's one-line layout is chosen by what
                     // must fit, not by how long a command is.
                     .frame(minWidth: 0, idealWidth: 60, maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(-1)
             } else if player.frames.isEmpty {
-                Text("No frames yet").foregroundStyle(.tertiary)
+                Text("No frames yet").foregroundStyle(.secondary)
             }
         }
-        .font(.callout)
+        .monoStyle(size: TypeScale.small)
         .lineLimit(1)
         .help(frame.map { "\(Chrome.stamp($0.at)) (\(Chrome.zone))\n\($0.file)" } ?? "")
     }
@@ -653,31 +647,27 @@ private struct PlayerBar: View {
     private var legend: some View {
         let marks = marks
         if !marks.failed.isEmpty || !marks.evidence.isEmpty {
-            HStack(spacing: Space.s) {
+            HStack(spacing: Space.m) {
                 if !marks.failed.isEmpty {
-                    HStack(spacing: 3) {
-                        Circle().fill(Palette.failure).frame(width: 6, height: 6)
+                    HStack(spacing: Space.xs) {
+                        Text("●").foregroundStyle(theme.color(.failure))
                         Text("errored")
                     }
                 }
                 if !marks.evidence.isEmpty {
-                    HStack(spacing: 3) {
-                        Image(systemName: "diamond.fill")
-                            .font(.system(size: 7, weight: .bold))
-                            .foregroundStyle(Palette.outcome(marks.verdict))
+                    HStack(spacing: Space.xs) {
+                        Text("◆").foregroundStyle(theme.outcome(marks.verdict))
                         Text("evidence")
                     }
                 }
                 if !marks.superseded.isEmpty {
-                    HStack(spacing: 3) {
-                        Image(systemName: "diamond")
-                            .font(.system(size: 7, weight: .bold))
-                            .foregroundStyle(.secondary)
+                    HStack(spacing: Space.xs) {
+                        Text("◇")
                         Text("earlier")
                     }
                 }
             }
-            .font(.caption)
+            .monoStyle(size: TypeScale.monoSmall)
             .foregroundStyle(.secondary)
             .fixedSize()
             .help("Marks on the track: red dots are steps that errored, filled diamonds the steps the verdict cites, hollow ones steps a superseded verdict cited")
@@ -703,30 +693,30 @@ struct TrackMarks {
 private struct SourceChip: View {
     let state: ScreenSourceState
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: Space.xs) {
             switch state {
             case .live:
-                LiveMark(size: 9)
-                Text("Live").foregroundStyle(Palette.live)
+                LiveMark()
+                Text("Live").foregroundStyle(theme.color(.live, on: .surface))
             case .connecting:
-                ProgressView().controlSize(.mini)
-                Text("Connecting...")
+                Spinner(size: TypeScale.monoSmall)
+                Text("Connecting")
             case .recording(let position, let total):
-                Image(systemName: "film")
-                    .font(.caption)
                 Text("Recording \(Chrome.clock(position)) of \(Chrome.clock(total))")
                     .monospacedDigit()
             case .driving:
-                Image(systemName: "cursorarrow.click.2")
-                Text("Live, you have control").foregroundStyle(Palette.driving)
+                Text("●")
+                Text("Live, you have control")
             }
         }
-        .font(.callout.weight(.medium))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(.fill.quaternary, in: Capsule())
+        .monoStyle(.monoMedium, size: TypeScale.monoSmall)
+        .foregroundStyle(state == .driving ? theme.color(.driving, on: .surface) : theme.foreground)
+        .padding(.horizontal, Space.s)
+        .frame(height: 22)
+        .panel(radius: Radius.sm)
         .fixedSize()
         .help(help)
     }
@@ -753,19 +743,16 @@ private struct RecentSteps: View {
         let shown = Array(steps.filter { upTo == nil || $0.seq <= upTo! }.suffix(4))
         if !shown.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text(upTo == nil ? "Recent steps" : "Steps up to here")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline) {
+                    SectionLabel(title: upTo == nil ? "Recent steps" : "Steps up to here")
                     Spacer()
                     Button("All Steps") { store.requestSeek(runId: runId, step: shown.last?.seq ?? 0, inSteps: true) }
-                        .buttonStyle(.link)
-                        .font(.caption)
+                        .buttonStyle(.textLink)
                         .help("Open the Steps stage (\(Keys.steps))")
                 }
                 .padding(.bottom, Space.xs)
                 ForEach(shown.reversed(), id: \.self) { step in
-                    RecentStepRow(step: step) {
+                    RecentStepRow(step: step, phrase: StepSummary.phrase(for: step, in: steps)) {
                         store.requestSeek(runId: runId, step: step.seq, inSteps: true)
                     }
                 }
@@ -777,46 +764,44 @@ private struct RecentSteps: View {
 
 private struct RecentStepRow: View {
     let step: Step
+    let phrase: String
     let open: () -> Void
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
-        let entry = ToolCatalog.entry(for: step.tool)
+        let failed = step.outcome.isFailure
         Button(action: open) {
             HStack(spacing: Space.s) {
-                Image(systemName: step.outcome.isFailure ? "exclamationmark.triangle.fill" : entry.symbol)
-                    .font(.caption)
-                    .foregroundStyle(step.outcome.isFailure ? AnyShapeStyle(Palette.failure) : AnyShapeStyle(.secondary))
-                    .frame(width: 16)
+                Text(failed ? "✗" : "✓")
+                    .foregroundStyle(failed ? theme.color(.failure) : theme.dim)
+                    .frame(width: 14)
                 Text("\(step.seq)")
-                    .font(.caption.monospacedDigit())
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .frame(width: 28, alignment: .trailing)
-                Text(entry.title)
-                    .font(.callout)
+                Text(phrase)
+                    .foregroundStyle(failed ? theme.color(.failure) : theme.foreground)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(width: 96, alignment: .leading)
-                Text(StepSummary.line(for: step))
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if case .exit(let code) = step.outcome {
-                    Text("exit \(code)").font(.caption.weight(.semibold)).foregroundStyle(Palette.failure)
+                    Text("exit \(code)").foregroundStyle(theme.color(.failure))
                 } else if case .error = step.outcome {
-                    Text("error").font(.caption.weight(.semibold)).foregroundStyle(Palette.failure)
+                    Text("error").foregroundStyle(theme.color(.failure))
                 }
                 Text(Chrome.shortTime(step.at))
-                    .font(.caption.monospacedDigit())
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .help("\(Chrome.stamp(step.at)) (\(Chrome.zone))")
             }
-            .padding(.vertical, 3)
+            .monoStyle(size: TypeScale.small)
+            .padding(.horizontal, Space.xs)
+            .padding(.vertical, Space.xs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverHighlight(radius: Radius.chip)
+        .hoverHighlight(radius: Radius.sm)
         .help("Open step \(step.seq) in Steps")
     }
 }
@@ -834,6 +819,8 @@ private struct FrameTrack: View {
 
     private static let trackHeight: CGFloat = 4
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
@@ -841,16 +828,16 @@ private struct FrameTrack: View {
             let playhead = timeline.x(of: index)
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(.fill.secondary)
+                    .fill(theme.hairline)
                     .frame(height: Self.trackHeight)
 
                 Capsule()
-                    .fill(enabled ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                    .fill(enabled ? theme.foreground.opacity(0.55) : theme.dim)
                     .frame(width: max(playhead, Self.trackHeight), height: Self.trackHeight)
 
                 ForEach(timeline.ticks(for: frames), id: \.index) { tick in
                     Rectangle()
-                        .fill(Color.primary.opacity(0.35))
+                        .fill(theme.dim.opacity(0.7))
                         .frame(width: 1, height: 9)
                         .offset(x: min(tick.x, width - 1))
                 }
@@ -870,7 +857,7 @@ private struct FrameTrack: View {
 
                 if let hoverIndex, enabled {
                     Rectangle()
-                        .fill(.secondary)
+                        .fill(theme.dim)
                         .frame(width: 1, height: 14)
                         .offset(x: min(max(timeline.x(of: hoverIndex), 0), width - 1))
                         .allowsHitTesting(false)
@@ -878,10 +865,9 @@ private struct FrameTrack: View {
 
                 // Clamped so the playhead does not hang off either end.
                 Circle()
-                    .fill(.white)
-                    .overlay(Circle().strokeBorder(.black.opacity(0.15), lineWidth: 0.5))
+                    .fill(theme.foreground)
+                    .overlay(Circle().strokeBorder(theme.background, lineWidth: 2))
                     .frame(width: 12, height: 12)
-                    .shadow(color: .black.opacity(0.25), radius: 1.5, y: 0.5)
                     .offset(x: min(max(playhead - 6, 0), max(width - 12, 0)))
                     .opacity(frames.isEmpty ? 0 : 1)
                     .allowsHitTesting(false)
@@ -924,12 +910,12 @@ private struct FrameTrack: View {
         switch mark.kind {
         case .failure:
             Circle()
-                .fill(Palette.failure)
+                .fill(theme.color(.failure))
                 .frame(width: 7, height: 7)
         case .evidence(let verdict):
-            Image(systemName: superseded ? "diamond" : "diamond.fill")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(superseded ? AnyShapeStyle(.secondary) : AnyShapeStyle(Palette.outcome(verdict)))
+            Text(superseded ? "◇" : "◆")
+                .font(.system(size: TypeScale.mark, weight: .bold))
+                .foregroundStyle(superseded ? theme.dim : theme.outcome(verdict))
         }
     }
 

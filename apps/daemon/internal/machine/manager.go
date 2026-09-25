@@ -26,7 +26,6 @@ const (
 
 	// GuestWorkDir is where a project lands, relative to the guest home. It is
 	// pinned because SwiftPM caches break when moved (docs/10-build-transport.md).
-	// images/scripts/firstboot.sh clones to the same path; change both.
 	GuestWorkDir = "work"
 
 	readyTimeout = 3 * time.Minute
@@ -54,6 +53,13 @@ type Machine struct {
 	CreatedAt   time.Time `json:"createdAt"`
 	Dir         string    `json:"dir"`
 
+	// Toolchain is the image's toolchain manifest (ADR 0019), passed through as the image
+	// wrote it at ToolchainPath, or {"known":false}. Set at ready.
+	Toolchain map[string]any `json:"toolchain,omitempty"`
+	// Desktop is what the screen showed at ready: any window or app a fresh machine should
+	// not have (ADR 0018). Reported, never closed. Set at ready.
+	Desktop *DesktopReport `json:"desktop,omitempty"`
+
 	// Control is the screen-control lease (ADR 0009). It is replaced, never
 	// edited in place, so snapshots can share it.
 	Control *Control    `json:"control,omitempty"`
@@ -67,6 +73,9 @@ type Machine struct {
 	// sessions is guarded by Manager.mu and deliberately not persisted: a
 	// restarted daemon cannot prove a guest process is the one an old id named.
 	sessions map[string]*PTYSession
+	// cleanups counts guest cleanups of evicted sessions still running, so
+	// Destroy returns only after they have. Guarded by Manager.mu; nil until the first.
+	cleanups *sync.WaitGroup
 
 	// execs are machine_exec commands by execId (execjob.go), guarded by
 	// Manager.mu. Not persisted either; detachLocked ends the running ones.
@@ -291,7 +300,7 @@ func (mc *Machine) publicLocked() *Machine {
 	}
 	c.lapse = nil
 	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel, c.screen = nil, nil, nil, nil, nil, nil, nil
-	c.execs = nil
+	c.execs, c.cleanups = nil, nil
 	c.bootCancel, c.bootDone, c.frameDone = nil, nil, nil
 	return &c
 }
@@ -509,9 +518,12 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 
 	m.mu.Lock()
 	live = m.forgetLocked(mc)
-	frames := mc.frameDone
+	frames, cleanups := mc.frameDone, mc.cleanups
 	m.mu.Unlock()
 	closeSessions(live)
+	if cleanups != nil {
+		cleanups.Wait() // out of the map, so no eviction can add one now
+	}
 	if frames != nil {
 		<-frames // no frame lands in the run directory after Destroy returns
 	}

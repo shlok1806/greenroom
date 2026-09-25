@@ -1,8 +1,9 @@
 # 0004. A glyph-native interface on a character grid
 
 Date: 2026-09-23
-Status: accepted. Supersedes 0001. Amends 0002 (colour table) and 0003 (the driving colour,
-where Take Control lives).
+Status: accepted, amended by 0008. Supersedes 0001. Amends 0002 (colour table) and 0003
+(the driving colour, where Take Control lives). 0008 replaces this ADR's type and colour
+decisions with a readable, mostly-proportional revision.
 
 ## Context
 

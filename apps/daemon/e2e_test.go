@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,12 +26,13 @@ import (
 )
 
 func TestEndToEnd(t *testing.T) {
+	waitForAFreeSlot(t)
 	root := t.TempDir()
 	mgr, err := machine.NewManager(root, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := mcpserver.New(mgr, defaultImage, greenroomsession.NewRegistry(root, greenroomsession.DefaultMaxDisputes))
+	server := mcpserver.New(mgr, greenroomBaseImage(), greenroomsession.NewRegistry(root, greenroomsession.DefaultMaxDisputes))
 	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true}))
 	defer ts.Close()
 
@@ -148,4 +151,37 @@ func contentText(res *mcp.CallToolResult) string {
 		}
 	}
 	return ""
+}
+
+// waitForAFreeSlot blocks until fewer than two macOS guests are running, the
+// host's limit. The suite shares its host with other runs and the maintainer's
+// own machines, which can take the last slot between the workflow's preflight
+// and a test's Create; a test waits for one like any caller told to.
+func waitForAFreeSlot(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Minute)
+	for {
+		out, err := exec.Command("tart", "list", "--format", "json").Output()
+		if err != nil {
+			t.Fatalf("tart list: %v", err)
+		}
+		var vms []struct{ Name, State string }
+		if err := json.Unmarshal(out, &vms); err != nil {
+			t.Fatalf("tart list: %v", err)
+		}
+		var running []string
+		for _, vm := range vms {
+			if strings.EqualFold(vm.State, "running") {
+				running = append(running, vm.Name)
+			}
+		}
+		if len(running) < 2 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("two macOS guests have held the host for 10 minutes: %s", strings.Join(running, ", "))
+		}
+		t.Logf("two macOS guests are running (%s); waiting for a free slot", strings.Join(running, ", "))
+		time.Sleep(15 * time.Second)
+	}
 }

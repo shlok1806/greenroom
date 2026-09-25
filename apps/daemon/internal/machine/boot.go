@@ -30,6 +30,8 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 	defer cancel()
 
 	var ip string
+	var toolchain map[string]any
+	var desktop *DesktopReport
 	timings := map[string]any{}
 	phase := func(key string, fn func() error) error {
 		at := time.Now()
@@ -58,15 +60,6 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 			timings["desktopPrefsError"] = perr.Error()
 			m.Log.Warn("a click on this machine's wallpaper may hide its windows", "runId", mc.RunID, "err", perr)
 		}
-		// The image starts Terminal at login (issue #60); nothing of the run is open yet. Not
-		// fatal: a stray Terminal only clutters the screen.
-		var quit bool
-		if qerr := phase("terminalSeconds", func() (err error) { quit, err = quitTerminal(ctx, m.tart, mc.Name); return err }); qerr != nil {
-			timings["terminalError"] = qerr.Error()
-			m.Log.Warn("a Terminal the image started may still be on this machine's screen", "runId", mc.RunID, "err", qerr)
-		} else {
-			timings["terminalQuit"] = quit
-		}
 		// The guest's clock reads the host's local time, as every time greenroom prints does
 		// (issue #77). Not fatal: a machine on UTC works.
 		if zone := m.hostTimeZone(); zone != "" {
@@ -78,6 +71,24 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 		}
 		// A stale image's helper is compiled here, not in the first UI call (issue #41).
 		m.bootInputHelper(boot, mc, timings)
+		// What the image says about its toolchain (ADR 0019) and what is on its screen
+		// (ADR 0018), for machine_wait. Neither is fatal, and the desktop is only reported.
+		_ = phase("toolchainSeconds", func() error {
+			var terr error
+			if toolchain, terr = readToolchain(ctx, m.tart, mc.Name); terr != nil {
+				timings["toolchainError"] = terr.Error()
+			}
+			return terr
+		})
+		_ = phase("desktopSeconds", func() error {
+			desktop = m.checkDesktop(ctx, mc)
+			if desktop.Error != "" {
+				timings["desktopError"] = desktop.Error
+			} else if !desktop.Clean {
+				timings["desktopFindings"] = desktop.Findings()
+			}
+			return nil
+		})
 	}
 	if err == nil {
 		err = phase("sshSeconds", func() error {
@@ -97,6 +108,7 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 		mc.Status, mc.Error = Failed, err.Error()
 	} else {
 		mc.Status, mc.IP, mc.BootSeconds = Ready, ip, round1(time.Since(started))
+		mc.Toolchain, mc.Desktop = toolchain, desktop
 	}
 	m.mu.Unlock()
 	m.persist()

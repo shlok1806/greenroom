@@ -420,8 +420,7 @@ final class SnapshotHarness {
         window.setContentSize(NSSize(width: size.width, height: size.height))
         if scenario.showSidebar {
             try await Task.sleep(for: .milliseconds(500))
-            let split = Self.splitViewController(in: window.contentView)
-            if let item = split?.splitViewItems.first { item.animator().isCollapsed = false }
+            NotificationCenter.default.post(name: RootView.showSidebarNotification, object: nil)
             try await Task.sleep(for: .milliseconds(500))
         }
         // Frames, artifacts and the conversation load over HTTP after the first layout.
@@ -436,16 +435,6 @@ final class SnapshotHarness {
         window.orderOut(nil)
         window.close()
         try await Task.sleep(for: .milliseconds(200))
-    }
-
-    /// The sidebar's split, found through the view tree: SwiftUI does not list it as a child controller.
-    private static func splitViewController(in view: NSView?) -> NSSplitViewController? {
-        guard let view else { return nil }
-        if let split = view as? NSSplitView, let controller = split.delegate as? NSSplitViewController { return controller }
-        for child in view.subviews {
-            if let found = splitViewController(in: child) { return found }
-        }
-        return nil
     }
 
     private func snapshot(window: NSWindow, to file: URL) throws {

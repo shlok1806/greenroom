@@ -14,8 +14,15 @@ import (
 // Every invocation is appended to <control>/calls.log. Files in the control directory switch behavior:
 //
 //	fail-clone, fail-run, fail-ip, fail-exec, fail-stop, fail-delete, fail-keyinstall,
-//	fail-capture-approval, fail-desktop-prefs, fail-lean (capture-approval-stale: the approval check reports a stale record)
+//	fail-capture-approval, fail-desktop-prefs, fail-desktop-login, fail-lean, fail-base, fail-toolchain, fail-softwareupdate
+//	                    (capture-approval-stale: the approval check reports a stale record)
 //	                    the matching operation exits 1 with a message
+//	toolchain.json      what the image's toolchain manifest holds; the manifest script writes
+//	                    {"known":true,...} here, and boot reads it (absent: the image has none)
+//	desktop.json        what the input helper's --desktop prints (default: a clean desktop, Finder only)
+//	softwareupdate      lines the image check's Software Update probe prints (default: none, it is off)
+//	fail-check-<name>   the image check's exercise <name> exits 1 (e.g. fail-check-appleevent-safari)
+//	boottime            the guest's boot time; the image check's in-guest reboot bumps it
 //	exec-exit-<n>       `tart exec` exits n
 //	exec-codes          `tart exec` exits with the next line of this file (consumed), then 0
 //	exec-sleep          machine_exec's command takes this many seconds
@@ -115,6 +122,44 @@ case "$sub" in
     case "$*" in
       *authorized_keys*) [ -f "$C/fail-keyinstall" ] && { echo "Error: cannot write" >&2; exit 1; } ;;
     esac
+    # Image build and image check (machine/base.go, imagecheck.go). Before the cases below:
+    # these scripts are long and would match their patterns.
+    case "$*" in
+      *greenroom-base-profile*)
+        [ -f "$C/fail-base" ] && { echo "base: check failed: appleevents-user-tart-guest-agent-com.apple.Safari" >&2; exit 1; }
+        echo "base: ok"; exit 0 ;;
+      *greenroom-toolchain-manifest*)
+        [ -f "$C/fail-toolchain" ] && { echo "swift: command not found" >&2; exit 1; }
+        echo '{"known":true,"xcode":false,"xctest":false,"swiftTesting":true,"swiftVersion":"Apple Swift version 6.3.3"}' > "$C/toolchain.json"
+        cat "$C/toolchain.json"; exit 0 ;;
+      *greenroom-toolchain-read*)
+        cat "$C/toolchain.json" 2>/dev/null; exit 0 ;;
+      *greenroom-softwareupdate-off*)
+        [ -f "$C/fail-softwareupdate" ] && { echo "softwareupdate: not disabled: com.apple.mobile.softwareupdated" >&2; exit 1; }
+        echo "softwareupdate: off"; exit 0 ;;
+      *greenroom-check-softwareupdate*)
+        cat "$C/softwareupdate" 2>/dev/null; exit 0 ;;
+      *greenroom-check-boottime*)
+        cat "$C/boottime" 2>/dev/null || echo "{ sec = 1 }"; exit 0 ;;
+      *greenroom-check-reboot*)
+        echo "{ sec = $(date +%s)$$ }" > "$C/boottime"; exit 0 ;;
+      *greenroom-check-login*) exit 0 ;;
+      *greenroom-desktop-login*)
+        [ -f "$C/fail-desktop-login" ] && { echo "no login session after 30 s" >&2; exit 1; }
+        exit 0 ;;
+      *": greenroom-check-"*)
+        for f in "$C"/fail-check-*; do
+          [ -e "$f" ] || continue
+          case "$*" in *"greenroom-check-${f##*/fail-check-}"*) echo "execution error: AppleEvent timed out. (-1712)" >&2; exit 1 ;; esac
+        done ;;
+    esac
+    case "$*" in
+      *"greenroom-input"*"--desktop"*)
+        if [ -f "$C/desktop.json" ]; then cat "$C/desktop.json"; else
+          echo '{"windows":[{"owner":"Window Server","name":"Menubar","layer":24,"alpha":1,"x":0,"y":0,"width":1024,"height":30},{"owner":"Dock","name":"Dock","layer":20,"alpha":1,"x":0,"y":0,"width":1024,"height":768}],"apps":[{"name":"Finder","bundleId":"com.apple.finder","pid":391}]}'
+        fi
+        exit 0 ;;
+    esac
     # replayd's screen-capture approvals; answered before exec-exit-<n> and exec-codes, which are for machine_exec.
     case "$*" in
       *ScreenCaptureApprovals*)
@@ -130,13 +175,6 @@ case "$sub" in
       *StandardHideWidgets*)
         [ -f "$C/fail-lean" ] && { echo "lean: check failed: gamecenter" >&2; exit 1; }
         echo "lean: ok"
-        exit 0 ;;
-    esac
-    case "$*" in
-      *com.apple.Terminal.savedState*)
-        : > "$C/terminal-quit-ran"
-        [ -f "$C/fail-terminal" ] && { echo "Terminal is still running" >&2; exit 1; }
-        echo "quit"
         exit 0 ;;
     esac
     case "$*" in

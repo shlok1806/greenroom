@@ -1,19 +1,24 @@
 import AppKit
 import SwiftUI
 
-/// The window: runs on the left, the open run (or why there is none) on the right.
+/// The window: the top bar, then the runs on the left and the open run (or why there is
+/// none) on the right. A hand-made split, not a `NavigationSplitView`: that brings the
+/// system's sidebar material, toolbar and divider, which the window's own chrome replaces
+/// (ADR 0004, 0008).
 struct RootView: View {
     let store: RunStore
 
     @AppStorage("stagePane") private var pane: StagePane = .screen
     @AppStorage("showsConversation") private var showsConversation = true
     @AppStorage("selectedRunId") private var savedSelection = ""
-    @State private var columns: NavigationSplitViewVisibility = .all
+    @AppStorage("sidebarWidth") private var sidebarWidth = RunLayout.sidebarIdeal
+    @State private var sidebarShown = true
     /// Set when a narrow window folded the sidebar away, so widening brings it back.
     @State private var autoCollapsed = false
     @State private var windowWidth: Double = 0
-    /// The sidebar's width as last laid out, which a person may have dragged past its ideal.
-    @State private var sidebarWidth = RunLayout.sidebarIdeal
+
+    /// Posted to show the sidebar by hand (the snapshot harness, as a person would).
+    static let showSidebarNotification = Notification.Name("greenroom.showSidebar")
 
     /// Below this the sidebar folds away, so the stage and the conversation keep their room.
     private var foldWidth: Double {
@@ -21,20 +26,34 @@ struct RootView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columns) {
-            SidebarView(store: store)
-                .navigationSplitViewColumnWidth(
-                    min: RunLayout.sidebarMinimum, ideal: RunLayout.sidebarIdeal, max: RunLayout.sidebarMaximum
-                )
-                .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
-                    if width > 0 { sidebarWidth = width }
+        ThemedRoot {
+            VStack(spacing: 0) {
+                // The top bar is drawn over this room, from the preference the open view sets.
+                Color.clear.frame(height: TopBar.height)
+                HStack(spacing: 0) {
+                    if sidebarShown {
+                        SidebarView(store: store)
+                            .frame(width: RunLayout.clampSidebar(sidebarWidth))
+                            .transition(.move(edge: .leading))
+                        SidebarDivider(width: $sidebarWidth)
+                    }
+                    detail
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-        } detail: {
-            detail
+            }
+            .overlayPreferenceValue(TopBarItemsKey.self, alignment: .top) { items in
+                TopBar(items: items)
+            }
+            .ignoresSafeArea()
         }
+        .focusedSceneValue(\.sidebarShown, $sidebarShown)
         // The SSE socket can look alive after sleep while the daemon restarted.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.resync() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Self.showSidebarNotification)) { _ in
+            autoCollapsed = false
+            sidebarShown = true
         }
         .onChange(of: store.selectedRunId) {
             if let selected = store.selectedRunId { savedSelection = selected }
@@ -50,17 +69,12 @@ struct RootView: View {
         .onChange(of: showsConversation) { fold(width: windowWidth, previous: 0) }
     }
 
-    /// The empty states keep a toolbar too, so the title bar is one height in every state.
-    private var emptyToolbar: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                Task { await store.resync() }
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-                    .labelStyle(.titleAndIcon)
-            }
-            .help("Read the runs again (\(Keys.refresh))")
+    /// The empty states offer Refresh in the top bar, where the run's actions go.
+    private var refresh: some View {
+        Button("Refresh") {
+            Task { await store.resync() }
         }
+        .help("Read the runs again (\(Keys.refresh))")
     }
 
     @ViewBuilder
@@ -68,16 +82,13 @@ struct RootView: View {
         switch store.connection {
         case .offline(hasData: false):
             OfflineView(store: store)
-                .toolbar(removing: .title)
-                .toolbar { emptyToolbar }
+                .topBar { refresh }
         case .refused(let words, hasData: false):
             RefusedView(store: store, words: words)
-                .toolbar(removing: .title)
-                .toolbar { emptyToolbar }
+                .topBar { refresh }
         case .connecting where store.runs.isEmpty:
             ConnectingView(address: store.daemonAddress)
-                .toolbar(removing: .title)
-                .toolbar { emptyToolbar }
+                .topBar { refresh }
         default:
             VStack(spacing: 0) {
                 switch store.connection {
@@ -90,12 +101,10 @@ struct RootView: View {
                             makeRoom: makeRoom)
                 } else if store.runs.isEmpty {
                     WelcomeView(address: store.daemonAddress)
-                        .toolbar(removing: .title)
-                        .toolbar { emptyToolbar }
+                        .topBar { refresh }
                 } else {
                     NoSelectionView(store: store)
-                        .toolbar(removing: .title)
-                        .toolbar { emptyToolbar }
+                        .topBar { refresh }
                 }
             }
         }
@@ -105,21 +114,21 @@ struct RootView: View {
     /// narrow window stays.
     private func fold(width: Double, previous: Double) {
         let shrankPast = width < foldWidth && (previous == 0 || previous >= foldWidth)
-        if shrankPast, columns != .detailOnly {
+        if shrankPast, sidebarShown {
             autoCollapsed = true
-            withAnimation(.snappy) { columns = .detailOnly }
+            withAnimation(.snappy) { sidebarShown = false }
         } else if width >= foldWidth, autoCollapsed {
             autoCollapsed = false
-            withAnimation(.snappy) { columns = .all }
+            withAnimation(.snappy) { sidebarShown = true }
         }
     }
 
     /// The conversation was asked for beside a sidebar shown by hand, with no room for
     /// both: the sidebar gives way first, and comes back once the window is wide enough.
     private func makeRoom() {
-        guard columns != .detailOnly else { return }
+        guard sidebarShown else { return }
         autoCollapsed = true
-        withAnimation(.snappy) { columns = .detailOnly }
+        withAnimation(.snappy) { sidebarShown = false }
     }
 
     /// The last run a person looked at, else the one that needs them, else the newest,
@@ -132,19 +141,113 @@ struct RootView: View {
     }
 }
 
+/// Whether the runs sidebar is shown, for View > Hide Sidebar. Spelled out rather than
+/// `@Entry`: that macro's plugin ships only with Xcode.
+private struct SidebarShownKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
+extension FocusedValues {
+    var sidebarShown: Binding<Bool>? {
+        get { self[SidebarShownKey.self] }
+        set { self[SidebarShownKey.self] = newValue }
+    }
+}
+
+/// The hairline between the runs and the run. Dragging it resizes the runs;
+/// double-clicking puts them back to their usual width.
+private struct SidebarDivider: View {
+    @Binding var width: Double
+
+    @State private var start: Double?
+
+    var body: some View {
+        Hairline(axis: .vertical)
+            .frame(maxHeight: .infinity)
+            .overlay {
+                // A wider grip than the line, as NSSplitView gives.
+                Color.clear
+                    .frame(width: 9)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { value in
+                                let origin = start ?? RunLayout.clampSidebar(width)
+                                start = origin
+                                width = RunLayout.clampSidebar(origin + value.translation.width)
+                            }
+                            .onEnded { _ in start = nil }
+                    )
+                    .onTapGesture(count: 2) { width = RunLayout.sidebarIdeal }
+            }
+    }
+}
+
 // MARK: - Empty and error states
+
+/// An empty state's words: a heading and a sentence or two in the reading face,
+/// centred in the detail at a comfortable measure.
+private struct EmptyState<Extra: View>: View {
+    let title: String
+    let message: String
+    @ViewBuilder var extra: () -> Extra
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.l) {
+            VStack(alignment: .leading, spacing: Space.s) {
+                Text(title)
+                    .headingStyle(size: TypeScale.title)
+                Text(message)
+                    .readingStyle()
+                    .foregroundStyle(.secondary)
+            }
+            extra()
+        }
+        .frame(maxWidth: 440, alignment: .leading)
+        .padding(Space.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
 
 private struct ConnectingView: View {
     let address: String
 
     var body: some View {
-        VStack(spacing: Space.m) {
-            ProgressView()
-            Text("Connecting to the greenroom daemon at \(address)")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+        HStack(spacing: Space.s) {
+            Spinner()
+            Text("Connecting to greenroom at \(address)")
+                .monoStyle()
         }
+        .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// "Try Again", ticking while the read is out.
+private struct RetryButton: View {
+    let store: RunStore
+
+    @State private var retrying = false
+
+    var body: some View {
+        Button {
+            retrying = true
+            Task {
+                await store.resync()
+                retrying = false
+            }
+        } label: {
+            HStack(spacing: Space.s) {
+                if retrying { Spinner(size: TypeScale.readingSmall) }
+                Text(retrying ? "Trying" : "Try Again")
+            }
+        }
+        .buttonStyle(.primary)
+        .disabled(retrying)
+        .keyboardShortcut(.defaultAction)
     }
 }
 
@@ -152,42 +255,14 @@ private struct ConnectingView: View {
 private struct OfflineView: View {
     let store: RunStore
 
-    @State private var retrying = false
-
     var body: some View {
-        VStack(spacing: Space.l) {
-            Image(systemName: "server.rack")
-                .font(.system(size: 34))
-                .foregroundStyle(.secondary)
-            VStack(spacing: Space.xs) {
-                Text("The greenroom daemon is not running")
-                    .font(.title3.weight(.semibold))
-                Text("Nothing answered at \(store.daemonAddress). Start it in a terminal and this window connects on its own.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
+        EmptyState(
+            title: "greenroom is not running",
+            message: "Nothing answered at \(store.daemonAddress). Start it in a terminal and this window connects on its own."
+        ) {
             CommandBlock(command: "greenroom serve")
-                .frame(maxWidth: 320)
-            Button {
-                retrying = true
-                Task {
-                    await store.resync()
-                    retrying = false
-                }
-            } label: {
-                if retrying {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Text("Try Again")
-                }
-            }
-            .disabled(retrying)
-            .keyboardShortcut(.defaultAction)
+            RetryButton(store: store)
         }
-        .frame(maxWidth: 420)
-        .padding(Space.xxl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -196,50 +271,24 @@ private struct RefusedView: View {
     let store: RunStore
     let words: String
 
-    @State private var retrying = false
-
     var body: some View {
-        VStack(spacing: Space.l) {
-            Image(systemName: "exclamationmark.octagon")
-                .font(.system(size: 34))
-                .foregroundStyle(.secondary)
-            VStack(spacing: Space.xs) {
-                Text("The greenroom daemon refused the request")
-                    .font(.title3.weight(.semibold))
-                Text("The daemon at \(store.daemonAddress) is running and answered with an error:")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
+        EmptyState(
+            title: "greenroom refused the request",
+            message: "The daemon at \(store.daemonAddress) is running and answered with an error:"
+        ) {
             Text(words)
-                .font(.callout.monospaced())
+                .monoStyle()
                 .textSelection(.enabled)
-                .multilineTextAlignment(.center)
+                .padding(Space.m)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .panel()
             if let advice = ConnectionState.advice(for: words) {
                 Text(advice)
-                    .font(.callout)
+                    .readingStyle(size: TypeScale.readingSmall)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
             }
-            Button {
-                retrying = true
-                Task {
-                    await store.resync()
-                    retrying = false
-                }
-            } label: {
-                if retrying {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Text("Try Again")
-                }
-            }
-            .disabled(retrying)
-            .keyboardShortcut(.defaultAction)
+            RetryButton(store: store)
         }
-        .frame(maxWidth: 420)
-        .padding(Space.xxl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -257,21 +306,20 @@ private struct OfflineBanner: View {
 
     var body: some View {
         HStack(spacing: Space.s) {
-            Image(systemName: "bolt.horizontal.circle")
+            Spinner(size: TypeScale.monoSmall)
                 .foregroundStyle(.secondary)
             Text(text)
+                .readingStyle(size: TypeScale.readingSmall)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help(words ?? store.lastError ?? "")
             Spacer(minLength: Space.s)
             Button("Reconnect") { Task { await store.resync() } }
-                .controlSize(.small)
+                .buttonStyle(.quiet(small: true))
         }
-        .font(.callout)
         .padding(.horizontal, Space.l)
-        .padding(.vertical, 6)
-        .background(.fill.quinary)
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(.vertical, Space.s)
+        .overlay(alignment: .bottom) { Hairline() }
     }
 }
 
@@ -280,62 +328,56 @@ private struct OfflineBanner: View {
 private struct WelcomeView: View {
     let address: String
 
+    @Environment(\.openURL) private var openURL
+
     private var mcpCommand: String {
         "claude mcp add --transport http greenroom http://\(address)/mcp"
     }
 
     var body: some View {
         GeometryReader { geometry in
-        ScrollView {
-            VStack(alignment: .leading, spacing: Space.xl) {
-                VStack(alignment: .leading, spacing: Space.s) {
-                    Text("Watch your agents work")
-                        .font(.title.weight(.semibold))
-                    Text("greenroom gives your coding agent (Claude Code, or any agent that speaks MCP) its own disposable Mac. Its verifier, greenroom's own agent, checks the work and proposes a verdict. You watch, answer and decide here.")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: Space.s) {
-                    Text("Connect your agent")
-                        .font(.headline)
-                    Text("The greenroom daemon is running at \(address). Add it to Claude Code once, then ask your agent to verify a change on a greenroom machine:")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    CommandBlock(command: mcpCommand)
-                    Link(destination: URL(string: "https://github.com/shlok1806/greenroom#readme")!) {
-                        Label("Setup guide", systemImage: "book")
+            ScrollView {
+                VStack(alignment: .leading, spacing: Space.xl) {
+                    VStack(alignment: .leading, spacing: Space.m) {
+                        Wordmark(size: TypeScale.title)
+                        Text("Watch your agents work")
+                            .headingStyle(size: TypeScale.title)
+                        Text("greenroom gives your coding agent (Claude Code, or any agent that speaks MCP) its own disposable Mac. Its verifier, greenroom's own agent, checks the work and proposes a verdict. You watch, answer and decide here.")
+                            .readingStyle()
+                            .foregroundStyle(.secondary)
                     }
-                    .font(.callout)
-                }
 
-                VStack(alignment: .leading, spacing: Space.m) {
-                    feature("display", "Watch the screen", "Follow the machine live, or scrub back through its recording.")
-                    feature("checkmark.seal", "Judge the verdict", "See what the verifier cites, open each step, then accept or dispute.")
-                    feature("bubble.left.and.text.bubble.right", "Talk to the verifier", "Answer its questions, or hand it more to check.")
-                    feature("cursorarrow.click.2", "Take control", "Drive the machine's mouse and keyboard yourself when an agent is stuck.")
+                    VStack(alignment: .leading, spacing: Space.s) {
+                        SectionLabel(title: "Connect your agent")
+                        Text("The greenroom daemon is running at \(address). Add it to Claude Code once, then ask your agent to verify a change on a greenroom machine:")
+                            .readingStyle()
+                            .foregroundStyle(.secondary)
+                        CommandBlock(command: mcpCommand)
+                        Button("Setup guide") { openURL(URL(string: "https://github.com/shlok1806/greenroom#readme")!) }
+                            .buttonStyle(.textLink)
+                    }
+
+                    VStack(alignment: .leading, spacing: Space.m) {
+                        SectionLabel(title: "What you can do")
+                        feature("Watch the screen", "Follow the machine live, or scrub back through its recording.")
+                        feature("Judge the verdict", "See what the verifier cites, open each step, then accept or dispute.")
+                        feature("Talk to the verifier", "Answer its questions, or hand it more to check.")
+                        feature("Take control", "Drive the machine's mouse and keyboard yourself when an agent is stuck.")
+                    }
                 }
+                .frame(maxWidth: 520, alignment: .leading)
+                .padding(Space.xl)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
             }
-            .frame(maxWidth: 480, alignment: .leading)
-            .padding(Space.xxl)
-            .frame(maxWidth: .infinity, minHeight: geometry.size.height)
-        }
         }
     }
 
-    private func feature(_ symbol: String, _ title: String, _ detail: String) -> some View {
-        HStack(alignment: .top, spacing: Space.m) {
-            Image(systemName: symbol)
-                .font(.title3)
+    private func feature(_ title: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).readingStyle(.readingSemiBold)
+            Text(detail)
+                .readingStyle(size: TypeScale.readingSmall)
                 .foregroundStyle(.secondary)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
-                Text(detail)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 }
@@ -348,48 +390,43 @@ private struct NoSelectionView: View {
         let needing = store.runs.first { store.facts($0.runId).needsYou }
         let live = store.runs.first { store.facts($0.runId).isAlive }
         let suggestion = needing ?? live ?? store.runs.first
-        VStack(spacing: Space.l) {
-            Image(systemName: "rectangle.stack")
-                .font(.system(size: 34))
-                .foregroundStyle(.secondary)
-            Text("No run open")
-                .font(.title3.weight(.semibold))
-            if let gone = store.goneRun {
-                Text("\u{201C}\(gone)\u{201D} is no longer on the daemon at \(store.daemonAddress).")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 420)
-            }
+        EmptyState(
+            title: "No run open",
+            message: store.goneRun.map { "\u{201C}\($0)\u{201D} is no longer on the daemon at \(store.daemonAddress)." }
+                ?? "Pick a run on the left, or open the one that most wants you."
+        ) {
             if let suggestion {
                 let facts = store.facts(suggestion.runId)
-                Button(facts.needsYou ? "Open the Run That Needs You" : facts.isAlive ? "Open the Running Run" : "Open the Newest Run") {
-                    store.selectedRunId = suggestion.runId
+                VStack(alignment: .leading, spacing: Space.s) {
+                    Button(facts.needsYou ? "Open the Run That Needs You" : facts.isAlive ? "Open the Running Run" : "Open the Newest Run") {
+                        store.selectedRunId = suggestion.runId
+                    }
+                    .buttonStyle(.primary)
+                    .keyboardShortcut(.defaultAction)
+                    Text(RunTitle.short(task: suggestion.task, runId: suggestion.runId))
+                        .readingStyle(size: TypeScale.readingSmall)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                Text(RunTitle.short(task: suggestion.task, runId: suggestion.runId))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: 420)
             }
-            Grid(alignment: .leading, horizontalSpacing: Space.m, verticalSpacing: 4) {
+            Grid(alignment: .leading, horizontalSpacing: Space.m, verticalSpacing: Space.xs) {
                 shortcut("↑ ↓", "Move through runs")
                 shortcut("\(Keys.screen)  \(Keys.steps)", "Screen or steps")
                 shortcut(Keys.conversation, "Show or hide the conversation")
                 shortcut(Keys.nextFailure, "Next step that errored")
             }
-            .font(.callout)
             .padding(.top, Space.s)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func shortcut(_ keys: String, _ action: String) -> some View {
         GridRow {
-            Text(keys).foregroundStyle(.secondary).gridColumnAlignment(.trailing)
+            Text(keys)
+                .monoStyle(size: TypeScale.monoSmall)
+                .foregroundStyle(.secondary)
+                .gridColumnAlignment(.trailing)
             Text(action)
+                .readingStyle(size: TypeScale.readingSmall)
         }
     }
 }

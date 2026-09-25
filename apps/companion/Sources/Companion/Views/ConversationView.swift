@@ -63,20 +63,21 @@ struct ConversationView: View {
     /// whole of a tall last bubble: scrolled to its own id it stopped a line short.
     private static let endRowId = -2
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
             VerdictCard(store: store, runId: runId, facts: store.facts(runId),
                         maxHeight: RunLayout.verdictCardMaximum(column: columnHeight))
                 .id(VerdictCard.identity(runId: runId, verdict: store.verdict(runId)))
-                .padding(Space.m)
-                .background(Color(nsColor: .windowBackgroundColor))
+                .padding(.horizontal, Space.m)
+                .padding(.bottom, Space.m)
                 // Before the transcript, which scrolls in whatever is left.
                 .layoutPriority(1)
-            Divider()
+            Hairline()
             transcript
-            Divider()
+            Hairline()
             Composer(store: store, runId: runId) { atBottom = true }
         }
         .onGeometryChange(for: Double.self) { $0.size.height } action: { columnHeight = $0 }
@@ -87,31 +88,29 @@ struct ConversationView: View {
     /// Names the column and holds its one filter: the verifier's tool calls, which a
     /// long run has hundreds of.
     private var header: some View {
-        HStack(spacing: Space.s) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
             Text("Conversation")
-                .font(.title3.weight(.semibold))
+                .headingStyle()
             let count = store.facts(runId).messageCount
             if count > 0 {
                 Text(count == 1 ? "1 message" : "\(Chrome.count(count)) messages")
-                    .font(.callout.monospacedDigit())
+                    .monoStyle(size: TypeScale.monoSmall)
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: Space.s)
             Toggle("Tool calls", isOn: $showsToolCalls)
-                .toggleStyle(.checkbox)
-                .controlSize(.small)
-                .font(.callout)
                 .help("Show the verifier's tool calls between its messages")
         }
         .padding(.horizontal, Space.m)
         .padding(.top, Space.m)
-        .padding(.bottom, Space.s)
+        .padding(.bottom, Space.m)
     }
 
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: Space.m) {
+                LazyVStack(alignment: .leading, spacing: Space.l) {
                     ForEach(items) { item in
                         row(item).id(item.id)
                     }
@@ -142,10 +141,10 @@ struct ConversationView: View {
             // surface under the pinned card instead of showing as a cut-off half line.
             .overlay(alignment: .top) {
                 LinearGradient(
-                    colors: [Color(nsColor: .windowBackgroundColor), Color(nsColor: .windowBackgroundColor).opacity(0)],
+                    colors: [theme.background, theme.background.opacity(0)],
                     startPoint: .top, endPoint: .bottom
                 )
-                .frame(height: 22)
+                .frame(height: Space.l)
                 .allowsHitTesting(false)
             }
             // "Jump to latest" is for someone who scrolled away, never shown unasked.
@@ -178,21 +177,13 @@ struct ConversationView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if !atBottom, anchored, userScrolled, items.count > 3 {
-                    Button {
+                    Button("↓ Jump to latest") {
                         atBottom = true
                         if !items.isEmpty {
                             withAnimation { proxy.scrollTo(Self.endRowId, anchor: .bottom) }
                         }
-                    } label: {
-                        Label("Jump to latest", systemImage: "arrow.down")
-                            .font(.caption.weight(.medium))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(.regularMaterial, in: Capsule())
-                            .overlay(Capsule().strokeBorder(Palette.hairline))
-                            .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.quiet(small: true))
                     .padding(.bottom, Space.s)
                     .padding(.trailing, Space.l)
                     .help("Scroll to the newest message")
@@ -201,11 +192,8 @@ struct ConversationView: View {
             }
             .overlay {
                 if messages.isEmpty {
-                    ContentUnavailableView {
-                        Label("No conversation yet", systemImage: "bubble.left.and.bubble.right")
-                    } description: {
-                        Text("The coding agent opens it with the task. You can message the verifier at any time.")
-                    }
+                    QuietEmpty(title: "No conversation yet",
+                               message: "The coding agent opens it with the task. You can message the verifier at any time.")
                 }
             }
         }
@@ -221,55 +209,35 @@ struct ConversationView: View {
         case .event(let message):
             EventLine(message: message, verdicts: messages.filter { $0.kind == .verdict }, steps: store.steps[runId] ?? [])
         case .day(let day, _):
-            HStack(spacing: Space.s) {
-                Rectangle().fill(Palette.hairline).frame(height: 1)
-                Text(Chrome.day(day))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                Rectangle().fill(Palette.hairline).frame(height: 1)
-            }
-            .padding(.vertical, Space.xs)
+            SectionLabel(title: Chrome.day(day))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Space.xs)
         }
     }
 }
 
 // MARK: - Rows
 
-/// A lifecycle event or a closed verdict, as a quiet centred line.
+/// A lifecycle event or a closed verdict, as one quiet mono line.
 private struct EventLine: View {
     let message: Message
     let verdicts: [Message]
     let steps: [Step]
 
     var body: some View {
-        HStack(spacing: Space.s) {
-            line
-            HStack(spacing: 5) {
-                if message.kind == .accept {
-                    Image(systemName: "checkmark.circle")
-                }
-                Text(text)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                Text(Chrome.shortTime(message.at))
-                    .monospacedDigit()
-                    .foregroundStyle(.tertiary)
-                    .help(Chrome.stamp(message.at))
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .layoutPriority(1)
-            line
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+            Text(message.kind == .accept ? "✓" : "·")
+            // The time runs on after the words, so a wrapped line keeps it beside them.
+            (Text(text) + Text("  " + Chrome.shortTime(message.at)).monospacedDigit())
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .help(Chrome.stamp(message.at))
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, Space.xxs)
+        .monoStyle(size: TypeScale.monoSmall)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, Space.m)
         .textSelection(.enabled)
-    }
-
-    private var line: some View {
-        Rectangle().fill(Palette.hairline).frame(height: 1).frame(minWidth: 12)
     }
 
     private var text: String {
@@ -280,53 +248,49 @@ private struct EventLine: View {
     }
 }
 
-/// One spoken message: avatar and name once per turn, then the body. The human's own
-/// words sit on the right, like any conversation.
+/// One spoken message (ADR 0008 `MessageGroup`): the sender's name in words once per
+/// turn, then the words in the reading face, with a thin coloured edge down the side
+/// saying who spoke a second way.
 private struct MessageRow: View {
     let store: RunStore
     let runId: String
     let message: Message
     let showsSender: Bool
 
-    private var mine: Bool { message.from == .human }
+    @Environment(\.theme) private var theme
 
     var body: some View {
-        if mine {
-            VStack(alignment: .trailing, spacing: Space.xs) {
-                if showsSender { header }
-                bubble
-                    .frame(maxWidth: 320, alignment: .trailing)
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.leading, Space.xxl)
-        } else {
-            HStack(alignment: .top, spacing: Space.s) {
-                if showsSender {
-                    SenderAvatar(from: message.from)
-                } else {
-                    Color.clear.frame(width: 22, height: 1)
-                }
-                VStack(alignment: .leading, spacing: Space.xs) {
-                    if showsSender { header }
-                    bubble
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+        VStack(alignment: .leading, spacing: Space.xs) {
+            if showsSender { header }
+            bubble
+        }
+        .padding(.leading, Space.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 1)
+                .fill(edge)
+                .frame(width: 2)
+                .accessibilityHidden(true)
         }
     }
 
+    private var edge: Color {
+        message.kind == .dispute ? theme.color(.attention) : theme.edge(message.from)
+    }
+
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
             Text(message.from.displayName)
-                .font(.callout.weight(.semibold))
+                .readingStyle(.readingSemiBold, size: TypeScale.readingSmall)
             if let kind = kindLabel {
                 Text(kind)
-                    .font(.caption.weight(.medium))
+                    .monoStyle(size: TypeScale.monoSmall)
                     .foregroundStyle(.secondary)
             }
             Text(Chrome.shortTime(message.at))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.tertiary)
+                .monoStyle(size: TypeScale.monoSmall)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
                 .help("\(Chrome.stamp(message.at)) · message \(message.seq)")
         }
     }
@@ -353,22 +317,6 @@ private struct MessageRow: View {
             QuestionBubble(store: store, runId: runId, message: message)
         default:
             MessageText(text: TranscriptText.clean(message.text))
-                .padding(.horizontal, Space.m)
-                .padding(.vertical, Space.s)
-                .background(fill, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
-                .overlay(alignment: .leading) {
-                    if message.kind == .dispute {
-                        RoundedRectangle(cornerRadius: 1.5).fill(.orange).frame(width: 3).padding(.vertical, Space.s)
-                    }
-                }
-        }
-    }
-
-    private var fill: AnyShapeStyle {
-        switch message.from {
-        case .human: AnyShapeStyle(Color.accentColor.opacity(0.16))
-        case .coder where message.kind == .task: AnyShapeStyle(.fill.tertiary)
-        default: AnyShapeStyle(.fill.quaternary)
         }
     }
 }
@@ -381,29 +329,25 @@ private struct VerdictMessage: View {
     let message: Message
 
     @State private var open = false
+    @Environment(\.theme) private var theme
 
     private var isLatest: Bool { store.verdict(runId)?.seq == message.seq }
-    private var tint: Color { Palette.outcome(message.verdict) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
+        VStack(alignment: .leading, spacing: Space.s) {
             Button {
                 withAnimation(.snappy(duration: 0.18)) { open.toggle() }
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: Chrome.outcomeSymbol(message.verdict))
-                        .foregroundStyle(tint)
-                    Text(isLatest ? "Verdict: \(Chrome.outcomeTitle(message.verdict))" : "Earlier verdict: \(Chrome.outcomeTitle(message.verdict))")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(isLatest ? tint : .secondary)
+                HStack(spacing: Space.s) {
+                    Text(open ? "▾" : "▸").foregroundStyle(.secondary)
+                    Text("\(Chrome.outcomeGlyph(message.verdict)) \(isLatest ? "Verdict" : "Earlier verdict"): \(Chrome.outcomeTitle(message.verdict))")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(isLatest ? theme.outcome(message.verdict) : theme.dim)
                     Text(isLatest ? "in full above" : "superseded")
-                        .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
-                    Image(systemName: open ? "chevron.up" : "chevron.down")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.tertiary)
                 }
+                .monoStyle(size: TypeScale.monoSmall)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -415,7 +359,7 @@ private struct VerdictMessage: View {
                 if !cited.isEmpty {
                     HStack(spacing: Space.xs) {
                         Text(isLatest ? "Cites" : "Cited by this earlier \(Chrome.outcomeTitle(message.verdict)) verdict, superseded:")
-                            .font(.caption)
+                            .readingStyle(size: TypeScale.small)
                             .foregroundStyle(.secondary)
                         ForEach(cited, id: \.self) { item in
                             EvidenceLink(store: store, runId: runId, item: item) {
@@ -426,11 +370,6 @@ private struct VerdictMessage: View {
                 }
             }
         }
-        .padding(.horizontal, Space.m)
-        .padding(.vertical, Space.s)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.fill.quinary, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous).strokeBorder(tint.opacity(isLatest ? 0.35 : 0.15)))
     }
 }
 
@@ -442,6 +381,7 @@ private struct QuestionBubble: View {
 
     @State private var answer = ""
     @State private var sending = false
+    @FocusState private var focused: Bool
 
     private var answered: Bool {
         (store.messages[runId] ?? []).contains { $0.kind == .answer && $0.replyTo == message.seq }
@@ -455,24 +395,23 @@ private struct QuestionBubble: View {
             if !answered {
                 HStack(spacing: Space.s) {
                     TextField("Answer the verifier", text: $answer)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .font(Typeface.readingRegular.font(size: TypeScale.readingSmall))
+                        .focused($focused)
+                        .padding(.horizontal, Space.s)
+                        .frame(height: 28)
+                        .fieldFrame(focused: focused, radius: Radius.sm)
                         .sendOnReturn(enabled: canSend, submit)
                     Button("Reply", action: submit)
+                        .buttonStyle(.primary)
                         .disabled(!canSend)
                 }
             } else {
-                Label("Answered", systemImage: "checkmark")
-                    .font(.caption.weight(.medium))
+                Text("✓ Answered")
+                    .monoStyle(size: TypeScale.monoSmall)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, Space.m)
-        .padding(.vertical, Space.s)
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous)
-                .strokeBorder(answered ? AnyShapeStyle(.clear) : AnyShapeStyle(Color.blue.opacity(0.45)), lineWidth: 1)
-        )
     }
 
     private func submit() {
@@ -486,8 +425,9 @@ private struct QuestionBubble: View {
     }
 }
 
-/// The verifier's tool calls in a row, one line each. A line seeks the Screen to its
-/// step; its chevron shows what the verifier saw. Long runs fold to the last few.
+/// The verifier's tool calls in a row, one plain-words line each, in a quiet panel. A
+/// line seeks the Screen to its step; its caret shows the raw call. Long runs fold to
+/// the last few.
 private struct ToolCallGroup: View {
     let store: RunStore
     let runId: String
@@ -502,37 +442,31 @@ private struct ToolCallGroup: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: Space.s) {
-            Color.clear.frame(width: 22, height: 1)
-            VStack(alignment: .leading, spacing: 0) {
-                if calls.count > Self.folded + 1 {
-                    Button {
-                        withAnimation(.snappy(duration: 0.2)) { showsAll.toggle() }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: showsAll ? "chevron.down" : "chevron.right")
-                                .font(.caption2.weight(.semibold))
-                                .frame(width: 10)
-                            Text(showsAll ? "Hide earlier tool calls" : "\(calls.count - Self.folded) earlier tool calls")
-                        }
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, Space.s)
-                        .padding(.vertical, 5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: 0) {
+            if calls.count > Self.folded + 1 {
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { showsAll.toggle() }
+                } label: {
+                    HStack(spacing: Space.s) {
+                        Text(showsAll ? "▾" : "▸")
+                        Text(showsAll ? "Hide earlier tool calls" : "\(calls.count - Self.folded) earlier tool calls")
                     }
-                    .buttonStyle(.plain)
-                    Divider()
+                    .monoStyle(size: TypeScale.monoSmall)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, Space.s)
+                    .padding(.vertical, Space.xs + 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                ForEach(Array(visible.enumerated()), id: \.element.seq) { position, call in
-                    if position > 0 { Divider().padding(.leading, 30) }
-                    ToolCallLine(store: store, runId: runId, message: call)
-                }
+                .buttonStyle(.plain)
+                Hairline()
             }
-            .background(.fill.quinary, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(Palette.hairline.opacity(0.7)))
+            ForEach(Array(visible.enumerated()), id: \.element.seq) { position, call in
+                if position > 0 { Hairline() }
+                ToolCallLine(store: store, runId: runId, message: call)
+            }
         }
+        .panel(radius: Radius.md)
     }
 }
 
@@ -542,58 +476,50 @@ private struct ToolCallLine: View {
     let message: Message
 
     @State private var expanded = false
+    @Environment(\.theme) private var theme
 
     private var step: Step? {
         guard let number = message.step else { return nil }
         return (store.steps[runId] ?? []).first { $0.seq == number }
     }
 
-    private var entry: ToolCatalog.Entry {
-        ToolCatalog.entry(for: step?.tool ?? ToolCatalog.tool(ofProgress: message.text) ?? "")
+    /// The step's own words when the record is held; else the same rules applied to the
+    /// tool call the message carries.
+    private var phrase: String {
+        if let step { return StepSummary.phrase(for: step, in: store.steps[runId] ?? []) }
+        return StepSummary.phrase(ofProgress: message.text)
     }
 
-    /// The step's own summary when the record is held; else the same rules applied to
-    /// the tool call the message carries.
-    private var detail: String {
-        if let step { return StepSummary.line(for: step) }
-        return StepSummary.line(ofProgress: message.text)
-    }
+    private var failed: Bool { step?.outcome.isFailure == true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.s) {
                 Button {
                     withAnimation(.snappy(duration: 0.18)) { expanded.toggle() }
                 } label: {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 16, height: 18)
+                    Text(expanded ? "▾" : "▸")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 14, height: 20)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(expanded ? "Hide what the verifier saw" : "Show what the verifier saw")
+                .help(expanded ? "Hide the raw tool call" : "Show the raw tool call and what came back")
 
                 Button {
                     if let number = message.step { store.requestSeek(runId: runId, step: number) }
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: step?.outcome.isFailure == true ? "exclamationmark.triangle.fill" : entry.symbol)
-                            .font(.caption)
-                            .foregroundStyle(step?.outcome.isFailure == true ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
-                            .frame(width: 14)
-                        Text(entry.title)
-                            .font(.callout)
-                            .fixedSize()
-                        Text(detail)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                    HStack(spacing: Space.s) {
+                        Text(failed ? "✗" : "✓")
+                            .foregroundStyle(failed ? theme.color(.failure, on: .surface) : theme.dim(on: .surface))
+                        Text(phrase)
+                            .foregroundStyle(failed ? theme.color(.failure, on: .surface) : theme.foreground)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         Spacer(minLength: Space.xs)
                         if let number = message.step {
                             Text("step \(number)")
-                                .font(.caption.monospacedDigit())
+                                .monospacedDigit()
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -603,17 +529,18 @@ private struct ToolCallLine: View {
                 .disabled(message.step == nil)
                 .help(message.step.map { "Show step \($0) on the screen" } ?? "")
             }
-            .padding(.horizontal, Space.xs + 2)
-            .padding(.vertical, 5)
-            .hoverHighlight(radius: Radius.chip + 2)
+            .monoStyle(size: TypeScale.small)
+            .padding(.horizontal, Space.s)
+            .padding(.vertical, Space.xs + 2)
+            .hoverHighlight(radius: Radius.sm)
 
             if expanded {
                 Text(message.text)
-                    .font(.caption.monospaced())
+                    .monoStyle(size: TypeScale.monoSmall)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 30)
+                    .padding(.leading, Space.s + 14 + Space.s)
                     .padding(.trailing, Space.s)
                     .padding(.bottom, Space.s)
             }
@@ -622,26 +549,14 @@ private struct ToolCallLine: View {
 }
 
 private struct WorkingRow: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
-        HStack(alignment: .center, spacing: Space.s) {
-            SenderAvatar(from: .verifier)
-            HStack(spacing: Space.s) {
-                if reduceMotion {
-                    Image(systemName: "ellipsis")
-                } else {
-                    Image(systemName: "ellipsis")
-                        .symbolEffect(.variableColor.iterative, options: .repeating)
-                }
-                Text("Verifier is working")
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, Space.m)
-            .padding(.vertical, 6)
-            .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
+        HStack(spacing: Space.s) {
+            Spinner(size: TypeScale.monoSmall)
+            Text("Verifier is working")
         }
+        .monoStyle(size: TypeScale.monoSmall)
+        .foregroundStyle(.secondary)
+        .padding(.leading, Space.m)
         .accessibilityElement(children: .combine)
     }
 }
@@ -657,22 +572,23 @@ struct MessageText: View {
             ForEach(Array(RichText.blocks(text).enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .heading(let title, let level):
+                    // Never bigger than the reading text, only heavier and wider (ADR 0008).
                     Text(title)
-                        .font(level <= 2 ? .headline : .subheadline.weight(.semibold))
+                        .headingStyle(size: level <= 2 ? TypeScale.reading : TypeScale.readingSmall)
                         .textSelection(.enabled)
-                        .padding(.top, 2)
+                        .padding(.top, Space.xs)
                 case .code(let body):
                     // Wrapped, not scrolled: a column this narrow would show a scroller per block.
                     Text(body)
-                        .font(.callout.monospaced())
+                        .monoStyle(size: TypeScale.small)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(Space.s)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.fill.quinary, in: RoundedRectangle(cornerRadius: Radius.chip + 2))
+                        .panel(radius: Radius.sm)
                 case .prose(let body):
                     Text(inline(body))
-                        .font(.body)
+                        .readingStyle()
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -680,12 +596,22 @@ struct MessageText: View {
         }
     }
 
-    /// Preserving whitespace keeps the agent's line breaks, and so its lists.
+    /// Preserving whitespace keeps the agent's line breaks, and so its lists. Inline code
+    /// sets in the mono face, bold in the reading face's semibold.
     private func inline(_ body: String) -> AttributedString {
-        (try? AttributedString(
+        var text = (try? AttributedString(
             markdown: body,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         )) ?? AttributedString(body)
+        for run in text.runs {
+            guard let intent = run.inlinePresentationIntent else { continue }
+            if intent.contains(.code) {
+                text[run.range].font = Typeface.monoRegular.font(size: TypeScale.readingSmall)
+            } else if intent.contains(.stronglyEmphasized) {
+                text[run.range].font = Typeface.readingSemiBold.font(size: TypeScale.reading)
+            }
+        }
+        return text
     }
 }
 
@@ -709,29 +635,18 @@ private struct Composer: View {
 
     @AppStorage("composerFocusRequest") private var focusRequest = 0
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: Space.s) {
-                Picker("Send as", selection: $kind) {
-                    Text("Message").tag(MessageKind.note)
-                    Text("New task").tag(MessageKind.task)
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .controlSize(.small)
-                .fixedSize()
+        VStack(alignment: .leading, spacing: Space.s) {
+            SegmentedSwitch(options: [(MessageKind.note, "Message"), (MessageKind.task, "New task")],
+                            selection: $kind, small: true)
                 .help("A message is answered by the verifier and read by the coding agent; a new task hands the verifier more to check")
-                Text(hint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
             HStack(alignment: .bottom, spacing: Space.s) {
                 TextField(placeholder, text: $draft, selection: $selection, axis: .vertical)
                     .disabled(offline)
                     .textFieldStyle(.plain)
-                    .font(.body)
+                    .font(Typeface.readingRegular.font(size: TypeScale.reading))
                     .lineLimit(1...6)
                     .focused($focused)
                     .sendOnReturn(enabled: canSend, send) {
@@ -744,28 +659,23 @@ private struct Composer: View {
                             (draft, selection) = insertingNewline(into: draft, at: selection)
                         }
                     }
-                    .padding(.vertical, 3)
+                    .padding(.vertical, Space.xs)
 
-                Button(action: send) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 20))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(canSend ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(!canSend)
-                .help("Send (Return)")
-                .accessibilityLabel("Send")
+                Button("Send", action: send)
+                    .buttonStyle(.primary(small: true))
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(!canSend)
+                    .help("Send (Return)")
             }
-            .padding(.horizontal, Space.s + 2)
-            .padding(.vertical, 5)
-            .background(.background, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous)
-                    .strokeBorder(focused ? AnyShapeStyle(Color.accentColor.opacity(0.6)) : AnyShapeStyle(Palette.hairline),
-                                  lineWidth: focused ? 1.5 : 1)
-            )
+            .padding(.leading, Space.m)
+            .padding(.trailing, Space.xs)
+            .padding(.vertical, Space.xs)
+            .fieldFrame(focused: focused)
+            // Who reads it and when: under the field, the whole sentence, never clipped.
+            Text(hint)
+                .readingStyle(size: TypeScale.small)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(Space.m)
         // "Write a Message" in an idle run's header puts the cursor here.
@@ -779,8 +689,9 @@ private struct Composer: View {
     }
 
     private var placeholder: String {
-        if offline { return "Can't send while the daemon is not answering" }
-        return kind == .task ? "Describe what the verifier should check" : "Message the verifier and the coding agent"
+        if offline { return "The daemon is not answering" }
+        // Short enough to stay on one line: a vertical field sizes to its wrapped placeholder.
+        return kind == .task ? "What should the verifier check?" : "Message the verifier"
     }
 
     /// Who reads it and when, for the state the run is in.
