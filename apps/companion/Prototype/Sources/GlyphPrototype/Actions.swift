@@ -155,8 +155,6 @@ enum Registry {
                    enabled: { $0.machineDestroyed }, perform: { $0.restoreMachine() }),
             Action(id: "scene.welcome", title: "Welcome (no daemon)", keys: [], label: "", context: .prototype,
                    perform: { m in m.welcomeStart = m.now }),
-            Action(id: "scene.voice", title: "Human voice: Radon / Argon", keys: [], label: "", context: .prototype,
-                   perform: { m in m.humanFace = m.humanFace == .radon ? .argon : .radon }),
             Action(id: "scene.reduce", title: "Simulate reduce motion", keys: [], label: "", context: .prototype,
                    perform: { $0.simulateReduceMotion.toggle() }),
             Action(id: "scene.strip", title: "Show / hide prototype strip", keys: [], label: "", context: .prototype,

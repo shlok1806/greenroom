@@ -53,7 +53,7 @@ struct ScreenPane: View {
     }
 
     private var title: GridLine {
-        var t: GridLine = [Span("screen", .chrome, .bold)]
+        var t: GridLine = [Span("SCREEN", .chrome, .medium, ink: .dim)]
         if model.isScripted { t += [Span(" · TipSplit", ink: .dim)] }
         return t
     }
@@ -93,7 +93,9 @@ struct WellView: View {
 
     var body: some View {
         let palette = model.palette
-        let wellBG = Color(white: model.theme.isDark ? 0.02 : 0.08)
+        // Revision 19: the machine screen well is always dark, in both themes - it reads
+        // like a monitor.
+        let wellBG = palette.color(.screenWell)
         ZStack(alignment: .topLeading) {
             wellBG
             if !model.isScripted {

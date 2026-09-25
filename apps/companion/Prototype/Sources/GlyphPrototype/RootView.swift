@@ -50,6 +50,11 @@ struct WindowGrid: View {
                 .animation(model.reduceMotion ? nil : .easeInOut(duration: 0.35), value: model.driving)
                 .allowsHitTesting(false)
 
+            // Revision 21-22: a very faint olive wash on the top bar, matching the sidebar.
+            model.palette.color(.chromeTint)
+                .frame(width: G.w(cols), height: G.cellH)
+                .offset(y: G.h(chromeRow))
+                .allowsHitTesting(false)
             if model.showStrip {
                 PrototypeStrip(cols: cols).offset(x: G.w(10))
             }
@@ -147,10 +152,10 @@ struct BlockCursor: View {
             let palette = model.palette
             let on = !spot.blink || model.reduceMotion || Int(model.now / 0.53) % 2 == 0
             ZStack {
-                palette.cursor
+                palette.color(.brand)
                 Text(String(spot.ch))
-                    .font(FontCache.font(model.face(for: spot.voice), .regular))
-                    .foregroundStyle(palette.cursorText)
+                    .font(FontCache.font(.neon, .regular))
+                    .foregroundStyle(palette.color(.brandText))
             }
             .frame(width: G.cellW, height: G.cellH)
             .opacity(on ? 1 : 0)
@@ -188,7 +193,7 @@ struct ChromeRow: View {
     var body: some View {
         let run = Synthetic.runs.first { $0.id == model.selectedRun }
         var left: GridLine = [Span(String(repeating: " ", count: leftInset)),
-                              Span("greenroom", .chrome, .bold, ink: .fg), Span("█", ink: .cursor)]
+                              Span("greenroom", .chrome, .bold, ink: .brand), Span("█", ink: .brand)]
         if let run, model.welcomeStart == nil {
             let state = model.runState(run)
             left += [Span("   "), Span(run.title, .chrome, .medium, ink: .fg), Span("  "),
@@ -222,7 +227,6 @@ struct PrototypeStrip: View {
             (model.machineDestroyed ? "restore" : "power-down", { model.machineDestroyed ? model.restoreMachine() : model.powerDown() }),
             ("welcome", { model.welcomeStart = model.welcomeStart == nil ? model.now : nil }),
             ("theme \(model.theme.title)", { model.theme = ThemeID.allCases[(ThemeID.allCases.firstIndex(of: model.theme)! + 1) % 4] }),
-            ("human \(model.humanFace.rawValue.lowercased())", { model.humanFace = model.humanFace == .radon ? .argon : .radon }),
             ("follow \(model.followAgent ? "on" : "off")", { model.followAgent.toggle() }),
             ("motion \(model.reduceMotion ? "reduced" : "full")", { model.simulateReduceMotion.toggle() }),
             ("layout \(model.forcedLayout?.rawValue ?? "fit")", {
@@ -325,7 +329,7 @@ struct HelpPanel: View {
 
     var body: some View {
         PaneBox(rect: CellRect(col: 0, row: 0, cols: cols, rows: lines.count + 2),
-                title: [Span("all keys", .chrome, .bold)], right: [Span("? closes", ink: .dim)], focused: true) {
+                title: [Span("ALL KEYS", .chrome, .medium, ink: .dim)], right: [Span("? closes", ink: .dim)], focused: true) {
             GridLines(lines: lines, width: cols - 2)
         }
         .background(model.palette.background)
@@ -378,7 +382,7 @@ struct WelcomeOverlay: View {
         let cn = model.reduceMotion ? cmd.count : min(cmd.count, Int(max(0, after - 0.5) / 0.045))
         let w = 44
         let lines: [GridLine] = [
-            [Span(String(word.prefix(n)), .chrome, .bold, ink: .fg)] + (n >= word.count && cn > 0 ? [Span("█", ink: .cursor)] : []),
+            [Span(String(word.prefix(n)), .chrome, .bold, ink: .brand)] + (n >= word.count && cn > 0 ? [Span("█", ink: .brand)] : []),
             [],
             [Span(after > 0.2 ? "No daemon is answering on 127.0.0.1:7777." : "", ink: .dim)],
             [Span(after > 0.35 ? "Start one, and your runs appear here:" : "", ink: .dim)],
@@ -420,7 +424,7 @@ struct PaletteView: View {
         let first = max(0, sel - listRows + 1)
         let lines = buildLines(items: items, inner: inner, sel: sel, first: first, listRows: listRows)
         PaneBox(rect: CellRect(col: 0, row: 0, cols: cols, rows: lines.count + 2),
-                       title: [Span("⌘K", .chrome, .bold)], right: [Span("\(items.count) actions · ⏎ run · esc close", ink: .dim)],
+                       title: [Span("⌘K", .chrome, .medium, ink: .dim)], right: [Span("\(items.count) actions · ⏎ run · esc close", ink: .dim)],
                        focused: true) {
             GridLines(lines: lines, width: inner)
         }

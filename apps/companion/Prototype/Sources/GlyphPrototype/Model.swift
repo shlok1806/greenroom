@@ -44,7 +44,6 @@ final class PrototypeModel {
     // MARK: toggles
     var theme: ThemeID = .dark
     var palette: ThemePalette { .named(theme) }
-    var humanFace: Face = .radon
     var followAgent = true
     var simulateReduceMotion = false
     var systemReduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -136,17 +135,6 @@ final class PrototypeModel {
                 self.tick(dt: d.timeIntervalSince(last))
                 last = d
             }
-        }
-    }
-
-    // MARK: faces
-
-    func face(for voice: Voice) -> Face {
-        switch voice {
-        case .chrome, .coder: .neon
-        case .verifier: .xenon
-        case .human: humanFace
-        case .tool: .krypton
         }
     }
 
@@ -439,7 +427,6 @@ final class PrototypeModel {
     private func applyLaunchScene() {
         let env = ProcessInfo.processInfo.environment
         if let t = env["PROTO_THEME"], let id = ThemeID(rawValue: t) { theme = id }
-        if env["PROTO_ARGON"] != nil { humanFace = .argon }
         if env["PROTO_NOSTRIP"] != nil { showStrip = false }
         if let l = env["PROTO_LAYOUT"], let mode = LayoutMode(rawValue: l) { forcedLayout = mode }
         if let t = env["PROTO_T"], let v = Double(t) {

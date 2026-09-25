@@ -4,12 +4,15 @@ import SwiftUI
 
 // PROTOTYPE: the character-cell grid. Every size in the window is a whole number of cells.
 
-/// Registers the bundled Monaspace faces for this process. Called once at launch.
+/// Registers the bundled Monaspace Neon (mono) and Mona Sans (reading/heading) faces for
+/// this process. Called once at launch. Walks the whole resource bundle so nested
+/// directories (Fonts/MonaSans) are found regardless of how SwiftPM laid them out.
 enum PrototypeFonts {
     static func register() {
-        let urls = (Bundle.module.urls(forResourcesWithExtension: "otf", subdirectory: nil) ?? [])
-            + (Bundle.module.urls(forResourcesWithExtension: "otf", subdirectory: "Fonts") ?? [])
-        for url in urls {
+        guard let root = Bundle.module.resourceURL else { return }
+        let fm = FileManager.default
+        guard let e = fm.enumerator(at: root, includingPropertiesForKeys: nil) else { return }
+        for case let url as URL in e where url.pathExtension == "otf" || url.pathExtension == "ttf" {
             var error: Unmanaged<CFError>?
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
         }
@@ -67,13 +70,11 @@ struct CellRect: Equatable, Sendable {
 
 // MARK: - Faces
 
-/// One face per voice (decision 5). All share Neon's metrics, so they mix on one line.
+/// Revision 18/20: one mono face for chrome and data (Monaspace Neon), one proportional
+/// family for reading text and headings (Mona Sans). Speakers are told apart by a label
+/// and a coloured edge (`Voice`), never by a typeface.
 enum Face: String, Sendable, CaseIterable {
     case neon = "Neon"
-    case xenon = "Xenon"
-    case radon = "Radon"
-    case argon = "Argon"
-    case krypton = "Krypton"
 }
 
 enum Weight: String, Sendable {
@@ -82,13 +83,36 @@ enum Weight: String, Sendable {
     case bold = "Bold"
 }
 
+/// Mona Sans weights used for reading text and headings. `expanded` is the wider,
+/// heavier cut reserved for headings (revision 20).
+enum ProseWeight: Sendable {
+    case regular, medium, semibold, bold, expandedSemibold, expandedBold
+
+    var postscriptName: String {
+        switch self {
+        case .regular: "MonaSans-Regular"
+        case .medium: "MonaSans-Medium"
+        case .semibold: "MonaSans-SemiBold"
+        case .bold: "MonaSans-Bold"
+        case .expandedSemibold: "MonaSansExpanded-SemiBold"
+        case .expandedBold: "MonaSansExpanded-Bold"
+        }
+    }
+}
+
 enum FontCache {
     static func font(_ face: Face, _ weight: Weight = .regular, size: CGFloat = 13) -> Font {
         Font.custom("Monaspace\(face.rawValue)-\(weight.rawValue)", fixedSize: size)
     }
+
+    /// Mona Sans, for reading text and headings. Reading size is 14-15 pt (revision 20).
+    static func prose(_ weight: ProseWeight = .regular, size: CGFloat = 14.5) -> Font {
+        Font.custom(weight.postscriptName, fixedSize: size)
+    }
 }
 
-/// Who is speaking, which picks the face. `human` resolves to Radon or Argon at render.
+/// Who is speaking. Chooses the coloured edge and mono label only now (decision 5,
+/// revised): the typeface no longer varies by voice.
 enum Voice: Sendable, Equatable {
     case chrome, coder, verifier, human, tool
 }
@@ -98,6 +122,13 @@ enum Voice: Sendable, Equatable {
 /// A colour by ANSI meaning, resolved against the live theme at render time.
 indirect enum Ink: Sendable, Hashable {
     case fg, dim, bg, cursor, cursorText, selection
+    /// Brand olive (revision 21-22): primary actions, selected run, active tab, the
+    /// block cursor, the wordmark. Never used for status.
+    case brand, brandText
+    /// A very faint olive wash reserved for the sidebar and top bar backgrounds.
+    case chromeTint
+    /// A quiet panel surface, and the machine screen well (always dark).
+    case panel, screenWell
     case role(Role)
     case slot(Int)
     case alpha(Ink, Double)
@@ -324,7 +355,7 @@ struct GridText: View {
         var out = AttributedString()
         for span in spans {
             var a = AttributedString(span.text)
-            a.font = FontCache.font(model.face(for: span.voice), span.weight)
+            a.font = FontCache.font(.neon, span.weight)
             a.foregroundColor = palette.color(span.ink)
             a.tracking = G.tracking
             if span.underline { a.underlineStyle = .single }

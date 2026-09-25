@@ -18,7 +18,7 @@ struct StepsPane: View {
             Span("\(steps.count)", ink: .fg), Span(" steps", ink: .dim),
         ] + (failed > 0 ? [Span(" · ", ink: .dim), Span("\(failed) failed", ink: .role(.failure))] : [])
         let content = compact ? compactLines(inner) : lines(inner)
-        PaneBox(rect: rect, title: [Span("steps", .chrome, .bold)], right: right,
+        PaneBox(rect: rect, title: [Span("STEPS", .chrome, .medium, ink: .dim)], right: right,
                 focused: model.focus == .steps, top: joined ? .tee : .rounded) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(content.lines.enumerated()), id: \.offset) { _, row in

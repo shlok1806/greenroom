@@ -2,6 +2,37 @@ import SwiftUI
 
 // PROTOTYPE: adaptive layout by cell columns (decision 10). Every rect is whole cells.
 
+/// Revision 18b: a 4/8 pt spacing grid for the parts of the UI that are no longer
+/// cell-quantized (card padding, prose blocks, the message list).
+enum Space {
+    static let xs: CGFloat = 4
+    static let sm: CGFloat = 8
+    static let md: CGFloat = 12
+    static let lg: CGFloat = 16
+    static let xl: CGFloat = 24
+}
+
+/// A quiet panel (revision 18b) sized by its own content, for pieces that float free of
+/// the cell grid: cards, prose blocks. `accent` draws a slightly heavier coloured border
+/// (a verdict's pass/fail, a question's needs-you) in place of the plain hairline.
+struct QuietCard<Content: View>: View {
+    @Environment(PrototypeModel.self) private var model
+    var accent: Ink?
+    var radius: CGFloat = 8
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        let palette = model.palette
+        content()
+            .padding(Space.md)
+            .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(palette.color(.panel)))
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(palette.color(accent ?? .alpha(.role(.border), 0.55)), lineWidth: accent == nil ? 1 : 1.5)
+            )
+    }
+}
+
 struct PaneLayout: Equatable {
     var mode: LayoutMode
     var runs: CellRect
@@ -22,7 +53,8 @@ struct PaneLayout: Equatable {
 
     static func make(body: CellRect, mode: LayoutMode, zoomed: Pane?, narrowPane: Pane) -> PaneLayout {
         var l = PaneLayout(mode: mode, runs: .zero, screen: .zero, steps: .zero, transcript: .zero, well: .zero)
-        let gut = 1
+        // Revision 18b: generous whitespace between quiet panels, not a 1-cell seam.
+        let gut = 2
         switch mode {
         case .wide:
             let runsW = 32
@@ -30,18 +62,20 @@ struct PaneLayout: Equatable {
             let midW = body.cols - runsW - trW - gut * 2
             l.runs = CellRect(col: body.col, row: body.row, cols: runsW, rows: body.rows)
             l.transcript = CellRect(col: body.maxCol - trW, row: body.row, cols: trW, rows: body.rows)
-            let screenRows = screenRowsFor(cols: midW, maxRows: body.rows - 11)
+            let screenRows = screenRowsFor(cols: midW, maxRows: body.rows - 12)
             l.screen = CellRect(col: l.runs.maxCol + gut, row: body.row, cols: midW, rows: screenRows)
-            l.steps = CellRect(col: l.screen.col, row: l.screen.maxRow - 1, cols: midW, rows: body.rows - screenRows + 1)
+            let stepsRow = l.screen.maxRow + gut
+            l.steps = CellRect(col: l.screen.col, row: stepsRow, cols: midW, rows: max(4, body.maxRow - stepsRow))
         case .medium:
             let runsW = 5
             let trW = max(50, min(70, Int(Double(body.cols) * 0.4)))
             let midW = body.cols - runsW - trW - gut * 2
             l.runs = CellRect(col: body.col, row: body.row, cols: runsW, rows: body.rows)
             l.transcript = CellRect(col: body.maxCol - trW, row: body.row, cols: trW, rows: body.rows)
-            let screenRows = screenRowsFor(cols: midW, maxRows: body.rows - 3)
+            let screenRows = screenRowsFor(cols: midW, maxRows: body.rows - 4)
             l.screen = CellRect(col: l.runs.maxCol + gut, row: body.row, cols: midW, rows: screenRows)
-            l.steps = CellRect(col: l.screen.col, row: l.screen.maxRow - 1, cols: midW, rows: max(4, body.maxRow - l.screen.maxRow + 1))
+            let stepsRow = l.screen.maxRow + gut
+            l.steps = CellRect(col: l.screen.col, row: stepsRow, cols: midW, rows: max(4, body.maxRow - stepsRow))
         case .narrow:
             for p in Pane.allCases {
                 l.set(p, p == narrowPane ? body : CellRect(col: body.col, row: body.row, cols: body.cols, rows: body.rows))
@@ -110,7 +144,10 @@ extension View {
 
 // MARK: - Pane box
 
-/// A pane: a box-drawn border with titles cut into its top edge.
+/// A pane: a quiet panel (revision 18b) - neutral fill, a thin 1 px hairline, a small
+/// radius, and a plain small-caps mono label, never a box-drawn border. The panel that
+/// owns keyboard focus gets a short brand-olive accent under its label ("active tab"),
+/// never a recoloured border.
 struct PaneBox<Content: View>: View {
     @Environment(PrototypeModel.self) private var model
     var rect: CellRect
@@ -120,25 +157,40 @@ struct PaneBox<Content: View>: View {
     var borderInk: Ink?
     var top: BoxTop = .rounded
     var drawProgress: Double = 1
+    /// Revision 21-22: a very faint olive wash, reserved for chrome (the runs sidebar),
+    /// never a content pane - screen, steps and transcript stay neutral.
+    var tint = false
     @ViewBuilder var content: () -> Content
+
+    static var radius: CGFloat { 8 }
 
     var body: some View {
         let palette = model.palette
-        let ink: Ink = borderInk ?? (focused ? .fg : .role(.border))
+        let hairline = palette.color(borderInk ?? .alpha(.role(.border), 0.55))
         ZStack(alignment: .topLeading) {
-            BoxFrame(color: palette.color(ink), top: top, progress: drawProgress)
+            RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+                .fill(palette.color(.panel))
+            if tint {
+                RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+                    .fill(palette.color(.chromeTint))
+            }
+            RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+                .strokeBorder(hairline, lineWidth: 1)
             content()
                 .frame(width: G.w(max(0, rect.cols - 2)), height: G.h(max(0, rect.rows - 2)), alignment: .topLeading)
                 .clipped()
                 .offset(x: G.cellW, y: G.cellH)
-            if rect.cols > 8 {
-                let t = title.isEmpty ? [] : [Span(" ", back: .bg)] + title.map { var s = $0; s.back = s.back ?? .bg; return s } + [Span(" ", back: .bg)]
-                GridText(line: t.fitted(min(t.cellCount, max(0, rect.cols - 4 - right.cellCount - 2))))
-                    .offset(x: G.w(2))
+            if rect.cols > 8, !title.isEmpty {
+                GridText(line: title.fitted(min(title.cellCount, max(0, rect.cols - 4 - right.cellCount - 2)), pad: Span(" ", ink: .dim)))
+                    .offset(x: G.w(1) + 4, y: 2)
+                if focused {
+                    palette.color(.brand)
+                        .frame(width: G.w(min(title.cellCount, rect.cols - 4)), height: 2)
+                        .offset(x: G.w(1) + 4, y: G.cellH - 3)
+                }
                 if !right.isEmpty {
-                    let r = [Span(" ", back: .bg)] + right.map { var s = $0; s.back = s.back ?? .bg; return s } + [Span(" ", back: .bg)]
-                    GridText(line: r)
-                        .offset(x: G.w(rect.cols - 2 - r.cellCount))
+                    GridText(line: right)
+                        .offset(x: G.w(rect.cols - 1) - G.w(right.cellCount) - 4, y: 2)
                 }
             }
         }

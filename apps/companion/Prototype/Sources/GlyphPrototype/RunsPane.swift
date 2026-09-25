@@ -36,9 +36,9 @@ struct RunsPane: View {
         let inner = rect.cols - 2
         let focusRow = rows.firstIndex { $0.run == model.runCursor && ($0.line.first?.text.isEmpty == false) } ?? 0
         let visible = Array(rows.prefix(max(0, rect.rows - 2)))
-        PaneBox(rect: rect, title: compact ? [] : [Span("runs", .chrome, .bold)],
+        PaneBox(rect: rect, title: compact ? [] : [Span("RUNS", .chrome, .medium, ink: .dim)],
                 right: compact ? [] : [Span("\(Synthetic.runs.count)", ink: .dim)],
-                focused: model.focus == .runs) {
+                focused: model.focus == .runs, tint: true) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(visible.enumerated()), id: \.offset) { _, row in
                     GridText(line: row.line.fitted(inner), width: inner)
@@ -80,15 +80,6 @@ struct RunsPane: View {
         return (glyph, [Span(word, .chrome, .medium, ink: state.ink)])
     }
 
-    private func detail(_ run: ProtoRun) -> String {
-        guard run.id == Synthetic.runID else { return run.detail }
-        let steps = model.visibleSteps.count
-        let msgs = model.visibleMessages.count
-        if model.bootStart != nil { return "clone 0.07s" }
-        if model.questionOpen { return "question" }
-        return "\(steps) steps · \(msgs) msgs"
-    }
-
     private var listRows: [Row] {
         let runs = Synthetic.runs
         let needs = runs.filter { model.runState($0) == .needsYou }
@@ -107,14 +98,13 @@ struct RunsPane: View {
                 let (glyph, word) = status(run)
                 let open = run.id == model.selectedRun
                 let cursorOn = run.id == model.runCursor && model.focus == .runs
-                let back: Ink? = cursorOn ? .selection : nil
-                var l1: GridLine = [Span(open ? "▎" : " ", ink: .fg), glyph, Span(" "),
+                // Revision 21-22: the selected run is a brand-olive edge and faint wash;
+                // the keyboard cursor is the neutral selection tint (they can combine).
+                let back: Ink? = cursorOn ? .selection : (open ? .alpha(.brand, 0.12) : nil)
+                var l1: GridLine = [Span(open ? "▎" : " ", .chrome, ink: open ? .brand : .fg), glyph, Span(" "),
                                     Span(run.title, .chrome, open ? .bold : .regular, ink: .fg)]
-                var l2: GridLine = [Span("   ")] + word + [Span(" · \(run.started) · \(detail(run))", ink: .dim)]
-                if model.runState(run) == .fail { l2.append(Span("  r retry", ink: .dim)) }
-                if model.runState(run) == .booting {
-                    l2.append(Span("  " + FX.clock(model.now.truncatingRemainder(dividingBy: 40) + 3), ink: .dim))
-                }
+                // Revision 18c: title + one line (status word + time) - no extra facts.
+                var l2: GridLine = [Span("   ")] + word + [Span(" · \(run.started)", ink: .dim)]
                 l1 = l1.fitted(w).map { var s = $0; s.back = s.back ?? back; return s }
                 l2 = l2.fitted(w).map { var s = $0; s.back = s.back ?? back; return s }
                 if open { l2[0].text = "▎" + l2[0].text.dropFirst() }

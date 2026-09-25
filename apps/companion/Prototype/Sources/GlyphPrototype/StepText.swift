@@ -6,6 +6,8 @@ import Foundation
 // transcript's tool-call chips.
 
 extension ProtoStep {
+    /// Short chrome/data verb: mono, lower case, used only as a secondary fact (never the
+    /// row's headline text - revision 18c wants plain words first).
     var verb: String {
         switch tool {
         case "machine_exec": "exec"
@@ -25,7 +27,9 @@ extension ProtoStep {
         return named.min { hypot($0.1.x - p.x, $0.1.y - p.y) < hypot($1.1.x - p.x, $1.1.y - p.y) }?.0 ?? ""
     }
 
-    var summary: String {
+    /// The raw argument text (a command, typed text, a key), unquoted, for `summary` and
+    /// the mono chip inside a plain-language row.
+    var rawArg: String {
         switch tool {
         case "machine_exec":
             if let r = input.range(of: "\"cmd\":\"") {
@@ -34,16 +38,40 @@ extension ProtoStep {
                 return s.replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\\\\", with: "\\")
             }
             return input
-        case "machine_click": return target
         case "machine_type":
-            if let r = input.range(of: "\"text\":\"") { return "\"" + input[r.upperBound...].dropLast(2) + "\"" }
+            if let r = input.range(of: "\"text\":\"") { return String(input[r.upperBound...].dropLast(2)) }
             return input
         case "machine_key":
-            if input.contains("cmd") { return "⌘A  select all" }
+            if input.contains("cmd") { return "⌘A" }
             if input.contains("tab") { return "tab" }
             return input
-        case "machine_screenshot": return input.contains("region") ? "screenshot of the totals" : "screenshot"
         default: return input
+        }
+    }
+
+    /// Kept for the expanded raw view; the row itself now reads `plainText`.
+    var summary: String {
+        switch tool {
+        case "machine_exec": rawArg
+        case "machine_click": target
+        case "machine_type": "\"" + rawArg + "\""
+        case "machine_key": input.contains("cmd") ? "⌘A  select all" : rawArg
+        case "machine_screenshot": input.contains("region") ? "screenshot of the totals" : "screenshot"
+        default: input
+        }
+    }
+
+    /// A step read as a sentence, revision 18c: "Clicked Bill field", "Typed 120", "Took
+    /// a screenshot", "Ran swift test --filter TipModelTests". The tool name and raw
+    /// input stay one expand (⏎) away, never in the row itself.
+    var plainText: String {
+        switch tool {
+        case "machine_click": "Clicked \(target)"
+        case "machine_type": "Typed \(rawArg)"
+        case "machine_key": input.contains("cmd") ? "Selected all" : "Pressed \(rawArg)"
+        case "machine_screenshot": "Took a screenshot"
+        case "machine_exec": "Ran \(rawArg)"
+        default: rawArg
         }
     }
 
@@ -94,18 +122,18 @@ extension PrototypeModel {
         }
     }
 
-    /// A step row in the steps trace. `num` is right-aligned in 3 cells.
+    /// A step row in the steps trace, revision 18c: plain words first ("Clicked Bill
+    /// field"), at most 2 secondary facts (evidence, duration) - the tool name and raw
+    /// input are one expand (⏎) away in `detail(width:)`.
     func stepRow(_ s: ProtoStep, width: Int, selected: Bool) -> GridLine {
         let num = String(repeating: " ", count: max(0, 3 - String(s.id).count)) + String(s.id)
         let failed = s.failed
         let evidence = verdict != nil && Synthetic.evidence.contains(s.id)
-        var left: GridLine = [
+        let left: GridLine = [
             Span(" "), statusSpan(s), Span(" "),
             Span(num, ink: .dim), Span("  "),
-            Span(s.verb.padding(toLength: 6, withPad: " ", startingAt: 0), .chrome, .medium, ink: failed ? .role(.failure) : .fg),
-            Span(s.summary, .tool, ink: failed ? .role(.failure) : .fg),
+            Span(s.plainText, .chrome, .medium, ink: failed ? .role(.failure) : .fg),
         ]
-        if !s.args.isEmpty { left += [Span("  "), Span(s.args, .tool, ink: .dim)] }
         var right: GridLine = []
         if evidence { right += [Span("◆ evidence", ink: .role(.needsYou)), Span("  ")] }
         right.append(Span(s.durationLabel.leftPad(6), ink: .dim))
@@ -114,12 +142,11 @@ extension PrototypeModel {
         return selected ? line.map { var x = $0; x.back = .selection; return x } : line
     }
 
-    /// A tool-call chip in the transcript: glyph, verb, readable summary, duration.
+    /// A tool-call chip in the transcript: glyph, a plain-language phrase, duration.
     func toolChip(_ s: ProtoStep, width: Int, expanded: Bool) -> [GridLine] {
         let left: GridLine = [
             Span("  "), statusSpan(s), Span(" "),
-            Span(s.verb.padding(toLength: 6, withPad: " ", startingAt: 0), .chrome, ink: .dim),
-            Span(s.summary, .tool, ink: s.failed ? .role(.failure) : .alpha(.fg, 0.86)),
+            Span(s.plainText, .chrome, ink: s.failed ? .role(.failure) : .alpha(.fg, 0.86)),
         ]
         let right: GridLine = [Span(expanded ? "▾ " : "", ink: .dim), Span(s.durationLabel, ink: .dim)]
         var out = [spread(left, right, width: width)]
