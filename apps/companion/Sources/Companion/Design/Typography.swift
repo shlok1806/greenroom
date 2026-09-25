@@ -33,11 +33,13 @@ enum BundledFonts {
 }
 
 /// The two faces (ADR 0008): Monaspace Neon for chrome and data, Mona Sans for anything
-/// read as sentences, with its Expanded cut for headings. Families come from
+/// read as sentences, with its Expanded cut for headings and its italics for Markdown's
+/// emphasis (never a slanted fake). Families come from
 /// `tokens.json` `type`; sizes from `cell` and `reading`.
 enum Typeface: Sendable, CaseIterable {
     case monoRegular, monoMedium, monoBold
     case readingRegular, readingMedium, readingSemiBold, readingBold
+    case readingItalic, readingSemiBoldItalic
     case headingSemiBold, headingBold
 
     var postScriptName: String {
@@ -52,6 +54,8 @@ enum Typeface: Sendable, CaseIterable {
         case .readingMedium: return "\(reading)-Medium"
         case .readingSemiBold: return "\(reading)-SemiBold"
         case .readingBold: return "\(reading)-Bold"
+        case .readingItalic: return "\(reading)-Italic"
+        case .readingSemiBoldItalic: return "\(reading)-SemiBoldItalic"
         // `readingHeading`: the same family, its wider (Expanded) cut.
         case .headingSemiBold: return "\(reading)Expanded-SemiBold"
         case .headingBold: return "\(reading)Expanded-Bold"
