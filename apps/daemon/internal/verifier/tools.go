@@ -127,12 +127,12 @@ var tools = []nim.Tool{
 	{
 		Name:        "reply",
 		Description: "Answer whoever spoke when no verdict is called for: a status update, an explanation, or a plain answer to a question. Ends your turn.",
-		Schema:      object(map[string]any{"text": str("What you want to say, in plain words.")}, "text"),
+		Schema:      object(map[string]any{"text": str("What you want to say: the finding first, in 1 to 3 plain sentences.")}, "text"),
 	},
 	{
 		Name:        "ask",
 		Description: "Ask the coder or the human for something you need and cannot find out yourself. Ends your turn; you continue when someone answers.",
-		Schema:      object(map[string]any{"question": str("What you need to know, and why.")}, "question"),
+		Schema:      object(map[string]any{"question": str("What you need to know, in one sentence. Add the reason only when the answer depends on it.")}, "question"),
 	},
 	{
 		Name:        "report_verdict",
@@ -143,7 +143,7 @@ var tools = []nim.Tool{
 				"enum":        []string{"pass", "fail", "inconclusive"},
 				"description": "pass if the task succeeded, fail if the thing under test is broken, inconclusive if you could not tell.",
 			},
-			"summary":  str("What happened and what the evidence shows, in a few sentences."),
+			"summary":  str("The result and its evidence in 2 or 3 short sentences, citing steps as 'step 4'. For a fail, name the cause."),
 			"evidence": strList("Step numbers (as 'step 4') and screenshot paths the verdict rests on. When the task is about the screen, include the full path of your latest machine_screenshot."),
 		}, "verdict", "summary"),
 	},

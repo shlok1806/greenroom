@@ -878,7 +878,7 @@ func TestTurnStopsWhenTheBudgetRunsOut(t *testing.T) {
 	if last.Kind != session.Reply {
 		t.Fatalf("last message = %+v, want a reply", last)
 	}
-	if !strings.Contains(last.Text, "ran out of time after") || !strings.Contains(last.Text, "Send another message and I will continue") {
+	if !strings.Contains(last.Text, "ran out of time after") || !strings.Contains(last.Text, "Send a message and I will continue") {
 		t.Errorf("reply = %q", last.Text)
 	}
 }
@@ -1181,6 +1181,43 @@ func TestTheDeliveredSystemPromptBindsConstraintsAndAimsFromTheTree(t *testing.T
 		if !strings.Contains(system, want) {
 			t.Errorf("the system prompt the model received lacks %q:\n%s", want, system)
 		}
+	}
+}
+
+// Padded verifier prose made the Companion's transcript tiring to read. The
+// model must receive the writing rules, with their examples, in its system prompt.
+func TestTheDeliveredSystemPromptCarriesTheWritingRules(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "ok"}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check the total.")
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	system := deliveredText(t, model, 1, "system")
+	for _, want := range []string{
+		"How you write",
+		"Lead with the finding",
+		"One claim per sentence",
+		"Cite evidence as step numbers",
+		"Do not announce what you will do",
+		"No adverbs or intensifiers",
+		`No "not X but Y" contrasts`,
+		"No em dashes",
+		"active voice and plain numbers",
+		"A verdict summary is 2 or 3 short sentences",
+		"A reply is 1 to 3 sentences. A question is one sentence",
+		`After: "Launching TipSplit to read both totals."`,
+	} {
+		if !strings.Contains(system, want) {
+			t.Errorf("the system prompt the model received lacks %q:\n%s", want, system)
+		}
+	}
+	if strings.Contains(system, "\u2014") {
+		t.Error("the system prompt that bans em dashes contains one")
 	}
 }
 

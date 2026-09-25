@@ -245,6 +245,12 @@ Conversation and verifier
   model imitates its history: projected as "[I reported verdict ...]" text, it answered a
   later task with a prose verdict, stored as a reply, so an accepted fail stood. Prose
   that still looks like a verdict (`proseVerdict`) is sent back once per turn to call the tool.
+- The verifier writes plainly: `writingRules` (adapted from stop-slop, MIT) ends the system
+  prompt and the reply, ask and report_verdict argument descriptions repeat its limits. Keep
+  it short; the small NIM model ignores a long style guide. Daemon-authored verifier texts
+  (budget, step cap, cut-off, screen taken) follow the same rules.
+  `TestTheDeliveredSystemPromptCarriesTheWritingRules` pins it. The Companion matches
+  "nobody will answer" and "nothing will answer" in system events; keep both phrases.
 - Every action that changes a machine lands in the transcript. Lifecycle events come only
   from the bridge in `main.go`.
 
@@ -314,7 +320,7 @@ UI tree (ADR 0012)
   latest read. Nothing checks that the app is still frontmost. `UITree.Outline` is the text both
   surfaces show a model; keep it one element a line with its id and center.
 - The verifier's prompt makes the tree the way to aim and a coder's constraints hard rules
-  (`verifier.go`). `TestSystemPromptBindsConstraintsAndAimsFromTheTree` pins the phrases.
+  (`verifier.go`). `TestTheDeliveredSystemPromptBindsConstraintsAndAimsFromTheTree` pins the phrases.
 
 Live screen (ADR 0011)
 
