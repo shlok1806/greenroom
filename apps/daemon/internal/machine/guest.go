@@ -301,6 +301,16 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 	return res, err
 }
 
+// CheckDest reports whether dest would be refused by Sync, so a caller can say so before
+// preparing the source. An empty dest (the default) is fine.
+func CheckDest(dest string) error {
+	if dest == "" {
+		return nil
+	}
+	_, err := guestDest(dest)
+	return err
+}
+
 // guestDest refuses a dest that is absolute or climbs above the guest home.
 // "~/x" is x in the guest home, as a shell would read it, never a directory
 // named "~".

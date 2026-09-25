@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,4 +111,101 @@ func TestLockRootIsReleasedForTheNextDaemon(t *testing.T) {
 		t.Fatalf("lock after release: %v", err)
 	}
 	again()
+}
+
+// unsetEnv clears keys for the test and restores them after, including anything loadEnvFile set meanwhile.
+func unsetEnv(t *testing.T, keys ...string) {
+	t.Helper()
+	for _, k := range keys {
+		old, had := os.LookupEnv(k)
+		_ = os.Unsetenv(k)
+		t.Cleanup(func() {
+			if had {
+				_ = os.Setenv(k, old)
+			} else {
+				_ = os.Unsetenv(k)
+			}
+		})
+	}
+}
+
+// ADR 0021: a public host with no token, or a guessable one, would open every machine to the tunnel.
+func TestServeRefusesAPublicHostWithoutALongToken(t *testing.T) {
+	unsetEnv(t, "GREENROOM_PUBLIC_HOST", "GREENROOM_TOKEN")
+	for _, token := range []string{"", "short", "   " + strings.Repeat("x", 31) + "   "} {
+		root, conversation := pendingRoot(t)
+		if token != "" {
+			t.Setenv("GREENROOM_TOKEN", token)
+		}
+		err := serveAsync(t, 5*time.Second, "-addr", "127.0.0.1:0", "-root", root, "-public-host", "gr.example.com")
+		if err == nil || !strings.Contains(err.Error(), "GREENROOM_TOKEN") || !strings.Contains(err.Error(), "openssl rand -hex 32") {
+			t.Fatalf("token %q: serve = %v, want a refusal saying how to make a token", token, err)
+		}
+		if strings.TrimSpace(token) != "" && strings.Contains(err.Error(), strings.TrimSpace(token)) {
+			t.Errorf("the refusal repeats the token: %v", err)
+		}
+		assertUntouched(t, conversation)
+		if _, err := os.Stat(filepath.Join(root, "daemon.lock")); err == nil {
+			t.Error("the refused daemon locked the root")
+		}
+	}
+	root, _ := pendingRoot(t)
+	err := serveAsync(t, 5*time.Second, "-addr", "127.0.0.1:0", "-root", root, "-public-host", "https://gr.example.com/")
+	if err == nil || !strings.Contains(err.Error(), "bare hostname") {
+		t.Errorf("a URL as public host: %v, want it refused", err)
+	}
+}
+
+// The env file names the public host and token when the flags do not, as it does GREENROOM_IMAGE.
+func TestServeTakesThePublicHostAndTokenFromTheEnvFile(t *testing.T) {
+	unsetEnv(t, "GREENROOM_PUBLIC_HOST", "GREENROOM_TOKEN")
+	const token = "0123456789abcdef0123456789abcdef"
+	envFile := filepath.Join(t.TempDir(), "remote.env")
+	if err := os.WriteFile(envFile, []byte("GREENROOM_PUBLIC_HOST=gr.example.com\nGREENROOM_TOKEN="+token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := probe.Addr().String()
+	_ = probe.Close()
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- serveUntil(ctx, []string{"-addr", addr, "-root", t.TempDir(), "-tart", "/usr/bin/false", "-verifier", "manual", "-env-file", envFile})
+	}()
+	t.Cleanup(func() {
+		stop()
+		if err := <-done; err != nil {
+			t.Errorf("serve: %v", err)
+		}
+	})
+
+	get := func(auth string) int {
+		req, err := http.NewRequest(http.MethodGet, "http://"+addr+"/healthz", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = "gr.example.com"
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return 0
+		}
+		_ = res.Body.Close()
+		return res.StatusCode
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for get("Bearer "+token) != http.StatusOK {
+		if time.Now().After(deadline) {
+			t.Fatal("the public host with the env file's token was never served")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if code := get(""); code != http.StatusUnauthorized {
+		t.Errorf("the public host without a token: %d, want 401", code)
+	}
 }

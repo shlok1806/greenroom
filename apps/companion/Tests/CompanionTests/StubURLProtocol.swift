@@ -33,13 +33,14 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) private static var handlers: [String: Handler] = [:]
 
     /// A client whose every request is answered by `handler`; `readOnly` as a snapshot's is.
-    static func client(readOnly: Bool = false, _ handler: @escaping Handler) -> DaemonClient {
+    static func client(token: String? = nil, readOnly: Bool = false, _ handler: @escaping Handler) -> DaemonClient {
         let id = UUID().uuidString
         lock.withLock { handlers[id] = handler }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubURLProtocol.self]
         config.httpAdditionalHeaders = [header: id]
-        return DaemonClient(baseURL: URL(string: "http://daemon.test")!, session: URLSession(configuration: config), readOnly: readOnly)
+        return DaemonClient(baseURL: URL(string: "http://daemon.test")!, token: token,
+                            session: URLSession(configuration: config), readOnly: readOnly)
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }

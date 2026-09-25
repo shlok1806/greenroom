@@ -21,9 +21,12 @@ go run . serve                                  # 127.0.0.1:7777, root ~/.greenr
 go run . serve -verifier manual                 # no model; a person types instructions
 go run . serve -image greenroom-base -max-machines 2 -frame-interval 2s
 go run . serve -tart <path>                     # or GREENROOM_TART
+go run . serve -public-host gr.example.com      # or GREENROOM_PUBLIC_HOST; needs GREENROOM_TOKEN; -dist <dir>
 go run . prepare-image -vm <running vm>          # build-image.sh runs it; not on its own
 go run . check-image -image <local image> [-out dir]   # the dialog gate, on a clone of a clone
 go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir>]
+go run . connect [-url URL] [-token T] [-config F]   # stdio MCP server for a daemon on another host
+go run . connect -check                          # prints "ok: <url> (<n> tools)" or the reason, exit 1
 
 scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
                         # image default: local greenroom-lean-a, then greenroom-base, then upstream Cirrus
@@ -36,9 +39,59 @@ scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-lean] [-force]   #
 runs with no verifier and says so in each run's transcript, after every message that starts a
 turn (`noVerifierNotice` + kind), so a client never waits for an answer.
 
-HTTP has no authentication. `api.LocalOnly` wraps every route: 403 unless `Host` is loopback
-(DNS rebinding) and any `Origin` is loopback (cross-site). Writes under `/api` with a body
-must be `application/json` (415). The companion and smoke client send a loopback Host and no Origin.
+`api.Guard` wraps every route (ADR 0021). A loopback `Host` needs no token: 403 unless any
+`Origin` is loopback too (cross-site). The `-public-host` (or `GREENROOM_PUBLIC_HOST`) name
+needs `Authorization: Bearer $GREENROOM_TOKEN` (401 otherwise) and no `Origin` at all (403).
+Any other `Host` is 403 (DNS rebinding); the message keeps the word "loopback", which the
+Companion's advice keys off. Writes under `/api` with a body must be `application/json`
+(415), except `PUT /api/runs/{id}/sync`, which must be `application/gzip` (no HTML form can
+send either). The companion and smoke client send a loopback Host and no Origin.
+
+- The daemon stays on loopback; `cloudflared` on the same host forwards the public name to
+  it. Tunnel traffic also arrives from 127.0.0.1, so `Host` is the only thing that tells it
+  from local traffic. Never trust the peer address, and never bind a public interface: a
+  remote client could then send a loopback `Host` and skip the token.
+- The MCP SDK has its own DNS-rebinding check (a non-localhost Host from 127.0.0.1 is 403),
+  which refuses every tunnel request. `routes` turns it off (`DisableLocalhostProtection`)
+  only when a public host is set, leaving `api.Guard` as the one Host check.
+  `TestRoutesServeMCPToThePublicHostWithTheToken` pins it.
+- `serve` refuses to start with a public host and a token under 32 characters (after
+  trimming), before it locks the root. The token is never logged.
+- `GET`/`HEAD /install.sh` and `/dl/<bare name>` (`api.Dist`, files in `-dist`, default
+  `<root>/dist`) are the only public routes without a token (`installPath` in `guard.go`).
+  Anything put in `dist` is world-readable through the tunnel. `Cache-Control: no-store`.
+- `PUT /api/runs/{id}/sync?dest=&name=` (`upload.go`) unpacks into
+  `<root>/uploads/<runId>/<name>` (emptied first), then calls `Manager.Sync` from there,
+  so the default dest is `work/<name>`. `untar.go` takes only files, dirs and symlinks,
+  refuses `..`, absolute names and links that leave the directory, never writes through a
+  symlink, and keeps modes and mtimes (rsync's quick check needs them, or every sync copies
+  everything). Caps: 2 GiB body, 4 GiB unpacked, 200000 entries (413). A run's uploads go on
+  its "destroyed" event, and `api.New` sweeps those of runs with no machine at start.
+
+## connect (ADR 0021)
+
+`greenroom connect` (`connect.go`, `internal/remote`) runs on the agent's computer, not the
+daemon's host. It is a stdio MCP server that dials `<url>/mcp` with the token, mirrors every
+remote tool (definition unchanged, daemon name, version and instructions) and forwards each
+call with its raw arguments, returning the daemon's result as is. A transport failure
+re-dials and retries once only for the tools in `readOnlyTools` (`client.go`); any other
+call is never sent twice (the daemon may have acted before the answer was lost), so its
+error says it may have run. An error the daemon answered is never retried. A new tool that
+only reads belongs in that list.
+
+- Config: `-url`/`-token`/`-config`, then `GREENROOM_URL`/`GREENROOM_TOKEN`, then
+  `~/.greenroom/client.json`, per field.
+- `machine_sync` is never forwarded: the daemon cannot read this computer. connect tars and
+  gzips `source` while walking it (no temp file), honouring `exclude` itself (rsync's simple
+  forms, `Excludes` in `sync.go`; no `**`), and PUTs it to `/api/runs/{id}/sync?dest=&name=`.
+  Symlinks stay symlinks, never followed; sockets, devices and fifos are skipped; owners are
+  not sent. Its description gains `remote.SyncNote`. The result is the route's JSON as
+  structured content plus one text copy; a refusal is a tool error with the HTTP status.
+- Stdout is the MCP channel. Log to stderr only; nothing in `internal/remote` may print to
+  stdout except `Check`, through the writer it is given. The SDK's own info logs are dropped.
+- `internal/remote` does not import the daemon's packages; `connect.go` passes the version.
+- Tests: `internal/remote/remote_test.go` runs a real stateless MCP server behind a bearer
+  check plus a fake sync route that untars what it gets.
 
 ## Layering
 
@@ -356,7 +409,8 @@ Live screen (ADR 0011)
 
 Sync
 
-- `source` must be absolute; `dest` must stay inside the guest home.
+- `source` must be absolute; `dest` must stay inside the guest home (`machine.CheckDest`
+  lets the upload route refuse a bad one before unpacking).
 - Default `dest` is `~/work/<basename>` (`GuestWorkDir`). This is pinned: SwiftPM caches
   are keyed to their absolute path and fail hard elsewhere.
 - rsync uses `-a`, not `-az`. Compression makes a local VM sync ~4x slower
@@ -405,6 +459,8 @@ Values already set in the environment win.
 | `GREENROOM_VERIFIER_MODEL` | none, required with a key | Model for verifier turns. |
 | `GREENROOM_VISION_MODEL` | `moonshotai/kimi-k3` | Model that describes screenshots for the verifier (ADR 0020). `none`: the verifier works without seeing the screen. |
 | `GREENROOM_TART` | none | tart binary, see below. `-tart` overrides. |
+| `GREENROOM_PUBLIC_HOST` | none | Tunnel hostname that may reach the daemon with the token (ADR 0021). `-public-host` overrides. |
+| `GREENROOM_TOKEN` | none | Bearer token for the public host, at least 32 characters (`openssl rand -hex 32`). |
 
 ## Tart
 

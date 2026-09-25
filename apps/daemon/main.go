@@ -42,6 +42,8 @@ func main() {
 		err = prepareImage(os.Args[2:])
 	case "check-image":
 		err = checkImage(os.Args[2:])
+	case "connect":
+		err = connect(os.Args[2:])
 	case "version":
 		fmt.Println("greenroom", mcpserver.Version)
 	default:
@@ -67,12 +69,14 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "\n       greenroom check-image -image <name> [flags]")
 	check, _ := checkFlags()
 	check.PrintDefaults()
+	connectUsage()
 	fmt.Fprintln(os.Stderr, "\n       greenroom version")
 	os.Exit(2)
 }
 
 type serveOpts struct {
 	addr, root, image, envFile, tartBin, verifierKind string
+	publicHost, dist                                  string
 	maxDisputes, maxMachines, verifierMaxSteps        int
 	frameInterval, verifierBudget                     time.Duration
 }
@@ -91,6 +95,8 @@ func serveFlags() (*flag.FlagSet, *serveOpts) {
 	fs.StringVar(&o.verifierKind, "verifier", "", "verifier brain: nim (model-driven) or manual (a person types instructions in the conversation); default nim, overridden by GREENROOM_VERIFIER when this flag is not set")
 	fs.IntVar(&o.verifierMaxSteps, "verifier-max-steps", verifier.DefaultMaxSteps, "tool calls a verifier turn may make before it stops and asks to be continued with another message")
 	fs.DurationVar(&o.verifierBudget, "verifier-budget", verifier.DefaultBudget, "wall-clock budget for a single verifier turn before it stops and asks to be continued")
+	fs.StringVar(&o.publicHost, "public-host", "", "hostname a tunnel forwards to this daemon; requests for it need GREENROOM_TOKEN (ADR 0021); default GREENROOM_PUBLIC_HOST, empty for local only")
+	fs.StringVar(&o.dist, "dist", "", "directory holding install.sh and the files under /dl/; default <root>/dist")
 	return fs, o
 }
 
@@ -108,11 +114,24 @@ func serveUntil(ctx context.Context, args []string) error {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if !api.LoopbackAddr(o.addr) {
-		// The Host check stops browsers, not other machines: a remote client can send any Host it likes.
-		log.Warn("-addr is not loopback and the daemon has no authentication: anything that can reach it can drive every machine", "addr", o.addr)
+		// The Host check stops browsers, not other machines: a remote client can send a loopback Host and skip the token.
+		log.Warn("-addr is not loopback and a loopback Host needs no token: anything that can reach it can drive every machine; use a tunnel and -public-host instead", "addr", o.addr)
 	}
 	if err := loadEnvFile(o.envFile); err != nil {
 		return err
+	}
+	if o.publicHost == "" {
+		o.publicHost = strings.TrimSpace(os.Getenv("GREENROOM_PUBLIC_HOST"))
+	}
+	if o.dist == "" {
+		o.dist = filepath.Join(o.root, "dist")
+	}
+	token := strings.TrimSpace(os.Getenv("GREENROOM_TOKEN"))
+	if err := checkPublicAccess(o.publicHost, token, o.envFile); err != nil {
+		return err
+	}
+	if o.publicHost != "" {
+		log.Info("public access enabled", "host", o.publicHost, "dist", o.dist) // never the token
 	}
 
 	// Claim the root and the address before anything reads state or starts a verifier: a daemon
@@ -189,7 +208,7 @@ func serveUntil(ctx context.Context, args []string) error {
 	// the root lock with it (issue #98).
 	baseCtx, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
-	httpServer := &http.Server{Addr: o.addr, Handler: routes(mgr, reg, o.image, log), ReadHeaderTimeout: 10 * time.Second,
+	httpServer := &http.Server{Addr: o.addr, Handler: routes(mgr, reg, o.image, o.publicHost, token, o.dist, log), ReadHeaderTimeout: 10 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return baseCtx }}
 	httpServer.RegisterOnShutdown(cancelRequests)
 
@@ -215,16 +234,42 @@ func serveUntil(ctx context.Context, args []string) error {
 	}
 }
 
-// routes is the daemon's whole HTTP surface. It is unauthenticated, so nothing a web page can reach gets through.
-func routes(mgr *machine.Manager, reg *session.Registry, image string, log *slog.Logger) http.Handler {
+// routes is the daemon's whole HTTP surface. Loopback needs no token, so nothing a web page can
+// reach gets through; publicHost (tunnel traffic) needs token on everything but the install files.
+func routes(mgr *machine.Manager, reg *session.Registry, image, publicHost, token, dist string, log *slog.Logger) http.Handler {
 	server := mcpserver.New(mgr, image, reg)
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true}))
+	// The SDK refuses a non-localhost Host on a request from 127.0.0.1 (DNS rebinding), which is
+	// what every tunnel request looks like. api.Guard below does that check with the public host
+	// allowed, so with a public host it is the only one.
+	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
+		&mcp.StreamableHTTPOptions{Stateless: true, DisableLocalhostProtection: publicHost != ""}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprintf(w, "ok %d machines\n", len(mgr.List()))
 	})
 	mux.Handle("/api/", api.New(mgr, reg, log))
-	return api.LocalOnly(mux)
+	install := api.Dist(dist)
+	mux.Handle("GET /install.sh", install)
+	mux.Handle("GET /dl/{file}", install)
+	return api.Guard(mux, publicHost, token)
+}
+
+// minTokenLength is the shortest GREENROOM_TOKEN a daemon with a public host accepts.
+const minTokenLength = 32
+
+// checkPublicAccess refuses a public host that is not a bare hostname, or one without a token long enough to guard it.
+func checkPublicAccess(publicHost, token, envFile string) error {
+	if publicHost == "" {
+		return nil
+	}
+	if strings.ContainsAny(publicHost, "/ ") {
+		return fmt.Errorf("public host %q must be a bare hostname like greenroom.example.com, with no scheme or path", publicHost)
+	}
+	if len(token) < minTokenLength {
+		return fmt.Errorf("public host %s needs GREENROOM_TOKEN of at least %d characters (it has %d); make one with: echo \"GREENROOM_TOKEN=$(openssl rand -hex 32)\" >> %s",
+			publicHost, minTokenLength, len(token), envFile)
+	}
+	return nil
 }
 
 // bridgeLifecycle posts the manager's lifecycle into each run's conversation. It is the only poster of

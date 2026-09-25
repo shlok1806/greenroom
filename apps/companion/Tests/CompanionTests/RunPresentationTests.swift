@@ -172,6 +172,20 @@ final class RunPresentationTests: XCTestCase {
         XCTAssertNil(ConnectionState.advice(for: "greenroom answered 500: open /tmp/gr/runs: permission denied"))
     }
 
+    /// Root ADR 0021: a remote daemon is reached by its public name and token.
+    func testRefusalAdviceNamesTheClientFile() {
+        let host = ConnectionState.advice(for: "greenroom answered 403: forbidden: Host must be a loopback address or the configured public host")
+        XCTAssertEqual(host, "greenroom only answers 127.0.0.1, localhost and the public name it was started with "
+            + "(-public-host). Put that name and its token in ~/.greenroom/client.json, "
+            + "or use a loopback address, such as a port forward.")
+        let token = "greenroom refused this app's token. The token in ~/.greenroom/client.json is "
+            + "missing or does not match GREENROOM_TOKEN on greenroom's host. "
+            + "Run the installer again with the current token."
+        XCTAssertEqual(ConnectionState.advice(for: "greenroom answered 401: unauthorized"), token)
+        XCTAssertEqual(ConnectionState.advice(for: "greenroom answered 401"), token)
+        XCTAssertEqual(ConnectionState.advice(for: "greenroom answered 401: Unauthorized: bad token"), token)
+    }
+
     // MARK: - Layout
 
     func testTheConversationKeepsItsWidthUntilTheStageNeedsIt() {

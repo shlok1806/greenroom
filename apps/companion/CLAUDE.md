@@ -97,7 +97,11 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   - A requested run the daemon does not list, a run list that never answers, or a
     selection that leaves the run with no keys pressed fails the snapshot:
     `snapshot failed: ...` on stderr, exit status 1, never another run's picture.
-- `GREENROOM_URL` overrides `http://127.0.0.1:7777` (`DaemonClient.defaultBaseURL`).
+- The daemon's address and token (`ClientConfig`, root ADR 0021): `GREENROOM_URL` with
+  `GREENROOM_TOKEN`, else `~/.greenroom/client.json` (`{"url", "token"}`, written by the
+  installer; a malformed file is logged and skipped), else `http://127.0.0.1:7777` with no
+  token. A token only goes with the address it came with. `DaemonClient.request` is the one
+  request factory and adds `Authorization: Bearer <token>` to every request.
 - The app never starts the daemon.
 - The icon is drawn at build time by `scripts/make-icon.swift`; no artwork is checked in.
 

@@ -248,12 +248,22 @@ enum ConnectionState: Equatable, Sendable {
         }
     }
 
-    /// What to do about a refusal the daemon's words alone do not explain. `api.LocalOnly`
-    /// refuses any Host that is not a loopback name, which a `GREENROOM_URL` with a LAN or
-    /// bridge address always sends.
+    /// What to do about a refusal the daemon's words alone do not explain. The words are
+    /// `DaemonError.status`'s description, "greenroom answered <code>: <body>".
+    /// - `api.Guard` refuses a Host that is neither loopback nor the `-public-host` name,
+    ///   which a LAN or bridge address always sends.
+    /// - It answers 401 "unauthorized" to the public name without the right bearer token.
     static func advice(for words: String) -> String? {
-        guard words.localizedCaseInsensitiveContains("loopback") else { return nil }
-        return "greenroom only answers requests to 127.0.0.1 or localhost. "
-            + "Use a loopback address, such as a port forward, and set GREENROOM_URL to it."
+        if words.localizedCaseInsensitiveContains("loopback") {
+            return "greenroom only answers 127.0.0.1, localhost and the public name it was started with "
+                + "(-public-host). Put that name and its token in ~/.greenroom/client.json, "
+                + "or use a loopback address, such as a port forward."
+        }
+        if words.localizedCaseInsensitiveContains("unauthorized") || words.contains("answered 401") {
+            return "greenroom refused this app's token. The token in ~/.greenroom/client.json is "
+                + "missing or does not match GREENROOM_TOKEN on greenroom's host. "
+                + "Run the installer again with the current token."
+        }
+        return nil
     }
 }

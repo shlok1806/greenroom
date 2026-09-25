@@ -11,7 +11,9 @@ Working instructions for agents in this repo. What greenroom is and how to run i
 - `images/` - how the VM images are built (README only; the recipe is
   `apps/daemon/scripts/build-image.sh`, ADR 0018).
 - `packages/` - empty; TypeScript packages only when one is needed.
-- `docs/` - notes `00`-`10`, ADRs in `docs/adr/`.
+- `docs/` - notes `00`-`11`, ADRs in `docs/adr/`.
+- `scripts/remote/` - the host's tunnel, token and client-artifact commands (`host.sh`) and
+  the client installer it serves (`client-install.sh`, POSIX sh). ADR 0021, `docs/11-remote-test.md`.
 - `spikes/` - throwaway measurement scripts. Nothing imports them.
 
 ## Commands
