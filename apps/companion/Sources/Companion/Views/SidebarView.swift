@@ -141,7 +141,7 @@ struct SidebarView: View {
             VStack(spacing: Space.xs) {
                 Text("No run matches \u{201C}\(query)\u{201D}")
                     .readingStyle(.readingMedium, size: TypeScale.readingSmall)
-                Text("Search looks at the task, the id, the time and the state.")
+                Text("Search matches the task, id, time and state.")
                     .readingStyle(size: TypeScale.small)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

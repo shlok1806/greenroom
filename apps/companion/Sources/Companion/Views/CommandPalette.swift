@@ -89,7 +89,7 @@ struct CommandPalette: View {
         return VStack(spacing: Space.s) {
             Text("No matching command")
                 .headingStyle()
-            Text("Nothing in the commands matches \u{201C}\(query)\u{201D}.")
+            Text("Nothing matches \u{201C}\(query)\u{201D}.")
                 .readingStyle(size: TypeScale.readingSmall)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

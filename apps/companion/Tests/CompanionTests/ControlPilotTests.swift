@@ -193,7 +193,7 @@ final class ControlPilotTests: XCTestCase {
         await client.letGo()
         await until { await self.client.calls.last == .release }
 
-        XCTAssertEqual(host.errors, ["The daemon answered 409: machine is gone"])
+        XCTAssertEqual(host.errors, ["greenroom answered 409: machine is gone"])
         // The button is let go where the person last pointed, and nothing
         // queued before the failure is replayed.
         let inputs = await client.inputs
@@ -217,7 +217,7 @@ final class ControlPilotTests: XCTestCase {
         let calls = await client.calls
         XCTAssertEqual(calls.last, .release)
         XCTAssertEqual(pilot.endedReason, "VM \"gr-run-1\" is not running")
-        XCTAssertEqual(host.errors, ["The daemon answered 409: VM \"gr-run-1\" is not running"])
+        XCTAssertEqual(host.errors, ["greenroom answered 409: VM \"gr-run-1\" is not running"])
 
         // Taking control again starts with a clean slate.
         await pilot.take()

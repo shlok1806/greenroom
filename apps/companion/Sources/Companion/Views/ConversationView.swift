@@ -99,7 +99,7 @@ struct ConversationView: View {
             Spacer(minLength: Space.s)
             Toggle("Tool calls", isOn: $showsToolCalls)
                 .fixedSize()
-                .help("Show the verifier's tool calls between its messages")
+                .help("Show the verifier's tool calls")
         }
         .padding(.horizontal, Space.m)
         .padding(.top, Space.m)
@@ -201,7 +201,7 @@ struct ConversationView: View {
             .overlay {
                 if messages.isEmpty {
                     QuietEmpty(title: "No conversation yet",
-                               message: "The coding agent opens it with the task. You can message the verifier at any time.")
+                               message: "The coding agent starts it with the task. You can message the verifier any time.")
                 }
             }
             .offersActions(.conversation, offered, refresh: runId) { perform($0, proxy: proxy) }
@@ -312,7 +312,7 @@ private struct Composer: View {
         VStack(alignment: .leading, spacing: Space.s) {
             SegmentedSwitch(options: [(MessageKind.note, "Message"), (MessageKind.task, "New task")],
                             selection: $kind, small: true)
-                .help("A message is answered by the verifier and read by the coding agent; a new task hands the verifier more to check")
+                .help("A message gets an answer from the verifier. A new task gives it more to check.")
             HStack(alignment: .bottom, spacing: Space.s) {
                 TextField(placeholder, text: $draft, selection: $selection, axis: .vertical)
                     .disabled(offline)
@@ -360,20 +360,20 @@ private struct Composer: View {
     }
 
     private var placeholder: String {
-        if offline { return "The daemon is not answering" }
+        if offline { return "greenroom is not answering" }
         // Short enough to stay on one line: a vertical field sizes to its wrapped placeholder.
         return kind == .task ? "What should the verifier check?" : "Message the verifier"
     }
 
     /// Who reads it and when, for the state the run is in.
     private var hint: String {
-        if !facts.verifierListens { return "The verifier stopped when the machine was destroyed; nothing will answer" }
-        if kind == .task { return "The verifier starts on it and reports back here" }
+        if !facts.verifierListens { return "The verifier stopped with the machine. Nothing will answer." }
+        if kind == .task { return "The verifier checks it and reports here" }
         switch facts.phase {
         case .booting: return "The verifier answers once the machine is up"
-        case .idle: return "The verifier answers now. The coding agent reads it when it next checks in."
-        case .ended, .failed: return "The machine is gone; the verifier answers from the record"
-        case .live: return "The verifier answers; the coding agent reads it too"
+        case .idle: return "The verifier answers now. The coding agent reads it on its next check."
+        case .ended, .failed: return "The machine is gone. The verifier answers from the record."
+        case .live: return "The verifier answers. The coding agent reads it too."
         }
     }
 

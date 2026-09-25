@@ -26,7 +26,7 @@ struct VerdictReview: Equatable, Sendable {
                 state: "Needs review",
                 decision: "you or the coding agent can accept it",
                 humanReviewed: false,
-                note: verdict.disputes > 0 ? "The coding agent has disputed an earlier verdict \(disputes)." : nil,
+                note: verdict.disputes > 0 ? "The coding agent disputed an earlier verdict \(disputes)." : nil,
                 closed: false
             )
         case .accepted:
@@ -35,13 +35,13 @@ struct VerdictReview: Equatable, Sendable {
                 state: byYou ? "You accepted" : "Unreviewed",
                 decision: byYou ? String(when.dropFirst()) : "accepted by the \(Self.name(verdict.acceptedBy))\(when)",
                 humanReviewed: byYou,
-                note: byYou ? nil : "No person has reviewed this verdict.",
+                note: byYou ? nil : "No person reviewed it.",
                 closed: true
             )
         case .contested:
             return VerdictReview(
                 state: "Contested",
-                decision: "only a person can close it",
+                decision: "only you can close it",
                 humanReviewed: false,
                 note: verdict.disputes > 0 ? "The coding agent disputed it \(disputes)." : "You rejected an earlier verdict.",
                 closed: false
@@ -57,8 +57,8 @@ struct VerdictReview: Equatable, Sendable {
                 decision: when.isEmpty ? "" : String(when.dropFirst()),
                 humanReviewed: true,
                 note: verifierListens || answered
-                    ? "The verifier was asked to look again."
-                    : "The verifier stopped with the machine, so nothing will look again.",
+                    ? "You asked the verifier to look again."
+                    : "The verifier stopped with the machine. Nothing will look again.",
                 closed: true
             )
         case .none, .unknown:
@@ -79,42 +79,29 @@ struct VerdictReview: Equatable, Sendable {
     }
 
     /// Says the shown verdict predates the task the verifier is on, so it is not the answer to it.
-    static func staleNote(verdictSeq: Int?, newerTask: Message, verifierListens: Bool) -> String {
+    static func staleNote(newerTask: Message, verifierListens: Bool) -> String {
         let who = newerTask.from == .human ? "You" : "The coding agent"
-        let verdict = verdictSeq.map { "message \($0)" } ?? "this verdict"
-        let outcome = verifierListens
-            ? "Its verdict on that task will replace this one."
-            : "The verifier stopped with the machine before answering it, so no verdict will replace this one."
-        return "\(who) sent a newer task (message \(newerTask.seq)) after this verdict, so \(verdict) is older "
-            + "than what the verifier is checking now. " + outcome
+        return verifierListens
+            ? "\(who) sent a newer task. Its verdict will replace this one."
+            : "\(who) sent a newer task. The verifier stopped before answering it."
     }
 
-    /// What each action does, in the daemon's own terms (session rules, ADR 0006).
+    /// What each action does, in the daemon's own terms (session rules, ADR 0006), in
+    /// one or two short lines.
     static func explanation(_ verdict: VerdictState, unreviewed: Bool, verifierListens: Bool, alive: Bool) -> String {
         let outcome = Chrome.outcomeTitle(verdict.verdict)
         if unreviewed {
-            let rule = "The daemon does not let a person reopen a verdict the coding agent accepted. "
-            if !verifierListens {
-                return rule + "The verifier stopped when this run's machine was destroyed, so nothing can answer a re-check."
-            }
-            if !alive {
-                return rule + "This run has ended, so the verifier answers a re-check from the record: "
-                    + "the steps, pictures and conversation it already has."
-            }
-            return rule
-                + "A re-check asks the verifier to look again with your reason; you can accept or reject what it proposes next."
+            // The headline and the note already say the coding agent accepted it.
+            if !verifierListens { return "The verifier stopped with the machine, so a re-check gets no answer." }
+            if !alive { return "To challenge it, ask for a re-check. The verifier looks again at the record." }
+            return "To challenge it, ask for a re-check."
         }
-        let accept = "Accept closes it with this \(outcome.lowercased()) verdict. "
+        let accept = "Accept closes it as \(outcome). "
         if !verifierListens {
-            return accept + "Reject closes it as rejected with your reason. The verifier stopped when this run's machine "
-                + "was destroyed, so nothing will look again. The coding agent sees your decision in the conversation."
+            return accept + "Reject closes it as rejected. The verifier stopped with the machine, so nothing will look again."
         }
-        if verdict.status == .contested {
-            return accept + "Reject closes it as rejected. "
-                + "Either way the coding agent and the verifier read your decision in the conversation."
-        }
-        return accept + "Reject sends your reason to the verifier, which looks again; "
-            + "after that only a person can close its verdicts. The coding agent sees both in the conversation."
+        if verdict.status == .contested { return accept + "Reject closes it as rejected." }
+        return accept + "Reject sends your reason to the verifier, which looks again."
     }
 
     private static func name(_ from: MessageFrom?) -> String {
@@ -143,12 +130,12 @@ enum VerdictCheck: Hashable, Sendable {
     var text: String {
         switch self {
         case .noEvidence: "No evidence cited"
-        case .missingStep(let step): "Cites step \(step), which is not in the record"
+        case .missingStep(let step): "Cites step \(step), not in the record"
         case .failedStep(let step): "Cites step \(step), which failed"
         case .outcomeMismatch(let state, let message):
-            "The verdict reads \(Chrome.outcomeTitle(state)) but its message says \(Chrome.outcomeTitle(message))"
+            "The verdict says \(Chrome.outcomeTitle(state)); its message says \(Chrome.outcomeTitle(message))"
         case .readsLike(let other):
-            "Its own summary reads like a \(other.lowercased()). Check before you accept"
+            "Its words read like a \(other.lowercased()). Check before you accept."
         }
     }
 

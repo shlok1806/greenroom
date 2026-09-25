@@ -496,16 +496,13 @@ final class RunStoreTests: XCTestCase {
     func testTheCardSaysAVerdictIsOlderThanTheLatestTask() {
         let task = Message(
             seq: 15, at: Date(timeIntervalSince1970: 15), from: .coder, kind: .task, text: "re-check the fixed build")
-        let text = VerdictReview.staleNote(verdictSeq: 13, newerTask: task, verifierListens: true)
-        XCTAssertTrue(text.contains("message 15"), text)
-        XCTAssertTrue(text.contains("older"), text)
-        XCTAssertTrue(text.contains("will replace this one"), text)
+        let text = VerdictReview.staleNote(newerTask: task, verifierListens: true)
+        XCTAssertEqual(text, "The coding agent sent a newer task. Its verdict will replace this one.")
 
         // A destroyed run's verifier answers nothing, so the note promises no later verdict.
-        let stopped = VerdictReview.staleNote(verdictSeq: 13, newerTask: task, verifierListens: false)
-        XCTAssertTrue(stopped.contains("message 15"), stopped)
-        XCTAssertTrue(stopped.contains("no verdict will replace this one"), stopped)
-        XCTAssertFalse(stopped.contains("Its verdict on that task will replace"), stopped)
+        let stopped = VerdictReview.staleNote(newerTask: task, verifierListens: false)
+        XCTAssertEqual(stopped, "The coding agent sent a newer task. The verifier stopped before answering it.")
+        XCTAssertFalse(stopped.contains("replace"), stopped)
     }
 
     /// The coding agent accepting mid-draft must take the Reject form with it.
@@ -607,7 +604,7 @@ final class RunStoreTests: XCTestCase {
         XCTAssertEqual(store.messages["run-1"]?.map(\.text), ["go"])
         XCTAssertEqual(store.steps["run-1"], [])
         XCTAssertNil(store.frames["run-1"])
-        XCTAssertEqual(store.lastError, "The daemon answered 404: no frames")
+        XCTAssertEqual(store.lastError, "greenroom answered 404: no frames")
     }
 
     func testConnectionFollowsEveryReadOfTheRunList() async {
@@ -633,10 +630,10 @@ final class RunStoreTests: XCTestCase {
         })
         await refusing.resync()
         XCTAssertEqual(refusing.connection,
-                       .refused("The daemon answered 403: forbidden: Host must be a loopback address", hasData: false))
+                       .refused("greenroom answered 403: forbidden: Host must be a loopback address", hasData: false))
         refusing.runs = [RunSummary(runId: "run-1", createdAt: Date())]
         XCTAssertEqual(refusing.connection,
-                       .refused("The daemon answered 403: forbidden: Host must be a loopback address", hasData: true))
+                       .refused("greenroom answered 403: forbidden: Host must be a loopback address", hasData: true))
 
         let absent = RunStore(client: StubURLProtocol.client { _ in .unreachable })
         await absent.resync()

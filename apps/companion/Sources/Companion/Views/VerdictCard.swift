@@ -64,7 +64,7 @@ struct VerdictCard: View {
             Text("◇ No verdict")
                 .monoStyle(.monoMedium, size: TypeScale.monoSmall)
             Text(facts.isAlive
-                ? "The verifier proposes one when it has checked the task."
+                ? "The verifier proposes one after it checks the task."
                 : "This run ended without one.")
                 .readingStyle(size: TypeScale.readingSmall)
                 .foregroundStyle(.secondary)
@@ -220,7 +220,7 @@ struct VerdictCard: View {
             }
             .buttonStyle(.textLink)
             .fixedSize()
-            .help(expanded ? "Fold the verdict" : "Show each cited step's picture, what it claims there, and the disputes")
+            .help(expanded ? "Fold the verdict" : "Show the cited steps and any disputes")
         }
     }
 
@@ -394,19 +394,21 @@ struct VerdictCard: View {
                             Button("Ask for a Re-check...") { store.updateVerdictDraft(runId) { $0.action = .recheck } }
                                 .disabled(!facts.verifierListens || newer != nil)
                                 .help(newer != nil
-                                    ? "The verifier is checking a newer task; its verdict will replace this one"
+                                    ? "A newer task is open. Its verdict will replace this one."
                                     : facts.verifierListens
-                                    ? "Send the verifier your reason to check again"
-                                    : "The verifier stopped with the machine; nothing can answer")
+                                    ? "Ask the verifier to look again, with your reason"
+                                    : "The verifier stopped with the machine")
                         } else {
                             Button("Reject...") { store.updateVerdictDraft(runId) { $0.action = .reject } }
                                 .disabled(sending)
-                                .help("Dispute it, with your reason (\(ActionRegistry.label(.dispute))). Sent after \(Self.undoSeconds) s, so you can undo.")
+                                .help("Dispute it with your reason (\(ActionRegistry.label(.dispute))). "
+                                    + (verdict.status == .proposed ? "After that, only you can close its verdicts. " : "")
+                                    + "You have \(Self.undoSeconds) s to undo.")
                             Spacer(minLength: Space.l)
                             Button("Accept \(outcome)") { run { await store.requestAccept(runId: runId) } }
                             .buttonStyle(.primary)
                             .disabled(sending)
-                            .help("Agree with this \(outcome.lowercased()) verdict (\(ActionRegistry.label(.accept))). Sent after \(Self.undoSeconds) s, so you can undo.")
+                            .help("Close it as \(outcome) (\(ActionRegistry.label(.accept))). You have \(Self.undoSeconds) s to undo.")
                         }
                     }
                 }
@@ -430,8 +432,7 @@ struct VerdictCard: View {
         let unreviewed = verdict.status == .accepted && !review.humanReviewed
         let newer = VerdictReview.newerTask(than: verdict.seq, in: store.messages[runId] ?? [])
         if let newer {
-            Text("! " + VerdictReview.staleNote(verdictSeq: verdict.seq, newerTask: newer,
-                                                verifierListens: facts.verifierListens))
+            Text("! " + VerdictReview.staleNote(newerTask: newer, verifierListens: facts.verifierListens))
                 .readingStyle(size: TypeScale.readingSmall)
                 .foregroundStyle(theme.color(.attention, on: .surface))
                 .fixedSize(horizontal: false, vertical: true)
@@ -451,7 +452,7 @@ struct VerdictCard: View {
     /// presenter goes away leaves the window unable to take a click.
     private func acceptConfirmation(outcome: String) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
-            Text("! You have not opened any step or screenshot this verdict cites. Accepting closes the verdict for good.")
+            Text("! You have not opened any cited step. Accepting is final.")
                 .readingStyle(size: TypeScale.readingSmall)
                 .foregroundStyle(theme.color(.attention, on: .surface))
                 .fixedSize(horizontal: false, vertical: true)
@@ -467,7 +468,7 @@ struct VerdictCard: View {
 
     private func reasonForm(action: VerdictDraft.Action, outcome: String) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
-            TextField(action == .reject ? "Why is it wrong? Cite a step or screenshot." : "What should the verifier check again?",
+            TextField(action == .reject ? "Why is it wrong? Cite a step." : "What should the verifier check again?",
                       text: reason, axis: .vertical)
                 .lineLimit(2...6)
                 .textFieldStyle(.plain)
@@ -480,7 +481,7 @@ struct VerdictCard: View {
                 .typingField(focused: reasonFocused, sends: false) { store.updateVerdictDraft(runId) { $0.action = nil } }
             HStack {
                 Button("Cancel") { store.updateVerdictDraft(runId) { $0.action = nil } }
-                    .help("Keep the verdict open (\(ActionRegistry.label(.leave)) in the reason)")
+                    .help("Keep the verdict open (\(ActionRegistry.label(.leave)))")
                 Spacer()
                 Button(action == .reject ? "Reject \(outcome)" : "Send Re-check") {
                     run { await store.submitVerdictAction(runId: runId) }
@@ -520,14 +521,14 @@ private struct HeldChoice: View {
                     Text(title)
                         .readingStyle(.readingSemiBold, size: TypeScale.readingSmall)
                         .foregroundStyle(theme.color(.attention, on: .surface))
-                    Text(seconds > 0 ? "Sent in \(seconds) s. Nothing has reached greenroom yet." : "Sending")
+                    Text(seconds > 0 ? "Sends in \(seconds) s" : "Sending")
                         .readingStyle(size: TypeScale.small)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
                 Spacer(minLength: Space.s)
                 Button("Undo", action: undo)
-                    .help("Take it back before it is sent (\(ActionRegistry.label(.undo)))")
+                    .help("Take it back (\(ActionRegistry.label(.undo)))")
             }
         }
         .accessibilityElement(children: .combine)
@@ -618,7 +619,7 @@ private struct EvidenceRow: View {
                         .foregroundStyle(step.outcome.isFailure ? theme.color(.failure, on: .surface) : theme.foreground)
                         .lineLimit(1)
                 } else if item.step != nil {
-                    Text("✗ Not in the run's record")
+                    Text("✗ Not in the record")
                         .monoStyle(size: TypeScale.small)
                         .foregroundStyle(theme.color(.failure, on: .surface))
                 } else {
@@ -676,7 +677,7 @@ private struct ClaimsRow: View {
                     }
                 }
             }
-            .help("Values the verdict's own words say are on screen: check them against the picture")
+            .help("Values the verdict says are on screen. Check them against the picture.")
         }
     }
 }

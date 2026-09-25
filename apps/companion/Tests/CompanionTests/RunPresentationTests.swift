@@ -164,12 +164,12 @@ final class RunPresentationTests: XCTestCase {
 
     /// #54: a refusal is an answer, told in the daemon's words.
     func testARefusalIsAnAnswer() {
-        XCTAssertEqual(ConnectionState.derive(reachable: false, refusal: "The daemon answered 403: forbidden", hasData: false),
-                       .refused("The daemon answered 403: forbidden", hasData: false))
+        XCTAssertEqual(ConnectionState.derive(reachable: false, refusal: "greenroom answered 403: forbidden", hasData: false),
+                       .refused("greenroom answered 403: forbidden", hasData: false))
         // A later full read wins over an earlier refusal.
         XCTAssertEqual(ConnectionState.derive(reachable: true, refusal: nil, hasData: true), .online)
-        XCTAssertNotNil(ConnectionState.advice(for: "The daemon answered 403: forbidden: Host must be a loopback address"))
-        XCTAssertNil(ConnectionState.advice(for: "The daemon answered 500: open /tmp/gr/runs: permission denied"))
+        XCTAssertNotNil(ConnectionState.advice(for: "greenroom answered 403: forbidden: Host must be a loopback address"))
+        XCTAssertNil(ConnectionState.advice(for: "greenroom answered 500: open /tmp/gr/runs: permission denied"))
     }
 
     // MARK: - Layout

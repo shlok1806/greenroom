@@ -150,10 +150,10 @@ struct StepsView: View {
             .overlay {
                 if allSteps.isEmpty, StepTrace.working(facts) == nil {
                     QuietEmpty(title: "No steps yet", message: facts.isAlive
-                        ? "A step is recorded for every tool call against the machine."
-                        : "This run made no tool calls against its machine.")
+                        ? "Each tool call on the machine adds a step."
+                        : "This run made no tool calls on its machine.")
                 } else if steps.isEmpty {
-                    QuietEmpty(title: "No failed steps", message: "Every tool call in this run succeeded.")
+                    QuietEmpty(title: "No failed steps", message: "Every tool call succeeded.")
                 }
             }
             .onAppear {
@@ -264,15 +264,15 @@ private struct StepsHeader: View {
             Spacer(minLength: Space.s)
             if let following {
                 Toggle("Follow newest", isOn: following)
-                    .help("Keep the newest step in view while the run is live")
+                    .help("Keep the newest step in view")
             }
             Toggle(failures > 0 ? "Only the \(failures) that errored" : "Only errors", isOn: $errorsOnly)
                 .disabled(failures == 0 && !errorsOnly)
-                .help("Show only the steps whose tool call failed or whose command exited non-zero")
+                .help("Show only failed tool calls and non-zero exits")
             if let collapse {
                 Button("Fold ⌃", action: collapse)
                     .buttonStyle(.textLink)
-                    .help("Fold the steps back to one row under the screen (\(ActionRegistry.label(.goScreen)))")
+                    .help("Fold the steps to one row (\(ActionRegistry.label(.goScreen)))")
             }
         }
         .padding(.horizontal, StepColumn.horizontal)
@@ -491,7 +491,7 @@ private struct StepDetail: View {
                 // After a tool error the output is what came back before it failed, and
                 // its zero values (exitCode 0) are not a result.
                 block(step.error != nil ? "Partial output" : "Output", output.prettyPrinted)
-                    .help(step.error != nil ? "What came back before the tool call failed. Its values, exitCode 0 included, are not a result." : "")
+                    .help(step.error != nil ? "What came back before the call failed. These values, exitCode 0 too, are not a result." : "")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -503,12 +503,12 @@ private struct StepDetail: View {
         case .ok:
             EmptyView()
         case .exit(let code):
-            Text("✗ The command ran and exited \(code).")
+            Text("✗ The command exited \(code).")
                 .readingStyle(.readingMedium, size: TypeScale.readingSmall)
                 .foregroundStyle(theme.color(.failure))
         case .error(let error):
             VStack(alignment: .leading, spacing: Space.xs) {
-                Text("✗ The tool call failed. The command's result is unknown.")
+                Text("✗ The tool call failed. Its result is unknown.")
                     .readingStyle(.readingMedium, size: TypeScale.readingSmall)
                     .foregroundStyle(theme.color(.failure))
                 Text(error)
@@ -594,7 +594,7 @@ struct StepsTrack: View {
             Button("All Steps ⌄", action: expand)
                 .buttonStyle(.textLink)
                 .fixedSize()
-                .help("Show every step under the screen (\(ActionRegistry.label(.goSteps)))")
+                .help("Show all steps (\(ActionRegistry.label(.goSteps)))")
         }
         .padding(.horizontal, Space.l)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -678,7 +678,7 @@ struct StepsTrack: View {
         .accessibilityElement()
         .accessibilityLabel("Steps")
         .accessibilityValue(playhead.map { "at step \($0) of \(steps.count)" } ?? "\(steps.count) steps")
-        .help("A cell per step; red ones errored. Click one to show it on the screen.")
+        .help("One cell per step. Red ones errored. Click one to show it.")
     }
 
     private func hoveredSeq(_ steps: [Step]) -> Int? {

@@ -486,12 +486,12 @@ struct ScreenView: View {
                 wellWords(loader: Loader(label: "Booting the machine", since: facts.started,
                                          ink: theme.wellInk, dim: theme.wellDim),
                           lines: bootLines,
-                          message: "Its screen appears here once it is ready.")
+                          message: "Its screen shows here once it is up.")
             case .connecting:
                 wellWords(loader: Loader(label: "Connecting to the screen", since: connectingSince ?? Date(),
                                          ink: theme.wellInk, dim: theme.wellDim),
                           lines: bootLines,
-                          message: "The machine's screen shows here as it happens.")
+                          message: "The live screen shows here.")
             case .reading:
                 HStack(spacing: Space.s) {
                     Spinner(size: TypeScale.small)
@@ -502,14 +502,14 @@ struct ScreenView: View {
             case .loadingFrame:
                 Spinner().foregroundStyle(theme.wellDim)
             case .failedToStart(let reason):
-                wellWords(title: "The machine did not start", message: reason ?? "It failed while booting, so nothing was recorded.")
+                wellWords(title: "The machine did not start", message: reason ?? "It failed while booting. Nothing was recorded.")
             case .waitingForFirstFrame:
                 VStack(spacing: Space.l) {
-                    wellWords(title: "No recording yet", message: "The first frame is taken a few seconds after the machine is ready.")
+                    wellWords(title: "No recording yet", message: "The first frame comes a few seconds after the machine is up.")
                     BootLinesView(lines: bootLines)
                 }
             case .noFrames:
-                wellWords(title: "No recording", message: "This run ended without any frames captured.")
+                wellWords(title: "No recording", message: "This run ended with no frames.")
             }
         }
         .multilineTextAlignment(.center)
@@ -750,7 +750,7 @@ struct EvidenceBar: View {
             if let back {
                 Button("← Back to Verdict", action: back)
                     .buttonStyle(.quiet(small: true))
-                    .help("Return to where you were (\(ActionRegistry.label(.back)))")
+                    .help("Back to where you were (\(ActionRegistry.label(.back)))")
             }
             Text("◆ Step \(step), cited by the verdict")
                 .monoStyle(size: TypeScale.monoSmall)

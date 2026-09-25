@@ -14,12 +14,12 @@ enum DaemonError: Error, LocalizedError, Equatable {
         case .cancelled:
             return nil
         case .notReachable(let detail):
-            return "The daemon is not answering: \(detail)"
+            return "greenroom is not answering: \(detail)"
         case .status(let code, let body):
             let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? "The daemon answered \(code)" : "The daemon answered \(code): \(trimmed)"
+            return trimmed.isEmpty ? "greenroom answered \(code)" : "greenroom answered \(code): \(trimmed)"
         case .badResponse(let detail):
-            return "The daemon sent something unexpected: \(detail)"
+            return "greenroom sent something unexpected: \(detail)"
         }
     }
 }

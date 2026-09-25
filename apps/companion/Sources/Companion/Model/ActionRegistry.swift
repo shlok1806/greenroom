@@ -272,7 +272,7 @@ enum ActionRegistry {
                    contexts: [.global], group: .go),
         ActionSpec(id: .compose, title: "Write to the verifier", keys: [KeyBinding(.char("g"), .char("c"))],
                    contexts: [.run], group: .go),
-        ActionSpec(id: .back, title: "Back one level", keys: [KeyBinding(.escape)],
+        ActionSpec(id: .back, title: "Back", keys: [KeyBinding(.escape)],
                    contexts: [.global], group: .move, hint: 30, hintTitle: "back", inPalette: false),
     ]
 
@@ -289,10 +289,10 @@ enum ActionRegistry {
         ActionSpec(id: .toggleConversation, title: "Show or hide the conversation", keys: [],
                    contexts: [.run], group: .window, menu: .view),
         // The pane with the keys fills the window; `z` again (or esc) puts it back.
-        ActionSpec(id: .zoom, title: "Zoom the focused pane", keys: [KeyBinding(.char("z"))],
+        ActionSpec(id: .zoom, title: "Zoom pane", keys: [KeyBinding(.char("z"))],
                    contexts: [.sidebar, .screen, .steps, .conversation], group: .window, hint: 9,
                    hintTitle: "zoom", menu: .view, menuTitle: "Zoom Focused Pane"),
-        ActionSpec(id: .themeSystem, title: "Theme: match the system", keys: [], contexts: [.global], group: .window),
+        ActionSpec(id: .themeSystem, title: "Theme: system", keys: [], contexts: [.global], group: .window),
         ActionSpec(id: .themeDark, title: "Theme: dark", keys: [], contexts: [.global], group: .window),
         ActionSpec(id: .themeLight, title: "Theme: light", keys: [], contexts: [.global], group: .window),
         ActionSpec(id: .themeDarkContrast, title: "Theme: dark, high contrast", keys: [], contexts: [.global], group: .window),
@@ -309,9 +309,9 @@ enum ActionRegistry {
                    contexts: [.run], group: .run, hint: 6, hintTitle: "capture", menu: .run, menuTitle: "Capture Screenshot"),
         ActionSpec(id: .followLive, title: "Follow live", keys: [KeyBinding(.cmd("l"))],
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Follow Live"),
-        ActionSpec(id: .nextFailure, title: "Next step that errored", keys: [KeyBinding(.char("n"))],
+        ActionSpec(id: .nextFailure, title: "Next error", keys: [KeyBinding(.char("n"))],
                    contexts: [.run], group: .run, hint: 7, hintTitle: "next error", menu: .run, menuTitle: "Next Error"),
-        ActionSpec(id: .previousFailure, title: "Previous step that errored", keys: [KeyBinding(.char("N"))],
+        ActionSpec(id: .previousFailure, title: "Previous error", keys: [KeyBinding(.char("N"))],
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Previous Error"),
         ActionSpec(id: .exportRecording, title: "Export the recording", keys: [KeyBinding(.char("e"))],
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Export Recording..."),
@@ -344,7 +344,7 @@ enum ActionRegistry {
                    contexts: [.verdict], group: .verdict, hint: 0, hintTitle: "accept", menu: .run, menuTitle: "Accept Verdict"),
         ActionSpec(id: .dispute, title: "Dispute the verdict", keys: [KeyBinding(.char("d"))],
                    contexts: [.verdict], group: .verdict, hint: 0, hintTitle: "dispute", menu: .run, menuTitle: "Dispute Verdict..."),
-        ActionSpec(id: .undo, title: "Undo the accept or dispute", keys: [KeyBinding(.char("u"))],
+        ActionSpec(id: .undo, title: "Undo accept or dispute", keys: [KeyBinding(.char("u"))],
                    contexts: [.global], group: .verdict, menu: .run, menuTitle: "Undo Verdict Choice"),
     ]
 
@@ -549,9 +549,9 @@ enum ActionRules {
         case .destroy: return "This run has no machine"
         case .nextFailure, .previousFailure: return "No step errored"
         case .exportRecording: return "No recording yet"
-        case .play, .previousFrame, .nextFrame, .speed: return "Show the screen, with a recording"
+        case .play, .previousFrame, .nextFrame, .speed: return "Show a recording first"
         case .backToVerdict: return "No evidence is open"
-        case .clickMarks: return "Show the screen"
+        case .clickMarks: return "Show the screen first"
         case .search: return "No runs yet"
         case .nextPane, .previousPane: return "Open a run first"
         case .zoom: return "Open a run first"

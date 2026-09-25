@@ -171,9 +171,9 @@ struct RunFacts: Equatable, Sendable {
         if let question = messages.last(where: { $0.kind == .question && $0.from == .verifier }),
            !messages.contains(where: { $0.kind == .answer && $0.replyTo == question.seq }),
            question.seq == messages.last(where: { $0.from == .verifier && $0.kind != .progress })?.seq {
-            return .you("The verifier asked you a question")
+            return .you("The verifier asked a question")
         }
-        if verdict?.status == .proposed { return .you("The verdict is awaiting review") }
+        if verdict?.status == .proposed { return .you("The verdict needs review") }
         guard alive else { return .nobody }
         if RunStore.awaitingVerifier(messages) { return .verifier }
         guard let last = messages.last(where: { $0.from != .system && $0.kind != .progress }) else { return .nobody }
