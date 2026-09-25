@@ -46,6 +46,8 @@ import (
 // The script writes session-stdin ("tty <rows> <cols>" or "pipe"), a session's files
 // (greenroom-session.<id> and .pid, ADR 0017) and stopped (after stop or delete).
 // `--serve` runs the fake live screen helper; its own control files are listed in fakescreen.go.
+// machine_pull's probe and tar (greenroom-pull-probe, greenroom-pull-tar) run for real on the
+// host, with $HOME as the guest home.
 func FakeTart(t *testing.T) (bin string, control string) {
 	t.Helper()
 	self, err := os.Executable()
@@ -115,9 +117,10 @@ case "$sub" in
     fi
     if [ -f "$C/agent-down" ]; then echo "Error: is the Tart Guest Agent running?" >&2; exit 1; fi
     [ -f "$C/fail-exec" ] && { echo "Error: VM is not running" >&2; exit 1; }
-    # A session's output reads and its close run for real on the host (machine/sessionguest.go).
+    # A session's output reads and its close run for real on the host (machine/sessionguest.go),
+    # and so do machine_pull's probe and tar, from the host's $HOME as the guest's.
     case "$*" in
-      *greenroom-session-read*|*greenroom-session-close*) shift; exec "$@" ;;
+      *greenroom-session-read*|*greenroom-session-close*|*greenroom-pull-probe*|*greenroom-pull-tar*) shift; exec "$@" ;;
     esac
     case "$*" in
       *authorized_keys*) [ -f "$C/fail-keyinstall" ] && { echo "Error: cannot write" >&2; exit 1; } ;;

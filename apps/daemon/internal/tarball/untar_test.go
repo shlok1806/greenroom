@@ -1,4 +1,4 @@
-package api
+package tarball
 
 import (
 	"archive/tar"
@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// entry is one tar member for tarball; typ defaults to a regular file.
+// entry is one tar member for archive; typ defaults to a regular file.
 type entry struct {
 	name, body, link string
 	typ              byte
@@ -20,7 +20,7 @@ type entry struct {
 	mtime            time.Time
 }
 
-func tarball(t *testing.T, entries ...entry) []byte {
+func archive(t *testing.T, entries ...entry) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
@@ -55,13 +55,13 @@ func tarball(t *testing.T, entries ...entry) []byte {
 	return buf.Bytes()
 }
 
-var roomy = untarLimits{bytes: 1 << 20, entries: 100}
+var roomy = Limits{Bytes: 1 << 20, Entries: 100}
 
 func TestUntarUnpacksFilesDirsAndLinksWithModesAndTimes(t *testing.T) {
 	dir := t.TempDir()
 	fileTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	dirTime := time.Date(2025, 6, 7, 8, 9, 10, 0, time.UTC)
-	data := tarball(t,
+	data := archive(t,
 		entry{name: "./", typ: tar.TypeDir, mode: 0o755},
 		entry{name: "src/", typ: tar.TypeDir, mode: 0o755, mtime: dirTime},
 		entry{name: "src/main.swift", body: "print(1)\n", mtime: fileTime},
@@ -71,7 +71,7 @@ func TestUntarUnpacksFilesDirsAndLinksWithModesAndTimes(t *testing.T) {
 		entry{name: "src/up", typ: tar.TypeSymlink, link: "../run.sh"},
 		entry{name: "self", typ: tar.TypeSymlink, link: "."},
 	)
-	if err := untar(bytes.NewReader(data), dir, roomy); err != nil {
+	if _, err := Untar(bytes.NewReader(data), dir, roomy, nil); err != nil {
 		t.Fatalf("untar: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(dir, "src", "main.swift"))
@@ -133,11 +133,11 @@ func TestUntarRefusesWhatWouldEscape(t *testing.T) {
 			if err := os.Mkdir(dir, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			err := untar(bytes.NewReader(tarball(t, tc.entries...)), dir, roomy)
+			_, err := Untar(bytes.NewReader(archive(t, tc.entries...)), dir, roomy, nil)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("untar = %v, want an error about %q", err, tc.want)
 			}
-			if errors.Is(err, errTooLarge) {
+			if errors.Is(err, ErrTooLarge) {
 				t.Errorf("a bad archive is not a large one: %v", err)
 			}
 			for _, name := range []string{"evil", "x"} {
@@ -158,8 +158,8 @@ func TestUntarReplacesAnEarlierLinkWithoutFollowingIt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "target"), []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	data := tarball(t, entry{name: "l", typ: tar.TypeSymlink, link: "target"}, entry{name: "l", body: "new"})
-	if err := untar(bytes.NewReader(data), dir, roomy); err != nil {
+	data := archive(t, entry{name: "l", typ: tar.TypeSymlink, link: "target"}, entry{name: "l", body: "new"})
+	if _, err := Untar(bytes.NewReader(data), dir, roomy, nil); err != nil {
 		t.Fatalf("untar: %v", err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "target")); string(b) != "keep" {
@@ -171,34 +171,91 @@ func TestUntarReplacesAnEarlierLinkWithoutFollowingIt(t *testing.T) {
 }
 
 func TestUntarLimits(t *testing.T) {
-	big := tarball(t, entry{name: "a", body: strings.Repeat("x", 600)}, entry{name: "b", body: strings.Repeat("y", 600)})
-	err := untar(bytes.NewReader(big), t.TempDir(), untarLimits{bytes: 1000, entries: 10})
-	if !errors.Is(err, errTooLarge) {
-		t.Errorf("1200 bytes under a 1000 byte cap: %v, want errTooLarge", err)
+	big := archive(t, entry{name: "a", body: strings.Repeat("x", 600)}, entry{name: "b", body: strings.Repeat("y", 600)})
+	_, err := Untar(bytes.NewReader(big), t.TempDir(), Limits{Bytes: 1000, Entries: 10}, nil)
+	if !errors.Is(err, ErrTooLarge) {
+		t.Errorf("1200 bytes under a 1000 byte cap: %v, want ErrTooLarge", err)
 	}
-	if err := untar(bytes.NewReader(big), t.TempDir(), untarLimits{bytes: 1200, entries: 10}); err != nil {
+	if _, err := Untar(bytes.NewReader(big), t.TempDir(), Limits{Bytes: 1200, Entries: 10}, nil); err != nil {
 		t.Errorf("1200 bytes at a 1200 byte cap: %v", err)
 	}
-	many := tarball(t, entry{name: "a"}, entry{name: "b"}, entry{name: "c"})
-	if err := untar(bytes.NewReader(many), t.TempDir(), untarLimits{bytes: 1000, entries: 2}); !errors.Is(err, errTooLarge) {
-		t.Errorf("3 entries under a cap of 2: %v, want errTooLarge", err)
+	many := archive(t, entry{name: "a"}, entry{name: "b"}, entry{name: "c"})
+	if _, err := Untar(bytes.NewReader(many), t.TempDir(), Limits{Bytes: 1000, Entries: 2}, nil); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("3 entries under a cap of 2: %v, want ErrTooLarge", err)
 	}
 }
 
 func TestUntarRefusesAMalformedArchive(t *testing.T) {
-	if err := untar(strings.NewReader("not gzip"), t.TempDir(), roomy); err == nil || errors.Is(err, errTooLarge) {
+	if _, err := Untar(strings.NewReader("not gzip"), t.TempDir(), roomy, nil); err == nil || errors.Is(err, ErrTooLarge) {
 		t.Errorf("plain text: %v, want a bad-archive error", err)
 	}
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	_, _ = gz.Write([]byte(strings.Repeat("garbage!", 100)))
 	_ = gz.Close()
-	if err := untar(&buf, t.TempDir(), roomy); err == nil || errors.Is(err, errTooLarge) {
+	if _, err := Untar(&buf, t.TempDir(), roomy, nil); err == nil || errors.Is(err, ErrTooLarge) {
 		t.Errorf("gzip of garbage: %v, want a bad-archive error", err)
 	}
-	whole := tarball(t, entry{name: "a", body: strings.Repeat("x", 4096)})
+	whole := archive(t, entry{name: "a", body: strings.Repeat("x", 4096)})
 	cut := whole[:len(whole)/2]
-	if err := untar(bytes.NewReader(cut), t.TempDir(), roomy); err == nil {
+	if _, err := Untar(bytes.NewReader(cut), t.TempDir(), roomy, nil); err == nil {
 		t.Error("a truncated archive unpacked without an error")
+	}
+}
+
+func TestUntarSkipsWhatSkipSaysAndCountsTheRest(t *testing.T) {
+	dir := t.TempDir()
+	data := archive(t,
+		entry{name: "./", typ: tar.TypeDir},
+		entry{name: "keep.txt", body: "12345"},
+		entry{name: "build/", typ: tar.TypeDir},
+		entry{name: "build/out.o", body: "left out"},
+	)
+	var asked []string
+	skip := func(rel string, isDir bool) bool {
+		asked = append(asked, rel)
+		return rel == "build" || strings.HasPrefix(rel, "build/")
+	}
+	st, err := Untar(bytes.NewReader(data), dir, roomy, skip)
+	if err != nil {
+		t.Fatalf("untar: %v", err)
+	}
+	if st != (Stats{Files: 1, Bytes: 5}) {
+		t.Errorf("stats = %+v, want the one file kept", st)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "build")); err == nil {
+		t.Error("the skipped directory was made")
+	}
+	if strings.Join(asked, ",") != "keep.txt,build,build/out.o" {
+		t.Errorf("skip was asked about %v", asked)
+	}
+}
+
+// A pull may unpack into a directory that already holds files: it merges, and a link that was
+// already there is still never written through.
+func TestUntarMergesIntoAnExistingDirectoryWithoutFollowingItsLinks(t *testing.T) {
+	outer := t.TempDir()
+	dir := filepath.Join(outer, "dest")
+	if err := os.MkdirAll(filepath.Join(dir, "old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "old", "f"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outer, filepath.Join(dir, "out")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Untar(bytes.NewReader(archive(t, entry{name: "old/g", body: "new"})), dir, roomy, nil); err != nil {
+		t.Fatalf("untar into a full dir: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "old", "f")); string(b) != "old" {
+		t.Errorf("an existing file was lost: %q", b)
+	}
+	_, err := Untar(bytes.NewReader(archive(t, entry{name: "out/evil", body: "x"})), dir, roomy, nil)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("write through an existing link: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(outer, "evil")); err == nil {
+		t.Error("evil was written through the existing link")
 	}
 }

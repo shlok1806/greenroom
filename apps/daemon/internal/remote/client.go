@@ -25,6 +25,7 @@ var ErrTokenRejected = errors.New("token rejected (HTTP 401): check the token in
 type Options struct {
 	Version string       // this binary's version, for the User-Agent and the MCP client info
 	Logger  *slog.Logger // stderr only: stdout is the MCP channel
+	Dir     string       // where pulls and screenshots land on this computer; default DefaultDir()
 }
 
 // Remote is an MCP client session with the daemon that re-dials when the connection breaks.
@@ -45,6 +46,9 @@ func Dial(ctx context.Context, cfg Config, opts Options) (*Remote, error) {
 	}
 	if opts.Version == "" {
 		opts.Version = "dev"
+	}
+	if opts.Dir == "" {
+		opts.Dir = DefaultDir()
 	}
 	base := http.DefaultTransport.(*http.Transport).Clone()
 	base.DialContext = (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext

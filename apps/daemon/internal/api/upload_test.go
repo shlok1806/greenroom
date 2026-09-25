@@ -3,6 +3,7 @@ package api
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -13,7 +14,52 @@ import (
 	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/tarball"
 )
+
+// entry is one tar member for gzTar; typ defaults to a regular file.
+type entry struct {
+	name, body, link string
+	typ              byte
+	mode             int64
+	mtime            time.Time
+}
+
+// gzTar is a gzipped tar of entries, written as a client could write it, bad names included.
+func gzTar(t *testing.T, entries ...entry) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, e := range entries {
+		hdr := &tar.Header{Name: e.name, Linkname: e.link, Typeflag: e.typ, Mode: e.mode, ModTime: e.mtime}
+		if hdr.Typeflag == 0 {
+			hdr.Typeflag = tar.TypeReg
+		}
+		if hdr.Mode == 0 {
+			hdr.Mode = 0o644
+		}
+		if hdr.ModTime.IsZero() {
+			hdr.ModTime = time.Now()
+		}
+		if hdr.Typeflag == tar.TypeReg {
+			hdr.Size = int64(len(e.body))
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(e.body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
 
 // put sends body as a PUT with the given content type and returns the status and body.
 func (h *harness) put(path, contentType string, body []byte) (int, string) {
@@ -55,7 +101,7 @@ func TestUploadSyncUnpacksAndSyncsFromStaging(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
 	mtime := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
-	body := tarball(t, entry{name: "Package.swift", body: "swift", mtime: mtime})
+	body := gzTar(t, entry{name: "Package.swift", body: "swift", mtime: mtime})
 
 	code, resp := h.put("/api/runs/"+runID+"/sync?name=myapp", "application/gzip", body)
 	if code != http.StatusOK {
@@ -85,7 +131,7 @@ func TestUploadSyncUnpacksAndSyncsFromStaging(t *testing.T) {
 	}
 
 	// A repeat upload replaces what was staged, so a file deleted on the client goes too.
-	body = tarball(t, entry{name: "Sources/main.swift", body: "print(1)"})
+	body = gzTar(t, entry{name: "Sources/main.swift", body: "print(1)"})
 	if code, resp := h.put("/api/runs/"+runID+"/sync?name=myapp&dest=~/work/other", "application/gzip; charset=binary", body); code != http.StatusOK {
 		t.Fatalf("second upload: %d %s", code, resp)
 	} else if !strings.Contains(resp, `"dest":"work/other"`) {
@@ -120,7 +166,7 @@ func TestUploadSyncRefusesBadRequests(t *testing.T) {
 	fakeRsync(t)
 	h := newHarness(t)
 	runID := h.ready()
-	good := tarball(t, entry{name: "a", body: "x"})
+	good := gzTar(t, entry{name: "a", body: "x"})
 	path := "/api/runs/" + runID + "/sync"
 	for _, tc := range []struct {
 		name, path, contentType string
@@ -134,8 +180,8 @@ func TestUploadSyncRefusesBadRequests(t *testing.T) {
 		{"name with a slash", path + "?name=a/b", "application/gzip", good, http.StatusBadRequest},
 		{"name climbing", path + "?name=..", "application/gzip", good, http.StatusBadRequest},
 		{"not gzip", path, "application/gzip", []byte("plain"), http.StatusBadRequest},
-		{"traversal", path, "application/gzip", tarball(t, entry{name: "../x", body: "x"}), http.StatusBadRequest},
-		{"escaping link", path, "application/gzip", tarball(t, entry{name: "l", typ: tar.TypeSymlink, link: "../../.."}), http.StatusBadRequest},
+		{"traversal", path, "application/gzip", gzTar(t, entry{name: "../x", body: "x"}), http.StatusBadRequest},
+		{"escaping link", path, "application/gzip", gzTar(t, entry{name: "l", typ: tar.TypeSymlink, link: "../../.."}), http.StatusBadRequest},
 		{"dest outside the home", path + "?dest=/etc", "application/gzip", good, http.StatusBadRequest},
 		{"dest climbing", path + "?dest=work/../..", "application/gzip", good, http.StatusBadRequest},
 	} {
@@ -159,16 +205,16 @@ func TestUploadSyncCapsTheBody(t *testing.T) {
 	fakeRsync(t)
 	h := newHarness(t)
 	runID := h.ready()
-	body := tarball(t, entry{name: "a", body: strings.Repeat("x", 4000)}, entry{name: "b", body: strings.Repeat("y", 4000)})
+	body := gzTar(t, entry{name: "a", body: strings.Repeat("x", 4000)}, entry{name: "b", body: strings.Repeat("y", 4000)})
 
 	oldBytes, oldLimits := maxUploadBytes, uploadLimits
 	t.Cleanup(func() { maxUploadBytes, uploadLimits = oldBytes, oldLimits })
 
-	uploadLimits = untarLimits{bytes: 5000, entries: 100}
+	uploadLimits = tarball.Limits{Bytes: 5000, Entries: 100}
 	if code, resp := h.put("/api/runs/"+runID+"/sync", "application/gzip", body); code != http.StatusRequestEntityTooLarge {
 		t.Errorf("past the unpacked cap: %d %s, want 413", code, resp)
 	}
-	uploadLimits = untarLimits{bytes: 1 << 20, entries: 1}
+	uploadLimits = tarball.Limits{Bytes: 1 << 20, Entries: 1}
 	if code, resp := h.put("/api/runs/"+runID+"/sync", "application/gzip", body); code != http.StatusRequestEntityTooLarge {
 		t.Errorf("past the entry cap: %d %s, want 413", code, resp)
 	}

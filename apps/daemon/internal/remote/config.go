@@ -1,7 +1,8 @@
 // Package remote is `greenroom connect`: a stdio MCP server on the agent's computer that
 // forwards every tool to a greenroom daemon on another host (ADR 0021, decision 3). It
-// handles machine_sync itself, because the daemon cannot read this computer's files: it
-// tars the local source and uploads it to the daemon's sync route.
+// handles machine_sync and machine_pull itself, because the daemon cannot reach this
+// computer's files: it uploads a sync's source to the daemon's sync route and unpacks a
+// pull from its pull route here. A screenshot's PNG is fetched here too.
 package remote
 
 import (
@@ -34,6 +35,16 @@ func DefaultConfigPath() string {
 		return filepath.Join(".greenroom", "client.json")
 	}
 	return filepath.Join(home, ".greenroom", "client.json")
+}
+
+// DefaultDir is ~/.greenroom/connect, where connect puts what it brings to this computer:
+// runs/<runId>/NNN-pull for machine_pull without a dest, and each machine_screenshot's PNG.
+func DefaultDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".greenroom", "connect")
+	}
+	return filepath.Join(home, ".greenroom", "connect")
 }
 
 // LoadConfig resolves each field on its own: the flag, then the environment, then the

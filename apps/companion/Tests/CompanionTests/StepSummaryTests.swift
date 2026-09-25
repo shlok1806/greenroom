@@ -135,7 +135,7 @@ final class StepSummaryTests: XCTestCase {
 
     /// Keys, scrolls and waits read as words when they record under their own name.
     func testEveryMachineToolHasATitle() {
-        for tool in ["machine_key", "machine_scroll", "machine_wait", "machine_list", "machine_ui", "machine_approve_capture"] {
+        for tool in ["machine_key", "machine_scroll", "machine_wait", "machine_list", "machine_ui", "machine_approve_capture", "machine_pull"] {
             XCTAssertFalse(ToolCatalog.entry(for: tool).title.contains("_"), tool)
         }
     }
@@ -224,6 +224,9 @@ final class StepPhraseTests: XCTestCase {
                        "Created a machine from greenroom-base")
         XCTAssertEqual(StepSummary.phrase(for: step(2, "machine_boot", input: nil)), "Booted the machine")
         XCTAssertEqual(StepSummary.phrase(for: step(3, "machine_sync", input: .object(["dest": .string("TipSplit")]))), "Copied TipSplit to the machine")
+        XCTAssertEqual(StepSummary.phrase(for: step(4, "machine_pull", input: .object(["source": .string("work/TipSplit/build")]))),
+                       "Copied work/TipSplit/build from the machine")
+        XCTAssertEqual(StepSummary.phrase(for: step(5, "machine_pull", input: nil)), "Copied files from the machine")
         XCTAssertEqual(StepSummary.phrase(for: tipSplitRead), "Read TipSplit")
         XCTAssertEqual(StepSummary.phrase(for: step(9, "machine_destroy", input: nil)), "Destroyed the machine")
     }

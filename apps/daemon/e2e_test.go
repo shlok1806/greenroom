@@ -7,6 +7,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -20,8 +22,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/api"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/mcpserver"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/remote"
 	greenroomsession "github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
@@ -32,7 +36,8 @@ func TestEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := mcpserver.New(mgr, greenroomBaseImage(), greenroomsession.NewRegistry(root, greenroomsession.DefaultMaxDisputes))
+	reg := greenroomsession.NewRegistry(root, greenroomsession.DefaultMaxDisputes)
+	server := mcpserver.New(mgr, greenroomBaseImage(), reg)
 	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true}))
 	defer ts.Close()
 
@@ -120,6 +125,49 @@ func TestEndToEnd(t *testing.T) {
 	if execOut.Stdout != "hello.txt\n" {
 		t.Fatalf("sync: expected only hello.txt, got %q", execOut.Stdout)
 	}
+
+	// machine_pull: what the guest made comes back byte for byte, through rsync and through
+	// the pull route connect uses (the guest's tar streamed out of tart exec).
+	call("machine_exec", map[string]any{"runId": created.RunID, "cwd": syncOut.Dest, "command": "mkdir -p out/sub && " +
+		"printf 'made in the guest\\n' > out/sub/made.txt && head -c 3000000 /dev/urandom > out/blob.bin && " +
+		"shasum -a 256 out/blob.bin | cut -d ' ' -f 1"}, &execOut)
+	guestSum := strings.TrimSpace(execOut.Stdout)
+	if execOut.ExitCode != 0 || len(guestSum) != 64 {
+		t.Fatalf("make files in the guest: %+v", execOut)
+	}
+	checkPulled := func(how, dir string) {
+		t.Helper()
+		if b, err := os.ReadFile(filepath.Join(dir, "sub", "made.txt")); err != nil || string(b) != "made in the guest\n" {
+			t.Fatalf("%s: sub/made.txt = %q, %v", how, b, err)
+		}
+		blob, err := os.ReadFile(filepath.Join(dir, "blob.bin"))
+		if err != nil {
+			t.Fatalf("%s: %v", how, err)
+		}
+		if sum := sha256.Sum256(blob); hex.EncodeToString(sum[:]) != guestSum {
+			t.Fatalf("%s: blob.bin (%d bytes) differs from the guest's", how, len(blob))
+		}
+	}
+	var pullOut machine.PullResult
+	call("machine_pull", map[string]any{"runId": created.RunID, "source": "~/" + syncOut.Dest + "/out"}, &pullOut)
+	if want := filepath.Join(root, "runs", created.RunID); filepath.Dir(pullOut.Dest) != want {
+		t.Fatalf("pull: default dest %s is not in the run directory %s", pullOut.Dest, want)
+	}
+	checkPulled("machine_pull", pullOut.Dest)
+	fileDest := t.TempDir()
+	call("machine_pull", map[string]any{"runId": created.RunID, "source": syncOut.Dest + "/hello.txt", "dest": fileDest}, nil)
+	if b, err := os.ReadFile(filepath.Join(fileDest, "hello.txt")); err != nil || string(b) != "hi\n" {
+		t.Fatalf("pull of a synced file: %q, %v", b, err)
+	}
+	apiSrv := httptest.NewServer(api.Guard(api.New(mgr, reg, slog.New(slog.NewTextHandler(os.Stderr, nil))), "", ""))
+	defer apiSrv.Close()
+	remoteOut, err := remote.Pull(ctx, http.DefaultClient, apiSrv.URL, t.TempDir(),
+		remote.PullArgs{RunID: created.RunID, Source: syncOut.Dest + "/out"})
+	if err != nil {
+		t.Fatalf("pull through the route: %v", err)
+	}
+	checkPulled("the pull route", remoteOut.Dest)
+	t.Logf("pull route: %s in %.2fs", remoteOut.Summary, remoteOut.Seconds)
 
 	res := call("machine_screenshot", map[string]any{"runId": created.RunID}, nil)
 	var img *mcp.ImageContent

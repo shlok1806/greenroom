@@ -237,12 +237,20 @@ func serveUntil(ctx context.Context, args []string) error {
 // routes is the daemon's whole HTTP surface. Loopback needs no token, so nothing a web page can
 // reach gets through; publicHost (tunnel traffic) needs token on everything but the install files.
 func routes(mgr *machine.Manager, reg *session.Registry, image, publicHost, token, dist string, log *slog.Logger) http.Handler {
-	server := mcpserver.New(mgr, image, reg)
+	// A call through the public host gets its own server, whose tools never write where the
+	// caller names on this host (machine_pull's dest, ADR 0022). Guard marks those requests.
+	local, public := mcpserver.New(mgr, image, reg), mcpserver.New(mgr, image, reg, mcpserver.ForPublicHost())
+	server := func(r *http.Request) *mcp.Server {
+		if api.FromPublicHost(r.Context()) {
+			return public
+		}
+		return local
+	}
 	mux := http.NewServeMux()
 	// The SDK refuses a non-localhost Host on a request from 127.0.0.1 (DNS rebinding), which is
 	// what every tunnel request looks like. api.Guard below does that check with the public host
 	// allowed, so with a public host it is the only one.
-	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
+	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(server,
 		&mcp.StreamableHTTPOptions{Stateless: true, DisableLocalhostProtection: publicHost != ""}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprintf(w, "ok %d machines\n", len(mgr.List()))

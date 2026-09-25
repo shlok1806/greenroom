@@ -347,6 +347,11 @@ func (r *recorder) artifactPath(seq int, kind, ext string) string {
 	return filepath.Join(r.dir, fmt.Sprintf("%03d-%s.%s", seq, kind, ext))
 }
 
+// artifactDir names a directory for step seq, e.g. 004-pull.
+func (r *recorder) artifactDir(seq int, kind string) string {
+	return filepath.Join(r.dir, fmt.Sprintf("%03d-%s", seq, kind))
+}
+
 // currentStep is the latest claimed step, which a frame cites.
 func (r *recorder) currentStep() int {
 	r.mu.Lock()

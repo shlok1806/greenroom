@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
@@ -18,7 +19,8 @@ import (
 // install files are served without the token. Every other Host is refused (DNS rebinding).
 // cloudflared connects from loopback, so the Host header is the only thing that tells tunnel
 // traffic from local traffic; that is safe because the daemon listens on loopback alone.
-// An empty publicHost turns the public branch off.
+// An empty publicHost turns the public branch off. A request admitted through the public
+// branch carries that fact in its context (FromPublicHost), which only Guard can set.
 func Guard(h http.Handler, publicHost, token string) http.Handler {
 	public := hostName(publicHost)
 	want := sha256.Sum256([]byte(token))
@@ -47,12 +49,22 @@ func Guard(h http.Handler, publicHost, token string) http.Handler {
 				http.Error(w, "unauthorized: missing or wrong token", http.StatusUnauthorized)
 				return
 			}
+			r = r.WithContext(context.WithValue(r.Context(), publicHostKey{}, true))
 		default:
 			http.Error(w, "forbidden: Host must be a loopback address or the configured public host", http.StatusForbidden)
 			return
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+type publicHostKey struct{}
+
+// FromPublicHost reports whether Guard admitted the request through the public host: its
+// caller is on another computer, so nothing it names on this host's disk may be trusted.
+func FromPublicHost(ctx context.Context) bool {
+	v, _ := ctx.Value(publicHostKey{}).(bool)
+	return v
 }
 
 // installPath reports whether r fetches the client installer, the only public route without a token.

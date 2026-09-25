@@ -176,6 +176,9 @@ extension StepSummary {
         case "machine_sync":
             if let dest = input?["dest"]?.stringValue, !dest.isEmpty { return "Copied \(dest) to the machine" }
             return "Copied files to the machine"
+        case "machine_pull":
+            if let source = input?["source"]?.stringValue, !source.isEmpty { return "Copied \(source) from the machine" }
+            return "Copied files from the machine"
         case "machine_exec":
             if let command = input?["command"]?.stringValue, !command.isEmpty { return "Ran \(oneLine(command))" }
             return "Ran a command"

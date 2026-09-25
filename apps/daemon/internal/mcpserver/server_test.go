@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -154,7 +155,7 @@ func TestServerExposesExactlyItsTools(t *testing.T) {
 	}
 	want := map[string]bool{
 		"machine_create": false, "machine_wait": false, "machine_list": false,
-		"machine_sync": false, "machine_exec": false, "machine_exec_wait": false, "machine_screenshot": false,
+		"machine_sync": false, "machine_pull": false, "machine_exec": false, "machine_exec_wait": false, "machine_screenshot": false,
 		"machine_destroy": false, "machine_approve_capture": false,
 		"agent_send": false, "agent_wait": false, "agent_transcript": false,
 		"machine_click": false, "machine_type": false, "machine_key": false,
@@ -191,6 +192,7 @@ func TestRequiredArgumentsAreEnforced(t *testing.T) {
 		"machine_wait":       {},
 		"machine_exec":       {"runId": "x"},
 		"machine_sync":       {"runId": "x"},
+		"machine_pull":       {"runId": "x"},
 		"machine_screenshot": {},
 		"machine_destroy":    {},
 	} {
@@ -203,13 +205,15 @@ func TestRequiredArgumentsAreEnforced(t *testing.T) {
 
 func TestUnknownRunIdIsAReadableToolError(t *testing.T) {
 	h := newHarness(t)
-	for _, name := range append([]string{"machine_wait", "machine_exec", "machine_screenshot", "machine_destroy", "machine_sync"}, inputTools...) {
+	for _, name := range append([]string{"machine_wait", "machine_exec", "machine_screenshot", "machine_destroy", "machine_sync", "machine_pull"}, inputTools...) {
 		args := inputArgs(name, "no-such-run")
 		switch name {
 		case "machine_exec":
 			args["command"] = "echo hi"
 		case "machine_sync":
 			args["source"] = t.TempDir()
+		case "machine_pull":
+			args["source"] = "work"
 		}
 		res := h.raw(name, args)
 		if !res.IsError {
@@ -743,6 +747,63 @@ func TestSyncDescriptionMatchesTheTildeBehaviour(t *testing.T) {
 	h.call("machine_sync", map[string]any{"runId": runID, "source": t.TempDir(), "dest": "~/work/myapp"}, &res)
 	if res.Dest != "work/myapp" {
 		t.Errorf("dest ~/work/myapp synced to %q, want work/myapp as the description promises", res.Dest)
+	}
+}
+
+// --- machine_pull ---
+
+// guestHome stands a local shell in for the guest behind rsync's ssh, with a fresh HOME as
+// the guest home, which it returns. The fake tart runs the pull probe from the same HOME.
+func guestHome(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("rsync"); err != nil {
+		t.Skip("no rsync on this host")
+	}
+	bin := t.TempDir()
+	ssh := "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in -i|-o) shift 2 ;; *) break ;; esac; done\n" +
+		"shift\ncd \"$HOME\" && exec sh -c \"$*\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte(ssh), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	return home
+}
+
+func TestPullCopiesAGuestFileToTheRunDirectory(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	home := guestHome(t)
+	if err := os.MkdirAll(filepath.Join(home, "work", "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "work", "app", "report.xml"), []byte("<ok/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var res machine.PullResult
+	h.call("machine_pull", map[string]any{"runId": runID, "source": "~/work/app/report.xml"}, &res)
+	if !filepath.IsAbs(res.Dest) || res.Step == 0 || res.Source != "~/work/app/report.xml" {
+		t.Fatalf("result = %+v, want an absolute host dest, the source and the step", res)
+	}
+	if got, err := os.ReadFile(filepath.Join(res.Dest, "report.xml")); err != nil || string(got) != "<ok/>" {
+		t.Errorf("report.xml at %s = %q, %v", res.Dest, got, err)
+	}
+	if want := fmt.Sprintf("%03d-pull", res.Step); filepath.Base(res.Dest) != want {
+		t.Errorf("default dest %s, want the run's %s", res.Dest, want)
+	}
+	if res.Seconds != round(res.Seconds) {
+		t.Errorf("seconds = %v, which is not rounded", res.Seconds)
+	}
+
+	miss := h.raw("machine_pull", map[string]any{"runId": runID, "source": "work/absent"})
+	if !miss.IsError || !strings.Contains(text(miss), `source "work/absent" does not exist in the guest`) {
+		t.Errorf("missing source = %q, want a readable tool error", text(miss))
+	}
+	rel := h.raw("machine_pull", map[string]any{"runId": runID, "source": "work", "dest": "out"})
+	if !rel.IsError || !strings.Contains(text(rel), "absolute path on the host") {
+		t.Errorf("relative dest = %q, want a readable tool error", text(rel))
 	}
 }
 
