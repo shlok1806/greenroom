@@ -22,7 +22,8 @@ if [ -z "${GREENROOM_TART:-}" ] && [ ! -x "$tart" ]; then
 fi
 
 # Prefer the lean image (docs/image-experiment/decision-log.md, decision 22), then the prepared
-# image (issue #12), then upstream. GREENROOM_IMAGE overrides.
+# image (issue #12), then upstream. GREENROOM_IMAGE overrides. A bare `greenroom serve` makes the
+# same choice (machine.PreferredImages); keep the two lists in step.
 image="${GREENROOM_IMAGE:-}"
 image_source="GREENROOM_IMAGE"
 if [ -z "$image" ]; then
