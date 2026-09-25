@@ -221,6 +221,10 @@ swift build && GREENROOM_SNAPSHOTS=<dir> GREENROOM_URL=http://127.0.0.1:7851 \
 
 ## Gotchas
 
+- No SwiftUI macros (`@Entry`, `#Preview`). They need the SwiftUIMacros compiler plugin,
+  which a Command Line Tools toolchain (the CI runner's) does not ship, so the build fails
+  with "plugin for module 'SwiftUIMacros' not found". Declare a `FocusedValueKey` (or
+  `EnvironmentKey`) by hand, as `RunView` and `ScreenView` do.
 - Never split the SSE body with `URLSession.AsyncBytes.lines`. It drops empty lines, and
   the empty line ends an SSE frame, so no event is ever dispatched. `SSELineSplitter`
   keeps them; `SSELineSplitterTests` pins it. To debug a quiet stream, compare

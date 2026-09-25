@@ -30,8 +30,17 @@ struct RunCommands {
     var previousFailure: (() -> Void)?
 }
 
+// An explicit key rather than `@Entry`: the macro needs the SwiftUIMacros compiler
+// plugin, which a Command Line Tools toolchain does not ship.
+private struct RunCommandsKey: FocusedValueKey {
+    typealias Value = RunCommands
+}
+
 extension FocusedValues {
-    @Entry var runCommands: RunCommands?
+    var runCommands: RunCommands? {
+        get { self[RunCommandsKey.self] }
+        set { self[RunCommandsKey.self] = newValue }
+    }
 }
 
 /// One run: a header naming it with its state in one line, the stage (Screen or Steps),

@@ -7,8 +7,16 @@ struct ScreenCommands {
     var goLive: (() -> Void)?
 }
 
+// An explicit key rather than `@Entry`, for the same reason as `RunCommandsKey`.
+private struct ScreenCommandsKey: FocusedValueKey {
+    typealias Value = ScreenCommands
+}
+
 extension FocusedValues {
-    @Entry var screenCommands: ScreenCommands?
+    var screenCommands: ScreenCommands? {
+        get { self[ScreenCommandsKey.self] }
+        set { self[ScreenCommandsKey.self] = newValue }
+    }
 }
 
 /// A player over the frames the daemon captured (ADR 0008), the live stream while
