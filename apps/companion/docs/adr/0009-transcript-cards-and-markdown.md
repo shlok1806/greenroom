@@ -41,6 +41,9 @@ does not settle came up while building it.
    is a link with the app's own `greenroom-step:` scheme, handled by `MarkdownView`'s
    `openURL`; it never leaves the app or reaches the daemon. In the verdict card it seeks
    the way the card's evidence does, so it counts as opening the evidence.
+   Any other link opens only for `http`, `https` and `mailto`
+   (`MarkdownText.openableURL`): messages quote untrusted screen and web text, so a link
+   to a file or another app's scheme stays words.
 6. **The verdict card's frame** (`VerdictAppearance`), reading the spec's "a proposed
    verdict's border is dim ... only a closed verdict takes its outcome colour" with ADR
    0003's "an agent-accepted outcome keeps its word but not its colour":

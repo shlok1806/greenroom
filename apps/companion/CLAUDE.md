@@ -395,9 +395,11 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   never a drawn rule (`today ─── 3`).
 - Transcript cards (ADR 0009): a cited step in prose is a chip only when the run's record
   holds it (`RunStore.stepNumbers`), linked with the in-app `greenroom-step:` scheme that
-  `MarkdownView`'s `openURL` handles; never a daemon URL. The verdict card's edge and
-  outcome colour come from `VerdictAppearance` (dim while open, the outcome's role only
-  once a person accepted); a closed card shows its result where the actions were.
+  `MarkdownView`'s `openURL` handles; never a daemon URL. Any other Markdown link is
+  clickable only for `http`, `https` and `mailto` (`MarkdownText.openableURL`); the rest
+  stay words. The verdict card's edge and outcome colour come from `VerdictAppearance`
+  (dim while open, the outcome's role only once a person accepted); a closed card shows
+  its result where the actions were.
   Emphasis uses Mona Sans's own italics (`Typeface.readingItalic`), never a synthetic
   slant.
 - Prose (`readingStyle`) sits at `tokens.json` `reading.lineHeight` (1.45): the gap is
