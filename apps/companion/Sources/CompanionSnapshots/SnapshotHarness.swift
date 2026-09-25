@@ -99,6 +99,12 @@ final class SnapshotHarness {
         environment["GREENROOM_SNAPSHOTS_MOMENTS_RUN"] ?? "20260924-040039-3da76afa89136933"
     }
 
+    /// The verdict-lands moment's fail: a TipSplit run the verifier failed, citing steps.
+    /// `GREENROOM_SNAPSHOTS_FAIL_RUN` names another.
+    private var failRun: String {
+        environment["GREENROOM_SNAPSHOTS_FAIL_RUN"] ?? "20260923-044138-de31017819a86d84"
+    }
+
     private func scenarios() -> [Scenario] {
         let all = [Self.large, Self.medium, Self.small]
         return [
@@ -232,6 +238,28 @@ final class SnapshotHarness {
             Scenario(name: "32-moment-power-down-still", sizes: [Self.medium], runId: runId, momentFreeze: 1.0) { store in
                 await Self.destroyWhileWatched(store, runId: runId)
             },
+        ] + verdictLandsScenarios()
+    }
+
+    /// A verdict arriving while its run is open (ADR 0006, Verdict lands): mid-decode, with
+    /// the border part drawn, and after it, for a pass and a fail. A fail moves the run to
+    /// the step it cites first (the fail run has no step that errored).
+    private func verdictLandsScenarios() -> [Scenario] {
+        let passRun = momentsRun
+        let failRun = failRun
+        return [
+            Scenario(name: "33-moment-verdict-lands-pass", sizes: [Self.large, Self.medium], runId: passRun, momentFreeze: 0.14) { store in
+                await Self.landVerdict(store, runId: passRun)
+            },
+            Scenario(name: "34-moment-verdict-landed-pass", sizes: [Self.large, Self.medium], runId: passRun, momentFreeze: 1.0) { store in
+                await Self.landVerdict(store, runId: passRun)
+            },
+            Scenario(name: "35-moment-verdict-lands-fail", sizes: [Self.large, Self.medium], runId: failRun, momentFreeze: 0.14) { store in
+                await Self.landVerdict(store, runId: failRun)
+            },
+            Scenario(name: "36-moment-verdict-landed-fail", sizes: [Self.large, Self.medium], runId: failRun, momentFreeze: 1.0) { store in
+                await Self.landVerdict(store, runId: failRun)
+            },
         ]
     }
 
@@ -272,6 +300,28 @@ final class SnapshotHarness {
                                  status: .contested, disputes: 2)
         store.details[runId]?.verdict = state
         if let index = store.runs.firstIndex(where: { $0.runId == runId }) { store.runs[index].verdict = state }
+    }
+
+    /// The run live and waiting on the verifier, then its verdict coming in through the
+    /// event stream, proposed: the path a real verdict takes (`RunStore.apply`, then the
+    /// run re-read), so the run view sees it land.
+    private static func landVerdict(_ store: RunStore, runId: String) async {
+        guard let verdict = store.verdict(runId), let seq = verdict.seq,
+              let message = store.messages[runId]?.first(where: { $0.seq == seq }) else { return }
+        store.messages[runId] = store.messages[runId]?.filter { $0.seq < seq }
+        store.details[runId]?.verdict = VerdictState()
+        if let index = store.runs.firstIndex(where: { $0.runId == runId }) { store.runs[index].verdict = nil }
+        makeLive(store, runId: runId, lastActivityAgo: 3)
+        try? await Task.sleep(for: .milliseconds(600))
+        guard let live = store.messages[runId] else { return }
+        var arrived = message
+        arrived.at = (live.last?.at ?? Date()).addingTimeInterval(2)
+        store.apply(.message(runId: runId, message: arrived))
+        var proposed = verdict
+        proposed.status = .proposed
+        proposed.acceptedBy = nil
+        store.details[runId]?.verdict = proposed
+        if let index = store.runs.firstIndex(where: { $0.runId == runId }) { store.runs[index].verdict = proposed }
     }
 
     private static func setVerdict(_ store: RunStore, runId: String, _ change: (inout VerdictState) -> Void) {

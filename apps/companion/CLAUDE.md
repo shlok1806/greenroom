@@ -26,10 +26,10 @@ has landed: the screen's title row and well states, the loader, the player bar, 
 steps as a thinking trace (below). Layer 5 (transcript cards) has landed: Markdown through
 swift-markdown, evidence chips in prose, the verdict card's proposed and closed framing,
 the question card, and tool-call rows (ADR 0009). Layer 6 (signature moments) has landed:
-the boot lines and reveal, house lights, click marks (`m`) and the power-down (below). Not
-yet built: decode, draw and glide, the verdict-lands and welcome moments, the cursor,
-`GridMetrics`. Until a layer lands, the rules below that name round-2 behaviour describe
-the code as it is.
+the boot lines and reveal, house lights, click marks (`m`) and the power-down (below). The
+verdict-lands moment has landed with the decode and draw it uses (below). Not yet built:
+decode and draw anywhere else, glide, the welcome moment, the cursor, `GridMetrics`. Until
+a layer lands, the rules below that name round-2 behaviour describe the code as it is.
 
 ## Commands
 
@@ -286,8 +286,27 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
     `ScreenGeometry.point(atFraction:)`; typing marks the click before it; the person's own
     input (`holder: human`) is never marked. Only steps that arrive while following live, or
     that a playing recording passes, ripple; `m` persists in `@AppStorage`.
-  - `CompanionSnapshots` scenarios 28 to 32 hold each moment part way (`momentFreeze`); they
-    read `GREENROOM_SNAPSHOTS_MOMENTS_RUN` (default a TipSplit run with clicks).
+  - Verdict lands (`Model/VerdictLanding.swift`, layers in `Views/VerdictLandingLayers.swift`,
+    timings `motion.decode` and `motion.draw`): only a verdict whose message came in through
+    the event stream while the run's transcript was held (`RunStore.liveVerdicts`, set in
+    `apply`), with a seq past the one `RunView` had on screen for that run. Opening a run,
+    the list catching up and a resync never play it. `RunView` starts it
+    (`RunStore.verdictMoment`, so a card rebuilt mid-way carries on) and posts one
+    VoiceOver announcement ("Verdict: Fail, 2 steps failed"). The outcome's letters
+    scramble and settle left to right over the real text (the mark and spaces stand; settled
+    letters in the outcome's colour, scrambling ones dim), and the border traces from the
+    top-left corner in the card's own edge colour. Once over, the card is the plain card, in
+    `VerdictAppearance`'s colours: a proposed outcome settles emerald or red, then shows in
+    the foreground. On a fail, unless the person is typing (`responder == .text`) or
+    driving, focus goes to the first errored step through the registry's `nextFailure`,
+    else to the verdict's first cited step through `requestSeek` (as its evidence opens
+    it); this happens under Reduce Motion too, which only skips the decode and the draw.
+    ADR 0006 and the spec say big figlet letters and the cursor gliding: the outcome decodes
+    in the card's own mono title (ADR 0008 keeps the terminal look to an accent), and with
+    no cursor yet, focus moves instead of gliding.
+  - `CompanionSnapshots` scenarios 28 to 36 hold each moment part way (`momentFreeze`); they
+    read `GREENROOM_SNAPSHOTS_MOMENTS_RUN` (default a TipSplit run with clicks) and, for the
+    verdict-lands fail, `GREENROOM_SNAPSHOTS_FAIL_RUN` (default a TipSplit fail).
 - A run is named by a short title from its task (`RunTitle.short`, made distinct with
   `RunTitle.distinct`), never by its id. The sidebar pins "Needs You" and "Running"
   above the days; a row is the title, start time and counts, and its state in words.

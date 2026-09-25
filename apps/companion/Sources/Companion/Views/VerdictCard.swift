@@ -21,7 +21,10 @@ struct VerdictCard: View {
     @State private var headlineHeight: CGFloat = 0
     @State private var actionsHeight: CGFloat = 0
     @FocusState private var reasonFocused: Bool
+    /// The verdict-lands moment this card saw end, so it draws the plain card after it.
+    @State private var landed: VerdictMoment?
     @Environment(\.theme) private var theme
+    @Environment(\.momentFreeze) private var freeze
 
     /// Kept by the store: accepting rebuilds this card, and no draft or confirmation may
     /// live in a view that goes away under it. No sheet, alert or dialog in this flow.
@@ -88,6 +91,8 @@ struct VerdictCard: View {
         let words = TranscriptText.clean(text(verdict))
         let reason = MarkdownText.blocks(words, steps: store.stepNumbers(runId))
         let detailed = expanded && !compact
+        let moment = landing(verdict)
+        let edgeColor = edge(appearance.edge, verdict: verdict)
         return VStack(alignment: .leading, spacing: Space.s) {
             headline(review, verdict: verdict)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headlineHeight = $0 }
@@ -96,7 +101,7 @@ struct VerdictCard: View {
             // however much evidence is open: the body scrolls once the card is capped.
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Space.s) {
-                    outcome(verdict, appearance: appearance, tint: tint)
+                    outcome(verdict, appearance: appearance, tint: tint, moment: moment)
                     if let note = review.note {
                         Text((review.humanReviewed ? "" : "! ") + note)
                             .readingStyle(size: TypeScale.readingSmall)
@@ -151,7 +156,17 @@ struct VerdictCard: View {
         }
         .padding(Space.m)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .panel(edge: edge(appearance.edge, verdict: verdict))
+        // Landing: the edge draws itself (`VerdictBorderDrawLayer`) instead of standing.
+        .panel(edge: moment == nil ? edgeColor : .clear)
+        .overlay {
+            if let moment { VerdictBorderDrawLayer(moment: moment, color: edgeColor) }
+        }
+        .task(id: moment?.start) {
+            guard let moment, freeze == nil else { return }
+            let left = VerdictLanding.duration(DesignData.shared.tokens.motion) - Date().timeIntervalSince(moment.start)
+            if left > 0 { try? await Task.sleep(for: .seconds(left)) }
+            if !Task.isCancelled { landed = moment }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Verdict, \(review.state), \(Chrome.outcomeTitle(verdict.verdict))")
     }
@@ -217,15 +232,34 @@ struct VerdictCard: View {
         }
     }
 
-    /// The outcome in the mono face, in capitals: the static end state of the verdict's
-    /// decode-in (spec, Signature moments), which the motion layer animates later.
-    private func outcome(_ verdict: VerdictState, appearance: VerdictAppearance, tint: Color) -> some View {
+    /// The verdict-lands moment for this card's verdict while it plays: nil once it has
+    /// ended, under Reduce Motion, and for a card opened on a verdict that was already there.
+    private func landing(_ verdict: VerdictState) -> VerdictMoment? {
+        guard let moment = store.verdictMoment, moment.runId == runId, moment.seq == verdict.seq,
+              moment.plays, moment != landed else { return nil }
+        // A card built after the moment ended (a pane shown again) shows the plain card.
+        if freeze == nil, Date().timeIntervalSince(moment.start) >= VerdictLanding.duration(DesignData.shared.tokens.motion) {
+            return nil
+        }
+        return moment
+    }
+
+    /// The outcome in the mono face, in capitals: the real text, and while a verdict lands,
+    /// its decode drawn over it (spec, Signature moments). VoiceOver reads the real text.
+    private func outcome(_ verdict: VerdictState, appearance: VerdictAppearance, tint: Color, moment: VerdictMoment?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Space.m) {
             Text(appearance.outcome)
                 .font(Typeface.monoBold.font(size: TypeScale.title))
                 .tracking(1.5)
                 .foregroundStyle(tint)
                 .fixedSize()
+                .overlay(alignment: .leading) {
+                    if let moment {
+                        VerdictDecodeLayer(text: appearance.outcome, moment: moment,
+                                           settled: theme.outcome(verdict.verdict, on: .surface),
+                                           scrambling: theme.dim(on: .surface), ground: theme.surface)
+                    }
+                }
                 .accessibilityLabel(Chrome.outcomeTitle(verdict.verdict))
             if verdict.status.isOpen {
                 Text("proposed by the verifier")

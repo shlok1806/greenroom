@@ -33,6 +33,15 @@ struct SeekRequest: Hashable, Sendable {
     var inSteps = false
 }
 
+/// A verdict landing on screen: which run and verdict, and when the moment began.
+struct VerdictMoment: Equatable, Sendable {
+    let runId: String
+    let seq: Int
+    let start: Date
+    /// Whether the decode and the draw play; under Reduce Motion the card shows at once.
+    let plays: Bool
+}
+
 /// What a person has started on one run's verdict. The store holds it, not the card, so
 /// the card can be rebuilt by the very change an action causes (accepting redraws it)
 /// without losing the draft or orphaning a dialog. It belongs to one verdict as it stood:
@@ -127,6 +136,13 @@ final class RunStore: PilotHost {
     /// another run is opened.
     private(set) var goneRun: String?
     var seekRequest: SeekRequest?
+    /// Per run, the seq of the newest verdict whose message came in through the event
+    /// stream while its transcript was held: what `VerdictLanding.lands` asks, so a verdict
+    /// read by a resync or on opening the run never plays the moment.
+    private(set) var liveVerdicts: [String: Int] = [:]
+    /// The verdict-lands moment playing now (ADR 0006), started by the run view that saw
+    /// the verdict land. The cards read it, so a card rebuilt mid-way carries on, not over.
+    var verdictMoment: VerdictMoment?
     private(set) var verdictDrafts: [String: VerdictDraft] = [:]
     /// An accept or dispute shown as made but not yet sent: it waits out its undo
     /// (companion ADR 0005), since the daemon cannot take a recorded message back.
@@ -300,6 +316,7 @@ final class RunStore: PilotHost {
         messages = messages.filter { $0.key == keep }
         steps = steps.filter { $0.key == keep }
         frames = frames.filter { $0.key == keep }
+        liveVerdicts = liveVerdicts.filter { $0.key == keep }
     }
 
     private func perform(_ fetch: Fetch) async {
@@ -413,6 +430,7 @@ final class RunStore: PilotHost {
             }
             held.append(message)
             messages[runId] = held
+            if message.kind == .verdict { liveVerdicts[runId] = message.seq }
             if let index = runs.firstIndex(where: { $0.runId == runId }) {
                 runs[index].messages += 1
                 runs[index].lastActivity = max(runs[index].lastActivity, message.at)
