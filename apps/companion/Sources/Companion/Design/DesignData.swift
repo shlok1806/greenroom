@@ -111,6 +111,8 @@ struct DesignTokens: Decodable, Sendable, Equatable {
         }
 
         let spinner: Spinner
+        /// How long an accept or dispute waits to be sent, so it can be undone (ADR 0005).
+        let undoMs: Int
     }
 
     let cell: Cell

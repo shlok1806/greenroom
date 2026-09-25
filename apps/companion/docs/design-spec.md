@@ -389,31 +389,33 @@ it.
 | Keys | Action | Context |
 | --- | --- | --- |
 | `j` `k`, `↑` `↓` | Previous or next item | runs, steps, transcript |
-| `⏎` | Open the focused item | anywhere outside a text field |
-| `esc` | Back out one level: composer, then run, then runs | anywhere but driving |
+| `⏎` | Open the focused item (runs: into the run; steps: expand; transcript: show its step) | a pane |
+| `esc` | Back out one level: help, evidence, then the pane, then the runs | anywhere but driving |
 | `/` | Search runs | anywhere outside a text field |
-| `tab` | Next pane (narrow: cycles the one visible pane) | anywhere outside a text field |
-| `t` | Take control or give it back | a ready machine |
-| `a` | Accept the verdict | verdict open for review |
-| `d` | Dispute the verdict | verdict open for review |
+| `tab`, `⇧tab` | Next or previous pane | a run open |
+| `t` | Take control | a ready machine |
+| `a` | Accept the verdict (`a` again answers "accept without opening the evidence?") | verdict open for review |
+| `d` | Dispute the verdict (opens the reason) | verdict open for review |
 | `u` | Undo the last accept or dispute | within 5 s |
-| `space` | Play or pause | stage |
-| `←` `→` | Previous or next frame | stage, paused |
+| `space` | Play or pause | screen |
+| `←` `→` | Previous or next frame | screen |
 | `c` | Capture a screenshot | a ready machine |
-| `g` then `s` | Go to steps | run open |
-| `g` then `c` | Go to the conversation (composer) | run open |
-| `G` | Jump to latest | transcript, steps |
-| `z` | Zoom the focused pane, or restore | run open |
-| `m` | Click marks on or off | stage |
-| `r` | Refresh or retry | anywhere outside a text field |
+| `e` | Export the recording | a run with frames |
+| `n`, `N` | Next or previous step that errored | a run with errors |
+| `g` then `v`, `s`, `t`, `r`, `c` | Go to the screen, the steps, the transcript, the runs, the composer | run open (`g r` anywhere) |
+| `G` | Jump to latest (live on the screen) | screen, steps, transcript |
+| `r`, Cmd-R | Refresh or retry | anywhere outside a text field |
 | `?` | Expand the hint bar into full help, or collapse it | anywhere outside a text field |
 | Cmd-K | Command palette: every action with its key | everywhere but driving |
-| Cmd-Backspace | Destroy the machine (confirm inline) | a live machine |
-| `⏎` / `⇧⏎` | Send / new line | composer |
+| Cmd-L | Follow live | a ready machine, not live |
+| Ctrl-Cmd-S | Show or hide the runs | anywhere |
+| Cmd-Backspace | Destroy the machine (asked inline: `⏎` destroys, any other key keeps it) | a machine |
+| `⏎`, Cmd-`⏎` / `⇧⏎`, `⌥⏎` | Send / new line | composer |
+| `z`, `m` | Zoom the focused pane; click marks on or off | later layers |
 
-The keys in the decision record are fixed. `u`, `G`, `r`, `g c`, `←` `→` and `tab` outside
-narrow are this spec's choices; the registry PR may change them, and the registry is then
-the source of truth.
+The registry (`Model/ActionRegistry.swift`) is the source of truth since the registry PR
+(ADR 0005, decision 6); this table follows it. Showing or hiding the conversation and the
+themes have no key: they are in the palette and the View menu.
 
 ## Accessibility
 

@@ -9,6 +9,7 @@ struct SidebarView: View {
     @State private var query = ""
     @FocusState private var searchFocused: Bool
     @Environment(\.theme) private var theme
+    @Environment(\.keyboard) private var keyboard
 
     var body: some View {
         // One shared clock keeps idle times fresh.
@@ -48,6 +49,14 @@ struct SidebarView: View {
                     }
                     .overlayScrollers()
                     .overlay { overlay }
+                    // The row cut by the list's bottom edge fades into the tint, so it reads
+                    // as more below rather than as a clipped row.
+                    .overlay(alignment: .bottom) {
+                        LinearGradient(colors: [theme.chromeTint.opacity(0), theme.chromeTint],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: Space.xl)
+                            .allowsHitTesting(false)
+                    }
                     .onChange(of: store.selectedRunId) {
                         guard let selected = store.selectedRunId else { return }
                         withAnimation(.snappy(duration: 0.2)) { proxy.scrollTo(selected) }
@@ -55,9 +64,16 @@ struct SidebarView: View {
                 }
                 .focusable()
                 .focusEffectDisabled()
-                .onKeyPress(.upArrow) { move(by: -1, in: sections) }
-                .onKeyPress(.downArrow) { move(by: 1, in: sections) }
             }
+        }
+        // j and k (and the arrows) move the selection through the rows as shown.
+        .offersActions(.sidebar, store.runs.isEmpty ? [] : [.moveDown, .moveUp]) { id in
+            move(by: id == .moveDown ? 1 : -1, in: sections(now: Date()))
+        }
+        // `/` (or the palette's "search the runs for") puts the cursor here.
+        .onChange(of: keyboard?.searchRequest) {
+            if let text = keyboard?.searchText { query = text }
+            searchFocused = true
         }
         // Only while the event stream is down or an action failed: a healthy connection
         // needs no words, and an unreachable daemon is explained in the detail.
@@ -80,7 +96,8 @@ struct SidebarView: View {
                 .textFieldStyle(.plain)
                 .font(Typeface.readingRegular.font(size: TypeScale.readingSmall))
                 .focused($searchFocused)
-                .onExitCommand { query = "" }
+                // esc leaves the search, and a search left behind would hide runs.
+                .typingField(focused: searchFocused, sends: false) { query = "" }
             if !query.isEmpty {
                 Button("Clear") { query = "" }
                     .buttonStyle(.textLink)
@@ -125,13 +142,12 @@ struct SidebarView: View {
     }
 
     /// Up and down move the selection through the rows in the order they are shown.
-    private func move(by delta: Int, in sections: [RunSection]) -> KeyPress.Result {
+    private func move(by delta: Int, in sections: [RunSection]) {
         let order = sections.flatMap(\.runs).map(\.runId)
-        guard !order.isEmpty else { return .ignored }
+        guard !order.isEmpty else { return }
         let current = store.selectedRunId.flatMap { order.firstIndex(of: $0) }
         let next = current.map { min(max($0 + delta, 0), order.count - 1) } ?? (delta > 0 ? 0 : order.count - 1)
         store.selectedRunId = order[next]
-        return .handled
     }
 
     private var matches: [RunSummary] {

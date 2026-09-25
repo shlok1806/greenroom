@@ -11,7 +11,10 @@ struct StepsView: View {
     @AppStorage("stepsErrorsOnly") private var errorsOnly = false
     /// While live, keep the newest step in view.
     @State private var following = true
+    /// The keyboard's row: `j` and `k` move it, `⏎` opens it.
+    @State private var cursor: Step?
     @FocusState private var focused: Bool
+    @Environment(\.keyboard) private var keyboard
 
     private var allSteps: [Step] { store.steps[runId] ?? [] }
     private var steps: [Step] { errorsOnly ? allSteps.filter { $0.outcome.isFailure } : allSteps }
@@ -29,14 +32,54 @@ struct StepsView: View {
     var body: some View {
         VStack(spacing: 0) {
             if fromVerdict, let focusedStep {
-                EvidenceBar(step: focusedStep, back: {
-                    showsConversation = true
-                    store.clearFocus()
-                }, record: nil)
+                EvidenceBar(step: focusedStep, back: backToVerdict, record: nil)
                 .padding(.bottom, Space.s)
                 Hairline()
             }
             table
+        }
+    }
+
+    private func backToVerdict() {
+        showsConversation = true
+        store.clearFocus()
+    }
+
+    /// The cursor shows only while the stage has the keyboard: it mirrors real focus.
+    private var cursorShown: Bool { keyboard?.pane == .stage }
+
+    private var offered: Set<ActionID> {
+        var ids: Set<ActionID> = []
+        if fromVerdict { ids.insert(.backToVerdict) }
+        if !steps.isEmpty { ids.formUnion([.moveDown, .moveUp, .latest]) }
+        if cursor != nil { ids.insert(.open) }
+        return ids
+    }
+
+    private func perform(_ id: ActionID, proxy: ScrollViewProxy) {
+        switch id {
+        case .moveDown, .moveUp:
+            guard !steps.isEmpty else { return }
+            let delta = id == .moveDown ? 1 : -1
+            let at = cursor.flatMap { steps.firstIndex(of: $0) }
+            let next = at.map { min(max($0 + delta, 0), steps.count - 1) } ?? (delta > 0 ? 0 : steps.count - 1)
+            cursor = steps[next]
+            following = false
+            proxy.scrollTo(steps[next])
+        case .open:
+            guard let cursor else { return }
+            withAnimation(.snappy(duration: 0.18)) {
+                if expanded.contains(cursor) { expanded.remove(cursor) } else { expanded.insert(cursor) }
+            }
+        case .latest:
+            guard let last = steps.last else { return }
+            cursor = last
+            following = facts.isAlive
+            withAnimation { proxy.scrollTo(last, anchor: .bottom) }
+        case .backToVerdict:
+            backToVerdict()
+        default:
+            break
         }
     }
 
@@ -52,6 +95,7 @@ struct StepsView: View {
                                 runId: runId,
                                 step: step,
                                 highlighted: step.seq == focusedStep,
+                                cursor: cursorShown && step == cursor,
                                 expanded: Binding(
                                     get: { expanded.contains(step) },
                                     set: { open in
@@ -104,6 +148,7 @@ struct StepsView: View {
                 // The row's identity in the lazy stack is the `Step`, not its seq.
                 withAnimation { proxy.scrollTo(last, anchor: .bottom) }
             }
+            .offersActions(.steps, offered, refresh: runId) { perform($0, proxy: proxy) }
         }
         .focusable()
         .focusEffectDisabled()
@@ -180,6 +225,8 @@ private struct StepRow: View {
     let runId: String
     let step: Step
     let highlighted: Bool
+    /// The keyboard's row: the brand cursor at its leading edge.
+    var cursor = false
     @Binding var expanded: Bool
 
     @State private var hovering = false
@@ -208,7 +255,7 @@ private struct StepRow: View {
         // Background and separator both span the full row, so they line up.
         .background(background)
         .overlay(alignment: .leading) {
-            if highlighted {
+            if highlighted || cursor {
                 Rectangle().fill(theme.brand).frame(width: 3)
             }
         }
@@ -284,7 +331,7 @@ private struct StepRow: View {
     private var background: some View {
         if highlighted {
             theme.brand.opacity(0.10)
-        } else if hovering || expanded {
+        } else if hovering || expanded || cursor {
             theme.highlight
         } else {
             Color.clear

@@ -225,21 +225,6 @@ enum TranscriptText {
     }
 }
 
-/// Shortcut glyphs as the menu bar prints them, for tooltips and hints.
-enum Keys {
-    static let screen = "⌘1"
-    static let steps = "⌘2"
-    static let conversation = "⌥⌘0"
-    static let live = "⌘L"
-    static let control = "⇧⌘T"
-    static let nextFailure = "⌘'"
-    static let previousFailure = "⇧⌘'"
-    static let capture = "⇧⌘S"
-    static let export = "⇧⌘E"
-    static let destroy = "⌘⌫"
-    static let refresh = "⌘R"
-}
-
 /// How the app is doing at reaching the daemon, as the window shows it. Follows the
 /// last full read of the run list, not the event stream: a stream can be between
 /// reconnects while the daemon answers fine.

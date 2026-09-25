@@ -4,14 +4,27 @@ import SwiftUI
 /// Owns the store so quitting can give back any screen being driven (ADR 0009).
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let store = RunStore()
+    let store: RunStore
+    /// The window's keys (companion ADR 0005): one model, fed by one router.
+    let keyboard: KeyboardModel
+    private let router: KeyRouter
     private var quitting = false
+
+    override init() {
+        let store = RunStore()
+        let keyboard = KeyboardModel(store: store)
+        self.store = store
+        self.keyboard = keyboard
+        router = KeyRouter(keyboard: keyboard)
+        super.init()
+    }
 
     /// An unbundled `swift run` binary is treated as a background process and
     /// its window never takes keyboard focus; this makes it a regular app.
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        router.install()
         #if DEBUG
         SnapshotHook.runIfAsked(store: store)
         #endif
@@ -106,7 +119,7 @@ struct CompanionApp: App {
     var body: some Scene {
         // One window: selection lives in the store, so a second window would mirror it.
         Window("Greenroom Companion", id: "main") {
-            RootView(store: store)
+            RootView(store: store, keyboard: delegate.keyboard)
                 .frame(minWidth: RunLayout.windowMinimum.width, minHeight: RunLayout.windowMinimum.height)
                 .task { store.start() }
         }
@@ -119,80 +132,62 @@ struct CompanionApp: App {
             WindowPlacement(size: RunLayout.defaultWindowSize(visible: context.defaultDisplay.visibleRect.size))
         }
         .commands {
-            RunMenuCommands(store: store)
+            RunMenuCommands(keyboard: delegate.keyboard)
         }
     }
 }
 
-/// The View and Run menus. They act on the open run through `RunCommands` and
-/// `ScreenCommands`, which the run's views publish while they are on screen.
+/// The View and Run menus, built from the action registry (ADR 0005): every item is an
+/// entry, performed by the window's `KeyboardModel`, with the entry's Command chord as
+/// its key equivalent. Bare keys are not given to the menu bar: they would fire while a
+/// person types. Enabled items follow the `ActionState` the window publishes.
 struct RunMenuCommands: Commands {
-    let store: RunStore
+    let keyboard: KeyboardModel
 
-    @FocusedValue(\.runCommands) private var run
-    @FocusedValue(\.screenCommands) private var screen
-    @FocusedValue(\.sidebarShown) private var sidebarShown
+    @FocusedValue(\.actionState) private var state
     @AppStorage(ThemePreference.key) private var theme: ThemePreference = .system
 
     var body: some Commands {
-        // The window has its own sidebar, not a split view's: its toggle, on the same key.
         CommandGroup(before: .toolbar) {
-            Button(sidebarShown?.wrappedValue == false ? "Show Sidebar" : "Hide Sidebar") {
-                withAnimation(.snappy) { sidebarShown?.wrappedValue.toggle() }
-            }
-            .keyboardShortcut("s", modifiers: [.control, .command])
-            .disabled(sidebarShown == nil)
             Picker("Theme", selection: $theme) {
-                ForEach(ThemePreference.allCases, id: \.self) { choice in
+                ForEach(ActionRegistry.themes, id: \.0) { _, choice in
                     Text(choice.title).tag(choice)
                 }
             }
             Divider()
         }
         CommandGroup(after: .toolbar) {
-            Button("Screen") { run?.pane.wrappedValue = .screen }
-                .keyboardShortcut("1", modifiers: .command)
-                .disabled(run == nil)
-            Button("Steps") { run?.pane.wrappedValue = .steps }
-                .keyboardShortcut("2", modifiers: .command)
-                .disabled(run == nil)
-            Button(run?.showsConversation.wrappedValue == false ? "Show Conversation" : "Hide Conversation") {
-                run?.showsConversation.wrappedValue.toggle()
-            }
-            .keyboardShortcut("0", modifiers: [.command, .option])
-            .disabled(run == nil)
-            Divider()
-            Button("Refresh") {
-                Task { await store.resync() }
-            }
-            .keyboardShortcut("r", modifiers: .command)
+            items(ActionRegistry.menu(.view))
             Divider()
         }
         CommandMenu("Run") {
-            Button("Follow Live") { screen?.goLive?() }
-                .keyboardShortcut("l", modifiers: .command)
-                .disabled(screen?.goLive == nil)
-            Button(run?.controlTitle ?? "Take Control") { run?.control?() }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
-                .disabled(run?.control == nil)
-            Divider()
-            Button("Next Failure") { run?.nextFailure?() }
-                .keyboardShortcut("'", modifiers: .command)
-                .disabled(run?.nextFailure == nil)
-            Button("Previous Failure") { run?.previousFailure?() }
-                .keyboardShortcut("'", modifiers: [.command, .shift])
-                .disabled(run?.previousFailure == nil)
-            Divider()
-            Button("Capture Screenshot") { run?.capture?() }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-                .disabled(run?.capture == nil)
-            Button("Export Recording...") { run?.export?() }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
-                .disabled(run?.export == nil)
-            Divider()
-            Button("Destroy Machine...") { run?.destroy?() }
-                .keyboardShortcut(.delete, modifiers: .command)
-                .disabled(run?.destroy == nil)
+            items(ActionRegistry.menu(.run))
+        }
+    }
+
+    /// The entries in registry order, a divider wherever the help group changes.
+    @ViewBuilder
+    private func items(_ specs: [ActionSpec]) -> some View {
+        ForEach(Array(specs.enumerated()), id: \.element.id) { index, spec in
+            if index > 0, specs[index - 1].group != spec.group {
+                Divider()
+            }
+            Button(title(spec)) { keyboard.perform(spec.id) }
+                .keyboardShortcut(for: spec.id)
+                .disabled(!ActionRules.isEnabledAnywhere(spec.id, current))
+        }
+    }
+
+    /// The window's state: as published while it is focused, else read from the model
+    /// (the menu bar is also used with no window key, and observation redraws it).
+    private var current: ActionState { state ?? keyboard.state() }
+
+    /// An entry's menu title, in the words its state calls for.
+    private func title(_ spec: ActionSpec) -> String {
+        switch spec.id {
+        case .toggleSidebar: current.sidebarShown ? "Hide Sidebar" : "Show Sidebar"
+        case .toggleConversation: current.conversationShown ? "Hide Conversation" : "Show Conversation"
+        default: spec.menuTitle ?? spec.title
         }
     }
 }

@@ -4,27 +4,6 @@ private func isBlank(_ text: String) -> Bool {
     text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 }
 
-private extension View {
-    /// Return and Cmd-Return send; Shift-Return (and Option-Return) start a new line
-    /// through `newline`, when the field has one. Caught with `.onKeyPress` because a
-    /// vertical `TextField` would insert the newline itself. A blank draft swallows Return
-    /// without a newline. Left to itself, the field treats Shift-Return as Return: it ends
-    /// editing and selects the whole draft, so the next key replaces it.
-    func sendOnReturn(enabled: Bool, _ action: @escaping () -> Void, newline: (() -> Void)? = nil) -> some View {
-        onKeyPress(phases: .down) { press in
-            guard press.key == .return else { return .ignored }
-            if press.modifiers == .shift || press.modifiers == .option {
-                guard let newline else { return .ignored }
-                newline()
-                return .handled
-            }
-            guard press.modifiers.isEmpty || press.modifiers == .command else { return .ignored }
-            if enabled { action() }
-            return .handled
-        }
-    }
-}
-
 /// The draft with a line break where the cursor is (replacing any selected text), and
 /// the cursor after it. At the end when the field reports no cursor.
 func insertingNewline(into text: String, at selection: TextSelection?) -> (text: String, selection: TextSelection) {
@@ -51,6 +30,9 @@ struct ConversationView: View {
     @State private var userScrolled = false
     @AppStorage("showsToolCalls") private var showsToolCalls = true
     @State private var columnHeight: Double = 0
+    /// The keyboard's row (an item's id): `j` and `k` move it, `⏎` shows its step.
+    @State private var cursor: Int?
+    @Environment(\.keyboard) private var keyboard
 
     private var messages: [Message] { store.messages[runId] ?? [] }
     private var items: [TranscriptLayout.Item] { TranscriptLayout.items(messages, toolCalls: showsToolCalls) }
@@ -112,7 +94,15 @@ struct ConversationView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Space.l) {
                     ForEach(items) { item in
-                        row(item).id(item.id)
+                        row(item)
+                            .background {
+                                if cursorShown, cursor == item.id {
+                                    RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                                        .fill(theme.highlight)
+                                        .padding(-Space.xs)
+                                }
+                            }
+                            .id(item.id)
                     }
                     if awaitingVerifier {
                         WorkingRow().id(Self.workingRowId)
@@ -196,6 +186,56 @@ struct ConversationView: View {
                                message: "The coding agent opens it with the task. You can message the verifier at any time.")
                 }
             }
+            .offersActions(.conversation, offered, refresh: runId) { perform($0, proxy: proxy) }
+        }
+    }
+
+    // MARK: - Keys
+
+    /// The cursor shows only while the conversation has the keyboard.
+    private var cursorShown: Bool { keyboard?.pane == .conversation }
+
+    /// Rows a person reads: a day's label is not one.
+    private var stops: [TranscriptLayout.Item] {
+        items.filter { if case .day = $0 { false } else { true } }
+    }
+
+    private var offered: Set<ActionID> {
+        guard !stops.isEmpty else { return [] }
+        var ids: Set<ActionID> = [.moveDown, .moveUp, .latest]
+        if let cursor, let item = stops.first(where: { $0.id == cursor }), Self.step(of: item) != nil { ids.insert(.open) }
+        return ids
+    }
+
+    /// The step a row points at: a tool call's, or the first a verdict cites.
+    static func step(of item: TranscriptLayout.Item) -> Int? {
+        switch item {
+        case .toolCalls(let calls): return calls.last?.step
+        case .message(let message, _) where message.kind == .verdict:
+            return (message.evidence ?? []).lazy.compactMap { Evidence.parse($0).step }.first
+        default: return nil
+        }
+    }
+
+    private func perform(_ id: ActionID, proxy: ScrollViewProxy) {
+        let stops = stops
+        switch id {
+        case .moveDown, .moveUp:
+            let delta = id == .moveDown ? 1 : -1
+            let at = cursor.flatMap { cursor in stops.firstIndex { $0.id == cursor } }
+            // From nothing, down starts at the top and up at the newest.
+            let next = at.map { min(max($0 + delta, 0), stops.count - 1) } ?? (delta > 0 ? 0 : stops.count - 1)
+            cursor = stops[next].id
+            withAnimation(.snappy(duration: 0.18)) { proxy.scrollTo(stops[next].id, anchor: .center) }
+        case .open:
+            guard let cursor, let item = stops.first(where: { $0.id == cursor }), let step = Self.step(of: item) else { return }
+            store.requestSeek(runId: runId, step: step)
+        case .latest:
+            cursor = stops.last?.id
+            atBottom = true
+            withAnimation { proxy.scrollTo(Self.endRowId, anchor: .bottom) }
+        default:
+            break
         }
     }
 
@@ -402,6 +442,7 @@ private struct QuestionBubble: View {
                         .frame(height: 28)
                         .fieldFrame(focused: focused, radius: Radius.sm)
                         .sendOnReturn(enabled: canSend, submit)
+                        .typingField(focused: focused, sends: true)
                     Button("Reply", action: submit)
                         .buttonStyle(.primary)
                         .disabled(!canSend)
@@ -660,12 +701,12 @@ private struct Composer: View {
                         }
                     }
                     .padding(.vertical, Space.xs)
+                    .typingField(focused: focused, sends: true)
 
                 Button("Send", action: send)
                     .buttonStyle(.primary(small: true))
-                    .keyboardShortcut(.return, modifiers: .command)
                     .disabled(!canSend)
-                    .help("Send (Return)")
+                    .help("Send (\(ActionRegistry.label(.send)))")
             }
             .padding(.leading, Space.m)
             .padding(.trailing, Space.xs)

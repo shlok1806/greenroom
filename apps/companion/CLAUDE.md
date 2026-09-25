@@ -16,10 +16,12 @@ at the repo root.
 ADR 0004 to 0006, as amended by 0008, describe the new window being built layer by layer.
 Layer 1 (foundation and restyle) has landed: the theme, the two bundled faces, the spacing
 and radii, the window's own chrome, and every view restyled in that language on the
-round-2 layout (Screen and Steps tabs, the runs sidebar, the conversation column). Not yet
-built: the adaptive column layout and zoom, the action registry, hint bar and Cmd-K, the
-motion vocabulary and signature moments, click marks, `GridMetrics`. Until a layer lands,
-the rules below that name round-2 behaviour describe the code as it is.
+round-2 layout (Screen and Steps tabs, the runs sidebar, the conversation column). Layer 2
+(keys) has landed: the action registry, the key router, the hint bar with its `?` help,
+the Cmd-K palette, the menu bar built from the registry, and the 5 s undo on accept and
+dispute. Not yet built: the adaptive column layout and zoom (`z`), the motion vocabulary
+and signature moments, click marks (`m`), `GridMetrics`. Until a layer lands, the rules
+below that name round-2 behaviour describe the code as it is.
 
 ## Commands
 
@@ -58,7 +60,12 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   of `GREENROOM_SNAPSHOT_THEMES` (default `dark,light,dark-hc,light-hc`) to
   `<dir>/<GREENROOM_SNAPSHOT_NAME>-<theme>.png` with `cacheDisplay` (no screen-recording
   permission), puts the person's theme back and quits. It shows a window on screen; the
-  harness above does not.
+  harness above does not. `GREENROOM_SNAPSHOT_KEYS` (comma-separated: `g`, `?`, `cmd+k`,
+  `esc`, `enter`, `shift+enter`, `text:words`) posts real key events through the app's
+  queue first, so the router sees them as typed (hint bar, help, palette, composer
+  states); `GREENROOM_SNAPSHOT_MENU=1` prints the View and Run menus as AppKit holds them. `GREENROOM_SNAPSHOT_SIZE=820x560`
+  sizes the window's content first.
+  Never press keys that send (accept, dispute, a composer's Return) against a real run.
 - `GREENROOM_URL` overrides `http://127.0.0.1:7777` (`DaemonClient.defaultBaseURL`).
 - The app never starts the daemon.
 - The icon is drawn at build time by `scripts/make-icon.swift`; no artwork is checked in.
@@ -100,7 +107,8 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   - `ScreenControl`, `FrameTimeline`, `StepSummary`, `RichText` are pure value types with
     a test per rule. `ControlPilot` holds the lease and send queue; it talks through
     `ControlClient` and `PilotHost` so its tests need no daemon.
-    `Views/InputSurface.swift` is the only AppKit event code.
+    `Views/InputSurface.swift` (the guest's input) and `Views/KeyRouter.swift` (the app's
+    one key monitor) are the only AppKit event code.
   - `Model/RunFacts.swift` is the one derived state per run (phase, whose turn, last
     activity, duration, failures, whether the machine can be watched or driven). Every
     indicator reads `RunStore.facts(_:)`; no view works out state from raw fields.
@@ -116,8 +124,16 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
     themed root, the window, the top bar and the wordmark. No spacing, radius, colour,
     face or point-size literal elsewhere: views ask for a `TypeScale` step, a `Space`
     step and a role.
-  - Menu commands reach the open run through focused scene values (`RunCommands`,
-    `ScreenCommands`); they never hold their own state.
+  - Keys (ADR 0005): `Model/ActionRegistry.swift` is the one list of actions (id,
+    title, keys, contexts, help group, hint order, menu placement) and the pure rules
+    (`ActionRules`: live contexts, enabled, why not; `KeyResolver`: what a key does).
+    `Model/ActionPresentation.swift` works out the hint bar, the help and the palette
+    (`Fuzzy`, `PaletteModel`); `Model/UndoWindow.swift` the undo. `Views/Keyboard.swift`
+    holds `KeyboardModel` (pane focus, modes, the handlers views offer) and is the only
+    file with `.keyboardShortcut` or `.onKeyPress`, each built from an entry
+    (`keyboardShortcut(for:)`, `sendOnReturn`). `KeyRouter` turns each key event into a
+    `KeyChord` and asks `KeyboardModel.handle`. The menu bar (`RunMenuCommands`) is built
+    from `ActionRegistry.menu(_:)` and performs through the model.
 - The app only calls the API: no tart, no ssh, no run directory on disk. Missing
   capability means a new daemon route.
 - Never add a way to take the lease without a matching way to give it back (Give Back,
@@ -183,13 +199,35 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   not ANSI slots: `brand` marks large calm surfaces and actions (primary buttons, the
   selected run, the active tab, the cursor, the wordmark) and never the content areas
   (screen, steps, transcript), which stay neutral so a screenshot of evidence reads true;
-  `chromeTint` is the faint brand tint behind the sidebar and top bar only. Hue only for
+  `chromeTint` is the faint brand tint behind the sidebar, the top bar and the hint bar
+  (with its help) only. Hue only for
   meaning and the brand; emphasis is weight or inverse video. Every state is also a word.
   Bright slots never carry meaning.
 - Every key is an action in the one registry (ADR 0005). The hint bar, `?` help, Cmd-K
-  and the menu bar read it; a test fails on a shortcut declared anywhere else. Nothing
-  destructive has a bare key. Accept and dispute send after a 5 s undo. A typing context
-  swallows bare keys; driving sends every key to the guest and only a click exits.
+  and the menu bar read it; `ActionRegistryTests` fails on a `.keyboardShortcut`,
+  `.onKeyPress`, `onExitCommand`, key monitor or menu item declared anywhere else. To add
+  a key: an `ActionID` and an `ActionSpec`, then either a rule in `ActionRules.isEnabled`
+  (window-level actions `KeyboardModel.perform` runs itself) or an offer from the view
+  that performs it (`.offersActions(context, ids, refresh:)`, offering only what applies
+  now: an action is enabled only while offered). Never a shortcut on a button.
+  - Nothing destructive has a bare key (a test checks `destructive` entries). Destroy is
+    Cmd-Backspace, asked inline in the top bar and the hint bar (Return destroys, any
+    other key keeps it), never in a dialog.
+  - Accept and dispute (the card's Reject) act only on a verdict open for review and are
+    held in `RunStore.verdictUndo` for `tokens.json` `motion.undoMs`: the card and the
+    hint bar count down with Undo (`u`), and `RunStore.sendHeldVerdictChoice` sends when
+    it ends, only if that verdict is still the open one. A relaunch inside the window
+    drops the choice. A re-check is a task and goes at once.
+  - A typing context (the first responder is a text view) swallows bare keys: the
+    router passes them to the field and owns only esc (leave, plus a field's own
+    `.onLeave`, such as the reason form's Cancel) and Cmd-K. Driving (`InputSurfaceView`
+    is first responder with the lease held) passes every key through, Cmd-Q included,
+    exactly as before the registry; only a click on Give Back exits.
+  - Bare keys never go on the menu bar (they would fire while typing): a menu item gets
+    an entry's key equivalent only for a Command or Control chord.
+  - Key labels render through `KeyLabel`: Monaspace Neon for letters and words, the
+    system face for the Mac's symbols (arrows, ⏎, ⌘, ⇧, ⌫), which the mono face draws
+    small or lacks.
 - Motion uses only the vocabulary in ADR 0006 and `tokens.json` `motion`. Motion never
   blocks input; effects never own content; accessibility sees the final state; Reduce
   Motion makes every change instant.
@@ -269,7 +307,8 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   progress message through the same rules (`StepSummary.line(ofProgress:)`).
 - Only `RunView` sets a `.navigationTitle` (the run's short title); with no run open the
   window is "Greenroom Companion". A title on a pane (the conversation) names the whole window.
-- Composer keys: Return and Cmd-Return send; Shift-Return and Option-Return insert a line
+- Composer keys (the registry's `send` and `newline`, through `sendOnReturn`): Return and
+  Cmd-Return send; Shift-Return and Option-Return insert a line
   break at the cursor through the active field editor (a newline written into the binding
   while the field is edited is overwritten by the editor); the binding and `selection`
   path is only the fallback with no key window, as in tests. Left to the vertical

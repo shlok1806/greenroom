@@ -117,6 +117,7 @@ struct VerdictCard: View {
                     if detailed || verdict.status == .contested {
                         disputes(verdict, messages: messages)
                     }
+                    notes(verdict, review: review)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bodyHeight = $0 }
@@ -126,6 +127,15 @@ struct VerdictCard: View {
             // Never taller than what it holds, nor than the card's cap leaves it. Only the
             // body is capped: a capped card frame would stretch to its cap.
             .frame(maxHeight: bodyLimit)
+            // Capped: the last visible line fades into the card, so a cut line reads as
+            // "more below" and never as text run into what follows.
+            .overlay(alignment: .bottom) {
+                if let bodyLimit, let bodyHeight, bodyHeight > bodyLimit + 1 {
+                    LinearGradient(colors: [theme.surface.opacity(0), theme.surface], startPoint: .top, endPoint: .bottom)
+                        .frame(height: Space.l)
+                        .allowsHitTesting(false)
+                }
+            }
             actions(verdict, review: review)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { actionsHeight = $0 }
                 // Room for the whole explanation first; the body scrolls in what is left.
@@ -294,23 +304,16 @@ struct VerdictCard: View {
         let unreviewed = verdict.status == .accepted && !review.humanReviewed
         let draft = draft
         let newer = VerdictReview.newerTask(than: verdict.seq, in: store.messages[runId] ?? [])
-        if let newer {
-            Text("! " + VerdictReview.staleNote(verdictSeq: verdict.seq, newerTask: newer,
-                                                verifierListens: facts.verifierListens))
-                .readingStyle(size: TypeScale.readingSmall)
-                .foregroundStyle(theme.color(.attention, on: .surface))
-        }
-        if verdict.status.isOpen || unreviewed {
+        if let held = store.heldVerdictChoice(runId) {
+            HeldChoice(choice: held, outcome: outcome, window: store.verdictUndo) { store.undoVerdictChoice() }
+                .padding(.top, Space.xs)
+        } else if verdict.status.isOpen || unreviewed {
             VStack(alignment: .leading, spacing: Space.s) {
                 if let action = draft.action {
                     reasonForm(action: action, outcome: outcome)
                 } else if draft.confirmingAccept, verdict.status.isOpen {
                     acceptConfirmation(outcome: outcome)
                 } else {
-                    Text(VerdictReview.explanation(verdict, unreviewed: unreviewed,
-                                                   verifierListens: facts.verifierListens, alive: facts.isAlive))
-                        .readingStyle(size: TypeScale.readingSmall)
-                        .foregroundStyle(.secondary)
                     // Mac order: the primary action last, on the right, apart from the other.
                     HStack(spacing: Space.s) {
                         if unreviewed {
@@ -325,17 +328,41 @@ struct VerdictCard: View {
                         } else {
                             Button("Reject...") { store.updateVerdictDraft(runId) { $0.action = .reject } }
                                 .disabled(sending)
-                                .help("Close it as rejected, with your reason")
+                                .help("Dispute it, with your reason (\(ActionRegistry.label(.dispute))). Sent after \(Self.undoSeconds) s, so you can undo.")
                             Spacer(minLength: Space.l)
                             Button("Accept \(outcome)") { run { await store.requestAccept(runId: runId) } }
                             .buttonStyle(.primary)
                             .disabled(sending)
-                            .help("Agree with this \(outcome.lowercased()) verdict. This closes it.")
+                            .help("Agree with this \(outcome.lowercased()) verdict (\(ActionRegistry.label(.accept))). Sent after \(Self.undoSeconds) s, so you can undo.")
                         }
                     }
                 }
             }
             .padding(.top, Space.xs)
+        }
+    }
+
+    /// What the actions below mean, read before them: inside the scrolling body, so a short
+    /// column scrolls these lines rather than squeezing them over the reasons.
+    @ViewBuilder
+    private func notes(_ verdict: VerdictState, review: VerdictReview) -> some View {
+        let unreviewed = verdict.status == .accepted && !review.humanReviewed
+        let newer = VerdictReview.newerTask(than: verdict.seq, in: store.messages[runId] ?? [])
+        if let newer {
+            Text("! " + VerdictReview.staleNote(verdictSeq: verdict.seq, newerTask: newer,
+                                                verifierListens: facts.verifierListens))
+                .readingStyle(size: TypeScale.readingSmall)
+                .foregroundStyle(theme.color(.attention, on: .surface))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        let draft = draft
+        if store.heldVerdictChoice(runId) == nil, verdict.status.isOpen || unreviewed,
+           draft.action == nil, !(draft.confirmingAccept && verdict.status.isOpen) {
+            Text(VerdictReview.explanation(verdict, unreviewed: unreviewed,
+                                           verifierListens: facts.verifierListens, alive: facts.isAlive))
+                .readingStyle(size: TypeScale.readingSmall)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -349,9 +376,8 @@ struct VerdictCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button("Cancel") { store.updateVerdictDraft(runId) { $0.confirmingAccept = false } }
-                    .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Accept \(outcome) anyway") { run { await store.acceptVerdict(runId: runId) } }
+                Button("Accept \(outcome) anyway") { run { await store.holdAccept(runId: runId) } }
                     .buttonStyle(.primary)
                     .disabled(sending)
             }
@@ -369,12 +395,14 @@ struct VerdictCard: View {
                 .padding(Space.s)
                 .fieldFrame(focused: reasonFocused, radius: Radius.sm)
                 .onAppear { reasonFocused = true }
+                // esc in the reason is the form's Cancel.
+                .typingField(focused: reasonFocused, sends: false) { store.updateVerdictDraft(runId) { $0.action = nil } }
             HStack {
                 Button("Cancel") { store.updateVerdictDraft(runId) { $0.action = nil } }
-                    .keyboardShortcut(.cancelAction)
+                    .help("Keep the verdict open (\(ActionRegistry.label(.leave)) in the reason)")
                 Spacer()
                 Button(action == .reject ? "Reject \(outcome)" : "Send Re-check") {
-                    run { await store.sendVerdictAction(runId: runId) }
+                    run { await store.submitVerdictAction(runId: runId) }
                 }
                 .buttonStyle(.primary)
                 .disabled(sending || draft.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -382,11 +410,52 @@ struct VerdictCard: View {
         }
     }
 
+    static var undoSeconds: Int { Int(UndoWindow<PendingVerdictChoice>.length.rounded()) }
+
     private func run(_ work: @escaping @MainActor () async -> Void) {
         sending = true
         Task {
             await work()
             sending = false
+        }
+    }
+}
+
+/// An accept or dispute shown as made while it waits out its undo: nothing has reached
+/// the daemon yet, and Undo takes it back (ADR 0005).
+private struct HeldChoice: View {
+    let choice: PendingVerdictChoice
+    let outcome: String
+    let window: UndoWindow<PendingVerdictChoice>
+    let undo: () -> Void
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { tick in
+            let seconds = window.seconds(now: tick.date) ?? 0
+            HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .readingStyle(.readingSemiBold, size: TypeScale.readingSmall)
+                        .foregroundStyle(theme.color(.attention, on: .surface))
+                    Text(seconds > 0 ? "Sent in \(seconds) s. Nothing has reached greenroom yet." : "Sending")
+                        .readingStyle(size: TypeScale.small)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Spacer(minLength: Space.s)
+                Button("Undo", action: undo)
+                    .help("Take it back before it is sent (\(ActionRegistry.label(.undo)))")
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var title: String {
+        switch choice.kind {
+        case .accept: "Accepting \(outcome)"
+        case .dispute: "Disputing \(outcome)"
         }
     }
 }

@@ -199,7 +199,8 @@ struct Wordmark: View {
 
 /// `GREENROOM_SNAPSHOT=<dir>` (debug builds only): once the runs are in, open
 /// `GREENROOM_SNAPSHOT_RUN` (a run id) if given, on `GREENROOM_SNAPSHOT_PANE` (`screen`
-/// or `steps`) if given, then write the window to
+/// or `steps`) if given, press `GREENROOM_SNAPSHOT_KEYS` if given (comma-separated:
+/// `g`, `?`, `cmd+k`, `esc`, `enter`, `tab`, `shift+enter`, `text:words`), then write the window to
 /// `<dir>/<GREENROOM_SNAPSHOT_NAME or "window">-<theme>.png` in each theme of
 /// `GREENROOM_SNAPSHOT_THEMES` (default all four), put the person's theme back and quit.
 /// The window draws itself (`cacheDisplay`), so it needs no screen-recording permission.
@@ -220,7 +221,25 @@ enum SnapshotHook {
             if let pane { defaults.set(pane.rawValue, forKey: "stagePane") }
             for _ in 0..<150 where store.runs.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
             if let run, !run.isEmpty { store.selectedRunId = run }
+            // `GREENROOM_SNAPSHOT_SIZE=820x560`: the window's content at that size.
+            let size = (environment["GREENROOM_SNAPSHOT_SIZE"] ?? "").split(separator: "x").compactMap { Double($0) }
+            if size.count == 2, let window = NSApp.windows.first(where: AppDelegate.isRunWindow) {
+                window.setContentSize(CGSize(width: size[0], height: size[1]))
+            }
             try? await Task.sleep(for: .seconds(4))
+            // Real key events through the app's own queue, so the router sees them as typed.
+            let keys = (environment["GREENROOM_SNAPSHOT_KEYS"] ?? "").split(separator: ",").map(String.init)
+            if let window = NSApp.windows.first(where: AppDelegate.isRunWindow), !keys.isEmpty {
+                window.makeKeyAndOrderFront(nil)
+                for token in keys {
+                    let presses = token.hasPrefix("text:") ? token.dropFirst(5).map { String($0) } : [token]
+                    for press in presses {
+                        post(press, to: window)
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
+                }
+                try? await Task.sleep(for: .seconds(1))
+            }
             try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
             for theme in themes {
                 defaults.set(theme.rawValue, forKey: ThemePreference.key)
@@ -229,12 +248,62 @@ enum SnapshotHook {
                 let file = URL(fileURLWithPath: directory).appendingPathComponent("\(name)-\(theme.rawValue).png")
                 write(window, to: file)
             }
+            if environment["GREENROOM_SNAPSHOT_MENU"] != nil { printMenus() }
             if let saved { defaults.set(saved, forKey: ThemePreference.key) } else { defaults.removeObject(forKey: ThemePreference.key) }
             if pane != nil {
                 if let savedPane { defaults.set(savedPane, forKey: "stagePane") } else { defaults.removeObject(forKey: "stagePane") }
             }
             NSApp.terminate(nil)
         }
+    }
+
+    /// The View and Run menus as AppKit holds them: title, key equivalent, enabled.
+    private static func printMenus() {
+        for top in NSApp.mainMenu?.items ?? [] where ["View", "Run"].contains(top.title) {
+            // As when a person opens it: SwiftUI brings the items up to date then.
+            if let menu = top.submenu {
+                menu.delegate?.menuNeedsUpdate?(menu)
+                menu.delegate?.menuWillOpen?(menu)
+                menu.update()
+            }
+            for item in top.submenu?.items ?? [] where !item.isSeparatorItem {
+                let mask = item.keyEquivalentModifierMask
+                let mods = (mask.contains(.control) ? "⌃" : "") + (mask.contains(.option) ? "⌥" : "")
+                    + (mask.contains(.shift) ? "⇧" : "") + (mask.contains(.command) ? "⌘" : "")
+                let key = item.keyEquivalent.isEmpty ? "" : " [\(mods)\(item.keyEquivalent == "\u{8}" ? "⌫" : item.keyEquivalent.uppercased())]"
+                print("menu \(top.title) > \(item.title)\(key)\(item.isEnabled ? "" : " (disabled)")")
+            }
+        }
+    }
+
+    /// A key press, as the keyboard would make it: `cmd+k`, `shift+enter`, `esc`, `j`.
+    private static func post(_ token: String, to window: NSWindow) {
+        var parts = token.split(separator: "+").map(String.init)
+        let name = parts.popLast() ?? token
+        var flags: NSEvent.ModifierFlags = []
+        for modifier in parts {
+            switch modifier {
+            case "cmd": flags.insert(.command)
+            case "shift": flags.insert(.shift)
+            case "ctrl": flags.insert(.control)
+            case "opt": flags.insert(.option)
+            default: break
+            }
+        }
+        let named: [String: (UInt16, String)] = [
+            "enter": (36, "\r"), "esc": (53, "\u{1b}"), "tab": (48, "\t"), "space": (49, " "),
+            "up": (126, "\u{F700}"), "down": (125, "\u{F701}"), "left": (123, "\u{F702}"),
+            "right": (124, "\u{F703}"), "delete": (51, "\u{7f}"), "comma": (43, ","),
+        ]
+        // A typed character carries itself (KeyChord reads it from there); 50 is a key
+        // code no rule names.
+        let (code, characters) = named[name] ?? (50, name)
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: flags,
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+            characters: characters, charactersIgnoringModifiers: characters.lowercased(), isARepeat: false, keyCode: code
+        ) else { return }
+        NSApp.postEvent(event, atStart: false)
     }
 
     /// The whole window, title bar and traffic lights included, as the window draws it.

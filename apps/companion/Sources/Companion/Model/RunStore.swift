@@ -128,6 +128,11 @@ final class RunStore: PilotHost {
     private(set) var goneRun: String?
     var seekRequest: SeekRequest?
     private(set) var verdictDrafts: [String: VerdictDraft] = [:]
+    /// An accept or dispute shown as made but not yet sent: it waits out its undo
+    /// (companion ADR 0005), since the daemon cannot take a recorded message back.
+    private(set) var verdictUndo = UndoWindow<PendingVerdictChoice>()
+    /// Sends the held choice when its window ends.
+    @ObservationIgnored private var undoTimer: Task<Void, Never>?
 
     let client: DaemonClient
     /// The lease routes; the daemon client unless a test lends the screen without one.
@@ -481,13 +486,88 @@ final class RunStore: PilotHost {
         verdictDrafts[runId] = draft
     }
 
-    /// Accept, or ask first when none of the cited evidence was opened.
+    /// Accept, or ask first when none of the cited evidence was opened. The accept is
+    /// held for its undo, never sent at once.
     func requestAccept(runId: String) async {
         guard let verdict = verdict(runId), verdict.status.isOpen else { return }
         if verdictDraft(runId).openedEvidence || (verdict.evidence ?? []).isEmpty {
-            await acceptVerdict(runId: runId)
+            await holdAccept(runId: runId)
         } else {
             updateVerdictDraft(runId) { $0.confirmingAccept = true }
+        }
+    }
+
+    /// Shows the accept as made and sends it when the undo window ends.
+    func holdAccept(runId: String) async {
+        updateVerdictDraft(runId) { $0.confirmingAccept = false }
+        guard let verdict = verdict(runId), verdict.status.isOpen, let seq = verdict.seq else { return }
+        await hold(PendingVerdictChoice(runId: runId, verdictSeq: seq, kind: .accept))
+    }
+
+    /// The card's Reject (a dispute) is held for its undo; a re-check is a task and goes now.
+    func submitVerdictAction(runId: String) async {
+        let draft = verdictDraft(runId)
+        let text = draft.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch draft.action {
+        case .reject?:
+            guard !text.isEmpty, let verdict = verdict(runId), verdict.status.isOpen, let seq = verdict.seq else { return }
+            await hold(PendingVerdictChoice(runId: runId, verdictSeq: seq, kind: .dispute(reason: text)))
+        case .recheck?:
+            await sendVerdictAction(runId: runId)
+        case nil:
+            return
+        }
+    }
+
+    /// The choice waiting out its undo on this run's current verdict, if any.
+    func heldVerdictChoice(_ runId: String) -> PendingVerdictChoice? {
+        guard let held = verdictUndo.pending?.payload, held.runId == runId,
+              held.verdictSeq == verdict(runId)?.seq else { return nil }
+        return held
+    }
+
+    /// Takes the held choice back: nothing was sent. A dispute's reason stays in its draft.
+    @discardableResult
+    func undoVerdictChoice() -> PendingVerdictChoice? {
+        undoTimer?.cancel()
+        undoTimer = nil
+        return verdictUndo.undo()
+    }
+
+    /// Sends the held choice if its window has ended. The timer calls this; tests pass a
+    /// later `now`.
+    func sendHeldVerdictChoice(now: Date = Date()) async {
+        guard let due = verdictUndo.takeDue(now: now) else { return }
+        undoTimer?.cancel()
+        undoTimer = nil
+        await send(due)
+    }
+
+    private func hold(_ choice: PendingVerdictChoice) async {
+        let displaced = verdictUndo.start(choice, now: Date())
+        undoTimer?.cancel()
+        undoTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(UndoWindow<PendingVerdictChoice>.length))
+            guard !Task.isCancelled else { return }
+            await self?.sendHeldVerdictChoice()
+        }
+        // A second choice ends the first one's window: it goes now.
+        if let displaced { await send(displaced) }
+    }
+
+    /// Sends a choice whose window ended, if the verdict it was made on is still the open one.
+    private func send(_ choice: PendingVerdictChoice) async {
+        guard let verdict = verdict(choice.runId), verdict.seq == choice.verdictSeq, verdict.status.isOpen else {
+            lastError = "The verdict changed before your choice was sent, so nothing was sent."
+            return
+        }
+        switch choice.kind {
+        case .accept:
+            await acceptVerdict(runId: choice.runId)
+        case .dispute(let reason):
+            if await send(runId: choice.runId, kind: .dispute, text: reason, replyTo: choice.verdictSeq) {
+                verdictDrafts[choice.runId] = nil
+            }
         }
     }
 
@@ -607,6 +687,12 @@ final class RunStore: PilotHost {
         let pilot = ControlPilot(runId: runId, client: controlClient, host: self)
         pilots[runId] = pilot
         return pilot
+    }
+
+    /// The run's pilot if one was ever made, without making one: safe to read while a
+    /// view draws.
+    func existingPilot(_ runId: String) -> ControlPilot? {
+        pilots[runId]
     }
 
     /// A fresh live screen (ADR 0011); the caller starts it and must stop it.
