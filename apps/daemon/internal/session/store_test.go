@@ -2,10 +2,12 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -530,11 +532,20 @@ func TestOnlyVerifierProgressAndVerdictsCarryChecks(t *testing.T) {
 		{Message{From: Verifier, Kind: Verdict, Verdict: "fail", Text: "x", Checks: []Check{{ID: "a", Status: "maybe"}}}, "must be pass, fail or unchecked"},
 		{Message{From: Verifier, Kind: Verdict, Verdict: "pass", Text: "x", Checks: []Check{{ID: "a", Status: CheckUnchecked}}}, "a pass verdict needs every check pass"},
 		{Message{From: Verifier, Kind: Verdict, Verdict: "fail", Text: "x", Checks: []Check{{ID: "a", Status: CheckFail, Evidence: []int{0}}}}, "steps start at 1"},
+		{Message{From: Verifier, Kind: Progress, Checks: []Check{{ID: "a", Criterion: "c", Kinds: []string{"speed"}}}}, "kinds must be [value], [visual], [timing] or [visual, timing]"},
+		{Message{From: Verifier, Kind: Progress, Checks: []Check{{ID: "a", Criterion: "c", Kinds: []string{CheckValue, CheckVisual}}}}, "kinds must be"},
+		{Message{From: Verifier, Kind: Progress, Checks: []Check{{ID: "a", Criterion: "c", Kinds: []string{CheckTiming, CheckVisual}}}}, "kinds must be"},
+		{Message{From: Verifier, Kind: Progress, Checks: []Check{{ID: "a", Criterion: "c", Kinds: []string{CheckVisual}, Within: 3}}}, "within (3) is for a timing check"},
+		{Message{From: Verifier, Kind: Progress, Checks: []Check{{ID: "a", Criterion: "c", Kinds: []string{CheckTiming}, Within: 1}}}, "2 to 600 seconds"},
 	} {
 		if _, err := s.Append(c.m); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("append %s from %s = %v, want %q", c.m.Kind, c.m.From, err, c.want)
 		}
 	}
+	must(t, s, Message{From: Verifier, Kind: Progress, Text: "declare_checks {}\nDeclared 1 checks: build.", Checks: declared})
+	// ADR 0027: a declaration and a verdict carry each check's applied kind.
+	must(t, s, Message{From: Verifier, Kind: Progress, Text: "declare_checks {}\nDeclared 1 checks: fast.",
+		Checks: []Check{{ID: "fast", Criterion: "It is shown at once.", Kinds: []string{CheckVisual, CheckTiming}, Within: 2}}})
 	must(t, s, Message{From: Verifier, Kind: Progress, Text: "declare_checks {}\nDeclared 1 checks: build.", Checks: declared})
 	v := must(t, s, Message{From: Verifier, Kind: Verdict, Verdict: "pass", Text: "It builds.", Checks: answered})
 	if st := s.Verdict(); st.Seq != v.Seq || len(st.Checks) != 1 || st.Checks[0].Observed != "exit 0" {
@@ -546,7 +557,25 @@ func TestOnlyVerifierProgressAndVerdictsCarryChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := reopened.After(0)
-	if len(all) != 4 || len(all[1].Checks) != 1 || all[2].Checks[0].Evidence[0] != 3 || all[3].Checks != nil {
+	if len(all) != 6 || len(all[1].Checks) != 1 || !all[2].Checks[0].Is(CheckVisual) || !all[2].Checks[0].Is(CheckTiming) || all[2].Checks[0].Within != 2 ||
+		all[4].Checks[0].Evidence[0] != 3 || all[5].Checks != nil {
 		t.Errorf("after reopening = %+v, want the checks kept and the old verdict as it was", all)
+	}
+}
+
+// ADR 0027: a check with no kinds is a value check, and the single "kind" an early build wrote
+// loads as kinds.
+func TestCheckKindsLoadAndDefault(t *testing.T) {
+	var old, legacy Check
+	if err := json.Unmarshal([]byte(`{"id":"a","criterion":"c"}`), &old); err != nil || !old.Is(CheckValue) || old.Is(CheckVisual) {
+		t.Errorf("a check with no kinds = %+v, %v; want a value check", old, err)
+	}
+	if err := json.Unmarshal([]byte(`{"id":"a","criterion":"c","kind":"timing","within":3}`), &legacy); err != nil ||
+		!slices.Equal(legacy.Kinds, []string{CheckTiming}) || legacy.Within != 3 || legacy.Criterion != "c" {
+		t.Errorf("a single kind = %+v, %v; want kinds [timing]", legacy, err)
+	}
+	b, _ := json.Marshal(Check{ID: "a", Kinds: []string{CheckVisual, CheckTiming}, Within: 2})
+	if string(b) != `{"id":"a","kinds":["visual","timing"],"within":2}` {
+		t.Errorf("wire form = %s", b)
 	}
 }

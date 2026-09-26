@@ -3,6 +3,7 @@ package verifier
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -185,10 +186,11 @@ func TestAPostedVerdictCarriesEachDeclaredCriterion(t *testing.T) {
 	if got.Kind != session.Verdict || len(got.Checks) != 2 {
 		t.Fatalf("last = %+v, want the verdict with two checks", got)
 	}
-	// In declared order, each with its criterion, status, evidence and what was observed.
+	// In declared order, each with its criterion, applied kind (ADR 0027), status, evidence and
+	// what was observed.
 	want := []session.Check{
-		{ID: "build", Criterion: "swift build exits 0.", Status: "pass", Evidence: []int{build}, Observed: "The build looked as described."},
-		{ID: "tests", Criterion: "swift test reports no failures.", Status: "pass", Evidence: []int{build}, Observed: "The tests looked as described."},
+		{ID: "build", Criterion: "swift build exits 0.", Kinds: []string{session.CheckValue}, Status: "pass", Evidence: []int{build}, Observed: "The build looked as described."},
+		{ID: "tests", Criterion: "swift test reports no failures.", Kinds: []string{session.CheckValue}, Status: "pass", Evidence: []int{build}, Observed: "The tests looked as described."},
 	}
 	a, _ := json.Marshal(got.Checks)
 	b, _ := json.Marshal(want)
@@ -325,6 +327,12 @@ func TestDescribeEffect(t *testing.T) {
 			el(3, "StaticText", "", "No items", false, 0.35),
 		}}, []string{machine.EffectChanged, "effect: 1 change", "3 elements moved"}},
 		{"another app", machine.UITree{App: "Finder"}, []string{machine.EffectChanged, "effect: the frontmost app is now Finder (was Groceries)"}},
+		// ADR 0027: text that stops being drawn is a change, and so is text that starts.
+		{"hidden", machine.UITree{App: "Groceries", Elements: []machine.UIElement{
+			el(1, "TextField", "Item", "Apples", false, 0.1),
+			el(2, "Button", "Add", "", false, 0.2),
+			{ID: 3, Role: "StaticText", Value: "No items", X: 0.3, Y: 0.5, Rendered: machine.RenderedBlank},
+		}}, []string{machine.EffectChanged, "effect: 1 change", `[3] StaticText: now not drawn`}},
 	}
 	for _, c := range cases {
 		kind, got := describeEffect(before, c.after)
@@ -527,15 +535,20 @@ func TestParseDeclaredChecks(t *testing.T) {
 		{map[string]any{"checks": []map[string]any{{"id": "a", "criterion": " "}}}, `check "a" needs a criterion`},
 		{map[string]any{"checks": []map[string]any{{"id": strings.Repeat("x", 41), "criterion": "y"}}}, "check 1 needs an id of 1 to 40 characters"},
 		{"not an object", "your arguments did not parse"},
+		{map[string]any{"checks": []map[string]any{{"id": "a", "criterion": "x", "kinds": []string{"visual", "speed"}}}}, `check "a" kind "speed" is not value, visual or timing`},
+		{map[string]any{"checks": []map[string]any{{"id": "a", "criterion": "x", "kind": "timing", "within": 0}}}, `check "a" within must be seconds, above 0`},
+		{map[string]any{"checks": []map[string]any{{"id": "a", "criterion": "x", "kind": "timing", "within": 601}}}, "at most 600"},
+		{map[string]any{"checks": []map[string]any{{"id": "a", "criterion": "x", "kinds": []string{"visual"}, "within": 3}}}, `check "a" is not timing; within is for a timing check only`},
 	} {
 		b, _ := json.Marshal(c.args)
-		checks, problem := parseDeclaredChecks(string(b))
+		checks, _, problem := parseDeclaredChecks(string(b))
 		if checks != nil || !strings.HasPrefix(problem, "error: declare_checks") || !strings.Contains(problem, c.want) {
 			t.Errorf("parseDeclaredChecks(%s) = %v, %q, want %q", b, checks, problem, c.want)
 		}
 	}
-	checks, problem := parseDeclaredChecks(`{"checks":[{"id":7,"criterion":" Total is $48.00 "}]}`)
-	if problem != "" || len(checks) != 1 || checks[0].ID != "7" || checks[0].Criterion != "Total is $48.00" {
+	checks, _, problem := parseDeclaredChecks(`{"checks":[{"id":7,"criterion":" Total is $48.00 "}]}`)
+	if problem != "" || len(checks) != 1 || checks[0].ID != "7" || checks[0].Criterion != "Total is $48.00" ||
+		!slices.Equal(checks[0].Kinds, []string{session.CheckValue}) {
 		t.Errorf("parseDeclaredChecks = %+v, %q", checks, problem)
 	}
 }

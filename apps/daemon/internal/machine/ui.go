@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 )
@@ -26,22 +27,25 @@ const (
 // and W and H its size, all fractions of the screen (0 to 1), clipped to
 // what is visible. Depth is its nesting among listed elements, for indenting.
 type UIElement struct {
-	ID         int     `json:"id"`
-	Role       string  `json:"role"`
-	Subrole    string  `json:"subrole,omitempty"`
-	Title      string  `json:"title,omitempty"`
-	Label      string  `json:"label,omitempty"`
-	Value      string  `json:"value,omitempty"`
-	Help       string  `json:"help,omitempty"`
-	Identifier string  `json:"identifier,omitempty"`
-	Disabled   bool    `json:"disabled,omitempty"`
-	Selected   bool    `json:"selected,omitempty"`
-	Focused    bool    `json:"focused,omitempty"`
-	Depth      int     `json:"depth"`
-	X          float64 `json:"x"`
-	Y          float64 `json:"y"`
-	W          float64 `json:"w"`
-	H          float64 `json:"h"`
+	ID         int    `json:"id"`
+	Role       string `json:"role"`
+	Subrole    string `json:"subrole,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Label      string `json:"label,omitempty"`
+	Value      string `json:"value,omitempty"`
+	Help       string `json:"help,omitempty"`
+	Identifier string `json:"identifier,omitempty"`
+	Disabled   bool   `json:"disabled,omitempty"`
+	Selected   bool   `json:"selected,omitempty"`
+	Focused    bool   `json:"focused,omitempty"`
+	// Rendered is set when the screen does not show what the element says (ADR 0027):
+	// RenderedBlank, RenderedOffscreen or RenderedCovered. Empty means drawn, or not checked.
+	Rendered string  `json:"rendered,omitempty"`
+	Depth    int     `json:"depth"`
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	W        float64 `json:"w"`
+	H        float64 `json:"h"`
 }
 
 // UITree is one read of an application's accessibility tree.
@@ -58,6 +62,9 @@ type UITree struct {
 	TruncatedBy string  `json:"truncatedBy,omitempty"`
 	Seconds     float64 `json:"seconds"`
 	Step        int     `json:"step"`
+	// Unrendered is why the read's text could not be checked against the screen (ADR 0027),
+	// or empty when it was, or when the read has no text to check.
+	Unrendered string `json:"unrendered,omitempty"`
 }
 
 // rawUITree is what the helper prints: frames in points, top-left origin.
@@ -176,7 +183,12 @@ func (m *Manager) readUI(ctx context.Context, mc *Machine, app string, limit int
 	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &raw); err != nil {
 		return UITree{}, fmt.Errorf("read the UI tree: %w: %.200s", err, strings.TrimSpace(res.Stdout))
 	}
-	return uiFractions(raw)
+	tree, err := uiFractions(raw)
+	if err != nil {
+		return tree, err
+	}
+	m.markRendered(ctx, mc, raw, &tree)
+	return tree, nil
 }
 
 // uiFractions turns the helper's point frames into center fractions of the
@@ -283,6 +295,10 @@ func (t UITree) Outline() string {
 	fmt.Fprintf(&b, ". Screen %dx%d points.\n", t.Screen.Width, t.Screen.Height)
 	b.WriteString("Each line: [id] role \"title\" label=... value=... state, then center (x, y) and size as fractions of the screen, " +
 		"the same space machine_click takes. To click an element, pass its id as element, or its center as x and y.\n")
+	if slices.ContainsFunc(t.Elements, func(e UIElement) bool { return e.Rendered != "" }) {
+		b.WriteString("[not drawn]: the screen shows no text in its frame. [offscreen]: outside the screen. " +
+			"[covered]: under another window. A person cannot read what such an element says.\n")
+	}
 	if len(t.Elements) == 0 {
 		b.WriteString("(no on-screen elements: the app has no visible window, or does not expose accessibility)\n")
 	}
@@ -308,7 +324,13 @@ func (t UITree) Outline() string {
 				b.WriteString(" " + st.word)
 			}
 		}
+		if mark := renderedMarks[e.Rendered]; mark != "" {
+			b.WriteString(" " + mark)
+		}
 		fmt.Fprintf(&b, " center (%.3f, %.3f) size %.3fx%.3f\n", e.X, e.Y, e.W, e.H)
+	}
+	if t.Unrendered != "" {
+		fmt.Fprintf(&b, "(text not checked against the screen: %s)\n", t.Unrendered)
 	}
 	switch {
 	case !t.Truncated:

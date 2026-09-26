@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 )
@@ -23,6 +25,7 @@ const (
 	effectUnknown  = "effect: unknown"
 	effectReadLine = "machine_ui step %d read the UI after this input."
 	effectNoTree   = effectUnknown + " (no UI tree). Take a machine_screenshot to see what this input did."
+	effectQuit     = "effect: %s is no longer running (it quit or crashed)."
 )
 
 // maxEffectChanges caps the changed elements listed; maxEffectValue caps each value shown.
@@ -40,14 +43,18 @@ func isInputTool(name string) bool {
 	return false
 }
 
-// effectCheck reads the UI after input step of and describes what changed since prev, the
-// verifier's read before the input (hadPrev false when it had none). The read's step record
-// stores the effect.
-func (v *Verifier) effectCheck(ctx context.Context, runID string, of int, prev machine.UITree, hadPrev bool) string {
+// effectCheck reads the UI after input step of, which started at inputAt, and describes what
+// changed since prev, the verifier's read before the input (hadPrev false when it had none).
+// The read's step record stores the effect. When the app quit, the effect names its newest crash
+// report since the input (ADR 0028).
+func (v *Verifier) effectCheck(ctx context.Context, runID string, of int, inputAt time.Time, prev machine.UITree, hadPrev bool) string {
 	text := ""
 	_, _, _ = v.mgr.UIEffect(ctx, runID, machine.HolderVerifier, verifierUILimit, of,
 		func(tree machine.UITree, err error) machine.StepEffect {
 			kind, summary := judgeEffect(prev, hadPrev, tree, err)
+			if kind == machine.EffectQuit {
+				summary += v.crashLine(ctx, runID, prev.App, inputAt)
+			}
 			text = summary
 			if kind != machine.EffectUnknown || err == nil && len(tree.Elements) > 0 {
 				text = fmt.Sprintf(effectReadLine, tree.Step) + "\n" + summary
@@ -60,9 +67,31 @@ func (v *Verifier) effectCheck(ctx context.Context, runID string, of int, prev m
 	return text
 }
 
-// judgeEffect is the effect kind and the lines the model reads, for a read after an input.
+// crashLine is the line naming app's newest crash report since inputAt, or "" when there is none
+// or it cannot be read: the quit alone is the evidence, the report only says why.
+func (v *Verifier) crashLine(ctx context.Context, runID, app string, inputAt time.Time) string {
+	r, found, err := v.mgr.FindCrashReport(ctx, runID, app, time.Since(inputAt))
+	if err != nil {
+		v.log.Warn("verifier cannot look for a crash report", "runId", runID, "app", app, "err", err)
+	}
+	if !found {
+		return ""
+	}
+	line := "\nCrash report: " + r.Path
+	if r.Exception != "" {
+		line += "\n  " + clip(r.Exception, 200)
+	}
+	return line
+}
+
+// judgeEffect is the effect kind and the lines the model reads, for a read after an input. The
+// app quit when it was a running app in a usable read before (one with elements, as a diff
+// needs) and is not one now (ADR 0028); a read that lists no running apps cannot say.
 func judgeEffect(prev machine.UITree, hadPrev bool, tree machine.UITree, err error) (kind, text string) {
 	switch {
+	case err == nil && hadPrev && len(prev.Elements) > 0 && prev.App != "" && slices.Contains(prev.Apps, prev.App) &&
+		len(tree.Apps) > 0 && !slices.Contains(tree.Apps, prev.App):
+		return machine.EffectQuit, fmt.Sprintf(effectQuit, prev.App)
 	case err != nil || len(tree.Elements) == 0:
 		return machine.EffectUnknown, effectNoTree
 	case !hadPrev || len(prev.Elements) == 0:
@@ -170,7 +199,7 @@ func identity(e machine.UIElement) string {
 
 func signature(e machine.UIElement) string {
 	return identity(e) + "\x00" + e.Value + "\x00" + strconv.FormatBool(e.Selected) + strconv.FormatBool(e.Focused) +
-		strconv.FormatBool(e.Disabled)
+		strconv.FormatBool(e.Disabled) + "\x00" + e.Rendered
 }
 
 // stateChanges names each difference between two reads of one element.
@@ -190,7 +219,21 @@ func stateChanges(a, b machine.UIElement) []string {
 			out = append(out, "no longer "+st.word)
 		}
 	}
+	switch {
+	case a.Rendered == b.Rendered:
+	case b.Rendered == "":
+		out = append(out, "now drawn")
+	default:
+		out = append(out, "now "+renderedMarkWords[b.Rendered])
+	}
 	return out
+}
+
+// renderedMarkWords names a machine.UIElement.Rendered mark in a change line.
+var renderedMarkWords = map[string]string{
+	machine.RenderedBlank:     "not drawn",
+	machine.RenderedOffscreen: "offscreen",
+	machine.RenderedCovered:   "covered",
 }
 
 // elementName is the role and the first name an element has, never its value, which a change

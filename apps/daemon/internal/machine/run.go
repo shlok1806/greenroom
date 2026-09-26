@@ -256,7 +256,7 @@ type Step struct {
 // StepEffect is what an input changed on the screen, found by the UI read it is recorded on.
 type StepEffect struct {
 	Of      int    `json:"of"`                // the input step
-	Kind    string `json:"kind"`              // EffectChanged, EffectNone or EffectUnknown
+	Kind    string `json:"kind"`              // EffectChanged, EffectNone, EffectUnknown or EffectQuit
 	Summary string `json:"summary,omitempty"` // what changed, as the model was told
 }
 
@@ -265,6 +265,8 @@ const (
 	EffectChanged = "changed"
 	EffectNone    = "none"
 	EffectUnknown = "unknown"
+	// EffectQuit: the app that was frontmost before the input is no longer running (ADR 0028).
+	EffectQuit = "quit"
 )
 
 // recorder writes a run's manifest, step log and frame log under dir. It is

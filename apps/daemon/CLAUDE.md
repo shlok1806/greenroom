@@ -426,9 +426,19 @@ Conversation and verifier
   from the transcript and every step fact from the step records; both are files, so a restart
   loses nothing:
   - `declare_checks` posts a verifier `progress` carrying `checks` (1 to 12, id 1 to 40
-    characters, unique, each with a criterion). The checklist a verdict answers is the newest
+    characters, unique, each with a criterion and its applied `kinds`, ADR 0027). The checklist a verdict answers is the newest
     declaration after the newest coder or human task (`declaredChecks`); declaring again
-    replaces it. While a task is open and has no declaration, the input tools (click, type,
+    replaces it until the verifier's first input on the task (a progress with a step whose call
+    is an input tool, `actedOnTask`). After that, `redeclareRefusal` refuses a declaration that
+    drops a check, changes its criterion, loses one of its kinds or lengthens its timing window
+    (an `error:` result, no `checks` on the progress, the old list stands): otherwise a model
+    could shed the check it is failing. Adding checks is allowed. The prompt and the tool
+    description say a check is an outcome the task claims, not a setup step or an action it
+    asks for (a todolist run declared "three items appear" and "Milk and Eggs are ticked" as
+    visual checks and ended inconclusive), and visual is for claims about appearance or
+    visibility only; a model may still declare visual on its own ("stricter is allowed"). The
+    visual rule's refusal says to take a screenshot now if the state is still on screen, and
+    otherwise to answer the check unchecked. While a task is open and has no declaration, the input tools (click, type,
     key, scroll, input) get `declareFirst`, an ordinary `error:` result with no step that counts
     toward #125. Looking and `machine_exec` are never refused.
   - Step facts come from `Manager.Steps` (steps.jsonl), never from progress text, which is
@@ -448,11 +458,42 @@ Conversation and verifier
     progress, never as a verdict. inconclusive is never refused: `settle` posts a missing
     answer and any pass or fail answer that broke a rule as `unchecked`, `observed` saying why.
     The top-level `evidence` is artifact paths only; a step there is refused.
+  - Check kinds (ADR 0027; `kinds.go`, rules in `evidence.go`). `kinds` is `["value"]`
+    (default), or `visual`, `timing` or both (`["visual", "timing"]`, always in that order);
+    `within` (seconds) only with timing. The declaration takes `kinds`, or one `kind` as a
+    model may send it. `applyKinds` only adds: criterion words in `visualWords` add visual,
+    `timingWords` or "within N s" (`withinRE`) add timing, matched case-insensitively on word
+    boundaries (`wordsRE`), and value is dropped once another kind is there. A `within` with
+    no kind means timing. The window is the smaller of the declared and worded N, default and floor
+    `session.MinWithin` (2 s, the effect read comes 1 to 2 s after an input), cap 600. The
+    declaration result lists each check's kind and what it needs, and every upgrade or raised
+    window. The applied kind and window are stored on the declaration and copied onto the
+    verdict's checks. Every kind's rules apply (`session.Check.Is`), for pass and fail alike
+    unless said: `visualRule` needs a `machine_screenshot` evidence step after the check's last
+    action; `timingRule` needs an action and an evidence step after it whose `at` is at most
+    `within` s after that action's end (`at + durationMs`), for a pass also after an effect
+    read that found no change, and a pass may cite no evidence after its action that started
+    later, except, on a check that is also visual, a screenshot (it shows how it looks, not
+    when; the in-time step is still required, and may be the screenshot); `drawnRule` (pass only, every
+    kind) refuses when the verifier's newest `machine_ui` step at or before the check's newest
+    evidence step marks an element `rendered` and the check's criterion or observed names
+    something of it that no drawn element of that read shows too (`mentionTerms`: one of its
+    texts as whole words, or one of its numbers). A number with a decimal point or separator
+    counts alone; a bare integer only when it is the element's whole text but for symbols
+    ("10", "$10") or one of the element's words (2+ letters) is in the claim too. So "Value
+    shows 10" rests on a drawn field reading 10, never on a blank "10 km = 6.21 mi", and a
+    drawn "Each pays" label does not carry a blank "$49.56" beside it.
+  - A crash is evidence (ADR 0028). A fail answer whose `actions` include an input whose effect
+    read found the app gone (`quit`), and whose `evidence` cites that read, holds on it alone:
+    no freshness, handover, visual or timing rule applies. A pass citing a `quit` read is
+    refused (`quit` rule), whatever else it cites. The prompt says a crash while doing the
+    task fails the checks that depend on it, and to relaunch once only for a later check that
+    does not.
   - The closing call at a limit (#127) goes through `downgrade`: a pass or fail that breaks a
     rule is posted as inconclusive, the reasons appended to the summary.
   - After every verifier input that ran, `runTool` reads the frontmost app's UI through
     `Manager.UIEffect` as `HolderVerifier` (a step, a look for #124, and the effect written on
-    that step's record as `{"of": <input step>, "kind": "changed|none|unknown", "summary"}`) and diffs it against the
+    that step's record as `{"of": <input step>, "kind": "changed|none|unknown|quit", "summary"}`) and diffs it against the
     verifier's previous read (`Manager.LastUI`): pairing by role plus identifier, else role,
     title and label, then comparing value, selected, focused and disabled (`diffElements`,
     capped at `maxEffectChanges`). The result ends with `machine_ui step N read the UI after
@@ -461,6 +502,17 @@ Conversation and verifier
     machine_ui read to compare)`. The wording is free to change; the kind is what the review
     reads. The effect read replaces the verifier's tree, so element ids may shift; the result says so
     when elements appeared or went away.
+  - `quit` (ADR 0028, `judgeEffect`): the app of the verifier's previous read (one with
+    elements, the same read a diff needs) was among that read's running apps (`UITree.apps`, the helper's regular apps) and is not among the effect
+    read's, whatever that read lists. An app that was not a regular app before (an accessory
+    or agent app) is never judged gone. The line is `effect: <App> is no longer running (it
+    quit or crashed).`, then `Crash report: <path>` and its first `"exception"` line when
+    `Manager.FindCrashReport` finds one: the newest `~/Library/Logs/DiagnosticReports/<App>*.ips`
+    modified since the input by the guest's own clock (the host passes an age, never a time),
+    looked for for up to 3 s because ReportCrash writes it after the process dies. The lookup
+    is a plain `tart exec` inside the effect read, records no step, and a failure is logged
+    and leaves the quit line alone. `crash.go`'s script takes the app name as an argument; its
+    real-shell test is `crash_test.go`. The fake tart answers it from `crash-report`.
   - The coder's task is projected with `claimLabel` after it (a human's task is not), and the
     system prompt says a verdict rests only on the verifier's observations.
   - `Manual` is exempt: no gate, no effect check, no review; its verdict keeps the free
@@ -471,16 +523,23 @@ Conversation and verifier
     daemon; `VerdictState.checks` repeats them, and `agent_wait` returns both:
 
     ```json
-    {"kind": "progress", "from": "verifier", "text": "declare_checks {...}\nDeclared 2 checks: total, tip. ...",
-     "checks": [{"id": "total", "criterion": "Each pays shows $48.00"}, {"id": "tip", "criterion": "25% can be selected"}]}
+    {"kind": "progress", "from": "verifier", "text": "declare_checks {...}\nDeclared 2 checks: total (value), fast (visual: ...; timing within 2 s: ...). ...",
+     "checks": [{"id": "total", "criterion": "Each pays shows $48.00", "kinds": ["value"]},
+                {"id": "fast", "criterion": "Each pays is shown at once", "kinds": ["visual", "timing"], "within": 2}]}
     {"kind": "verdict", "from": "verifier", "verdict": "fail", "text": "...", "evidence": ["/abs/run/012-screenshot.png"],
-     "checks": [{"id": "total", "criterion": "Each pays shows $48.00", "status": "fail", "evidence": [12], "actions": [9],
+     "checks": [{"id": "total", "criterion": "Each pays shows $48.00", "kinds": ["value"], "status": "fail", "evidence": [12], "actions": [9],
                  "observed": "Each pays shows $0.00."},
-                {"id": "tip", "criterion": "25% can be selected", "status": "unchecked", "observed": "Not answered."}]}
+                {"id": "fast", "criterion": "Each pays is shown at once", "kinds": ["visual", "timing"], "within": 2, "status": "unchecked",
+                 "observed": "Not answered."}]}
     ```
 
-    `status` is `pass`, `fail` or `unchecked`; `evidence`, `actions` and `observed` are left
-    out when empty. Transcripts from before ADR 0024 have no `checks` and load as they were.
+    `status` is `pass`, `fail` or `unchecked`; `kinds` is `["value"]`, `["visual"]`,
+    `["timing"]` or `["visual", "timing"]` (`session.validate` refuses others, and `within`
+    without timing or outside 2 to 600); `kinds`, `within`, `evidence`, `actions` and
+    `observed` are left out when empty. Transcripts from before ADR 0024 have no `checks`, and
+    checks from before ADR 0027 no `kinds` (read as value); both load as they were. A single
+    `"kind"` string, which an early ADR 0027 build wrote, loads as `kinds`
+    (`Check.UnmarshalJSON`).
 - Machine status snapshots (`snapshot` in `context.go`) ignore the turn context's
   cancellation, so a dead budget never reads as "Machine status: gone" to the closing call.
 - A failing tool call (a result starting `error:`) is counted per turn by tool, canonical
@@ -598,6 +657,20 @@ UI tree (ADR 0012)
   bar and bare layout skipped, capped at `limit` (default 250, verifier 200, max 1000).
   It needs Accessibility, which the image grants to tart-guest-agent; the helper inherits
   it. No lease. Every read is a `machine_ui` step with the whole tree.
+- Text that is not drawn (ADR 0027, `render.go`). A read whose tree has a text element (a
+  title, label or value on anything but a window-sized container, `unmarkedRoles`) captures
+  the screen once with `captureScreen` and, concurrently, `--desktop`'s window list, then
+  sets `UIElement.rendered`: `offscreen` for a frame outside the display, `covered` when
+  another app's window in front of the app's own (CGWindowList is front to back; system
+  owners from `desktopcheck.go` and alpha 0 never count) holds the whole frame, `blank` when
+  the frame, inset a point, has fewer than `minInk` pixels differing from its most common
+  colour by more than `inkDelta` in a channel. Frames are points and the capture pixels:
+  the scale is measured (capture width over screen points), never assumed. A capture that
+  fails or does not match the screen leaves the tree unmarked with `unrendered` saying why.
+  `Outline` shows `[not drawn]`, `[offscreen]`, `[covered]` after the element's state, with
+  one legend line when any is present. The marks live in the step's output, which the verdict
+  review reads, and a change in them is an effect change. The helper already drops elements
+  wholly outside the screen, a window or a scroll area, so `offscreen` is rare.
 - `Manager.UI` keeps the last good tree per machine and reader (`HolderCoder`,
   `HolderVerifier`); `machine_click {element}` aims at the caller's own tree via
   `ElementCenter` without re-reading, so a verifier read never retargets a coder's ids
@@ -813,7 +886,8 @@ mode, each read back with the copy's signature).
   `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-timezone`, `fail-lean`, `ui.json` (what `--ui-base64`
   prints), `desktop.json` (what `--desktop` prints), `toolchain.json` (the image's manifest),
   `fail-base`, `fail-toolchain`, `toolchain-measured` (what the manifest script writes),
-  `fail-disk`, `fail-xcode`, `fail-softwareupdate`, `fail-check-<exercise>` and
+  `fail-disk`, `fail-xcode`, `fail-softwareupdate`, `fail-check-<exercise>`, `crash-report` (what
+  the effect read's crash report lookup prints, ADR 0028) and
   `softwareupdate` (image build and gate), `tart-version` (fake a version mismatch), `exec-sleep` and `exec-stdout` (a slow or
   loud machine_exec), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session reaches tart on a
@@ -857,6 +931,27 @@ mode, each read back with the copy's signature).
 - ADR 0024 puts the effect on "the step record"; steps.jsonl is append-only and the input's
   line is written before its effect is known, so the effect lives on the UI read that found
   it (`effect.of` names the input step), not on the input's own line.
+- ADR 0027: point 4 also covers timing checks, and "the latest read" is the verifier's newest
+  `machine_ui` at or before the check's newest evidence step, cited or not; which element a
+  check rests on is guessed from its criterion and observed text (`mentions`). The visual
+  screenshot rule and the timing window rule apply to fail answers as well as passes, and a
+  timing pass may not cite an observation after its action that started late, except a
+  screenshot on a check that is also visual: the verifier cannot take a screenshot within 2 s
+  of an input (a model step takes longer), so without that a visual and timing check could
+  never pass; its in-time evidence is then usually the effect read. The keyword lists add a few
+  inflections to the ADR's (invisible, legible, color, instant, without delay). `covered`
+  counts only other apps' non-system windows over the whole frame. `offscreen` marks only
+  frames the helper still reports outside the display: the walk already drops elements
+  outside the screen, a window or a scroll area. Point 4's "rests on" does not fire when a
+  drawn element of the same read shows the same thing the claim names (see `drawnRule`),
+  and a bare integer names an element only as its whole text or beside one of its words: the
+  first simple-tier run refused a correct fail over a Value field reading 10 and a blank
+  result reading "10 km = 6.21 mi".
+- ADR 0028 detects a quit as "the frontmost app before the input no longer running"; the code
+  takes the app of the verifier's previous read (which may be an app it named, not the
+  frontmost) and the running regular apps the effect read lists. A pass is refused only when
+  it cites the quit read as evidence, as the ADR's consequences say; a pass whose actions
+  include the quitting input but cites a later read is judged by the other rules.
 - ADR 0025: a case's `patch` is the path of a `.diff` under `bench/cases/` (`patches/<id>.diff`),
   not the diff inline in the JSON, so patches read and review as diffs and lying cases reuse
   their mutant's. v1 has 4 fixture apps, not the 5 to 7 the ADR expects in all. Checklist

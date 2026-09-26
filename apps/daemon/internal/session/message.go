@@ -2,6 +2,7 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"time"
@@ -50,16 +51,47 @@ type Message struct {
 }
 
 // Check is one acceptance check of the verifier's (ADR 0024). A progress message from
-// declare_checks carries the list with ID and Criterion only. A verdict answers each one with a
-// Status, the observation steps that show it (Evidence), the input steps it depends on (Actions)
-// and what was seen (Observed).
+// declare_checks carries the list with ID, Criterion and the applied Kinds (and Within) only. A
+// verdict answers each one with a Status, the observation steps that show it (Evidence), the input
+// steps it depends on (Actions) and what was seen (Observed), and repeats its Kinds (ADR 0027).
 type Check struct {
 	ID        string `json:"id"`
 	Criterion string `json:"criterion,omitempty"`
-	Status    string `json:"status,omitempty"`   // verdict: pass, fail or unchecked
-	Evidence  []int  `json:"evidence,omitempty"` // verdict: machine_ui, machine_screenshot or machine_exec steps
-	Actions   []int  `json:"actions,omitempty"`  // verdict: input steps the check depends on
-	Observed  string `json:"observed,omitempty"` // verdict: what the evidence showed, one sentence
+	// Kinds is what evidence the check needs (ADR 0027): [CheckValue], or CheckVisual,
+	// CheckTiming or both, in that order; each kind's rules apply. Empty on transcripts from
+	// before ADR 0027, where it means [CheckValue].
+	Kinds []string `json:"kinds,omitempty"`
+	// Within is a timing check's window in seconds, from the end of its last action.
+	Within   float64 `json:"within,omitempty"`
+	Status   string  `json:"status,omitempty"`   // verdict: pass, fail or unchecked
+	Evidence []int   `json:"evidence,omitempty"` // verdict: machine_ui, machine_screenshot or machine_exec steps
+	Actions  []int   `json:"actions,omitempty"`  // verdict: input steps the check depends on
+	Observed string  `json:"observed,omitempty"` // verdict: what the evidence showed, one sentence
+}
+
+// Is reports whether the check has kind k. A check with no kinds is a value check.
+func (c Check) Is(k string) bool {
+	if len(c.Kinds) == 0 {
+		return k == CheckValue
+	}
+	return slices.Contains(c.Kinds, k)
+}
+
+// UnmarshalJSON also reads the single "kind" an early ADR 0027 build wrote, as Kinds.
+func (c *Check) UnmarshalJSON(b []byte) error {
+	type plain Check
+	var in struct {
+		plain
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal(b, &in); err != nil {
+		return err
+	}
+	*c = Check(in.plain)
+	if len(c.Kinds) == 0 && in.Kind != "" {
+		c.Kinds = []string{in.Kind}
+	}
+	return nil
 }
 
 // Check statuses on a verdict.
@@ -69,10 +101,20 @@ const (
 	CheckUnchecked = "unchecked"
 )
 
-// Limits on a declared checklist (ADR 0024).
+// Check kinds (ADR 0027).
+const (
+	CheckValue  = "value"  // a text, number or state; any observation can show it
+	CheckVisual = "visual" // appearance on screen; needs a screenshot after its actions
+	CheckTiming = "timing" // something happens within Within seconds of its last action
+)
+
+// Limits on a declared checklist (ADR 0024, 0027). MinWithin is the shortest timing window the
+// effect read after an input can meet; a shorter one is raised to it.
 const (
 	MaxChecks  = 12
 	MaxCheckID = 40
+	MinWithin  = 2.0
+	MaxWithin  = 600.0
 )
 
 // Control values: a system event saying a person took the screen, or that it came back to nobody
@@ -190,6 +232,12 @@ func validateChecks(m Message) error {
 			return fmt.Errorf("check id %q appears twice", c.ID)
 		}
 		seen[c.ID] = true
+		if err := validKinds(c.Kinds); err != nil {
+			return fmt.Errorf("check %q %w", c.ID, err)
+		}
+		if c.Within != 0 && (!c.Is(CheckTiming) || c.Within < MinWithin || c.Within > MaxWithin) {
+			return fmt.Errorf("check %q: within (%g) is for a timing check, %g to %g seconds", c.ID, c.Within, MinWithin, MaxWithin)
+		}
 		for _, n := range append(slices.Clone(c.Evidence), c.Actions...) {
 			if n <= 0 {
 				return fmt.Errorf("check %q cites step %d; steps start at 1", c.ID, n)
@@ -214,4 +262,16 @@ func validateChecks(m Message) error {
 		}
 	}
 	return nil
+}
+
+// validKinds allows no kinds, [value], or visual and timing once each, in that order.
+func validKinds(kinds []string) error {
+	switch {
+	case len(kinds) == 0, len(kinds) == 1 && kinds[0] == CheckValue:
+		return nil
+	case slices.Equal(kinds, []string{CheckVisual}), slices.Equal(kinds, []string{CheckTiming}),
+		slices.Equal(kinds, []string{CheckVisual, CheckTiming}):
+		return nil
+	}
+	return fmt.Errorf("kinds must be [value], [visual], [timing] or [visual, timing], not %q", kinds)
 }

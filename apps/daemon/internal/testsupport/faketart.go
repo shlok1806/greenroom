@@ -38,6 +38,8 @@ import (
 //	screen              "<width>x<height>" the input helper reports (default 1024x768)
 //	shot.b64            base64 PNG a screenshot returns
 //	ui.json             what the input helper's --ui-base64 prints (default: Finder, no elements)
+//	crash-report        what the crash report lookup prints: a report's path, then its exception
+//	                    line (default: nothing, no report)
 //	fail-session        an interactive session (`exec -i ... greenroom-session`) exits 1 at once
 //	fail-serve          the live screen helper (`exec -i ... --serve`) fails to start
 //	session-exits       a session's output file holds session-output, if present, and it exits at once,
@@ -178,6 +180,10 @@ case "$sub" in
           [ -e "$f" ] || continue
           case "$*" in *"greenroom-check-${f##*/fail-check-}"*) echo "execution error: AppleEvent timed out. (-1712)" >&2; exit 1 ;; esac
         done ;;
+    esac
+    # The effect read's crash report lookup (machine/crash.go, ADR 0028).
+    case "$*" in
+      *greenroom-crash-report*) cat "$C/crash-report" 2>/dev/null; exit 0 ;;
     esac
     case "$*" in
       *"greenroom-input"*"--desktop"*)
