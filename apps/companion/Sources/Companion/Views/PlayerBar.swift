@@ -187,7 +187,7 @@ struct PlayerBar: View {
                 }
                 if !marks.evidence.isEmpty {
                     HStack(spacing: Space.xs) {
-                        Text("◆").foregroundStyle(theme.outcome(marks.verdict))
+                        Text("◆").foregroundStyle(theme.foreground)
                         Text("evidence")
                     }
                 }
@@ -308,7 +308,7 @@ struct FrameTrack: View {
                     let superseded = marks.superseded.contains(group.first.step) && !marks.evidence.contains(group.first.step)
                     Text(superseded ? "◇" : "◆")
                         .font(.system(size: TypeScale.mark, weight: .bold))
-                        .foregroundStyle(superseded ? theme.dim : theme.outcome(marks.verdict))
+                        .foregroundStyle(superseded ? theme.dim : theme.foreground)
                         .frame(width: 11, height: 11)
                         .contentShape(Rectangle())
                         .help(markHelp(group))

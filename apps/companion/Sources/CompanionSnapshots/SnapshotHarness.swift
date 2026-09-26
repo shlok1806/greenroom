@@ -652,6 +652,10 @@ final class SnapshotHarness {
             defer: false
         )
         window.isReleasedWhenClosed = false
+        // The app's window has no title bar (`.hiddenTitleBar`); a harness window is made by
+        // hand, and the first one of a run drew its title before the chrome hid it.
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
         window.appearance = NSAppearance(named: appearance)
         window.title = "Greenroom Companion"
         let keyboard = KeyboardModel(store: store)

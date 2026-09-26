@@ -11,7 +11,9 @@ the app is not a terminal and does not pretend to be one.
 Decisions: companion ADR 0004 (grid, type, colour, cursor, layout, rendering), 0005 (keys
 and the action registry), 0006 (motion and signature moments), 0007 (dependency
 allowlist), 0008 (readable type and the olive brand, amending 0004's type and colour
-decisions), with 0002 and 0003 (run state, verdict trust, one vocabulary) still in force.
+decisions), 0011 (the verdict as a ledger), with 0002 and 0003 (run state, verdict trust,
+one vocabulary) still in force. The point of view behind 0011 onward, "a lightbox with a
+ledger", is in `design-research-2.md` section 5; what it fixes is in `ux-audit.md`.
 Data: `design/themes/*.json` and `design/tokens.json` at the repo root. Research:
 `design-research.md`. Terms (run, verdict state, frame, lease, driving, cell, voice) are in
 `../CONTEXT.md`.
@@ -60,6 +62,36 @@ Window (one layout, chrome on the mono grid, prose proportional)
 - The verdict lives in one place with its actions (the pinned card). The transcript keeps
   its history; older verdicts read as superseded.
 - Screen and Steps are no longer tabs. They share the stage and move together.
+
+## The verdict as a ledger (ADR 0011)
+
+Deciding whether to trust a verdict is the first job. The card is read top to bottom in
+this order, and nothing inside it is boxed:
+
+```
+ ! NEEDS REVIEW  proposed by the verifier                         Evidence ▾
+ ✗ FAIL    ✗ 2 failed  ○ 1 not checked  ✓ 5 passed
+▌✗ Each pays shows $48.00 with 3 people  failed  visual
+    Each pays read $8.00, not $48.00.
+    ! UI read 11: "Each pays: $8.00" is not drawn
+    UI read 11 ↗   Screenshot 12 ↗   after step 10
+  ○ Each pays becomes $50.00 at 25%  not checked
+  ✓ Tip shows $24.00 for a $120 bill at 20%
+    ...
+ THE VERIFIER'S SUMMARY
+ The TipSplit app calculates "Each pays" incorrectly. After setting...
+ Accept closes it as Fail. Reject sends your reason to the verifier...
+ [Reject...]                                               [Accept Fail]
+```
+
+- The tally beside the outcome is the glance: counts with their marks, failed first, in
+  the mono face; a failed count in bold foreground, the rest dim.
+- A row is a claim (reading face) and its data (mono): kind, evidence named by tool,
+  the actions it depends on. "Not checked" reads as loud as "failed" in words, in dim.
+- The selected check (click, `]`, `[`) has a 2 pt brand edge and the highlight; its
+  first evidence shows on the screen, and the bar over the picture says the claim.
+- Pass stays a quiet mark: only a fail, a not-checked check and a warning take a colour
+  or a word beyond the mark.
 
 ## Spacing, chrome and the accent (ADR 0008)
 
@@ -400,7 +432,8 @@ The rest, in our own terms:
 | No frames | "No recording" with why (not ready yet, or none captured) |
 | Agent working | The loader under the transcript ("verifier is working", elapsed); a tick on the running step; the agent's cursor blinks |
 | Needs you | The run pins under "Needs you"; its state word in yellow; the hint bar offers the action |
-| Verdict proposed | Card border dim, outcome in the foreground, "Needs review" in yellow; `a` and `d` active |
+| Verdict proposed | Card border dim, outcome in the foreground with the tally, "Needs review" in yellow; the checks lead; `a`, `d`, `[` and `]` active |
+| Evidence shown | The bar over the picture is the check that step answers: its mark, claim, kind, observation, what is not drawn, and which evidence it is |
 | Verdict closed | Outcome in its colour (unless agent-accepted), who decided in words; `a` and `d` absent |
 | Undo window | After accept or dispute, the hint bar shows `u undo 5s` counting down; nothing is sent until it ends |
 | Driving | House lights down, the screen's border and the hint bar magenta: `all keys → machine · click switch to return` |
@@ -439,6 +472,7 @@ it.
 | `a` | Accept the verdict (`a` again answers "accept without opening the evidence?") | verdict open for review |
 | `d` | Dispute the verdict (opens the reason) | verdict open for review |
 | `u` | Undo the last accept or dispute | within 5 s |
+| `]`, `[` | Next or previous check, with its evidence on the screen | a verdict with checks |
 | `space` | Play or pause | screen |
 | `←` `→` | Previous or next frame | screen |
 | `c` | Capture a screenshot | a ready machine |
