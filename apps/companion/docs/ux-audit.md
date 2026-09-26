@@ -79,6 +79,7 @@ take the screen and give it back without doubt about who holds it.
 | P2 | **Low-contrast "Send".** The disabled Send button in light (`38`, `37b`) is brand at reduced opacity on paper: about 2.4:1. Disabled controls are exempt from 1.4.3, but it reads as a smudge. | 37b, 38 | Low | Disabled buttons draw dim text on no fill with a hairline, like other quiet buttons. |
 | P3 | **Checkbox "Only errors" disabled in grey** on a run with no errors (37): a control that can do nothing. | 37 | Low | Hide it when the run has no errored step. |
 | P4 | **High contrast holds.** Every role, dim included, reads at 7:1 in `-hc` (41, 43 dark-hc and light-hc); focus rules and the brand edge stay visible. No finding. | 41, 43 | none | |
+| P6 | **A scrim over an empty page.** With no run open in a medium window, the runs open over the detail with a drop shadow and a dark scrim, over nothing (15, 17, 18 at 1180). | 15, 17, 18 | Low | Lift and dim only over a run. |
 | P5 | **Welcome's claude command is clipped** in its box (`claude mcp add --transport http greenroom http://127.0.0.(`, 18 M): the copy button covers the tail. | 18 | Low | Let the command wrap in its box; Copy sits beside it. |
 
 ## 5. Keys, focus, VoiceOver, motion
@@ -107,3 +108,15 @@ take the screen and give it back without doubt about who holds it.
 2. **Layer B, the runs list** (R1 to R6): the proposed outcome and tally in every row, the
    pinned section capped, thumbnails to hover, titles without the time.
 3. **Layer C, the top bar and driving** (L1, L2, P2, P3, P5).
+
+## Resolution (2026-09-26)
+
+| Findings | Fixed in |
+| --- | --- |
+| V1 to V13, K1, K2 | #147, the verdict as a ledger (ADR 0011) |
+| R1 to R5 | #148, a run's row says its verdict (ADR 0012) |
+| L1, L2, P3, P5 | #149, one primary in the top bar (ADR 0013) |
+| V4, V6 on the picture itself | #150, evidence marks (ADR 0014) |
+| V10 (the card's other evidence links), P6 | the polish PR after #150 |
+| Open, low | V15, L3, L4, P1, P2, R6 |
+| Found while auditing, not fixed | #146: the transcript sometimes draws nothing after its rows change (harness, about 1 in 16) |
