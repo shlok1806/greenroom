@@ -6,6 +6,21 @@ final class ScreenControlTests: XCTestCase {
 
     // MARK: - Where a click lands
 
+    /// An element's frame lands on the letterboxed picture, clamped to it (companion ADR 0014).
+    func testAFrameInFractionsLandsOnThePicture() {
+        let image = CGSize(width: 1024, height: 768)
+        let view = CGSize(width: 1200, height: 600) // 800 x 600 picture, 200 pt each side
+        let rect = try! XCTUnwrap(ScreenGeometry.rect(atFraction: CGRect(x: 0.25, y: 0.5, width: 0.5, height: 0.25),
+                                                      image: image, view: view))
+        XCTAssertEqual(rect, CGRect(x: 400, y: 300, width: 400, height: 150))
+        let clamped = try! XCTUnwrap(ScreenGeometry.rect(atFraction: CGRect(x: 0.9, y: 0.9, width: 0.3, height: 0.3),
+                                                         image: image, view: view))
+        XCTAssertEqual(clamped.maxX, 1000)
+        XCTAssertEqual(clamped.maxY, 600)
+        XCTAssertNil(ScreenGeometry.rect(atFraction: CGRect(x: 0.5, y: 0.5, width: 0, height: 0.1), image: image, view: view))
+        XCTAssertNil(ScreenGeometry.rect(atFraction: CGRect(x: 0.1, y: 0.1, width: 0.1, height: 0.1), image: image, view: .zero))
+    }
+
     func testAViewTheSameShapeAsTheScreenHasNoLetterbox() {
         let rect = ScreenGeometry.fitted(image: CGSize(width: 1024, height: 768), in: CGSize(width: 512, height: 384))
         XCTAssertEqual(rect, CGRect(x: 0, y: 0, width: 512, height: 384))

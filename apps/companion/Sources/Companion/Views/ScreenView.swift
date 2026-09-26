@@ -389,6 +389,17 @@ struct ScreenView: View {
         }
     }
 
+    // MARK: - Evidence marks (companion ADR 0014)
+
+    /// While the picture is paused on a verdict's evidence: what its check's UI read there
+    /// reports but a person cannot see, with where it sits.
+    private var evidenceMarks: [UnseenText] {
+        guard let evidenceStep, !driving, !player.playing, !(player.live && machineIsReady),
+              player.index == FrameTimeline.index(ofStep: evidenceStep, in: player.frames),
+              let check = evidenceCheck(evidenceStep) else { return [] }
+        return check.unseenMarks(atStep: evidenceStep, in: store.steps[runId] ?? [])
+    }
+
     // MARK: - Click marks
 
     /// A paused recording on a step that clicked or typed: its mark, held still.
@@ -452,9 +463,14 @@ struct ScreenView: View {
                     pilot?.send(actions)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // The only thing drawn over the picture (ADR 0006 decision 5).
+                // Click marks (ADR 0006 decision 5) and, on a verdict's evidence, the text a
+                // UI read reports that is not on screen (companion ADR 0014): the only things
+                // drawn over the picture.
                 if showsClickMarks, !driving, !ripples.isEmpty || stillMark != nil {
                     ClickMarkLayer(picture: pictureSize, ripples: ripples, still: stillMark?.fraction)
+                }
+                if !evidenceMarks.isEmpty {
+                    EvidenceMarkLayer(picture: pictureSize, marks: evidenceMarks)
                 }
             } else {
                 emptyWell
