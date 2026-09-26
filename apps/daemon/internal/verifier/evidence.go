@@ -3,6 +3,7 @@ package verifier
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -415,6 +416,9 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 	var out []string
 	var fresh []int            // valid evidence steps
 	quitReads := map[int]int{} // valid evidence steps that found the app gone, to their input
+	// pointed is true once a rule says which quit read or input to cite: citing it makes a fail
+	// hold (ADR 0028), so no other advice is given, least of all a screenshot of a crashed app.
+	pointed := false
 	for _, n := range c.Evidence {
 		f, ok := steps[n]
 		switch {
@@ -422,9 +426,17 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 			out = append(out, fmt.Sprintf("cited step): evidence step %d is not a step you recorded in this run", n))
 		case f.by != machine.HolderVerifier:
 			out = append(out, fmt.Sprintf("cited step): evidence step %d was recorded by %s, not by you", n, seat(f.by)))
+		case f.effect == machine.EffectQuit && f.effectRead != 0 && c.Status == session.CheckFail:
+			pointed = true
+			out = append(out, fmt.Sprintf("quit): evidence step %d is the input; its effect read step %d shows the app "+
+				"quit: cite step %d as evidence in place of step %d%s", n, f.effectRead, f.effectRead, n, inActions(c, n)))
 		case !slices.Contains(observationTools, f.tool):
-			out = append(out, fmt.Sprintf("kind): evidence step %d is a %s; evidence must be an observation "+
-				"(machine_ui, machine_screenshot or machine_exec)", n, f.tool))
+			rule := fmt.Sprintf("kind): evidence step %d is a %s; evidence must be an observation "+
+				"(machine_ui, machine_screenshot or machine_exec)", n, f.tool)
+			if f.effectRead != 0 {
+				rule += fmt.Sprintf(". The UI read right after that input is step %d", f.effectRead)
+			}
+			out = append(out, rule)
 		case f.failed:
 			out = append(out, fmt.Sprintf("kind): evidence step %d failed, so it observed nothing", n))
 		default:
@@ -437,6 +449,7 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 	lastAction := 0
 	var noEffect []int // effect-check reads of actions that changed nothing
 	crashed := false   // a cited action made the app quit, and its effect read is cited
+	var quitActs []int // cited actions that made the app quit
 	for _, n := range c.Actions {
 		f, ok := steps[n]
 		switch {
@@ -455,20 +468,49 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 			continue
 		}
 		lastAction = max(lastAction, n)
-		if f.effect == machine.EffectQuit && quitReads[f.effectRead] == n {
-			crashed = true
+		if f.effect == machine.EffectQuit {
+			quitActs = append(quitActs, n)
+			if quitReads[f.effectRead] == n {
+				crashed = true
+			}
 		}
 		if f.effect == machine.EffectNone && c.Status == session.CheckPass {
 			noEffect = append(noEffect, max(f.effectRead, n))
 		}
 	}
-	if len(c.Evidence) == 0 {
-		return append(out, "freshness): no evidence steps; cite the observation that shows the result")
-	}
 	// A quit is evidence (ADR 0028): for a fail of a check whose action made the app quit, the
 	// read that found it gone is enough, whatever the check's kinds; for a pass, never.
 	if c.Status == session.CheckFail && crashed {
 		return out
+	}
+	if c.Status == session.CheckFail && !pointed {
+		for _, n := range quitActs {
+			if f := steps[n]; f.effectRead != 0 && !slices.Contains(c.Evidence, n) {
+				pointed = true
+				out = append(out, fmt.Sprintf("quit): action step %d made the app quit, and its effect read step %d shows "+
+					"it: cite step %d as evidence", n, f.effectRead, f.effectRead))
+			}
+		}
+		for _, read := range slices.Sorted(maps.Keys(quitReads)) {
+			if of := quitReads[read]; !slices.Contains(c.Actions, of) {
+				pointed = true
+				out = append(out, fmt.Sprintf("quit): evidence step %d found the app had quit after step %d: cite step %d "+
+					"in actions", read, of, of))
+			}
+		}
+	}
+	if pointed {
+		return out
+	}
+	// An input that changes nothing is evidence (ADR 0029): a fail whose last action's effect
+	// read found no change, and cites that read, holds on it; a pass never does (the effect rule).
+	if c.Status == session.CheckFail && lastAction != 0 {
+		if f := steps[lastAction]; f.effect == machine.EffectNone && slices.Contains(fresh, f.effectRead) {
+			return out
+		}
+	}
+	if len(c.Evidence) == 0 {
+		return append(out, "freshness): no evidence steps; cite the observation that shows the result")
 	}
 	if c.Status == session.CheckPass {
 		for _, n := range fresh {
@@ -508,6 +550,14 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 		out = append(out, drawnRule(c, steps, newest)...)
 	}
 	return out
+}
+
+// inActions is " and step n in actions" when c does not cite input n among its actions.
+func inActions(c session.Check, n int) string {
+	if slices.Contains(c.Actions, n) {
+		return ""
+	}
+	return fmt.Sprintf(" and step %d in actions", n)
 }
 
 // visualRule: a visual check needs a machine_screenshot among its evidence, after its actions
