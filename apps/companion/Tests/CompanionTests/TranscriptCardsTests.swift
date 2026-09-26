@@ -59,6 +59,20 @@ final class TranscriptCardsTests: XCTestCase {
         XCTAssertEqual(ToolCallRow.of(fine, steps: []).state, .done)
     }
 
+    /// The daemon's review refusing a verdict (root ADR 0024) is named, with its first reason.
+    func testARefusedVerdictReadsAsTheRefusal() {
+        let text = "report_verdict {\"verdict\":\"fail\"}\nerror: report_verdict refused; nothing was posted. Fix each problem:\n"
+            + "- check \"each-pays\" (rendered): machine_ui step 6 marks it not drawn\n- check \"tip\": no evidence"
+        let row = ToolCallRow.of(message(5, .verifier, .progress, text), steps: [])
+        XCTAssertEqual(row.phrase, "Verdict refused by greenroom: check \"each-pays\" (rendered): machine_ui step 6 marks it not drawn")
+        XCTAssertEqual(row.state, .failed)
+        let bare = ToolCallRow.of(message(6, .verifier, .progress, "report_verdict {}\nerror: refused"), steps: [])
+        XCTAssertEqual(bare.phrase, "Verdict refused by greenroom")
+        // Any other refused call keeps its own words.
+        let click = ToolCallRow.of(message(7, .verifier, .progress, "machine_click {}\nerror: needs an element"), steps: [])
+        XCTAssertFalse(click.phrase.hasPrefix("Verdict refused"))
+    }
+
     func testNoMoreThanTwoFacts() {
         let call = message(3, .verifier, .progress, "machine_screenshot {}", step: 9)
         XCTAssertLessThanOrEqual(ToolCallRow.of(call, steps: [step(9, "machine_screenshot", ms: 5)]).facts.count, ToolCallRow.maxFacts)

@@ -35,7 +35,8 @@ struct ToolCallRow: Equatable, Sendable {
     /// and the progress message's otherwise.
     static func of(_ message: Message, steps: [Step]) -> ToolCallRow {
         let record = message.step.flatMap { number in steps.first { $0.seq == number } }
-        let phrase = record.map { StepSummary.phrase(for: $0, in: steps) } ?? StepSummary.phrase(ofProgress: message.text)
+        let phrase = refusedVerdict(message.text)
+            ?? record.map { StepSummary.phrase(for: $0, in: steps) } ?? StepSummary.phrase(ofProgress: message.text)
         var facts: [String] = []
         if let number = message.step { facts.append("step \(number)") }
         if let record, record.durationMs > 0 { facts.append(Chrome.duration(record.durationMs)) }
@@ -82,6 +83,16 @@ struct ToolCallRow: Equatable, Sendable {
 
     /// A call the daemon refused before it became a step: its result line starts
     /// "error:" and no step number was given ("machine_click needs an element id").
+    /// A verdict the daemon's review refused (root ADR 0024, point 3) reads as that, with
+    /// its first reason, never as the raw call: the refusal is the review working.
+    static func refusedVerdict(_ progress: String) -> String? {
+        guard refused(progress), ToolCatalog.tool(ofProgress: progress) == "report_verdict" else { return nil }
+        let reason = progress.split(separator: "\n")
+            .first { $0.hasPrefix("- ") }
+            .map { $0.dropFirst(2).trimmingCharacters(in: .whitespaces) }
+        return reason.map { "Verdict refused by greenroom: \($0)" } ?? "Verdict refused by greenroom"
+    }
+
     static func refused(_ progress: String) -> Bool {
         let lines = progress.split(separator: "\n", omittingEmptySubsequences: false)
         guard lines.count > 1, ToolCatalog.tool(ofProgress: progress) != nil else { return false }

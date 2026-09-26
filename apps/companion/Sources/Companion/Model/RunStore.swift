@@ -62,6 +62,9 @@ struct VerdictDraft: Equatable, Sendable {
     /// The card's evidence is open. Per run and verdict and never saved, so a card opened
     /// on one verdict does not open every other one, nor come back open after a relaunch.
     var expanded = false
+    /// The check the reviewer is looking at (companion ADR 0011): its row is marked in
+    /// the card and the stage shows its claim over its evidence.
+    var selectedCheck: String?
 }
 
 /// An LRU of decoded frame images, so scrubbing never refetches a frame.
@@ -519,6 +522,35 @@ final class RunStore: PilotHost {
         var draft = verdictDraft(runId)
         change(&draft)
         verdictDrafts[runId] = draft
+    }
+
+    /// The checklist of the run's current verdict, criteria filled from its plan.
+    func checklist(_ runId: String) -> Checklist {
+        Checklist.of(verdictMessage(runId), in: messages[runId] ?? [])
+    }
+
+    /// A verdict with checks waits for a person: the card gets the room (companion ADR 0011).
+    func reviewingChecks(_ runId: String) -> Bool {
+        guard let verdict = verdict(runId), verdict.status.isOpen else { return false }
+        return !(verdictMessage(runId)?.checks.isEmpty ?? true)
+    }
+
+    /// Selects a check and shows its evidence on the screen (companion ADR 0011): `step`,
+    /// or its first. A check with no evidence is selected and nothing moves.
+    func selectCheck(runId: String, id: String, step: Int? = nil) {
+        guard let check = checklist(runId).check(id) else { return }
+        let target = step ?? check.evidence.first
+        updateVerdictDraft(runId) { draft in
+            draft.selectedCheck = id
+            if target != nil { draft.openedEvidence = true }
+        }
+        if let target { requestSeek(runId: runId, step: target, fromVerdict: true) }
+    }
+
+    /// Moves the selection `delta` checks along the card's order and shows that check.
+    func selectCheck(runId: String, by delta: Int) {
+        guard let next = checklist(runId).check(after: verdictDraft(runId).selectedCheck, by: delta) else { return }
+        selectCheck(runId: runId, id: next.id)
     }
 
     /// Accept, or ask first when none of the cited evidence was opened. The accept is

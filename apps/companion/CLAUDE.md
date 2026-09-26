@@ -9,7 +9,8 @@ status vocabulary, the daemon changes the UI waits on), `0004` (the glyph-native
 on a character grid), `0005` (keys and the action registry), `0006` (motion, signature
 moments, click marks), `0007` (the dependency allowlist), `0008` (readable type and the
 olive brand, amending 0004's type and colour decisions), `0009` (transcript cards and
-the Markdown renderer) and `0010` (run thumbnails from the last frame). Design: `docs/design-spec.md`
+the Markdown renderer), `0010` (run thumbnails from the last frame) and `0011` (the
+verdict as a ledger). Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -494,16 +495,23 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   its result where the actions were.
   Emphasis uses Mona Sans's own italics (`Typeface.readingItalic`), never a synthetic
   slant.
-- A verdict is a checklist (root ADR 0024; `Model/Checklist.swift`, drawn by
-  `Views/ChecklistViews.swift`). `Message.checks` is decoded leniently (an unknown status is
-  `unchecked`, a malformed list is dropped, never the message). The card lists them under the
-  reasons with the scope line (`Checklist.scope`: "Verified: 3 of 4 checks; not checked: ..."),
-  fails first, then not checked, then passes; each is a mark (`CheckMark`), its criterion,
-  what was observed and its evidence chips. Every "which steps does the verdict cite" reads
-  `Message.citedSteps` / `RunStore.citedSteps` (checks' evidence, failed first, then the free
-  list), never `VerdictState.evidence` alone. The verifier's declaring progress message is
-  its own transcript item (`TranscriptLayout.Item.plan`, `CheckPlanBlock`), shown even with
-  tool calls hidden. A verdict without checks reads as before. Harness scenarios 37 to 40.
+- A verdict is a checklist (root ADR 0024, 0027; companion ADR 0011, the ledger;
+  `Model/Checklist.swift`, drawn by `Views/ChecklistViews.swift`). `Message.checks` is decoded
+  leniently (an unknown status is `unchecked`, a malformed list is dropped, never the message;
+  `kinds` or the early single `kind`, and `within`). The card reads: headline, outcome with
+  the tally (`CheckTally`), the checks (`VerdictChecklist`, fails first, then not checked, then
+  passes), then "The verifier's summary" folded to two lines. A row is its mark, criterion
+  (state word, `kindTag`), observed, `unseenWarnings` (UI-read text not drawn, off screen or
+  covered that the check's words are about) and its evidence as `EvidenceStepLink`s named by
+  tool (`EvidenceStep.label`). A click on a row or `]`/`[` (`RunStore.selectCheck`) selects it
+  (`VerdictDraft.selectedCheck`) and seeks its evidence; the stage's `EvidenceBar` shows that
+  check's claim over the picture (`Checklist.check(citing:preferring:)`). Every "which steps
+  does the verdict cite" reads `Message.citedSteps` / `RunStore.citedSteps` (checks' evidence,
+  failed first, then the free list), never `VerdictState.evidence` alone. The verifier's
+  declaring progress message is its own transcript item (`TranscriptLayout.Item.plan`,
+  `CheckPlanBlock`), one line once the current verdict answers it. A verdict without checks
+  reads as before. While one with checks is open, the card may take `verdictReviewShare` of
+  its column. Harness scenarios 37 to 45 (41 to 45 real bench verdicts).
 - Prose (`readingStyle`) sits at `tokens.json` `reading.lineHeight` (1.45): the gap is
   worked out from the face's own line (`Typeface.lineSpacing`), never a fraction of the
   size added on top.

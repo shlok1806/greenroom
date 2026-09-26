@@ -196,7 +196,7 @@ enum ActionID: String, CaseIterable, Sendable {
     // The screen
     case play, previousFrame, nextFrame, speed, backToVerdict, clickMarks
     // The verdict
-    case accept, dispute, undo
+    case accept, dispute, undo, nextCheck, previousCheck
     // Writing
     case send, newline, leave
     // The palette
@@ -346,6 +346,12 @@ enum ActionRegistry {
                    contexts: [.verdict], group: .verdict, hint: 0, hintTitle: "dispute", menu: .run, menuTitle: "Dispute Verdict..."),
         ActionSpec(id: .undo, title: "Undo accept or dispute", keys: [KeyBinding(.char("u"))],
                    contexts: [.global], group: .verdict, menu: .run, menuTitle: "Undo Verdict Choice"),
+        // Walks the verdict's checks and shows each one's evidence (companion ADR 0011).
+        ActionSpec(id: .nextCheck, title: "Next check", keys: [KeyBinding(.char("]"))],
+                   contexts: [.run], group: .verdict, hint: 1, hintTitle: "checks", hintLabel: "[ ]",
+                   menu: .run, menuTitle: "Next Check"),
+        ActionSpec(id: .previousCheck, title: "Previous check", keys: [KeyBinding(.char("["))],
+                   contexts: [.run], group: .verdict, menu: .run, menuTitle: "Previous Check"),
     ]
 
     static let writing: [ActionSpec] = [
@@ -548,6 +554,7 @@ enum ActionRules {
         case .capture, .followLive: return "The machine is not ready"
         case .destroy: return "This run has no machine"
         case .nextFailure, .previousFailure: return "No step errored"
+        case .nextCheck, .previousCheck: return "The verdict has no checks"
         case .exportRecording: return "No recording yet"
         case .play, .previousFrame, .nextFrame, .speed: return "Show a recording first"
         case .backToVerdict: return "No evidence is open"

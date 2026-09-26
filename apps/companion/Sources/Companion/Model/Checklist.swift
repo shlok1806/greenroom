@@ -27,6 +27,36 @@ struct AcceptanceCheck: Codable, Hashable, Sendable {
     var actions: [Int] = []
     /// What the evidence showed, in one sentence.
     var observed: String?
+    /// What evidence the check needs (root ADR 0027): value, visual, timing. Empty on a
+    /// verdict from before kinds, which reads as value.
+    var kinds: [CheckKind] = []
+    /// A timing check's window in seconds, from the end of its last action.
+    var within: Double?
+}
+
+/// What evidence a check needs (root ADR 0027). An unknown kind is kept as its word.
+enum CheckKind: Hashable, Sendable {
+    case value, visual, timing
+    case other(String)
+
+    /// The kind as the wire writes it.
+    var word: String {
+        switch self {
+        case .value: "value"
+        case .visual: "visual"
+        case .timing: "timing"
+        case .other(let word): word
+        }
+    }
+
+    init(_ raw: String) {
+        switch raw.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "value": self = .value
+        case "visual": self = .visual
+        case "timing": self = .timing
+        case let word: self = .other(word)
+        }
+    }
 }
 
 extension AcceptanceCheck {
@@ -39,6 +69,56 @@ extension AcceptanceCheck {
         actions = Self.steps(try c.decodeIfPresent(JSONValue.self, forKey: .actions))
         let observed = try c.decodeIfPresent(String.self, forKey: .observed)?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.observed = observed?.isEmpty == false ? observed : nil
+        // `kinds`, or the single `kind` an early ADR 0027 daemon wrote. Leniently: a
+        // malformed kind drops the kinds, never the check.
+        let raw = Self.words(try? c.decodeIfPresent(JSONValue.self, forKey: .kinds))
+            + Self.words(try? c.decodeIfPresent(JSONValue.self, forKey: .kind))
+        var seen = Set<CheckKind>()
+        kinds = raw.filter { !$0.isEmpty }.map(CheckKind.init).filter { seen.insert($0).inserted }
+        within = (try? c.decodeIfPresent(Double.self, forKey: .within)).flatMap { $0 }.flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, criterion, status, evidence, actions, observed, kinds, kind, within
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(criterion, forKey: .criterion)
+        try c.encode(status, forKey: .status)
+        try c.encode(evidence, forKey: .evidence)
+        try c.encode(actions, forKey: .actions)
+        try c.encodeIfPresent(observed, forKey: .observed)
+        if !kinds.isEmpty { try c.encode(kinds.map(\.word), forKey: .kinds) }
+        try c.encodeIfPresent(within, forKey: .within)
+    }
+
+    /// A number of seconds as a person writes it: 2, 2.5.
+    static func number(_ value: Double) -> String {
+        value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
+    }
+
+    private static func words(_ value: JSONValue?) -> [String] {
+        switch value {
+        case .string(let word)?: [word]
+        case .array(let items)?: items.compactMap(\.stringValue)
+        default: []
+        }
+    }
+
+    /// The check's kinds beyond a plain value, as a reviewer reads them: "visual",
+    /// "timing, within 2 s". Nil for a value check, which needs no word.
+    var kindTag: String? {
+        let words = kinds.compactMap { kind -> String? in
+            switch kind {
+            case .value: nil
+            case .visual: "visual"
+            case .timing: within.map { "timing, within \(Self.number($0)) s" } ?? "timing"
+            case .other(let word): word
+            }
+        }
+        return words.isEmpty ? nil : words.joined(separator: " · ")
     }
 
     /// Step numbers, leniently: numbers, or "step 12" as the free evidence list writes them.
@@ -77,8 +157,8 @@ struct CheckMark: Equatable, Sendable {
     }
 }
 
-/// A verdict's checks as the card reads them: counts and one sentence saying what the
-/// verdict covers ("Verified: 3 of 4 checks; not checked: ...").
+/// A verdict's checks as the card reads them: the tally beside the outcome and the rows,
+/// failed first (companion ADR 0011).
 struct Checklist: Equatable, Sendable {
     var checks: [AcceptanceCheck]
 
@@ -95,29 +175,9 @@ struct Checklist: Equatable, Sendable {
         })
     }
 
-    /// Beyond this many, the not-checked ones are counted in the scope, not named: the
-    /// rows below name each one.
-    static let namedUnchecked = 2
-
     var passed: Int { checks.count(where: { $0.status == .pass }) }
     var failed: Int { checks.count(where: { $0.status == .fail }) }
     var unchecked: [AcceptanceCheck] { checks.filter { $0.status == .unchecked } }
-
-    /// The verdict's scope in one line, or nil when it has no checks (an older verdict,
-    /// which the card shows as it always did).
-    var scope: String? {
-        guard !checks.isEmpty else { return nil }
-        var parts = ["Verified: \(passed) of \(checks.count) \(checks.count == 1 ? "check" : "checks")"]
-        if failed > 0 { parts.append("failed: \(failed)") }
-        let open = unchecked
-        if !open.isEmpty {
-            let named = open.count <= Self.namedUnchecked
-                ? open.map { Self.clip($0.criterion) }.joined(separator: "; ")
-                : "\(open.count)"
-            parts.append("not checked: \(named)")
-        }
-        return parts.joined(separator: "; ")
-    }
 
     /// The checks as the card lists them: what failed, then what was not checked, then
     /// what passed, each in the order the verifier declared it. A reviewer reads what is
@@ -139,15 +199,6 @@ struct Checklist: Equatable, Sendable {
     /// Where a person starts reading a failing verdict: the first failed check's evidence.
     var firstFailedStep: Int? {
         checks.first { $0.status == .fail && !$0.evidence.isEmpty }?.evidence.first
-    }
-
-    /// A criterion short enough to name inside the scope line.
-    static func clip(_ criterion: String, limit: Int = 60) -> String {
-        let text = criterion.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard text.count > limit else { return text }
-        let cut = text.prefix(limit)
-        let word = cut.lastIndex(of: " ").map { cut[..<$0] } ?? cut
-        return word.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces)) + "..."
     }
 }
 
@@ -191,5 +242,154 @@ extension Message {
         var seen = Set<Int>()
         let free = (evidence ?? []).compactMap { Evidence.parse($0).step }
         return (Checklist(checks: checks).citedSteps + free).filter { seen.insert($0).inserted }
+    }
+}
+
+// MARK: - The ledger (companion ADR 0011)
+
+extension Checklist {
+    /// One count of the tally beside the outcome: "2 failed", "1 not checked", "5 passed".
+    struct TallyItem: Equatable, Sendable {
+        var status: AcceptanceCheck.Status
+        var count: Int
+        var text: String
+    }
+
+    /// The counts a reviewer reads first, in the card's order (failed, not checked,
+    /// passed), leaving out what is zero. Empty for a verdict without checks.
+    var tally: [TallyItem] {
+        [(AcceptanceCheck.Status.fail, "failed"), (.unchecked, "not checked"), (.pass, "passed")].compactMap { status, word in
+            let count = checks.count(where: { $0.status == status })
+            return count > 0 ? TallyItem(status: status, count: count, text: "\(count) \(word)") : nil
+        }
+    }
+
+    /// The tally in words, for VoiceOver and the run list: "2 of 4 checks failed".
+    var summary: String? {
+        guard !checks.isEmpty else { return nil }
+        let total = "\(checks.count) \(checks.count == 1 ? "check" : "checks")"
+        return tally.map(\.text).joined(separator: ", ") + " of \(total)"
+    }
+
+    /// The check with this id, if the verdict answers it.
+    func check(_ id: String?) -> AcceptanceCheck? {
+        guard let id else { return nil }
+        return checks.first { $0.id == id }
+    }
+
+    /// The check a step is evidence for, in the card's order: the one asked for when it
+    /// cites the step, else the first that does. Nil when no check cites it.
+    func check(citing step: Int, preferring id: String? = nil) -> AcceptanceCheck? {
+        if let preferred = check(id), preferred.evidence.contains(step) { return preferred }
+        return ordered.first { $0.evidence.contains(step) }
+    }
+
+    /// The check `delta` places after `id` in the card's order, wrapping; the first (or
+    /// last) when none is selected.
+    func check(after id: String?, by delta: Int) -> AcceptanceCheck? {
+        let list = ordered
+        guard !list.isEmpty else { return nil }
+        guard let id, let at = list.firstIndex(where: { $0.id == id }) else {
+            return delta >= 0 ? list.first : list.last
+        }
+        return list[(at + delta % list.count + list.count) % list.count]
+    }
+}
+
+/// A cited step as a reviewer needs to know it: what kind of evidence it is (a picture a
+/// person can look at, the app's own report of its UI, a command) and what of the text it
+/// reports is not on screen (root ADR 0027). Pure; `ChecklistTests`.
+struct EvidenceStep: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case screenshot, uiRead, command, other
+    }
+
+    var step: Int
+    var kind: Kind
+    /// Whether the run's record holds the step.
+    var held: Bool
+    /// Text elements the read reports that a person cannot see there.
+    var unseen: [UnseenText]
+
+    /// "Screenshot 7", "UI read 6", "Command 4", "Step 9".
+    var label: String {
+        switch kind {
+        case .screenshot: "Screenshot \(step)"
+        case .uiRead: "UI read \(step)"
+        case .command: "Command \(step)"
+        case .other: "Step \(step)"
+        }
+    }
+
+    static func of(_ step: Int, in steps: [Step]) -> EvidenceStep {
+        guard let record = steps.first(where: { $0.seq == step }) else {
+            return EvidenceStep(step: step, kind: .other, held: false, unseen: [])
+        }
+        let kind: Kind = switch record.tool {
+        case "machine_screenshot": .screenshot
+        case "machine_ui": .uiRead
+        case "machine_exec", "machine_run", "run": .command
+        default: .other
+        }
+        return EvidenceStep(step: step, kind: kind, held: true, unseen: kind == .uiRead ? UnseenText.all(in: record) : [])
+    }
+}
+
+/// A text element a UI read reports but a person cannot see (root ADR 0027): its frame on
+/// the screen holds no ink, it is off the screen, or another window covers it.
+struct UnseenText: Equatable, Sendable {
+    enum Why: String, Equatable, Sendable {
+        case blank, offscreen, covered
+
+        var words: String {
+            switch self {
+            case .blank: "not drawn"
+            case .offscreen: "off screen"
+            case .covered: "covered by another window"
+            }
+        }
+    }
+
+    var text: String
+    var why: Why
+
+    /// Every marked element of a `machine_ui` step that carries text.
+    static func all(in step: Step) -> [UnseenText] {
+        guard case .array(let elements)? = step.output?["elements"] else { return [] }
+        return elements.compactMap { element in
+            guard let mark = element["rendered"]?.stringValue, let why = Why(rawValue: mark) else { return nil }
+            let text = [element["value"], element["title"], element["label"]]
+                .compactMap { $0?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
+            return text.map { UnseenText(text: $0, why: why) }
+        }
+    }
+
+    /// Whether a check's words are about this text: the whole text, or its label before a
+    /// colon ("Each pays" of "Each pays: $49.56"), appears in the criterion or what was
+    /// observed. A read marks every unseen text on the screen; only these concern the check.
+    func concerns(_ check: AcceptanceCheck) -> Bool {
+        let words = (check.criterion + " " + (check.observed ?? "")).lowercased()
+        let whole = text.lowercased()
+        if whole.count >= 3, words.contains(whole) { return true }
+        let label = whole.split(separator: ":", maxSplits: 1).first.map(String.init)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        return label.count >= 3 && label != whole && words.contains(label)
+    }
+}
+
+extension AcceptanceCheck {
+    /// What a reviewer must see before trusting this check's evidence: each unseen text
+    /// its UI reads report that the check is about, once. "UI read 6: \"Each pays:
+    /// $49.56\" is not drawn".
+    func unseenWarnings(in steps: [Step]) -> [String] {
+        var seen = Set<String>()
+        return evidence.flatMap { step -> [String] in
+            let item = EvidenceStep.of(step, in: steps)
+            return item.unseen.filter { $0.concerns(self) }.compactMap { unseen in
+                guard seen.insert(unseen.text).inserted else { return nil }
+                return "\(item.label): \"\(unseen.text)\" is \(unseen.why.words)"
+            }
+        }
     }
 }
