@@ -26,6 +26,9 @@ const (
 	effectReadLine = "machine_ui step %d read the UI after this input."
 	effectNoTree   = effectUnknown + " (no UI tree). Take a machine_screenshot to see what this input did."
 	effectQuit     = "effect: %s is no longer running (it quit or crashed)."
+	// effectQuitCite follows effectQuit once the read's step is known: the model cited the input
+	// itself as a fail's evidence, which the review refuses (ADR 0028, bench run 2).
+	effectQuitCite = " To fail a check that depends on this input, cite step %d as its evidence."
 )
 
 // maxEffectChanges caps the changed elements listed; maxEffectValue caps each value shown.
@@ -45,26 +48,29 @@ func isInputTool(name string) bool {
 
 // effectCheck reads the UI after input step of, which started at inputAt, and describes what
 // changed since prev, the verifier's read before the input (hadPrev false when it had none).
-// The read's step record stores the effect. When the app quit, the effect names its newest crash
-// report since the input (ADR 0028).
-func (v *Verifier) effectCheck(ctx context.Context, runID string, of int, inputAt time.Time, prev machine.UITree, hadPrev bool) string {
-	text := ""
+// The read's step record stores the effect. When the app quit, the effect says to cite the read
+// and names the app's newest crash report since the input (ADR 0028). It returns the lines the
+// model reads, the effect's kind and the read's step (0 when the read never started).
+func (v *Verifier) effectCheck(ctx context.Context, runID string, of int, inputAt time.Time, prev machine.UITree,
+	hadPrev bool) (text, kind string, read int) {
+	kind = machine.EffectUnknown
 	_, _, _ = v.mgr.UIEffect(ctx, runID, machine.HolderVerifier, verifierUILimit, of,
 		func(tree machine.UITree, err error) machine.StepEffect {
-			kind, summary := judgeEffect(prev, hadPrev, tree, err)
+			var summary string
+			kind, summary = judgeEffect(prev, hadPrev, tree, err)
 			if kind == machine.EffectQuit {
-				summary += v.crashLine(ctx, runID, prev.App, inputAt)
+				summary += fmt.Sprintf(effectQuitCite, tree.Step) + v.crashLine(ctx, runID, prev.App, inputAt)
 			}
-			text = summary
+			text, read = summary, tree.Step
 			if kind != machine.EffectUnknown || err == nil && len(tree.Elements) > 0 {
 				text = fmt.Sprintf(effectReadLine, tree.Step) + "\n" + summary
 			}
 			return machine.StepEffect{Kind: kind, Summary: summary}
 		})
 	if text == "" { // the read never started: nothing was recorded
-		return effectNoTree
+		return effectNoTree, machine.EffectUnknown, 0
 	}
-	return text
+	return text, kind, read
 }
 
 // crashLine is the line naming app's newest crash report since inputAt, or "" when there is none

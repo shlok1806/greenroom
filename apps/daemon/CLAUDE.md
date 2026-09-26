@@ -488,7 +488,24 @@ Conversation and verifier
     no freshness, handover, visual or timing rule applies. A pass citing a `quit` read is
     refused (`quit` rule), whatever else it cites. The prompt says a crash while doing the
     task fails the checks that depend on it, and to relaunch once only for a later check that
-    does not.
+    does not. The quit effect line adds "To fail a check that depends on this input, cite step
+    N as its evidence." (N the read), since models cited the input itself (bench run 2,
+    `wordcount-clear-crash`). A fail that cites the quitting input as evidence, cites another
+    read, or cites the quit read without its input in actions gets a `quit` rule naming the
+    exact step to cite, and no other rule for that check: a crashed app has nothing to
+    screenshot, and the visual rule's "answer it unchecked" turned a crash into inconclusive.
+  - An input that changes nothing is evidence (ADR 0029, `deadcontrol.go`). Per turn,
+    `deadControls` tallies clicks (`machine_click`, or a `machine_input` batch holding one click
+    among sleeps and moves) whose effect was `none`, by `clickTarget`: the element of the
+    verifier's read before the click, by `identity` (ids shift), clicked by id or by a point
+    inside it (the smallest element under the point of at most `maxControlArea` of the screen),
+    else the point (within `pointNear`). An effect `changed` or `quit` clears the tally;
+    `unknown` and non-click inputs leave it. From the second no-change click on one control
+    the result gets `deadHint` naming the control and every such effect read. It never ends the
+    turn (a correct fail must not become a question). In the review, a fail whose last action
+    (highest step in `actions`) had effect `none` and whose `evidence` cites that effect read
+    holds on it alone, like the quit rule; a pass still needs a later observation (`effect`).
+    An input cited as evidence is refused with its effect read's step named.
   - The closing call at a limit (#127) goes through `downgrade`: a pass or fail that breaks a
     rule is posted as inconclusive, the reasons appended to the summary.
   - After every verifier input that ran, `runTool` reads the frontmost app's UI through

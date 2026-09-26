@@ -2,8 +2,10 @@ package verifier
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -124,7 +126,13 @@ func TestReviewTakesAQuitAsEvidenceForAFailOnly(t *testing.T) {
 		{"a timing fail on the quit", timing, reviewArgs("fail", answer("words", "fail", []int{5}, 4)), ""},
 		{"a fail on the quit with a later action", visual, reviewArgs("fail", answer("words", "fail", []int{5}, 4, 6)), ""},
 		{"a fail on the quit of an action it does not cite", visual, reviewArgs("fail", answer("words", "fail", []int{5})),
-			`check "words" (visual)`},
+			`check "words" (quit): evidence step 5 found the app had quit after step 4: cite step 4 in actions`},
+		{"a fail citing the quitting input", visual, reviewArgs("fail", answer("words", "fail", []int{4}, 4)),
+			`check "words" (quit): evidence step 4 is the input; its effect read step 5 shows the app quit: cite step 5 as evidence in place of step 4`},
+		{"a fail citing the quitting input, not in actions", visual, reviewArgs("fail", answer("words", "fail", []int{4})),
+			"cite step 5 as evidence in place of step 4 and step 4 in actions"},
+		{"a fail on another read after the quit", visual, reviewArgs("fail", answer("words", "fail", []int{7}, 4)),
+			`check "words" (quit): action step 4 made the app quit, and its effect read step 5 shows it: cite step 5 as evidence`},
 		{"a pass on the quit", session.Check{ID: "words", Criterion: "After Clear, Words shows 0"},
 			reviewArgs("pass", answer("words", "pass", []int{5}, 4)),
 			`check "words" (quit): evidence step 5 is the UI read that found the app had quit after action step 4`},
@@ -140,6 +148,9 @@ func TestReviewTakesAQuitAsEvidenceForAFailOnly(t *testing.T) {
 		}
 		if !strings.Contains(joined, c.want) {
 			t.Errorf("%s: problems = %q, want %q", c.name, joined, c.want)
+		}
+		if strings.Contains(c.want, "(quit)") && c.call.checks[0].Status == session.CheckFail && strings.Contains(joined, "machine_screenshot") {
+			t.Errorf("%s: a crashed app has nothing to screenshot, but the refusal says to take one: %s", c.name, joined)
 		}
 	}
 }
@@ -169,5 +180,68 @@ func TestJudgeEffectReportsAQuit(t *testing.T) {
 	accessory := machine.UITree{App: "Helper", Apps: []string{"Finder"}, Elements: before.Elements}
 	if kind, _ := judgeEffect(accessory, true, gone, nil); kind == machine.EffectQuit {
 		t.Error("an app not listed as running before cannot be judged gone")
+	}
+}
+
+// wordcount-clear-crash, trial 3 of the second simple-tier run: the effect read (step 9) said
+// WordCount was gone, and the verifier answered the checks fail citing the click (step 8) as
+// evidence. The refusal said step 8 was an input and, for the visual checks, to take a
+// screenshot or answer unchecked; the model answered unchecked and the case ended inconclusive.
+// Now the click's result says which step to cite, and the refusal names that step and gives no
+// screenshot advice: a crashed app has nothing to screenshot.
+func TestBenchCaseClearCrashCitingTheInputIsToldToCiteTheEffectRead(t *testing.T) {
+	mgr, runID, control := ready(t)
+	putUI(t, control, wordCountUI)
+	look := lastStep(t, mgr, runID) + 1
+	click, read, finder := look+1, look+2, look+3
+	checks := func(evidence ...int) string {
+		return verdictOf("fail", "WordCount crashed when Clear was pressed.",
+			said(answer("after-clear-words", "fail", evidence, click), "WordCount quit when Clear was pressed."),
+			said(answer("after-clear-chars", "fail", evidence, click), "WordCount quit when Clear was pressed."))
+	}
+	model := &scriptedModel{replies: []string{
+		toolCall("declare_checks", map[string]any{"checks": []map[string]any{
+			{"id": "after-clear-words", "criterion": "After pressing Clear, Words shows 0", "kinds": []string{"value", "visual"}},
+			{"id": "after-clear-chars", "criterion": "After pressing Clear, Characters shows 0", "kinds": []string{"value"}},
+		}}),
+		toolCall("machine_ui", map[string]any{}),
+		toolCall("machine_click", map[string]any{"element": 2}),
+		toolCall("machine_ui", map[string]any{}), // Finder
+		checks(click, finder),                    // cites the input and a later read, as the model did
+		checks(read),
+	}}
+	model.onReasoning = func(n int) {
+		if n == 3 {
+			putUI(t, control, finderUI)
+		}
+	}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, `I added a "Longest word" line to WordCount (running on screen). Check it, including after pressing Clear (Words: 0, Characters: 0).`)
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatal(err)
+	}
+
+	after := deliveredText(t, model, 4, "tool")
+	if want := fmt.Sprintf("To fail a check that depends on this input, cite step %d as its evidence.", read); !strings.Contains(after, want) {
+		t.Errorf("the click's result = %q, want %q", after, want)
+	}
+	prog := messagesOfKind(store, session.Progress)
+	if len(prog) != 5 {
+		t.Fatalf("%d progress messages, want declare, ui, click, ui and the refused verdict", len(prog))
+	}
+	refused := prog[4].Text
+	want := fmt.Sprintf("evidence step %d is the input; its effect read step %d shows the app quit: cite step %d", click, read, read)
+	if !strings.Contains(refused, want) || strings.Contains(refused, "machine_screenshot") {
+		t.Errorf("the refusal of a fail citing the input =\n%s\nwant it to say %q and give no screenshot advice", refused, want)
+	}
+	verdicts := messagesOfKind(store, session.Verdict)
+	if len(verdicts) != 1 || verdicts[0].Verdict != "fail" {
+		t.Fatalf("verdicts = %+v, want the fail citing the effect read", verdicts)
+	}
+	for _, c := range verdicts[0].Checks {
+		if c.Status != session.CheckFail || !slices.Equal(c.Evidence, []int{read}) {
+			t.Errorf("check %q = %s on %v, want fail on step %d", c.ID, c.Status, c.Evidence, read)
+		}
 	}
 }

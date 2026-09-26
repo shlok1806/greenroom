@@ -199,18 +199,26 @@ var tools = []nim.Tool{
 }
 
 // runTool executes one machine tool call and returns what the model should see, plus the step
-// it recorded (0 if none). An input that ran ends with its effect (effectCheck, ADR 0024).
-func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall) (result string, step int) {
+// it recorded (0 if none). An input that ran ends with its effect (effectCheck, ADR 0024), and,
+// when it is a click on a control that changed nothing before in this turn, says so (dead,
+// ADR 0029).
+func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall, dead *deadControls) (result string, step int) {
 	if !isInputTool(call.Name) {
 		return v.machineTool(ctx, runID, call)
 	}
 	prev, hadPrev := v.mgr.LastUI(runID, machine.HolderVerifier)
+	target := clickTarget(call, prev, hadPrev)
 	inputAt := time.Now()
 	result, step = v.machineTool(ctx, runID, call)
 	if step == 0 || strings.HasPrefix(result, "error:") {
 		return result, step
 	}
-	return result + "\n" + v.effectCheck(ctx, runID, step, inputAt, prev, hadPrev), step
+	effect, kind, read := v.effectCheck(ctx, runID, step, inputAt, prev, hadPrev)
+	result += "\n" + effect
+	if hint := dead.record(target, kind, read); hint != "" {
+		result += "\n" + hint
+	}
+	return result, step
 }
 
 // machineTool executes one machine tool call.
