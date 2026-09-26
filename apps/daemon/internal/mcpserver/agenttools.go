@@ -63,7 +63,9 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 			"progress lines (one per tool call it makes) do not end the wait: it returns when its turn ends with a " +
 			"reply, question or verdict, when anyone else posts, or at the timeout, with everything gathered so " +
 			"far. After sending a task, call this repeatedly with after set to last from the previous call until a " +
-			"verdict arrives. An empty messages list means nothing happened before the timeout; call again. A question needs an " +
+			"verdict arrives. A verdict carries checks: each acceptance check the verifier declared, with status pass, " +
+			"fail or unchecked, the steps that show it (evidence, actions) and what it observed; a pass covers only " +
+			"those checks, so act on a failing or unchecked one directly. An empty messages list means nothing happened before the timeout; call again. A question needs an " +
 			"agent_send of kind answer before the verifier continues; a reply is the verifier answering in words " +
 			"with no verdict, so it does not end your task. A reply with stop set (steps or time) means the " +
 			"verifier's turn hit its tool-call or time limit before it gave a verdict and it is waiting: send a " +

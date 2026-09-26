@@ -142,9 +142,11 @@ enum VerdictCheck: Hashable, Sendable {
     static func checks(_ verdict: VerdictState, messages: [Message], steps: [Step]?) -> [VerdictCheck] {
         var out: [VerdictCheck] = []
         let cited = (verdict.evidence ?? []).map(Evidence.parse)
-        if cited.isEmpty { out.append(.noEvidence) }
+        // A verdict with checks cites its steps per check (root ADR 0024).
+        let checked = messages.first(where: { $0.seq == verdict.seq })?.citedSteps ?? []
+        if cited.isEmpty, checked.isEmpty { out.append(.noEvidence) }
         if let steps {
-            for step in Set(cited.compactMap(\.step)).sorted() {
+            for step in Set(cited.compactMap(\.step) + checked).sorted() {
                 guard let record = steps.first(where: { $0.seq == step }) else {
                     out.append(.missingStep(step))
                     continue

@@ -98,7 +98,10 @@ type inputState struct {
 	// handovers counts the times the screen changed hands under anyone but the verifier: a fresh
 	// take, a release or a lapse. A verifier input aimed before the latest one is refused (issue #124).
 	handovers atomic.Uint64
-	asMu      sync.Mutex // serializes InputAs so one call's release cannot end another's lease
+	// handoverStep is the step the recorder had claimed when the latest handover happened: a look
+	// with a higher step began after it. A verdict's evidence must be newer (ADR 0024).
+	handoverStep atomic.Int64
+	asMu         sync.Mutex // serializes InputAs so one call's release cannot end another's lease
 	// ctlMu serializes each lease change with the events it emits, taken before Manager.mu: a
 	// take that follows a lapse returns only once the lapse was announced (lapseLocked).
 	ctlMu sync.Mutex
@@ -141,7 +144,7 @@ func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Co
 	}
 	fresh = current == nil
 	if fresh && holder != HolderVerifier {
-		mc.input.handovers.Add(1)
+		mc.handedOver()
 	}
 	if ttl <= 0 {
 		ttl = ControlTTL
@@ -197,7 +200,7 @@ func (m *Manager) ReleaseControl(runID, holder string) (Control, bool, error) {
 	}
 	mc.Control = nil
 	if current.Holder != HolderVerifier {
-		mc.input.handovers.Add(1)
+		mc.handedOver()
 	}
 	m.mu.Unlock()
 
@@ -285,7 +288,7 @@ func (m *Manager) lapseLocked(mc *Machine, now time.Time) *LifecycleEvent {
 	}
 	mc.Control = nil
 	if c.Holder != HolderVerifier {
-		mc.input.handovers.Add(1)
+		mc.handedOver()
 	}
 	if !m.liveLocked(mc) {
 		return nil
@@ -366,7 +369,7 @@ func (m *Manager) Input(ctx context.Context, runID, holder string, actions []Inp
 	out := InputResult{Actions: len(actions), Screen: screen}
 	err = m.postInput(ctx, mc, screen, actions)
 	out.Seconds = time.Since(started).Seconds()
-	out.Step = mc.rec.step("machine_input", map[string]any{"holder": holder, "actions": actions},
+	out.Step = mc.rec.stepAs(holder, "machine_input", map[string]any{"holder": holder, "actions": actions},
 		map[string]any{"actions": out.Actions, "screen": screen}, err, started)
 	m.emitStep(mc.RunID, out.Step)
 	return out, err
@@ -408,6 +411,25 @@ func (m *Manager) InputAs(ctx context.Context, runID, holder string, actions []I
 		return InputResult{}, ErrStaleLook
 	}
 	return m.Input(ctx, runID, holder, actions)
+}
+
+// handedOver counts a change of hands (issue #124) and marks the step it happened at. The count
+// goes first: a look that claims its step in between is then called stale by both, never fresh
+// by the step and stale by the count. Callers hold Manager.mu, which orders the stores.
+func (mc *Machine) handedOver() {
+	mc.input.handovers.Add(1)
+	mc.input.handoverStep.Store(int64(mc.rec.currentStep()))
+}
+
+// HandoverStep is the step the run's recorder had claimed when the screen last changed hands
+// under anyone but the verifier (issue #124), or 0 if it never has since the daemon started. A
+// step numbered higher began after that handover (ADR 0024).
+func (m *Manager) HandoverStep(runID string) int {
+	mc, err := m.get(runID)
+	if err != nil {
+		return 0
+	}
+	return int(mc.input.handoverStep.Load())
 }
 
 // ErrStaleLook refuses a verifier input when someone else took, gave back or lost the screen

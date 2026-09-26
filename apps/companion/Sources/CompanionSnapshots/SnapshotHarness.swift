@@ -238,7 +238,113 @@ final class SnapshotHarness {
             Scenario(name: "32-moment-power-down-still", sizes: [Self.medium], runId: runId, momentFreeze: 1.0) { store in
                 await Self.destroyWhileWatched(store, runId: runId)
             },
-        ] + verdictLandsScenarios()
+        ] + verdictLandsScenarios() + checklistScenarios()
+    }
+
+    /// A verdict as a checklist and the verifier's declared plan (root ADR 0024), seeded
+    /// onto the TipSplit fail run: 4 checks with a fail and one not checked, 1 check, 12
+    /// long ones, and the plan in the transcript while the verifier works.
+    private func checklistScenarios() -> [Scenario] {
+        let failRun = failRun
+        let passRun = Self.passRun
+        return [
+            Scenario(name: "37-checks-verdict", sizes: [Self.large, Self.guest, Self.small], runId: failRun) { store in
+                Self.seedChecks(store, runId: failRun, Self.fourChecks, proposed: true)
+            },
+            Scenario(name: "37b-checks-verdict-evidence", sizes: [Self.large], runId: failRun, verdictExpanded: true) { store in
+                Self.seedChecks(store, runId: failRun, Self.fourChecks, proposed: true)
+            },
+            Scenario(name: "38-checks-one", sizes: [Self.medium, Self.guest], runId: passRun) { store in
+                Self.seedChecks(store, runId: passRun, [
+                    AcceptanceCheck(id: "each-pays", criterion: "Each pays shows the split amount", status: .pass,
+                                    evidence: [13], actions: [11], observed: "Each pays read $48.00 after entering 3 people"),
+                ], proposed: false)
+            },
+            Scenario(name: "39-checks-twelve", sizes: [Self.large, Self.guest], runId: failRun) { store in
+                Self.seedChecks(store, runId: failRun, Self.twelveChecks, proposed: true)
+            },
+            Scenario(name: "40-checks-plan-live", sizes: [Self.medium, Self.guest], runId: failRun) { store in
+                Self.seedChecks(store, runId: failRun, Self.twelveChecks, proposed: true)
+                Self.cutAfterPlan(store, runId: failRun, calls: 3)
+                Self.makeLive(store, runId: failRun, lastActivityAgo: 4)
+            },
+            Scenario(name: "40b-checks-plan-short", sizes: [Self.medium], runId: failRun) { store in
+                Self.seedChecks(store, runId: failRun, Array(Self.fourChecks.prefix(3)), proposed: true)
+                Self.cutAfterPlan(store, runId: failRun, calls: 2)
+                Self.makeLive(store, runId: failRun, lastActivityAgo: 4)
+            },
+        ]
+    }
+
+    private static let fourChecks = [
+        AcceptanceCheck(id: "tip-20", criterion: "Tip shows $24.00 for a $120 bill at 20%", status: .pass,
+                        evidence: [11, 12], actions: [6, 7, 8, 9], observed: "Tip read $24.00 after setting the bill to 120 and choosing 20%."),
+        AcceptanceCheck(id: "each-pays-3", criterion: "Each pays shows $48.00 with 3 people", status: .fail,
+                        evidence: [11, 12], actions: [10], observed: "Each pays read $8.00, not $48.00."),
+        AcceptanceCheck(id: "tip-25", criterion: "Choosing 25% changes Tip to $30.00", status: .pass,
+                        evidence: [16, 17], actions: [15], observed: "Tip read $30.00 after the second click on 25%."),
+        AcceptanceCheck(id: "each-pays-25", criterion: "Each pays becomes $50.00 at 25%", status: .unchecked),
+    ]
+
+    private static let twelveChecks: [AcceptanceCheck] = {
+        let criteria: [(String, AcceptanceCheck.Status, [Int], String?)] = [
+            ("The app window titled TipSplit is frontmost and shows the Bill, Tip and People controls", .pass, [5], "The UI read lists TipSplit frontmost with Bill, Tip and People."),
+            ("Entering 120 in the Bill field replaces the previous amount instead of appending to it", .pass, [11], "Bill read 120 after Command-A and typing 120."),
+            ("Tip shows $24.00 for a $120 bill at 20%", .pass, [11, 12], "Tip read $24.00."),
+            ("Each pays shows $48.00 with 3 people", .fail, [11, 12], "Each pays read $8.00, not $48.00."),
+            ("Choosing 25% changes Tip to $30.00", .pass, [16, 17], "Tip read $30.00 after the second click on 25%."),
+            ("Each pays becomes $50.00 at 25%", .fail, [16, 17], "Each pays read $10.00, not $50.00."),
+            ("The 25% segment shows as selected after one click, without needing a second click to take effect", .fail, [14], "After the first click the 20% segment still read selected."),
+            ("The People stepper cannot go below 1 when its minus arrow is clicked repeatedly from 1", .unchecked, [], nil),
+            ("The Bill field accepts decimal amounts such as 84.50 and keeps two decimal places in every total", .unchecked, [], nil),
+            ("Clearing the Bill field shows $0.00 in Tip and Each pays rather than an error or a blank", .unchecked, [], nil),
+            ("Totals update without pressing Return", .pass, [11], "Tip and Each pays changed as soon as 120 was typed."),
+            ("Each pays rounds half a cent up", .unchecked, [], nil),
+        ]
+        return criteria.enumerated().map { index, item in
+            AcceptanceCheck(id: "check-\(index + 1)", criterion: item.0, status: item.1, evidence: item.2,
+                            actions: [], observed: item.3)
+        }
+    }()
+
+    /// The verdict answers `checks`, and the verifier declared them right after the task:
+    /// the plan goes in after the first task, every later message moves up one seq, and
+    /// the verdict follows its message. `proposed` reopens the verdict for review.
+    private static func seedChecks(_ store: RunStore, runId: String, _ checks: [AcceptanceCheck], proposed: Bool) {
+        guard var messages = store.messages[runId],
+              let task = messages.first(where: { $0.kind == .task }),
+              let oldSeq = store.verdict(runId)?.seq else { return }
+        let shift = { (seq: Int) in seq > task.seq ? seq + 1 : seq }
+        messages = messages.map { message in
+            var message = message
+            message.seq = shift(message.seq)
+            message.replyTo = message.replyTo.map(shift)
+            if message.kind == .verdict, message.seq == shift(oldSeq) { message.checks = checks }
+            return message
+        }
+        let declared = checks.map { AcceptanceCheck(id: $0.id, criterion: $0.criterion) }
+        let plan = Message(seq: task.seq + 1, at: task.at.addingTimeInterval(4), from: .verifier, kind: .progress,
+                           text: "declare_checks {}\n\(checks.count) checks declared", checks: declared)
+        messages.insert(plan, at: (messages.firstIndex { $0.seq > task.seq + 1 }) ?? messages.endIndex)
+        if proposed { messages.removeAll { $0.kind == .accept && $0.replyTo == shift(oldSeq) } }
+        store.messages[runId] = messages
+        setVerdict(store, runId: runId) {
+            $0.seq = shift(oldSeq)
+            if proposed {
+                $0.status = .proposed
+                $0.acceptedBy = nil
+            }
+        }
+    }
+
+    /// The run while the verifier works: the transcript up to its plan and `calls` tool
+    /// calls after it, no verdict yet.
+    private static func cutAfterPlan(_ store: RunStore, runId: String, calls: Int) {
+        guard let messages = store.messages[runId],
+              let plan = messages.first(where: { CheckPlan.isPlan($0) }) else { return }
+        store.messages[runId] = messages.filter { $0.seq <= plan.seq + calls }
+        store.details[runId]?.verdict = VerdictState()
+        if let index = store.runs.firstIndex(where: { $0.runId == runId }) { store.runs[index].verdict = nil }
     }
 
     /// A verdict arriving while its run is open (ADR 0006, Verdict lands): mid-decode, with

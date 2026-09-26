@@ -29,6 +29,8 @@ struct PlayerBar: View {
     @Binding var player: PlayerModel
     let steps: [Step]
     let verdict: VerdictState?
+    /// The steps the verdict cites, its checks' evidence included (`RunStore.citedSteps`).
+    let citedSteps: [Int]
     /// Verdicts the conversation has replaced, whose evidence stays marked as superseded.
     let supersededEvidence: Set<Int>
     @Binding var hoverIndex: Int?
@@ -205,7 +207,7 @@ struct PlayerBar: View {
 
     private var marks: TrackMarks {
         let failed = Set(steps.filter { $0.outcome.isFailure }.map(\.seq))
-        let evidence = Set((verdict?.evidence ?? []).compactMap { Evidence.parse($0).step })
+        let evidence = Set(citedSteps)
         return TrackMarks(failed: failed, evidence: evidence, superseded: supersededEvidence.subtracting(evidence),
                           verdict: verdict?.verdict)
     }

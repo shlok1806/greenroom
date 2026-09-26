@@ -353,6 +353,15 @@ func (m *Manager) RunDir(runID string) string {
 	return filepath.Join(m.Root, "runs", runID)
 }
 
+// Steps is runID's step records as written to steps.jsonl, oldest first. It reads the run
+// directory, so it answers for a run after a restart or once its machine is gone.
+func (m *Manager) Steps(runID string) ([]Step, error) {
+	if runID == "" || runID == "." || strings.HasPrefix(runID, "..") || strings.ContainsAny(runID, `/\`) {
+		return nil, fmt.Errorf("no run %q", runID) // a runId that would leave runs/, as session.Registry refuses
+	}
+	return ReadSteps(m.RunDir(runID))
+}
+
 // newRunID names a run. Eight random bytes, because a runId is the map key,
 // VM name and run directory, and three bytes collided in CI. No randomness is
 // fatal: a zero buffer would give every run the same name.

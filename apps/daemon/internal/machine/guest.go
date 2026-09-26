@@ -55,7 +55,13 @@ const execHostGrace = 20 * time.Second
 // execHostGrace later. A caller that gives up ends the command's tart exec.
 // machine_exec uses ExecStart and ExecWait instead, so no call blocks for long.
 func (m *Manager) Exec(ctx context.Context, runID, command, cwd string, timeout time.Duration) (ExecResult, error) {
-	j, err := m.startExec(ctx, runID, command, cwd, timeout)
+	return m.ExecAs(ctx, runID, "", command, cwd, timeout)
+}
+
+// ExecAs is Exec recorded as made by seat by (HolderVerifier), so a verdict can tell its own
+// observations from anyone else's (ADR 0024).
+func (m *Manager) ExecAs(ctx context.Context, runID, by, command, cwd string, timeout time.Duration) (ExecResult, error) {
+	j, err := m.startExec(ctx, runID, by, command, cwd, timeout)
 	if err != nil {
 		return ExecResult{}, err
 	}
@@ -222,7 +228,7 @@ func (m *Manager) ScreenshotAs(ctx context.Context, runID, reader string) (data 
 	seq := mc.rec.begin()
 	shot.Step = seq
 	defer func() {
-		mc.rec.complete(seq, "machine_screenshot", nil, shot, err, started)
+		mc.rec.completeAs(seq, reader, nil, "machine_screenshot", nil, shot, err, started)
 		m.emitStep(mc.RunID, seq)
 	}()
 	at := mc.input.handovers.Load()

@@ -83,6 +83,7 @@ struct VerdictCard: View {
         let messages = store.messages[runId] ?? []
         let review = VerdictReview.of(verdict, messages: messages, verifierListens: facts.verifierListens)
         let checks = VerdictCheck.checks(verdict, messages: messages, steps: store.steps[runId])
+        let checklist = Checklist.of(messages.first { $0.seq == verdict.seq }, in: messages)
         // Proposed: a dim edge, the outcome in the foreground. Only a verdict a person
         // accepted takes its outcome's colour (ADR 0003); an agent-accepted or rejected one
         // keeps its word, not its colour (`VerdictAppearance`).
@@ -120,12 +121,17 @@ struct VerdictCard: View {
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    // The verdict's scope: each check it answers (root ADR 0024). A verdict
+                    // from before checks has none and shows as it always did.
+                    VerdictChecklist(store: store, runId: runId, checklist: checklist) { step in
+                        seek(.step(step), inSteps: false)
+                    }
                     ForEach(checks, id: \.self) { check in
                         Text("! " + check.text)
                             .readingStyle(.readingMedium, size: TypeScale.readingSmall)
                             .foregroundStyle(theme.color(check == .noEvidence ? .failure : .attention, on: .surface))
                     }
-                    evidence(verdict, words: words, detailed: detailed)
+                    evidence(verdict, checklist: checklist, words: words, detailed: detailed)
                     if detailed || verdict.status == .contested {
                         disputes(verdict, messages: messages)
                     }
@@ -280,8 +286,14 @@ struct VerdictCard: View {
     // MARK: - Evidence
 
     @ViewBuilder
-    private func evidence(_ verdict: VerdictState, words: String, detailed: Bool) -> some View {
-        let items = Self.byStep((verdict.evidence ?? []).map(Evidence.parse))
+    private func evidence(_ verdict: VerdictState, checklist: Checklist, words: String, detailed: Bool) -> some View {
+        // In full, every cited step, the checks' first. Folded, the checks' steps are
+        // already chips on their rows, so only what else it cites (artifacts) shows here.
+        let checked = checklist.citedSteps
+        let free = (verdict.evidence ?? []).map(Evidence.parse)
+        let items = detailed
+            ? Self.byStep(checked.map(Evidence.step) + free)
+            : Self.byStep(free).filter { item in item.step.map { !checked.contains($0) } ?? true }
         if !items.isEmpty {
             if detailed {
                 // Per step when the words say which step shows what; else once, for the
