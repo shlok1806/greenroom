@@ -11,6 +11,7 @@ import (
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
 const maxToolOutput = 6000 // characters of guest output fed back to the model
@@ -139,7 +140,11 @@ var tools = []nim.Tool{
 		Name: "declare_checks",
 		Description: "Declare the acceptance checks you derived from the task, before any input: each one a " +
 			"result you can observe on the machine. Input tools are refused on a task until you do. Declaring " +
-			"again replaces the list. Your verdict answers each check by id.",
+			"again replaces the list. Your verdict answers each check by id. Each check has a kind: value (a text, " +
+			"number or state), visual (how it looks on screen: needs a machine_screenshot after its actions) or " +
+			"timing (it happens within some seconds of its last action: needs an observation that started in time); " +
+			"a check can be visual and timing. greenroom adds a kind when the criterion's words claim appearance or " +
+			"speed, and says so.",
 		Schema: object(map[string]any{
 			"checks": map[string]any{
 				"type":     "array",
@@ -148,6 +153,10 @@ var tools = []nim.Tool{
 				"items": object(map[string]any{
 					"id":        str("A short unique id, like \"total\" or \"tip-25\"."),
 					"criterion": str("What you will observe when it holds, in one sentence, like \"Each pays shows $48.00 for $160, 20%, 4 people\"."),
+					"kinds": map[string]any{"type": "array", "items": map[string]any{"type": "string",
+						"enum": []string{session.CheckValue, session.CheckVisual, session.CheckTiming}},
+						"description": "[\"value\"] (default), or visual, timing or both: a check that is both needs both kinds of evidence."},
+					"within": num("Timing checks only: seconds from the end of the last action, at least 2 (default 2)."),
 				}, "id", "criterion"),
 				"description": "1 to 12 checks.",
 			},

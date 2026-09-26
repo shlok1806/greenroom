@@ -170,7 +170,7 @@ func identity(e machine.UIElement) string {
 
 func signature(e machine.UIElement) string {
 	return identity(e) + "\x00" + e.Value + "\x00" + strconv.FormatBool(e.Selected) + strconv.FormatBool(e.Focused) +
-		strconv.FormatBool(e.Disabled)
+		strconv.FormatBool(e.Disabled) + "\x00" + e.Rendered
 }
 
 // stateChanges names each difference between two reads of one element.
@@ -190,7 +190,21 @@ func stateChanges(a, b machine.UIElement) []string {
 			out = append(out, "no longer "+st.word)
 		}
 	}
+	switch {
+	case a.Rendered == b.Rendered:
+	case b.Rendered == "":
+		out = append(out, "now drawn")
+	default:
+		out = append(out, "now "+renderedMarkWords[b.Rendered])
+	}
 	return out
+}
+
+// renderedMarkWords names a machine.UIElement.Rendered mark in a change line.
+var renderedMarkWords = map[string]string{
+	machine.RenderedBlank:     "not drawn",
+	machine.RenderedOffscreen: "offscreen",
+	machine.RenderedCovered:   "covered",
 }
 
 // elementName is the role and the first name an element has, never its value, which a change

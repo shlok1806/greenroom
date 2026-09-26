@@ -105,6 +105,26 @@ func TestUIOutlineIsOneIndentedLineAnElement(t *testing.T) {
 			t.Errorf("outline lacks %q:\n%s", want, out)
 		}
 	}
+	if strings.Contains(out, "[not drawn]") {
+		t.Errorf("an outline with no marks explains them:\n%s", out)
+	}
+	// ADR 0027: each mark follows the element's state, and one legend line explains them.
+	tree.Elements = []UIElement{
+		{ID: 1, Role: "StaticText", Value: "Each pays: $49.56", Rendered: RenderedBlank, X: 0.5, Y: 0.5},
+		{ID: 2, Role: "StaticText", Value: "Total", Selected: true, Rendered: RenderedOffscreen},
+		{ID: 3, Role: "StaticText", Value: "Tip", Rendered: RenderedCovered},
+	}
+	out = tree.Outline()
+	for _, want := range []string{
+		"[not drawn]: the screen shows no text in its frame. [offscreen]: outside the screen. [covered]: under another window.",
+		"\n[1] StaticText value=\"Each pays: $49.56\" [not drawn] center (0.500, 0.500)",
+		"\n[2] StaticText value=\"Total\" selected [offscreen] center",
+		"\n[3] StaticText value=\"Tip\" [covered] center",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("outline lacks %q:\n%s", want, out)
+		}
+	}
 }
 
 func TestElementCenterAimsAtTheLatestRead(t *testing.T) {

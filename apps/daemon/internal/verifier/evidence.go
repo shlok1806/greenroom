@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
@@ -58,45 +59,79 @@ func inputRefusal(call nim.ToolCall, msgs []session.Message) string {
 	return ""
 }
 
-// parseDeclaredChecks reads declare_checks arguments into a checklist, or says what is wrong.
-func parseDeclaredChecks(args string) ([]session.Check, string) {
-	const want = `error: declare_checks needs checks: 1 to 12 of {"id": "a short id", "criterion": "what you will observe"}`
+// parseDeclaredChecks reads declare_checks arguments into a checklist, or says what is wrong. Each
+// check gets its applied kind (ADR 0027); notes says where that differs from what was declared.
+func parseDeclaredChecks(args string) (checks []session.Check, notes []string, problem string) {
+	const want = `error: declare_checks needs checks: 1 to 12 of {"id": "a short id", "criterion": "what you will observe", ` +
+		`"kinds": ["value"], or any of "visual" and "timing", "within": seconds, for timing only}`
 	var in struct {
 		Checks []struct {
 			ID        looseString `json:"id"`
 			Criterion string      `json:"criterion"`
+			Kinds     []string    `json:"kinds"`
+			Kind      string      `json:"kind"` // one kind, as a model may still send it
+			Within    *float64    `json:"within"`
 		} `json:"checks"`
 	}
 	if err := json.Unmarshal([]byte(args), &in); err != nil {
-		return nil, want + argsProblem([]byte(args), err)
+		return nil, nil, want + argsProblem([]byte(args), err)
 	}
 	if len(in.Checks) == 0 || len(in.Checks) > session.MaxChecks {
-		return nil, fmt.Sprintf("%s; this call sent %d", want, len(in.Checks))
+		return nil, nil, fmt.Sprintf("%s; this call sent %d", want, len(in.Checks))
 	}
 	out := make([]session.Check, 0, len(in.Checks))
 	for i, c := range in.Checks {
 		id, criterion := strings.TrimSpace(string(c.ID)), strings.TrimSpace(c.Criterion)
 		switch {
 		case id == "" || len(id) > session.MaxCheckID:
-			return nil, fmt.Sprintf("error: declare_checks: check %d needs an id of 1 to %d characters", i+1, session.MaxCheckID)
+			return nil, nil, fmt.Sprintf("error: declare_checks: check %d needs an id of 1 to %d characters", i+1, session.MaxCheckID)
 		case criterion == "":
-			return nil, fmt.Sprintf("error: declare_checks: check %q needs a criterion: what you will observe", id)
+			return nil, nil, fmt.Sprintf("error: declare_checks: check %q needs a criterion: what you will observe", id)
 		case slices.ContainsFunc(out, func(c session.Check) bool { return c.ID == id }):
-			return nil, fmt.Sprintf("error: declare_checks: check id %q appears twice; ids must be unique", id)
+			return nil, nil, fmt.Sprintf("error: declare_checks: check id %q appears twice; ids must be unique", id)
 		}
-		out = append(out, session.Check{ID: id, Criterion: criterion})
+		var declared []string // visual and timing only; value is what a check with neither is
+		for _, k := range append(slices.Clone(c.Kinds), c.Kind) {
+			switch k = strings.ToLower(strings.TrimSpace(k)); k {
+			case "", session.CheckValue:
+			case session.CheckVisual, session.CheckTiming:
+				declared = append(declared, k)
+			default:
+				return nil, nil, fmt.Sprintf("error: declare_checks: check %q kind %q is not value, visual or timing", id, k)
+			}
+		}
+		within := 0.0
+		if c.Within != nil {
+			within = *c.Within
+			switch {
+			case within <= 0 || within > session.MaxWithin:
+				return nil, nil, fmt.Sprintf("error: declare_checks: check %q within must be seconds, above 0 and at most %g", id, session.MaxWithin)
+			case len(declared) > 0 && !slices.Contains(declared, session.CheckTiming):
+				return nil, nil, fmt.Sprintf("error: declare_checks: check %q is not timing; within is for a timing check only", id)
+			}
+		}
+		kinds, within, note := applyKinds(id, criterion, declared, within)
+		if note != "" {
+			notes = append(notes, note)
+		}
+		out = append(out, session.Check{ID: id, Criterion: criterion, Kinds: kinds, Within: within})
 	}
-	return out, ""
+	return out, notes, ""
 }
 
-// declaredResult is what the model reads after a checklist is declared.
-func declaredResult(checks []session.Check) string {
+// declaredResult is what the model reads after a checklist is declared: each check with its
+// applied kind and what that kind needs, and why the daemon changed a kind or a window.
+func declaredResult(checks []session.Check, notes []string) string {
 	ids := make([]string, len(checks))
 	for i, c := range checks {
-		ids[i] = c.ID
+		ids[i] = kindLabel(c)
 	}
-	return fmt.Sprintf("Declared %d checks: %s. report_verdict answers each by id with its status, evidence "+
+	out := fmt.Sprintf("Declared %d checks: %s. report_verdict answers each by id with its status, evidence "+
 		"steps and action steps. Declaring again replaces the list.", len(checks), strings.Join(ids, ", "))
+	if len(notes) > 0 {
+		out += "\nKinds applied by greenroom: " + strings.Join(notes, "; ") + "."
+	}
+	return out
 }
 
 // stepFact is what the step records say about one step.
@@ -106,6 +141,10 @@ type stepFact struct {
 	failed     bool   // it recorded an error
 	effect     string // for an input: machine.EffectChanged, EffectNone or EffectUnknown
 	effectRead int    // for an input: the machine_ui step of its effect check, or 0
+	at, end    time.Time
+	// undrawn is, for a verifier UI read, its elements the read marked not drawn, off the
+	// screen or covered (machine.UIElement.Rendered, ADR 0027).
+	undrawn []machine.UIElement
 }
 
 // ledger is every step of the run by number. An input's effect is on the verifier's UI read
@@ -113,7 +152,12 @@ type stepFact struct {
 func ledger(steps []machine.Step) map[int]stepFact {
 	out := make(map[int]stepFact, len(steps))
 	for _, s := range steps {
-		out[s.Seq] = stepFact{tool: s.Tool, by: s.By, failed: s.Error != ""}
+		f := stepFact{tool: s.Tool, by: s.By, failed: s.Error != "", at: s.At,
+			end: s.At.Add(time.Duration(s.DurationMS) * time.Millisecond)}
+		if s.Tool == "machine_ui" && s.By == machine.HolderVerifier && s.Error == "" {
+			f.undrawn = undrawn(s.Output)
+		}
+		out[s.Seq] = f
 	}
 	for _, s := range steps {
 		if s.Effect == nil || s.By != machine.HolderVerifier {
@@ -122,6 +166,28 @@ func ledger(steps []machine.Step) map[int]stepFact {
 		if f, ok := out[s.Effect.Of]; ok {
 			f.effect, f.effectRead = s.Effect.Kind, s.Seq
 			out[s.Effect.Of] = f
+		}
+	}
+	return out
+}
+
+// undrawn is the elements a recorded UI read marks as not rendered. The output is a
+// machine.UITree when the step was built in memory and its JSON when it was read from the log.
+func undrawn(output any) []machine.UIElement {
+	b, err := json.Marshal(output)
+	if err != nil {
+		return nil
+	}
+	var tree struct {
+		Elements []machine.UIElement `json:"elements"`
+	}
+	if json.Unmarshal(b, &tree) != nil {
+		return nil
+	}
+	var out []machine.UIElement
+	for _, e := range tree.Elements {
+		if e.Rendered != "" {
+			out = append(out, e)
 		}
 	}
 	return out
@@ -244,6 +310,8 @@ func reviewVerdict(call verdictCall, msgs []session.Message, records []machine.S
 			problems = append(problems, fmt.Sprintf("check %q (answered twice): answer each check once", c.ID))
 			continue
 		}
+		d := declared[slices.IndexFunc(declared, func(d session.Check) bool { return d.ID == c.ID })]
+		c.Criterion, c.Kinds, c.Within = d.Criterion, d.Kinds, d.Within
 		answered[c.ID] = c
 		for _, p := range call.problems[c.ID] {
 			add(c.ID, p)
@@ -267,7 +335,7 @@ func reviewVerdict(call verdictCall, msgs []session.Message, records []machine.S
 				"(pass, fail or unchecked)", d.ID))
 			c = session.Check{ID: d.ID, Status: session.CheckUnchecked, Observed: "Not answered."}
 		}
-		c.Criterion = d.Criterion
+		c.Criterion, c.Kinds, c.Within = d.Criterion, d.Kinds, d.Within
 		checks = append(checks, c)
 	}
 
@@ -362,7 +430,151 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 				"and no later observation is cited; look again and cite a step that shows the expected state", read))
 		}
 	}
+	// Every kind's rules apply (ADR 0027): a check that is visual and timing needs both.
+	if c.Is(session.CheckVisual) {
+		out = append(out, visualRule(fresh, steps, lastAction)...)
+	}
+	if c.Is(session.CheckTiming) {
+		out = append(out, timingRule(c, fresh, steps, lastAction, noEffect)...)
+	}
+	if c.Status == session.CheckPass {
+		out = append(out, drawnRule(c, steps, newest)...)
+	}
 	return out
+}
+
+// visualRule: a visual check needs a machine_screenshot among its evidence, after its actions
+// (ADR 0027). The tree says what the app claims is there, not what is drawn.
+func visualRule(fresh []int, steps map[int]stepFact, lastAction int) []string {
+	for _, n := range fresh {
+		if steps[n].tool == "machine_screenshot" && n > lastAction {
+			return nil
+		}
+	}
+	after := ""
+	if lastAction > 0 {
+		after = fmt.Sprintf(" after action step %d", lastAction)
+	}
+	return []string{fmt.Sprintf("visual): it is a visual check, and no machine_screenshot%s is among its evidence; "+
+		"the UI tree does not show what is drawn. Take a machine_screenshot and cite it", after)}
+}
+
+// timingRule: a timing check needs an observation that started within its window after its last
+// action ended (ADR 0027). A pass may cite no observation after its action that started later: a
+// later one cannot show it happened in time. A check that is also visual may cite a later
+// screenshot, which shows how it looks, not when; the in-time observation still has to be there.
+// After an action whose effect read found no change, a pass needs an in-time observation after
+// that read.
+func timingRule(c session.Check, fresh []int, steps map[int]stepFact, lastAction int, noEffect []int) []string {
+	if lastAction == 0 {
+		return []string{fmt.Sprintf("timing): it is a timing check (within %g s) and cites no action; cite the input "+
+			"step it times in actions and an observation that started within %g s after it", c.Within, c.Within)}
+	}
+	act := steps[lastAction]
+	if act.end.IsZero() {
+		return nil
+	}
+	deadline := act.end.Add(time.Duration(c.Within * float64(time.Second)))
+	after := lastAction
+	if c.Status == session.CheckPass && len(noEffect) > 0 {
+		after = max(after, slices.Max(noEffect))
+	}
+	var inTime, late []int
+	for _, n := range fresh {
+		switch f := steps[n]; {
+		case n <= lastAction:
+		case f.at.After(deadline) && f.tool == "machine_screenshot" && c.Is(session.CheckVisual):
+		case f.at.After(deadline):
+			late = append(late, n)
+		case n > after:
+			inTime = append(inTime, n)
+		}
+	}
+	var out []string
+	if c.Status == session.CheckPass {
+		for _, n := range late {
+			out = append(out, fmt.Sprintf("timing): evidence step %d started %.1f s after action step %d ended, "+
+				"later than its %g s; a later observation cannot pass a timing check. Cite only observations "+
+				"that started in time, or answer fail if they do not show the state", n,
+				steps[n].at.Sub(act.end).Seconds(), lastAction, c.Within))
+		}
+	}
+	if len(inTime) == 0 {
+		hint := ""
+		if act.effectRead > lastAction {
+			hint = fmt.Sprintf(" (the UI read right after it is step %d)", act.effectRead)
+		}
+		if after > lastAction {
+			hint = fmt.Sprintf(" after its effect read at step %d found no change", after)
+		}
+		out = append(out, fmt.Sprintf("timing): no evidence step started within %g s after action step %d ended%s; "+
+			"cite the observation that did, and answer fail if it does not show the state", c.Within, lastAction, hint))
+	}
+	return out
+}
+
+// drawnRule: a check cannot pass on an element the latest UI read marks not drawn, off the
+// screen or covered (ADR 0027). The latest read is the verifier's newest machine_ui up to the
+// check's newest evidence step, cited or not; its claim is its criterion and observed text.
+func drawnRule(c session.Check, steps map[int]stepFact, newest int) []string {
+	read := 0
+	for n, f := range steps {
+		if n <= newest && n > read && f.tool == "machine_ui" && f.by == machine.HolderVerifier && !f.failed {
+			read = n
+		}
+	}
+	if read == 0 {
+		return nil
+	}
+	claim := c.Criterion + "\n" + c.Observed
+	var out []string
+	for _, e := range steps[read].undrawn {
+		if !mentions(claim, e) {
+			continue
+		}
+		out = append(out, fmt.Sprintf("rendered): machine_ui step %d marks [%d] %s %s, and the check rests on it; "+
+			"the UI tree's text is not what a person sees there. Take a machine_screenshot, and answer fail if it "+
+			"does not show it", read, e.ID, e.Name(), renderedWords(e.Rendered)))
+	}
+	return out
+}
+
+// renderedWords says what a machine.UIElement.Rendered mark means.
+func renderedWords(mark string) string {
+	switch mark {
+	case machine.RenderedBlank:
+		return "not drawn (its frame on screen holds no text)"
+	case machine.RenderedOffscreen:
+		return "off the screen"
+	case machine.RenderedCovered:
+		return "covered by another window"
+	}
+	return mark
+}
+
+// numberRE finds numbers in text: "$49.56" gives 49.56, "1,024" gives 1,024.
+var numberRE = regexp.MustCompile(`\d+(?:[.,]\d+)*`)
+
+// mentions reports whether claim names element e: one of its texts (3 characters or more) as
+// whole words, or one of their numbers with two digits or a decimal point.
+func mentions(claim string, e machine.UIElement) bool {
+	low := strings.ToLower(claim)
+	nums := map[string]bool{}
+	for _, n := range numberRE.FindAllString(low, -1) {
+		nums[n] = true
+	}
+	for _, text := range []string{e.Title, e.Label, e.Value} {
+		text = strings.ToLower(strings.Join(strings.Fields(text), " "))
+		if len(text) >= 3 && wordsRE([]string{text}).MatchString(low) {
+			return true
+		}
+		for _, n := range numberRE.FindAllString(text, -1) {
+			if (len(n) >= 2 || strings.ContainsAny(n, ".,")) && nums[n] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // settle makes an inconclusive verdict's answers honest: a pass or fail answer that broke a rule,
