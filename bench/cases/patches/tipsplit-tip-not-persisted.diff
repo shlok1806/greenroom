@@ -1,0 +1,11 @@
+--- a/Sources/TipSplit/main.swift
++++ b/Sources/TipSplit/main.swift
+@@ -6,7 +6,7 @@
+ 
+ struct ContentView: View {
+     @State private var bill = "84.00"
+-    @AppStorage("tipPercent") private var tipPercent = 18
++    @State private var tipPercent = 18
+     @AppStorage("people") private var people = 2
+     @State private var roundUp = false
+ 

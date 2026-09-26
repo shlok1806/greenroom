@@ -1,0 +1,16 @@
+{
+  "id": "unitconvert-negative-crash",
+  "app": "unitconvert",
+  "kind": "mutant",
+  "family": "edge_crash",
+  "split": "holdout",
+  "patch": "patches/unitconvert-negative-crash.diff",
+  "task": "UnitConvert takes negative values now. It is running on screen. Check Temperature with -40: -40 °C = -40.00 °F, and Length with -5: -5 km = -3.11 mi. Give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "Temperature -40 °C reads -40.00 °F",
+    "Length -5 km reads -3.11 mi",
+    "the app keeps running with negative input"
+  ],
+  "notes": "A whole negative number traps converting to UInt: typing -40 crashes the app."
+}

@@ -1,0 +1,10 @@
+--- a/Sources/UnitConvert/main.swift
++++ b/Sources/UnitConvert/main.swift
+@@ -75,7 +75,6 @@
+             }
+             HStack {
+                 Button("Swap units") {
+-                    forward.toggle()
+                 }
+                 Stepper("Decimals: \(decimals)", value: $decimals, in: 0...4)
+                     .frame(width: 180, alignment: .leading)

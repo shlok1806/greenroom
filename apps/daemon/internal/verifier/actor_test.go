@@ -333,3 +333,36 @@ func TestActorRefusesCoderInputForTheLengthOfATurn(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// The observer hears each turn attempt's cost, which the conversation does not carry; the
+// verifier bench reads steps and tokens from it (ADR 0025).
+func TestTheTurnObserverHearsEveryAttemptsResult(t *testing.T) {
+	noRetryWaits(t)
+	mgr, runID, _ := ready(t)
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_exec", map[string]any{"command": "swift build"}),
+		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "The build succeeded."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	reg := session.NewRegistry(mgr.Root, 2)
+	type heard struct {
+		runID string
+		res   TurnResult
+		err   error
+	}
+	got := make(chan heard, 4)
+	_ = NewActors(v, mgr, reg, WithTurnObserver(func(runID string, res TurnResult, err error) { got <- heard{runID, res, err} }))
+	store, err := reg.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	postTask(t, store, "Build the app.")
+	select {
+	case h := <-got:
+		if h.runID != runID || h.err != nil || h.res.Ended != session.Verdict || h.res.Steps != 2 {
+			t.Errorf("observer heard %+v, want run %s ending in a verdict after 2 steps", h, runID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the observer heard nothing")
+	}
+}

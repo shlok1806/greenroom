@@ -1,0 +1,11 @@
+--- a/Sources/UnitConvert/main.swift
++++ b/Sources/UnitConvert/main.swift
+@@ -52,7 +52,7 @@
+ 
+     // shown writes the input as typed, without a trailing ".0" for whole numbers.
+     func shown(_ v: Double) -> String {
+-        v == v.rounded() ? String(format: "%.0f", v) : String(v)
++        v == v.rounded() ? String(UInt(v)) : String(v)
+     }
+ 
+     var body: some View {

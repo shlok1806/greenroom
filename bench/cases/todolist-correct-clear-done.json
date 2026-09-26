@@ -1,0 +1,13 @@
+{
+  "id": "todolist-correct-clear-done",
+  "app": "todolist",
+  "kind": "correct",
+  "split": "dev",
+  "patch": null,
+  "task": "I added a Clear done button to TodoList (running on screen). It removes every ticked item and keeps the rest. Add Milk, Bread and Eggs, tick Milk and Eggs, press Clear done: only Bread should remain and the summary should read \"1 item, 0 done\". Give a pass or fail verdict.",
+  "expected": "pass",
+  "must_check": [
+    "after Clear done only Bread remains",
+    "the summary reads 1 item, 0 done"
+  ]
+}

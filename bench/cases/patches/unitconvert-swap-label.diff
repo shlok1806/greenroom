@@ -1,0 +1,11 @@
+--- a/Sources/UnitConvert/main.swift
++++ b/Sources/UnitConvert/main.swift
+@@ -42,7 +42,7 @@
+     }
+ 
+     var from: String { forward ? category.units.0 : category.units.1 }
+-    var to: String { forward ? category.units.1 : category.units.0 }
++    var to: String { category.units.1 }
+ 
+     var result: String {
+         guard let v = value else { return "Enter a number" }

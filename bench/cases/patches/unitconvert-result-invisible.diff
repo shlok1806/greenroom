@@ -1,0 +1,10 @@
+--- a/Sources/UnitConvert/main.swift
++++ b/Sources/UnitConvert/main.swift
+@@ -83,6 +83,7 @@
+             Divider()
+             Text(result)
+                 .font(.system(size: 26, weight: .semibold))
++                .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                 .accessibilityIdentifier("result")
+         }
+         .padding(32)

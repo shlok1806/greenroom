@@ -1,0 +1,11 @@
+{
+  "id": "tipsplit-ambiguous-nicer",
+  "app": "tipsplit",
+  "kind": "ambiguous",
+  "split": "dev",
+  "patch": null,
+  "task": "I made TipSplit nicer to use, as the design review asked. It is running on screen. Check that it is what they wanted and give a verdict.",
+  "expected": "ask_or_inconclusive",
+  "must_check": [],
+  "notes": "Nothing says what the review asked for."
+}

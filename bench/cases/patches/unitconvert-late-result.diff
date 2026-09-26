@@ -1,0 +1,25 @@
+--- a/Sources/UnitConvert/main.swift
++++ b/Sources/UnitConvert/main.swift
+@@ -36,6 +36,7 @@
+     @AppStorage("decimals") private var decimals = 2
+     @State private var input = "10"
+     @State private var forward = true
++    @State private var shownResult: String?
+ 
+     var value: Double? {
+         Double(input.trimmingCharacters(in: .whitespaces))
+@@ -81,9 +82,13 @@
+                     .frame(width: 180, alignment: .leading)
+             }
+             Divider()
+-            Text(result)
++            Text(shownResult ?? result)
+                 .font(.system(size: 26, weight: .semibold))
+                 .accessibilityIdentifier("result")
++                .task(id: result) {
++                    do { try await Task.sleep(for: .seconds(8)) } catch { return }
++                    shownResult = result
++                }
+         }
+         .padding(32)
+         .frame(width: 460)

@@ -1,0 +1,15 @@
+{
+  "id": "unitconvert-swap-label",
+  "app": "unitconvert",
+  "kind": "mutant",
+  "family": "wrong_label_format",
+  "split": "dev",
+  "patch": "patches/unitconvert-swap-label.diff",
+  "task": "After Swap units, UnitConvert names the units the right way round everywhere: the unit next to the Value field and both sides of the result line. It is running on screen. With Length and 10, Swap units should give \"10 mi = 16.09 km\"; with Temperature and 212, \"212 °F = 100.00 °C\". Check and give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "after Swap units with Length and 10, the result reads 10 mi = 16.09 km",
+    "after Swap units with Temperature and 212, the result reads 212 °F = 100.00 °C"
+  ],
+  "notes": "The target unit never swaps: \"10 mi = 16.09 mi\". The number is right."
+}

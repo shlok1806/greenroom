@@ -1,0 +1,15 @@
+{
+  "id": "tipsplit-example-only",
+  "app": "tipsplit",
+  "kind": "mutant",
+  "family": "example_only",
+  "split": "dev",
+  "patch": "patches/tipsplit-example-only.diff",
+  "task": "I fixed the Each pays bug in TipSplit (it was showing only the tip per person). It is running on screen. For example, Bill 120 with 20% tip and 3 people now gives Each pays $48.00. It should be right for any bill, tip and party size. Check and give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "Each pays reads $48.00 for Bill 120, 20% tip, 3 people",
+    "Each pays is right for another input, such as $50.00 at 25% or $36.00 for 4 people"
+  ],
+  "notes": "The example is hard-coded to $48.00; every other input still shows the tip per person."
+}

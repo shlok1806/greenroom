@@ -44,6 +44,8 @@ func main() {
 		err = checkImage(os.Args[2:])
 	case "connect":
 		err = connect(os.Args[2:])
+	case "bench":
+		err = benchCmd(os.Args[2:])
 	case "version":
 		fmt.Println("greenroom", mcpserver.Version)
 	default:
@@ -70,6 +72,7 @@ func usage() {
 	check, _ := checkFlags()
 	check.PrintDefaults()
 	connectUsage()
+	benchUsage()
 	fmt.Fprintln(os.Stderr, "\n       greenroom version")
 	os.Exit(2)
 }
@@ -185,20 +188,12 @@ func serveUntil(ctx context.Context, args []string) error {
 			log.Info("verifier disabled", "reason", "no NVIDIA_API_KEY in environment or "+o.envFile)
 			break
 		}
-		model, vision := os.Getenv("GREENROOM_VERIFIER_MODEL"), visionModel(os.Getenv("GREENROOM_VISION_MODEL"))
-		v, err := verifier.New(mgr, verifier.Config{
-			BaseURL:     os.Getenv("NVIDIA_BASE_URL"),
-			APIKey:      key,
-			Model:       model,
-			VisionModel: vision,
-			MaxSteps:    o.verifierMaxSteps,
-			Budget:      o.verifierBudget,
-		}, log)
+		v, err := nimVerifier(mgr, o.verifierMaxSteps, o.verifierBudget, log)
 		if err != nil {
 			return err
 		}
 		_ = verifier.NewActors(v, mgr, reg, verifier.WithLogger(log))
-		log.Info("verifier enabled", "brain", "nim", "model", model, "vision", vision)
+		log.Info("verifier enabled", "brain", "nim", "model", v.Model(), "vision", visionModel(os.Getenv("GREENROOM_VISION_MODEL")))
 	default:
 		return fmt.Errorf("unknown -verifier %q: want nim or manual", kind)
 	}
@@ -232,6 +227,20 @@ func serveUntil(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
+}
+
+// nimVerifier is the model-driven verifier as the environment configures it (NVIDIA_API_KEY,
+// NVIDIA_BASE_URL, GREENROOM_VERIFIER_MODEL, GREENROOM_VISION_MODEL). serve and bench share it,
+// so the bench measures the verifier the daemon runs.
+func nimVerifier(mgr *machine.Manager, maxSteps int, budget time.Duration, log *slog.Logger) (*verifier.Verifier, error) {
+	return verifier.New(mgr, verifier.Config{
+		BaseURL:     os.Getenv("NVIDIA_BASE_URL"),
+		APIKey:      os.Getenv("NVIDIA_API_KEY"),
+		Model:       os.Getenv("GREENROOM_VERIFIER_MODEL"),
+		VisionModel: visionModel(os.Getenv("GREENROOM_VISION_MODEL")),
+		MaxSteps:    maxSteps,
+		Budget:      budget,
+	}, log)
 }
 
 // routes is the daemon's whole HTTP surface. Loopback needs no token, so nothing a web page can

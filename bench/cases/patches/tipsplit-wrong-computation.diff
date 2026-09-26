@@ -1,0 +1,11 @@
+--- a/Sources/TipSplit/main.swift
++++ b/Sources/TipSplit/main.swift
+@@ -19,7 +19,7 @@
+     }
+ 
+     var perPerson: Double {
+-        let share = (billValue + tip) / Double(people)
++        let share = tip / Double(people)
+         return roundUp ? share.rounded(.up) : share
+     }
+ 

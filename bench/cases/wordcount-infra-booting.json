@@ -1,0 +1,14 @@
+{
+  "id": "wordcount-infra-booting",
+  "app": "wordcount",
+  "kind": "infra",
+  "split": "dev",
+  "patch": null,
+  "task": "WordCount (running on screen) has UPPERCASE and lowercase buttons that change the text's case. With \"The quick brown fox\", UPPERCASE gives \"THE QUICK BROWN FOX\" and lowercase gives \"the quick brown fox\". Check both and give a pass or fail verdict.",
+  "expected": "ask_or_inconclusive",
+  "must_check": [],
+  "infra": {
+    "type": "booting"
+  },
+  "notes": "The task arrives while the machine boots; the app is never built."
+}

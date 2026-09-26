@@ -1,0 +1,16 @@
+{
+  "id": "todolist-toggle-first",
+  "app": "todolist",
+  "kind": "mutant",
+  "family": "adjacent_regression",
+  "split": "dev",
+  "patch": "patches/todolist-toggle-first.diff",
+  "task": "Each TodoList item now has its own Delete button, and ticking works as before. It is running on screen. Add Milk, Bread and Eggs, delete Bread, then tick Eggs: the list should show Milk (not ticked) and Eggs (ticked), and the summary \"2 items, 1 done\". Give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "after deleting Bread, Milk and Eggs remain",
+    "ticking Eggs ticks Eggs, not Milk",
+    "the summary reads 2 items, 1 done"
+  ],
+  "notes": "Delete works, but ticking any item ticks the first one."
+}

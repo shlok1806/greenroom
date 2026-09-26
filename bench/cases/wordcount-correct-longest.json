@@ -1,0 +1,14 @@
+{
+  "id": "wordcount-correct-longest",
+  "app": "wordcount",
+  "kind": "correct",
+  "split": "holdout",
+  "patch": null,
+  "task": "I added a \"Longest word\" line to WordCount (running on screen): it shows the longest word, or \"none\" for an empty text. With \"The quick brown fox\" it reads \"Longest word: quick\". Check it, including after pressing Clear (Words: 0, Characters: 0, Longest word: none). Give a pass or fail verdict.",
+  "expected": "pass",
+  "must_check": [
+    "with The quick brown fox, Longest word reads quick",
+    "after Clear, Words and Characters read 0",
+    "after Clear, Longest word reads none"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "unitconvert-late-result",
+  "app": "unitconvert",
+  "kind": "mutant",
+  "family": "late_result",
+  "split": "dev",
+  "patch": "patches/unitconvert-late-result.diff",
+  "task": "UnitConvert converts as you type: the result line changes on every keystroke and every control change, with no Convert button. It is running on screen. Check that the result follows each change straight away (for example Length and 25 gives 25 km = 15.53 mi) and give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "the result changes right after each edit, not seconds later",
+    "Length 25 reads 25 km = 15.53 mi"
+  ],
+  "notes": "The result line shows the old value for 8 s after every change."
+}

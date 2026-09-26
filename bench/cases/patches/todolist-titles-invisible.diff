@@ -1,0 +1,18 @@
+--- a/Sources/TodoList/main.swift
++++ b/Sources/TodoList/main.swift
+@@ -85,10 +85,13 @@
+             VStack(alignment: .leading, spacing: 6) {
+                 ForEach(store.items) { item in
+                     HStack {
+-                        Toggle(item.title, isOn: Binding(
++                        Toggle(isOn: Binding(
+                             get: { item.done },
+                             set: { _ in store.toggle(item.id) }
+-                        ))
++                        )) {
++                            Text(item.title)
++                                .foregroundStyle(Color(nsColor: .windowBackgroundColor))
++                        }
+                         Spacer()
+                         Button("Delete") {
+                             store.delete(item.id)

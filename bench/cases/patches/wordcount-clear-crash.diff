@@ -1,0 +1,11 @@
+--- a/Sources/WordCount/main.swift
++++ b/Sources/WordCount/main.swift
+@@ -18,7 +18,7 @@
+     }
+ 
+     var longest: String {
+-        guard let word = words.max(by: { $0.count < $1.count }) else { return "none" }
++        let word = words.max(by: { $0.count < $1.count })!
+         return String(word)
+     }
+ 

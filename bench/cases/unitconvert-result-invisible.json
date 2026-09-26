@@ -1,0 +1,15 @@
+{
+  "id": "unitconvert-result-invisible",
+  "app": "unitconvert",
+  "kind": "mutant",
+  "family": "visual_only",
+  "split": "dev",
+  "patch": "patches/unitconvert-result-invisible.diff",
+  "task": "The conversion result is now shown in large bold text under the divider. UnitConvert is running on screen; with Length and 10 it should read \"10 km = 6.21 mi\". Check that the result is visible and correct and give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "the result is visible on screen in large text (a screenshot shows it)",
+    "the result reads 10 km = 6.21 mi"
+  ],
+  "notes": "The result is drawn in the window's background color: invisible, while the tree reports it."
+}

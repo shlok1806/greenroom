@@ -1,0 +1,11 @@
+--- a/Sources/TipSplit/main.swift
++++ b/Sources/TipSplit/main.swift
+@@ -11,7 +11,7 @@
+     @State private var roundUp = false
+ 
+     var billValue: Double {
+-        Double(bill.trimmingCharacters(in: .whitespaces)) ?? 0
++        Double(bill.trimmingCharacters(in: .whitespaces))!
+     }
+ 
+     var tip: Double {

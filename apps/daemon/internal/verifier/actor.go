@@ -31,6 +31,9 @@ type Actors struct {
 
 	// ended serializes answerEnded, so a message is told nothing will answer it once.
 	ended sync.Mutex
+
+	// observe, when set, hears every turn attempt's result (WithTurnObserver).
+	observe func(runID string, res TurnResult, err error)
 }
 
 // ActorOption configures Actors beyond its required arguments.
@@ -39,6 +42,13 @@ type ActorOption func(*Actors)
 // WithLogger sets the logger; the default is slog.Default().
 func WithLogger(log *slog.Logger) ActorOption {
 	return func(a *Actors) { a.log = log }
+}
+
+// WithTurnObserver calls fn after every turn attempt with what the brain returned: steps,
+// tokens and time, which the conversation does not carry. The verifier bench (ADR 0025)
+// reads cost from it. fn runs on the actor's goroutine; it must not block.
+func WithTurnObserver(fn func(runID string, res TurnResult, err error)) ActorOption {
+	return func(a *Actors) { a.observe = fn }
 }
 
 // NewActors wires b to the manager's lifecycle: created machines gain an
@@ -223,8 +233,11 @@ func (a *Actors) runTurn(ctx context.Context, runID string, store *session.Store
 	attempts := len(TurnRetryDelays) + 1
 	for attempt := 1; ; attempt++ {
 		a.mgr.SetVerifierTurn(runID, true)
-		_, err := a.brain.Turn(ctx, runID, store)
+		res, err := a.brain.Turn(ctx, runID, store)
 		a.mgr.SetVerifierTurn(runID, false)
+		if a.observe != nil {
+			a.observe(runID, res, err)
+		}
 		if err == nil || ctx.Err() != nil {
 			*seen = store.Len()
 			return

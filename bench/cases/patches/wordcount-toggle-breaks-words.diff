@@ -1,0 +1,11 @@
+--- a/Sources/WordCount/main.swift
++++ b/Sources/WordCount/main.swift
+@@ -44,7 +44,7 @@
+             }
+             Toggle("Count spaces", isOn: $countSpaces)
+             Divider()
+-            Text("Words: \(words.count)")
++            Text("Words: \(countSpaces ? words.count : characters)")
+                 .font(.title2)
+                 .accessibilityIdentifier("words")
+             Text("Characters: \(characters)")

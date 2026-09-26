@@ -1,0 +1,11 @@
+--- a/Sources/WordCount/main.swift
++++ b/Sources/WordCount/main.swift
+@@ -10,7 +10,7 @@
+     @AppStorage("countSpaces") private var countSpaces = true
+ 
+     var words: [Substring] {
+-        text.split(whereSeparator: \.isWhitespace)
++        text.split(separator: " ", omittingEmptySubsequences: false)
+     }
+ 
+     var characters: Int {

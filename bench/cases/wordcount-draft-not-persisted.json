@@ -1,0 +1,15 @@
+{
+  "id": "wordcount-draft-not-persisted",
+  "app": "wordcount",
+  "kind": "mutant",
+  "family": "not_persisted",
+  "split": "dev",
+  "patch": "patches/wordcount-draft-not-persisted.diff",
+  "task": "WordCount now keeps your text between launches. It is running on screen; the app is at ~/work/wordcount/build/WordCount.app. Replace the text with \"Greenroom checks apps\", quit WordCount (Cmd-Q), open it again and check the text and its counts (Words: 3) are still there. Give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "after quitting and reopening the text is Greenroom checks apps",
+    "Words reads 3 after reopening"
+  ],
+  "notes": "The draft is plain view state: after a relaunch it is back to The quick brown fox."
+}

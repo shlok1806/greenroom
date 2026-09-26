@@ -1,0 +1,16 @@
+{
+  "id": "todolist-delete-last-crash",
+  "app": "todolist",
+  "kind": "mutant",
+  "family": "edge_crash",
+  "split": "dev",
+  "patch": "patches/todolist-delete-last-crash.diff",
+  "task": "Deleting an item in TodoList now moves the focus to the next item. It is running on screen. Add Milk, Bread and Eggs and delete them one at a time, including the last one in the list and the only one left; the list should end empty with the summary \"0 items, 0 done\". Give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "deleting the last item in the list works",
+    "deleting the only item left works",
+    "the list ends empty with 0 items, 0 done"
+  ],
+  "notes": "Deleting the last item in the list reads past the end: the app crashes."
+}
