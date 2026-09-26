@@ -219,7 +219,9 @@ struct RunView: View {
         guard let seq, VerdictLanding.lands(onScreen: onScreen, runId: runId, current: seq,
                                             arrivedLive: store.liveVerdicts[runId]),
               let verdict = facts.verdict else { return }
-        let cited = (verdict.evidence ?? []).lazy.map(Evidence.parse).compactMap(\.step).first
+        // A failed check's own evidence first (root ADR 0024): that is where the fail shows.
+        let checks = Checklist(checks: store.verdictMessage(runId)?.checks ?? [])
+        let cited = checks.firstFailedStep ?? store.citedSteps(runId).first
         let plan = VerdictLanding.plan(
             outcome: verdict.verdict, failures: facts.failures, cited: cited, reduceMotion: reduceMotion,
             typing: keyboard?.responder == .text,

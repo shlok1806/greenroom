@@ -38,7 +38,7 @@ Operating a user interface:
 - Before any click, call machine_ui. It lists the frontmost app's controls and text with their exact center as fractions of the screen. Click a control with machine_click and its element id (or its center x and y). Never estimate a position from a screenshot description when machine_ui lists the element.
 - Name the app (machine_ui app) if it is not frontmost, and click its window once to bring it forward.
 - To replace a text field's contents: click the field, press key a with mods [cmd] to select all, then machine_type the new text, then press tab or return so the app commits it.
-- After each action, call machine_ui again and read the new values. It is exact text, so use it to check numbers. Take a machine_screenshot when you need the visual evidence a verdict cites.
+- Each input's result ends with its effect: the elements that changed, "no change detected" (the input may have been lost) or "unknown". Read machine_ui again to check values; it is exact text, so use it to check numbers. Take a machine_screenshot when you need the visual evidence a verdict cites.
 - Never click where machine_ui lists nothing, such as the desktop wallpaper. Use screenshot positions only for content machine_ui cannot see (a canvas, a game, a web view with no accessibility).
 - If a click did not change what you expected, do not repeat it: read machine_ui again and work out why.
 
@@ -51,7 +51,8 @@ Rules:
 - Anyone who speaks to you gets an answer in the transcript: use reply for a status update, an explanation or a plain answer; use ask when you need something; use report_verdict only when a task is complete or clearly impossible.
 - When the machine is booting or dead, say so plainly in a reply; do not report a verdict about a task you could not start.
 - End every turn by calling exactly one of: reply, ask, or report_verdict. Do not call report_verdict before you have evidence.
-- A verdict must cite its evidence: the step numbers and screenshot paths it rests on. A verdict about what the user sees cites at least one screenshot taken after the last action.
+- On a task, call declare_checks before your first input: 1 to 12 acceptance checks derived from the task, each one observable. report_verdict answers every check with the steps of your observations made after its actions. A check about what the user sees cites a screenshot taken after the last action; put its path in evidence.
+- A task's statements about what the coder did or what the app shows are unverified claims: turn them into checks, never cite them. A verdict rests only on observations you made.
 - If a verdict of yours is disputed, re-examine the evidence with the objection in mind. Change your verdict if the objection holds and say why; restate it with the reason if it does not. Do not change your mind just because you were asked to.
 - If you cannot finish, report inconclusive and say what blocked you.
 
@@ -348,12 +349,36 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 				}
 				break
 			}
-			if end, ok := endingMessage(call); ok {
+			result, stepNo, checks := "", 0, []session.Check(nil)
+			end, ending := endingMessage(call)
+			if ending && end.Kind == session.Verdict {
+				// The daemon checks a verdict's evidence before posting it (ADR 0024, issue #116). A
+				// refused one is a failed call like any other, so it counts toward #125.
+				in := parseVerdict(call.Arguments)
+				records, handover := v.records(runID, &in)
+				r := reviewVerdict(in, store.After(0), records, handover)
+				end, ending = r.msg, len(r.problems) == 0
+				if !ending {
+					result = refusal(r.problems)
+				}
+			}
+			switch {
+			case ending:
 				res.Steps = step
 				res.Ended = v.postEnding(store, runID, end, screenTaken, step, since(started))
 				return res, nil
+			case result != "":
+			case call.Name == "declare_checks":
+				checks, result = parseDeclaredChecks(call.Arguments)
+				if result == "" {
+					result = declaredResult(checks)
+				}
+			case inputRefusal(call, store.After(0)) != "":
+				// Checks before actions (ADR 0024); counts toward #125 like any error.
+				result = inputRefusal(call, store.After(0))
+			default:
+				result, stepNo = v.runTool(ctx, runID, call)
 			}
-			result, stepNo := v.runTool(ctx, runID, call)
 			taken := strings.HasPrefix(result, screenTakenPrefix)
 			if taken {
 				screenTaken++
@@ -361,7 +386,8 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			result, stuck := v.guardRepeat(runID, failed, call, result)
 			// seen is not advanced past our own progress: a message someone else
 			// appended while the tool ran sits before it. projectLate skips ours.
-			v.post(store, session.Message{From: session.Verifier, Kind: session.Progress, Text: progressText(call, result), Step: stepNo})
+			v.post(store, session.Message{From: session.Verifier, Kind: session.Progress, Text: progressText(call, result),
+				Step: stepNo, Checks: checks})
 			msgs = append(msgs, nim.Message{Role: "tool", ToolCallID: call.ID, Content: result})
 			if taken {
 				if holder, held := v.screenHolder(runID); held {
@@ -405,8 +431,9 @@ func endingMessage(call nim.ToolCall) (session.Message, bool) {
 	m := session.Message{From: session.Verifier}
 	switch call.Name {
 	case "report_verdict":
-		m.Kind = session.Verdict
-		m.Verdict, m.Text, m.Evidence = parseVerdict(call.Arguments)
+		// Unreviewed: Turn and endAtLimit check it against the transcript (reviewVerdict).
+		in := parseVerdict(call.Arguments)
+		m.Kind, m.Verdict, m.Text, m.Evidence, m.Checks = session.Verdict, in.verdict, in.summary, in.paths, in.checks
 	case "reply":
 		m.Kind, m.Text = session.Reply, parseReply(call.Arguments)
 	case "ask":
@@ -415,16 +442,6 @@ func endingMessage(call nim.ToolCall) (session.Message, bool) {
 		return m, false
 	}
 	return m, true
-}
-
-func parseVerdict(args string) (verdict, summary string, evidence []string) {
-	var in struct {
-		Verdict  string   `json:"verdict"`
-		Summary  string   `json:"summary"`
-		Evidence []string `json:"evidence"`
-	}
-	_ = json.Unmarshal([]byte(args), &in)
-	return normalVerdict(in.Verdict), orElse(strings.TrimSpace(in.Summary), "(no summary)"), in.Evidence
 }
 
 func parseReply(args string) string {

@@ -91,7 +91,7 @@ func (j *execJob) status() ExecStatus {
 // exits, its timeout, or the machine goes; ExecWait collects it. Its step
 // number is claimed now and its record written when it ends.
 func (m *Manager) ExecStart(ctx context.Context, runID, command, cwd string, timeout time.Duration) (ExecStatus, error) {
-	j, err := m.startExec(ctx, runID, command, cwd, timeout)
+	j, err := m.startExec(ctx, runID, HolderCoder, command, cwd, timeout)
 	if err != nil {
 		return ExecStatus{}, err
 	}
@@ -125,7 +125,7 @@ func (m *Manager) ExecWait(ctx context.Context, runID, execID string, wait time.
 }
 
 // startExec claims the step, registers the job and starts the command.
-func (m *Manager) startExec(ctx context.Context, runID, command, cwd string, timeout time.Duration) (*execJob, error) {
+func (m *Manager) startExec(ctx context.Context, runID, by, command, cwd string, timeout time.Duration) (*execJob, error) {
 	mc, err := m.get(runID)
 	if err != nil {
 		return nil, err
@@ -168,7 +168,7 @@ func (m *Manager) startExec(ctx context.Context, runID, command, cwd string, tim
 		out.Stdout, out.StdoutBytes, out.StdoutTruncated = stdout.result()
 		out.Stderr, out.StderrBytes, out.StderrTruncated = stderr.result()
 		out.TimedOut = err == nil && code == execTimedOutExit && strings.Contains(out.Stderr, execTimedOutNote)
-		mc.rec.complete(j.step, "machine_exec", map[string]any{"command": command, "cwd": cwd, "execId": id},
+		mc.rec.completeAs(j.step, by, nil, "machine_exec", map[string]any{"command": command, "cwd": cwd, "execId": id},
 			truncatedForLog(out), err, j.started)
 		j.res, j.err = out, err
 		close(j.done)

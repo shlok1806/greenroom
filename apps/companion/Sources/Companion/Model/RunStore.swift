@@ -525,7 +525,7 @@ final class RunStore: PilotHost {
     /// held for its undo, never sent at once.
     func requestAccept(runId: String) async {
         guard let verdict = verdict(runId), verdict.status.isOpen else { return }
-        if verdictDraft(runId).openedEvidence || (verdict.evidence ?? []).isEmpty {
+        if verdictDraft(runId).openedEvidence || citedSteps(runId).isEmpty && (verdict.evidence ?? []).isEmpty {
             await holdAccept(runId: runId)
         } else {
             updateVerdictDraft(runId) { $0.confirmingAccept = true }
@@ -815,6 +815,19 @@ final class RunStore: PilotHost {
         let listedSeq = listed.seq ?? 0, detailSeq = detail.seq ?? 0
         if listedSeq != detailSeq { return listedSeq > detailSeq ? listed : detail }
         return Self.progress(listed.status) > Self.progress(detail.status) ? listed : detail
+    }
+
+    /// The message that proposed the current verdict, once the transcript holds it.
+    func verdictMessage(_ runId: String) -> Message? {
+        guard let seq = verdict(runId)?.seq else { return nil }
+        return messages[runId]?.first { $0.seq == seq }
+    }
+
+    /// The steps the current verdict cites: its checks' evidence (root ADR 0024) and the
+    /// free list's steps. The state's own list stands in until the message is held.
+    func citedSteps(_ runId: String) -> [Int] {
+        if let message = verdictMessage(runId) { return message.citedSteps }
+        return (verdict(runId)?.evidence ?? []).compactMap { Evidence.parse($0).step }
     }
 
     /// How far a verdict has gone at one seq: none, proposed, contested, then closed.

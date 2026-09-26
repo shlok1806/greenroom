@@ -46,7 +46,34 @@ type Message struct {
 	Evidence []string  `json:"evidence,omitempty"` // verdict: artifact paths and step refs
 	Stop     string    `json:"stop,omitempty"`     // verifier reply: the limit that ended its turn (issue #127)
 	Control  string    `json:"control,omitempty"`  // system event: the screen was taken or came back (issue #124)
+	Checks   []Check   `json:"checks,omitempty"`   // verifier progress (declared) or verdict (answered), ADR 0024
 }
+
+// Check is one acceptance check of the verifier's (ADR 0024). A progress message from
+// declare_checks carries the list with ID and Criterion only. A verdict answers each one with a
+// Status, the observation steps that show it (Evidence), the input steps it depends on (Actions)
+// and what was seen (Observed).
+type Check struct {
+	ID        string `json:"id"`
+	Criterion string `json:"criterion,omitempty"`
+	Status    string `json:"status,omitempty"`   // verdict: pass, fail or unchecked
+	Evidence  []int  `json:"evidence,omitempty"` // verdict: machine_ui, machine_screenshot or machine_exec steps
+	Actions   []int  `json:"actions,omitempty"`  // verdict: input steps the check depends on
+	Observed  string `json:"observed,omitempty"` // verdict: what the evidence showed, one sentence
+}
+
+// Check statuses on a verdict.
+const (
+	CheckPass      = "pass"
+	CheckFail      = "fail"
+	CheckUnchecked = "unchecked"
+)
+
+// Limits on a declared checklist (ADR 0024).
+const (
+	MaxChecks  = 12
+	MaxCheckID = 40
+)
 
 // Control values: a system event saying a person took the screen, or that it came back to nobody
 // (given back, or the lease lapsed). The verifier is told to look before acting again, and the
@@ -134,8 +161,57 @@ func validate(m Message) error {
 			return fmt.Errorf("control must be %s or %s, not %q", ControlTaken, ControlReturned, m.Control)
 		}
 	}
+	if len(m.Checks) > 0 {
+		if err := validateChecks(m); err != nil {
+			return err
+		}
+	}
 	if m.Text == "" && m.Kind != Accept && m.Kind != Progress {
 		return fmt.Errorf("a %s needs text", m.Kind)
+	}
+	return nil
+}
+
+// validateChecks allows checks only on a verifier progress (a declaration: id and criterion) or a
+// verdict (an answer: id and status, and a pass verdict only of passing checks).
+func validateChecks(m Message) error {
+	if m.From != Verifier || (m.Kind != Progress && m.Kind != Verdict) {
+		return fmt.Errorf("only a verifier progress or verdict may carry checks, not a %s from %s", m.Kind, m.From)
+	}
+	if len(m.Checks) > MaxChecks {
+		return fmt.Errorf("at most %d checks, not %d", MaxChecks, len(m.Checks))
+	}
+	seen := map[string]bool{}
+	for i, c := range m.Checks {
+		if c.ID == "" || len(c.ID) > MaxCheckID {
+			return fmt.Errorf("check %d needs an id of 1 to %d characters", i+1, MaxCheckID)
+		}
+		if seen[c.ID] {
+			return fmt.Errorf("check id %q appears twice", c.ID)
+		}
+		seen[c.ID] = true
+		for _, n := range append(slices.Clone(c.Evidence), c.Actions...) {
+			if n <= 0 {
+				return fmt.Errorf("check %q cites step %d; steps start at 1", c.ID, n)
+			}
+		}
+		if m.Kind == Progress {
+			if c.Criterion == "" {
+				return fmt.Errorf("declared check %q needs a criterion", c.ID)
+			}
+			if c.Status != "" || len(c.Evidence) > 0 || len(c.Actions) > 0 || c.Observed != "" {
+				return fmt.Errorf("declared check %q carries a result; only a verdict answers a check", c.ID)
+			}
+			continue
+		}
+		switch c.Status {
+		case CheckPass, CheckFail, CheckUnchecked:
+		default:
+			return fmt.Errorf("check %q status must be pass, fail or unchecked, not %q", c.ID, c.Status)
+		}
+		if m.Verdict == "pass" && c.Status != CheckPass {
+			return fmt.Errorf("a pass verdict needs every check pass; %q is %s", c.ID, c.Status)
+		}
 	}
 	return nil
 }

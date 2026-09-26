@@ -134,8 +134,10 @@ func TestTheBudgetWithAnOpenTaskEndsInAClosingVerdict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Turn: %v", err)
 	}
-	if got := store.Verdict(); res.Ended != session.Verdict || got.Verdict != "fail" {
-		t.Fatalf("ended %q with verdict %+v, want the closing fail", res.Ended, got)
+	// ADR 0024: the fail cites nothing, since no step ran, so it is posted as inconclusive with why.
+	if got := store.Verdict(); res.Ended != session.Verdict || got.Verdict != "inconclusive" ||
+		!strings.Contains(got.Summary, "Reported as fail; posted as inconclusive") {
+		t.Fatalf("ended %q with verdict %+v, want the closing fail posted as inconclusive", res.Ended, got)
 	}
 	closing := model.request(t, 2)
 	if !strings.Contains(closing, "You are out of time for this turn") {
@@ -220,5 +222,49 @@ func TestAClosingInconclusiveWhileTheScreenIsTakenIsAQuestion(t *testing.T) {
 	}
 	if last := lastMessage(t, store); !strings.Contains(last.Text, "screen") {
 		t.Errorf("question = %q, want it to ask for the screen", last.Text)
+	}
+}
+
+// ADR 0024: at the step cap the closing verdict gets the same checks as any other. A pass whose
+// evidence does not hold is posted as inconclusive with the reasons, never as a pass; one that
+// holds is posted as it is.
+func TestAClosingPassIsCheckedLikeAnyVerdict(t *testing.T) {
+	for name, tc := range map[string]struct {
+		evidence func(first int) []int
+		want     string
+	}{
+		"broken": {func(int) []int { return []int{999} }, "inconclusive"},
+		"holds":  {func(first int) []int { return []int{first} }, "pass"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mgr, runID, _ := ready(t)
+			first := lastStep(t, mgr, runID) + 1
+			replies := append([]string{declared("picker")}, execs(5)...)
+			replies = append(replies, verdictOf("pass", "The picker works (step 2).",
+				answer("picker", "pass", tc.evidence(first))))
+			model := &scriptedModel{replies: replies}
+			v := newVerifier(t, mgr, model.start(t)) // MaxSteps 6
+			store := openStore(t, mgr, runID)
+			postTask(t, store, "Check the picker.")
+			res, err := v.Turn(context.Background(), runID, store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := store.Verdict()
+			if res.Ended != session.Verdict || model.calls() != 7 || got.Verdict != tc.want {
+				t.Fatalf("ended %q after %d calls with %+v, want a closing %s", res.Ended, model.calls(), got, tc.want)
+			}
+			if tc.want == "pass" {
+				return
+			}
+			if !strings.Contains(got.Summary, "The picker works (step 2).") ||
+				!strings.Contains(got.Summary, "[greenroom] Reported as pass; posted as inconclusive because its evidence does not hold: "+
+					`check "picker" (cited step): evidence step 999 is not a step you recorded in this run`) {
+				t.Errorf("summary = %q, want the model's summary and the reasons", got.Summary)
+			}
+			if c := got.Checks; len(c) != 1 || c[0].Status != "unchecked" || !strings.HasPrefix(c[0].Observed, "Not verified: cited step:") {
+				t.Errorf("checks = %+v, want the broken pass posted unchecked", c)
+			}
+		})
 	}
 }
