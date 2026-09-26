@@ -166,8 +166,6 @@ final class RunStore: PilotHost {
     private var taskFetches: Set<String> = []
 
     private let frameCache = FrameCache()
-    /// The runs list's glyph thumbnails (the power-down still, ADR 0006).
-    let thumbnails: RunThumbnails
     private var streamTask: Task<Void, Never>?
     /// Whether the event stream is up, so a failed read of the list is retried rather
     /// than left until the next drop.
@@ -189,7 +187,6 @@ final class RunStore: PilotHost {
         self.client = client
         self.controlClient = controlClient ?? client
         self.screenSource = screenSource ?? client
-        thumbnails = RunThumbnails { [client] runId, file in try await client.frame(runId: runId, file: file) }
     }
 
     // MARK: - Lifecycle
@@ -471,11 +468,6 @@ final class RunStore: PilotHost {
             details[runId]?.machine?.boot = held.merging(phase)
             return .nothing
         case .frame(let runId, let frame):
-            // The row's thumbnail follows a live run, no faster than `liveRefresh`.
-            if let index = runs.firstIndex(where: { $0.runId == runId }),
-               RunThumbnails.advances(runs[index].lastFrame, to: frame) {
-                runs[index].lastFrame = frame
-            }
             // Unloaded runs fetch the whole list when opened.
             guard var held = frames[runId], !held.contains(where: { $0.file == frame.file }) else {
                 return .nothing

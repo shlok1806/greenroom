@@ -9,8 +9,8 @@ status vocabulary, the daemon changes the UI waits on), `0004` (the glyph-native
 on a character grid), `0005` (keys and the action registry), `0006` (motion, signature
 moments, click marks), `0007` (the dependency allowlist), `0008` (readable type and the
 olive brand, amending 0004's type and colour decisions), `0009` (transcript cards and
-the Markdown renderer), `0010` (run thumbnails from the last frame) and `0011` (the
-verdict as a ledger). Design: `docs/design-spec.md`
+the Markdown renderer), `0010` (run thumbnails from the last frame, superseded by
+`0012`), `0011` (the verdict as a ledger) and `0012` (a run's row says its verdict). Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -312,15 +312,6 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
     main actor only receives the drawn still.
   - Power-down: a machine ending while its picture shows dissolves that picture into glyphs
     and holds it, then the well shows the recording. The moment itself is local to the view.
-  - Run thumbnails (ADR 0010, `Model/RunThumbnails.swift`, drawn by `RunThumbnailView` in
-    `SidebarView.swift`): the run's last recorded frame (`RunSummary.lastFrame`, from
-    `/api/runs`) as the same braille dither, fetched lazily by the row as it appears
-    (`RunThumbnails.request`), decoded downsampled and sampled off the main actor, held as
-    the rendering in a byte-bounded LRU (`ThumbnailCache`) and drawn in the theme's dim on a
-    whole-point dot lattice (crisp at 1x). One fetch per run per frame per session; a frame
-    the daemon refused is not asked for again. A live run's `lastFrame` follows `frame`
-    events no faster than `RunThumbnails.liveRefresh` (`advances`, in `apply`). The box is
-    always reserved, so rows never move. The strip keeps its marks.
   - House lights (`HouseLights.down`): down exactly while the hint bar says every key goes to
     the machine (`drivingFocused`). Lit holes are reported with `.houseLightsLit()`: the
     well, the driving bar, Give Back and the hint bar. The scrim takes no clicks, so Give
@@ -350,10 +341,14 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   - `CompanionSnapshots` scenarios 28 to 36 hold each moment part way (`momentFreeze`); they
     read `GREENROOM_SNAPSHOTS_MOMENTS_RUN` (default a TipSplit run with clicks) and, for the
     verdict-lands fail, `GREENROOM_SNAPSHOTS_FAIL_RUN` (default a TipSplit fail).
-- A run is named by a short title from its task (`RunTitle.short`, made distinct with
-  `RunTitle.distinct`), never by its id. The sidebar pins "Needs You" and "Running"
-  above the days; a row is the thumbnail and title, then the start time and counts and its
-  state in words under both (the time gives way before the state is clipped).
+- A run is named by a short title from its task (`RunTitle.short`), never by its id. The
+  sidebar pins "Needs you" and "Running" above the days, each showing its newest
+  `SidebarView.pinnedShown` then "Show all N" (the open run always shows; a search shows
+  every match). A row is the title at full width, then the verdict's `rowTally` (`2/4
+  failed`) or the step count with the start time, and its state in words (companion ADR
+  0012): a waiting verdict leads with its outcome, `Fail, needs review`. Rows have no
+  thumbnail (0012 supersedes 0010). `RunTitle.distinct` (the time appended to twins) is for
+  places without the row's time, never the row.
 - The verdict's Accept and Dispute live only in `VerdictCard`, pinned above the
   conversation (or above the stage when the conversation is hidden or has no room). A
   narrow window keeps it with the conversation, one pane away; `a` and `d` bring the

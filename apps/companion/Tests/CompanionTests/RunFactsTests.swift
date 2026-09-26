@@ -133,7 +133,13 @@ final class RunFactsTests: XCTestCase {
     func testAProposedVerdictNeedsReviewEvenAfterTheRunEnded() {
         let f = facts(detail: detail(nil), verdict: VerdictState(seq: 3, verdict: "pass", status: .proposed))
         XCTAssertTrue(f.needsYou)
-        XCTAssertEqual(f.rowStatus(now: now).text, "Needs review")
+        XCTAssertEqual(f.rowStatus(now: now).text, "Pass, needs review")
+        // The outcome the verifier proposes leads (companion ADR 0012).
+        let fail = facts(detail: detail(nil), verdict: VerdictState(seq: 3, verdict: "fail", status: .proposed))
+        XCTAssertEqual(fail.rowStatus(now: now).text, "Fail, needs review")
+        let contested = facts(detail: detail(nil), verdict: VerdictState(seq: 3, verdict: "fail", status: .contested, disputes: 2))
+        XCTAssertEqual(contested.rowStatus(now: now).text, "Fail, contested")
+        XCTAssertEqual(contested.rowStatus(now: now).tone, .attention)
     }
 
     func testAClosedVerdictReadsAsItsOutcomeAndWhoClosedIt() {

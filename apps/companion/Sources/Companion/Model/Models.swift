@@ -144,6 +144,8 @@ struct VerdictState: Codable, Hashable, Sendable {
     var status: VerdictStatus = .none
     var acceptedBy: MessageFrom?
     var disputes = 0
+    /// The verdict's checklist (root ADR 0024), as the run list carries it.
+    var checks: [AcceptanceCheck] = []
 }
 
 extension VerdictState {
@@ -156,6 +158,8 @@ extension VerdictState {
         status = try c.decode(.status, or: .none)
         acceptedBy = try c.decodeIfPresent(MessageFrom.self, forKey: .acceptedBy)
         disputes = try c.decode(.disputes, or: 0)
+        // One malformed check drops the list, never the verdict.
+        checks = (try? c.decodeIfPresent([AcceptanceCheck].self, forKey: .checks)) ?? []
     }
 }
 

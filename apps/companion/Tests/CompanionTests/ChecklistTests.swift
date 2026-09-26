@@ -107,6 +107,28 @@ final class ChecklistTests: XCTestCase {
         XCTAssertEqual(list.unchecked.map(\.id), ["c", "d"])
     }
 
+    /// A run's row says the verdict's scope in a few characters (companion ADR 0012).
+    func testTheRowTallySaysWhatFailedElseWhatWasNotCheckedElseAllPassed() {
+        XCTAssertNil(Checklist(checks: []).rowTally)
+        XCTAssertEqual(Checklist(checks: [check("a", .fail), check("b", .unchecked), check("c", .pass)]).rowTally, "1/3 failed")
+        XCTAssertEqual(Checklist(checks: [check("a", .unchecked), check("b", .pass)]).rowTally, "1/2 unchecked")
+        XCTAssertEqual(Checklist(checks: [check("a", .pass), check("b", .pass)]).rowTally, "2/2 passed")
+    }
+
+    func testTheRunListsVerdictCarriesItsChecks() throws {
+        let state = try JSONDecoder.daemon().decode(VerdictState.self, from: Data("""
+        {"seq": 7, "verdict": "fail", "status": "proposed",
+         "checks": [{"id": "a", "criterion": "A", "kinds": ["visual"], "status": "fail", "evidence": [6, 7]}]}
+        """.utf8))
+        XCTAssertEqual(state.checks.map(\.id), ["a"])
+        XCTAssertEqual(state.checks.first?.kinds, [.visual])
+        let broken = try JSONDecoder.daemon().decode(VerdictState.self, from: Data("""
+        {"seq": 7, "verdict": "fail", "status": "proposed", "checks": "nope"}
+        """.utf8))
+        XCTAssertEqual(broken.checks, [])
+        XCTAssertEqual(broken.status, .proposed)
+    }
+
     // MARK: - Kinds (root ADR 0027)
 
     func testKindsDecodeFromTheListOrTheEarlySingleKind() throws {
