@@ -101,7 +101,7 @@ struct VerdictReview: Equatable, Sendable {
             return accept + "Reject closes it as rejected. The verifier stopped with the machine, so nothing will look again."
         }
         if verdict.status == .contested { return accept + "Reject closes it as rejected." }
-        return accept + "Reject sends your reason to the verifier, which looks again."
+        return accept + "Reject sends your reason to the verifier, which looks again. The coding agent can accept it too."
     }
 
     private static func name(_ from: MessageFrom?) -> String {

@@ -151,8 +151,10 @@ struct RootView: View {
                 .focusRule(true)
                 .keyboardPane(.sidebar)
                 .overlay(alignment: .trailing) { Hairline(axis: .vertical).frame(maxHeight: .infinity) }
-                .shadow(color: .black.opacity(0.18), radius: 12, x: 4)
-            Color.black.opacity(0.12)
+                // Lifted over a run only: with none open there is nothing under it to dim,
+                // and a scrim over an empty page read as a broken window (audit P6).
+                .shadow(color: .black.opacity(store.selectedRunId == nil ? 0 : 0.18), radius: 12, x: 4)
+            Color.black.opacity(store.selectedRunId == nil ? 0 : 0.12)
                 .contentShape(Rectangle())
                 .onTapGesture { if store.selectedRunId != nil { keyboard.pane = .stage } }
                 .accessibilityHidden(true)

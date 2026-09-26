@@ -36,7 +36,6 @@ are in the root `CONTEXT-MAP.md`.
 - **Frame**: one captured screen image (ADR 0008), `{at, file, step, bytes}`, listed at
   `GET /api/runs/{id}/frames` and fetched at `.../frames/{file}`. The run list names each
   run's newest as `lastFrame`.
-- **Thumbnail**: a run's last frame as a glyph still in its row (companion ADR 0010).
 - **Live screen**: the Screen stage following live: the machine's H.264 stream
   (`GET /api/runs/{id}/screen/live`, ADR 0011) while it plays, else the newest frame the
   daemon pushes (`event: frame`).

@@ -189,8 +189,12 @@ extension RunFacts {
     /// and the card never describe one verdict two ways.
     func rowStatus(now: Date) -> (text: String, tone: Tone) {
         if case .you(let why) = turn {
-            if verdict?.status == .proposed { return ("Needs review", .attention) }
-            if verdict?.status == .contested { return ("Contested", .attention) }
+            // The outcome the verifier proposes, first: how carefully to review depends on
+            // it (companion ADR 0012). The state is the same word the card's headline has.
+            if let verdict, verdict.status == .proposed || verdict.status == .contested {
+                let state = verdict.status == .proposed ? "needs review" : "contested"
+                return ("\(Chrome.outcomeTitle(verdict.verdict)), \(state)", .attention)
+            }
             return (why.contains("question") ? "Question for you" : "Needs you", .attention)
         }
         switch phase {

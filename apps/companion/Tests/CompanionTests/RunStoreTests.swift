@@ -17,6 +17,37 @@ final class RunStoreTests: XCTestCase {
         Message(seq: seq, at: Date(timeIntervalSince1970: Double(seq)), from: from, kind: kind, text: "m\(seq)")
     }
 
+    /// A check row or `]` selects a check and shows its evidence (companion ADR 0011).
+    func testSelectingACheckShowsItsEvidenceAndCountsAsOpened() {
+        let store = store()
+        let checks = [AcceptanceCheck(id: "f", criterion: "F", status: .fail, evidence: [7, 9]),
+                      AcceptanceCheck(id: "u", criterion: "U", status: .unchecked),
+                      AcceptanceCheck(id: "p", criterion: "P", status: .pass, evidence: [4])]
+        var verdict = Message(seq: 3, at: .epoch, from: .verifier, kind: .verdict, text: "no", verdict: "fail")
+        verdict.checks = checks
+        store.messages["run-1"] = [verdict]
+        store.runs[0].verdict = VerdictState(seq: 3, verdict: "fail", status: .proposed)
+        XCTAssertTrue(store.reviewingChecks("run-1"))
+
+        store.selectCheck(runId: "run-1", by: 1)
+        XCTAssertEqual(store.verdictDraft("run-1").selectedCheck, "f")
+        XCTAssertEqual(store.seekRequest?.step, 7)
+        XCTAssertEqual(store.seekRequest?.fromVerdict, true)
+        XCTAssertTrue(store.verdictDraft("run-1").openedEvidence)
+
+        // One with no evidence is selected and nothing moves.
+        let before = store.seekRequest
+        store.selectCheck(runId: "run-1", by: 1)
+        XCTAssertEqual(store.verdictDraft("run-1").selectedCheck, "u")
+        XCTAssertEqual(store.seekRequest, before)
+
+        store.selectCheck(runId: "run-1", id: "f", step: 9)
+        XCTAssertEqual(store.seekRequest?.step, 9)
+
+        store.runs[0].verdict = VerdictState(seq: 3, verdict: "fail", status: .accepted)
+        XCTAssertFalse(store.reviewingChecks("run-1"))
+    }
+
     func testMessageIsAppendedOnce() {
         let store = store()
         XCTAssertEqual(store.apply(.message(runId: "run-1", message: message(1))), .nothing)

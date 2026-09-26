@@ -71,12 +71,15 @@ final class SnapshotHarness {
         let base = URL(string: environment["GREENROOM_URL"] ?? "http://127.0.0.1:7851")!
         let only = environment["GREENROOM_SNAPSHOTS_ONLY"] ?? ""
 
+        // `GREENROOM_SNAPSHOTS_THEMES` (comma-separated: light, dark, light-hc, dark-hc;
+        // default light and dark) picks the themes each scenario renders in.
+        let themes = (environment["GREENROOM_SNAPSHOTS_THEMES"] ?? "light,dark")
+            .split(separator: ",").compactMap { ThemePreference(rawValue: String($0).trimmingCharacters(in: .whitespaces)) }
         for scenario in scenarios() where only.isEmpty || scenario.name.contains(only) {
-            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            for theme in themes {
                 for size in scenario.sizes {
-                    let mode = appearance == .aqua ? "light" : "dark"
-                    let file = directory.appending(path: "\(scenario.name)-\(mode)-\(size.name).png")
-                    try await render(scenario, appearance: appearance, size: size, base: base, to: file)
+                    let file = directory.appending(path: "\(scenario.name)-\(theme.rawValue)-\(size.name).png")
+                    try await render(scenario, theme: theme, size: size, base: base, to: file)
                     print("rendered \(file.lastPathComponent)")
                 }
             }
@@ -192,7 +195,7 @@ final class SnapshotHarness {
             // Following live from the start, so Recent steps holds the newest (and longest) rows.
             Scenario(name: "24b-guest-live-long-rows", sizes: [Self.guest], runId: Self.citedRun, pane: .steps) { store in
                 Self.makeLive(store, runId: Self.citedRun, lastActivityAgo: 8)
-                UserDefaults.standard.set(StagePane.screen.rawValue, forKey: "stagePane")
+                HarnessDefaults.set(StagePane.screen.rawValue, "stagePane")
             },
             Scenario(name: "25-guest-steps", sizes: [Self.guest], runId: Self.citedRun, pane: .steps),
             Scenario(name: "25b-guest-sidebar-by-hand", sizes: [Self.guest], runId: Self.citedRun, showSidebar: true),
@@ -273,6 +276,25 @@ final class SnapshotHarness {
                 Self.cutAfterPlan(store, runId: failRun, calls: 2)
                 Self.makeLive(store, runId: failRun, lastActivityAgo: 4)
             },
+        ] + realChecklistScenarios()
+    }
+
+    /// Verdicts exactly as the verifier bench recorded them (root ADR 0024, 0025, 0027),
+    /// nothing seeded: each is open for review as it was left. Copy the bench's runs into
+    /// the daemon's root to render them.
+    private func realChecklistScenarios() -> [Scenario] {
+        let all = [Self.large, Self.medium, Self.guest]
+        return [
+            // 4 checks, 2 failed: TodoList's Clear done button.
+            Scenario(name: "41-real-four-checks-fail", sizes: all, runId: "20260926-051843-ec112051c6d7e64d"),
+            // 8 checks, all passed.
+            Scenario(name: "42-real-eight-checks-pass", sizes: [Self.large, Self.guest], runId: "20260926-061121-2f86d768db46ed22"),
+            // Inconclusive: 1 passed, 3 not checked.
+            Scenario(name: "43-real-inconclusive", sizes: [Self.large, Self.guest], runId: "20260926-050758-921d99b9003d7b59"),
+            // ADR 0027: value and visual checks, the UI read marks the answer not drawn.
+            Scenario(name: "44-real-visual-not-drawn", sizes: all, runId: "20260926-034206-4cf03f48a9538400"),
+            // ADR 0027: a timing check ("at once").
+            Scenario(name: "45-real-timing", sizes: [Self.large, Self.guest], runId: "20260926-034346-216ce610b45da6f2"),
         ]
     }
 
@@ -599,13 +621,14 @@ final class SnapshotHarness {
 
     // MARK: - Rendering
 
-    private func render(_ scenario: Scenario, appearance: NSAppearance.Name, size: Size, base: URL, to file: URL) async throws {
-        let defaults = UserDefaults.standard
-        defaults.set(scenario.pane.rawValue, forKey: "stagePane")
-        defaults.set(scenario.conversation, forKey: "showsConversation")
-        defaults.set(false, forKey: "stepsErrorsOnly")
-        defaults.set(scenario.sidebarWidth, forKey: "sidebarWidth")
-        defaults.set(scenario.runId ?? "none", forKey: "selectedRunId")
+    private func render(_ scenario: Scenario, theme: ThemePreference, size: Size, base: URL, to file: URL) async throws {
+        HarnessDefaults.set(theme.rawValue, ThemePreference.key)
+        let appearance: NSAppearance.Name = theme.colorScheme == .dark ? .darkAqua : .aqua
+        HarnessDefaults.set(scenario.pane.rawValue, "stagePane")
+        HarnessDefaults.set(scenario.conversation, "showsConversation")
+        HarnessDefaults.set(false, "stepsErrorsOnly")
+        HarnessDefaults.set(scenario.sidebarWidth, "sidebarWidth")
+        HarnessDefaults.set(scenario.runId ?? "none", "selectedRunId")
 
         let client: DaemonClient
         if scenario.unreachable {
@@ -628,6 +651,10 @@ final class SnapshotHarness {
             defer: false
         )
         window.isReleasedWhenClosed = false
+        // The app's window has no title bar (`.hiddenTitleBar`); a harness window is made by
+        // hand, and the first one of a run drew its title before the chrome hid it.
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
         window.appearance = NSAppearance(named: appearance)
         window.title = "Greenroom Companion"
         let keyboard = KeyboardModel(store: store)
@@ -678,6 +705,20 @@ final class SnapshotHarness {
         }
         guard let png = rep.representation(using: .png, properties: [:]) else { return }
         try png.write(to: file)
+    }
+}
+
+/// Settings for this process only. The harness shares `UserDefaults.standard` with every
+/// other harness process (one executable, one domain): two runs at once read each other's
+/// theme and pane, and drew light scenarios in dark and panes the scenario never opened.
+/// The argument domain outranks the saved one, lives only in this process and is never
+/// written to disk.
+enum HarnessDefaults {
+    static func set(_ value: Any, _ key: String) {
+        let defaults = UserDefaults.standard
+        var domain = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        domain[key] = value
+        defaults.setVolatileDomain(domain, forName: UserDefaults.argumentDomain)
     }
 }
 

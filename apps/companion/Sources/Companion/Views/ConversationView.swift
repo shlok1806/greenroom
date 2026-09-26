@@ -58,7 +58,7 @@ struct ConversationView: View {
                 .readingMeasure()
             if visible {
                 VerdictCard(store: store, runId: runId, facts: store.facts(runId),
-                            maxHeight: RunLayout.verdictCardMaximum(column: columnHeight))
+                            maxHeight: RunLayout.verdictCardMaximum(column: columnHeight, reviewing: store.reviewingChecks(runId)))
                     .id(VerdictCard.identity(runId: runId, verdict: store.verdict(runId)))
                     .padding(.horizontal, Space.m)
                     .padding(.bottom, Space.m)
@@ -257,6 +257,13 @@ struct ConversationView: View {
         }
     }
 
+    /// Whether the current verdict answers this plan: its criteria are then the card's
+    /// rows, and the plan folds to one line (companion ADR 0011).
+    private func answersCurrentVerdict(_ plan: Message) -> Bool {
+        guard let verdict = store.verdictMessage(runId), !verdict.checks.isEmpty else { return false }
+        return messages.last { $0.seq < verdict.seq && CheckPlan.isPlan($0) }?.seq == plan.seq
+    }
+
     @ViewBuilder
     private func row(_ item: TranscriptLayout.Item) -> some View {
         switch item {
@@ -265,7 +272,7 @@ struct ConversationView: View {
         case .toolCalls(let calls):
             ToolCallGroup(store: store, runId: runId, calls: calls)
         case .plan(let message):
-            CheckPlanBlock(message: message)
+            CheckPlanBlock(message: message, answered: answersCurrentVerdict(message))
         case .event(let message):
             EventLine(message: message, verdicts: messages.filter { $0.kind == .verdict })
         case .day(let day, _):

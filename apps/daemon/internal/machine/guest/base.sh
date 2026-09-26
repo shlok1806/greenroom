@@ -120,6 +120,49 @@ cat > "$list" <<'EOF'
 </plist>
 EOF
 
+# --- Notification alerts the build raised: closed. -------------------------------------------
+# Installing Xcode makes Login Items & Extensions (BTM) post "Multiple Extensions Added" (see
+# xcode.sh, which waits until it has). BTM posts it as an alert, which stays on screen until
+# someone closes it, and usernoted keeps it: every clone of the image showed it over the
+# desktop at every login, where the dialog gate caught it (lean only hid it, by disabling
+# notificationcenterui). Closing it is what a person does: Notification Center deletes it and
+# it does not come back, in this VM, its clones or after a reboot (measured on 26.6.2).
+# Only the alerts this recipe is known to raise are closed, matched on their text; any other
+# alert on screen fails the read-back by its text. The Close action is the one on the
+# alert's own close button. System Events needs this script's Apple Events rows above, and
+# UI scripting the Accessibility grant the Cirrus base gives tart-guest-agent.
+# alerts_script [text]: with text, close the first alert whose text contains it and print
+# "closed: <its text>"; without, print each alert's text, one a line.
+alerts_script='on run argv
+	set out to ""
+	tell application "System Events" to tell process "NotificationCenter"
+		repeat with w in windows
+			set es to entire contents of w
+			repeat with i from 1 to count of es
+				set e to item i of es
+				if role of e is "AXGroup" and subrole of e is "AXNotificationCenterAlert" then
+					set t to ""
+					set vs to value of static texts of e
+					repeat with s in vs
+						set t to t & (contents of s) & " "
+					end repeat
+					if (count of argv) > 0 and t contains (item 1 of argv) then
+						perform (first action of e whose description is "Close")
+						return "closed: " & t
+					end if
+					set out to out & t & linefeed
+				end if
+			end repeat
+		end repeat
+	end tell
+	return out
+end run'
+build_alerts="“Xcode”"
+for text in $build_alerts; do
+  n=0
+  while [ $n -lt 10 ] && osascript -e "$alerts_script" "$text" 2>/dev/null | grep '^closed: '; do n=$((n+1)); done
+done
+
 # --- Read back. -----------------------------------------------------------------------------
 # Settle first: loginwindow rewrites its list a few seconds after the set of running apps
 # changes, so a rewrite that puts an app back must be there by the read-back.
@@ -142,6 +185,12 @@ done
 check terminal-stopped sh -c '! pgrep -x Terminal'
 check relaunch-list-finder-only is "$(plutil -extract PersistentApps.0.BundleID raw -o - "$list"),$(plutil -extract PersistentApps.1 raw -o - "$list" 2>/dev/null || echo none)" com.apple.finder,none
 check saved-state-empty is "$(ls -A "$HOME/Library/Saved Application State" 2>/dev/null)" ""
+if alerts="$(osascript -e "$alerts_script" 2>&1)"; then
+  alerts="$(printf '%s\n' "$alerts" | sed 's/[[:space:]]*$//; /^$/d' | tr '\n' ';' | sed 's/;$//')"
+else
+  alerts="unreadable: $alerts"
+fi
+check "notification-alerts${alerts:+: $alerts}" is "$alerts" ""
 
 if [ -n "$fail" ]; then
   echo "base: failed:$fail" >&2

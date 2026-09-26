@@ -62,6 +62,9 @@ struct VerdictDraft: Equatable, Sendable {
     /// The card's evidence is open. Per run and verdict and never saved, so a card opened
     /// on one verdict does not open every other one, nor come back open after a relaunch.
     var expanded = false
+    /// The check the reviewer is looking at (companion ADR 0011): its row is marked in
+    /// the card and the stage shows its claim over its evidence.
+    var selectedCheck: String?
 }
 
 /// An LRU of decoded frame images, so scrubbing never refetches a frame.
@@ -163,8 +166,6 @@ final class RunStore: PilotHost {
     private var taskFetches: Set<String> = []
 
     private let frameCache = FrameCache()
-    /// The runs list's glyph thumbnails (the power-down still, ADR 0006).
-    let thumbnails: RunThumbnails
     private var streamTask: Task<Void, Never>?
     /// Whether the event stream is up, so a failed read of the list is retried rather
     /// than left until the next drop.
@@ -186,7 +187,6 @@ final class RunStore: PilotHost {
         self.client = client
         self.controlClient = controlClient ?? client
         self.screenSource = screenSource ?? client
-        thumbnails = RunThumbnails { [client] runId, file in try await client.frame(runId: runId, file: file) }
     }
 
     // MARK: - Lifecycle
@@ -468,11 +468,6 @@ final class RunStore: PilotHost {
             details[runId]?.machine?.boot = held.merging(phase)
             return .nothing
         case .frame(let runId, let frame):
-            // The row's thumbnail follows a live run, no faster than `liveRefresh`.
-            if let index = runs.firstIndex(where: { $0.runId == runId }),
-               RunThumbnails.advances(runs[index].lastFrame, to: frame) {
-                runs[index].lastFrame = frame
-            }
             // Unloaded runs fetch the whole list when opened.
             guard var held = frames[runId], !held.contains(where: { $0.file == frame.file }) else {
                 return .nothing
@@ -519,6 +514,35 @@ final class RunStore: PilotHost {
         var draft = verdictDraft(runId)
         change(&draft)
         verdictDrafts[runId] = draft
+    }
+
+    /// The checklist of the run's current verdict, criteria filled from its plan.
+    func checklist(_ runId: String) -> Checklist {
+        Checklist.of(verdictMessage(runId), in: messages[runId] ?? [])
+    }
+
+    /// A verdict with checks waits for a person: the card gets the room (companion ADR 0011).
+    func reviewingChecks(_ runId: String) -> Bool {
+        guard let verdict = verdict(runId), verdict.status.isOpen else { return false }
+        return !(verdictMessage(runId)?.checks.isEmpty ?? true)
+    }
+
+    /// Selects a check and shows its evidence on the screen (companion ADR 0011): `step`,
+    /// or its first. A check with no evidence is selected and nothing moves.
+    func selectCheck(runId: String, id: String, step: Int? = nil) {
+        guard let check = checklist(runId).check(id) else { return }
+        let target = step ?? check.evidence.first
+        updateVerdictDraft(runId) { draft in
+            draft.selectedCheck = id
+            if target != nil { draft.openedEvidence = true }
+        }
+        if let target { requestSeek(runId: runId, step: target, fromVerdict: true) }
+    }
+
+    /// Moves the selection `delta` checks along the card's order and shows that check.
+    func selectCheck(runId: String, by delta: Int) {
+        guard let next = checklist(runId).check(after: verdictDraft(runId).selectedCheck, by: delta) else { return }
+        selectCheck(runId: runId, id: next.id)
     }
 
     /// Accept, or ask first when none of the cited evidence was opened. The accept is

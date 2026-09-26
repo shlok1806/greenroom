@@ -102,34 +102,34 @@ struct VerdictCard: View {
             // however much evidence is open: the body scrolls once the card is capped.
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Space.s) {
-                    outcome(verdict, appearance: appearance, tint: tint, moment: moment)
+                    outcome(verdict, appearance: appearance, tint: tint, moment: moment, checklist: checklist)
                     if let note = review.note {
                         Text((review.humanReviewed ? "" : "! ") + note)
                             .readingStyle(size: TypeScale.readingSmall)
                             .foregroundStyle(verdict.status == .accepted && !review.humanReviewed
                                 ? theme.color(.attention, on: .surface) : theme.dim(on: .surface))
                     }
-                    // Short reasons in full; long ones to three lines until opened. Numbers are
-                    // what a reviewer checks, so two lines was never enough. In full, the steps
-                    // the reason names are chips that open them, like the evidence below.
-                    if detailed || words.count <= 280 {
-                        MarkdownView(blocks: reason) { step in seek(.step(step), inSteps: false) }
+                    if checklist.checks.isEmpty {
+                        // A verdict from before checks: its reasons are the whole account.
+                        reasons(reason, words: words, detailed: detailed)
                     } else {
-                        Text(MarkdownText.plain(reason))
-                            .readingStyle()
-                            .lineLimit(3)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    // The verdict's scope: each check it answers (root ADR 0024). A verdict
-                    // from before checks has none and shows as it always did.
-                    VerdictChecklist(store: store, runId: runId, checklist: checklist) { step in
-                        seek(.step(step), inSteps: false)
+                        // The checks lead (companion ADR 0011): they are the verdict's scope
+                        // (root ADR 0024). The verifier's own account follows, folded.
+                        VerdictChecklist(store: store, runId: runId, checklist: checklist)
+                            .padding(.horizontal, -Space.s)
                     }
                     ForEach(checks, id: \.self) { check in
                         Text("! " + check.text)
                             .readingStyle(.readingMedium, size: TypeScale.readingSmall)
                             .foregroundStyle(theme.color(check == .noEvidence ? .failure : .attention, on: .surface))
+                    }
+                    if !checklist.checks.isEmpty {
+                        VStack(alignment: .leading, spacing: Space.xs) {
+                            SectionLabel(title: "The verifier's summary")
+                            reasons(reason, words: words, detailed: detailed, folded: 2)
+                                .foregroundStyle(detailed ? theme.foreground : theme.dim(on: .surface))
+                        }
+                        .padding(.top, Space.xs)
                     }
                     evidence(verdict, checklist: checklist, words: words, detailed: detailed)
                     if detailed || verdict.status == .contested {
@@ -138,8 +138,12 @@ struct VerdictCard: View {
                     notes(verdict, review: review)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // The check rows reach into the card's padding (their highlight and the
+                // selected check's edge), so the scroll view does too, and clips nothing.
+                .padding(.horizontal, Space.s)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bodyHeight = $0 }
             }
+            .padding(.horizontal, -Space.s)
             .scrollBounceBehavior(.basedOnSize)
             .overlayScrollers()
             // Never taller than what it holds, nor than the card's cap leaves it. Only the
@@ -193,7 +197,8 @@ struct VerdictCard: View {
             .tracking(0.8)
             .foregroundStyle(urgent ? theme.color(.attention, on: .surface) : theme.dim(on: .surface))
             .fixedSize()
-        let decision = Text(review.decision)
+        // Who the verdict is from while it is open; who closed it once closed.
+        let decision = Text(verdict.status == .proposed ? "proposed by the verifier" : review.decision)
             .readingStyle(size: TypeScale.small)
             .foregroundStyle(.secondary)
         // On one line while the decision fits whole beside the state; in a narrow column it
@@ -252,26 +257,48 @@ struct VerdictCard: View {
 
     /// The outcome in the mono face, in capitals: the real text, and while a verdict lands,
     /// its decode drawn over it (spec, Signature moments). VoiceOver reads the real text.
-    private func outcome(_ verdict: VerdictState, appearance: VerdictAppearance, tint: Color, moment: VerdictMoment?) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.m) {
-            Text(appearance.outcome)
-                .font(Typeface.monoBold.font(size: TypeScale.title))
-                .tracking(1.5)
-                .foregroundStyle(tint)
-                .fixedSize()
-                .overlay(alignment: .leading) {
-                    if let moment {
-                        VerdictDecodeLayer(text: appearance.outcome, moment: moment,
-                                           settled: theme.outcome(verdict.verdict, on: .surface),
-                                           scrambling: theme.dim(on: .surface), ground: theme.surface)
-                    }
+    private func outcome(_ verdict: VerdictState, appearance: VerdictAppearance, tint: Color, moment: VerdictMoment?,
+                         checklist: Checklist) -> some View {
+        let title = Text(appearance.outcome)
+            .font(Typeface.monoBold.font(size: TypeScale.title))
+            .tracking(1.5)
+            .foregroundStyle(tint)
+            .fixedSize()
+            .overlay(alignment: .leading) {
+                if let moment {
+                    VerdictDecodeLayer(text: appearance.outcome, moment: moment,
+                                       settled: theme.outcome(verdict.verdict, on: .surface),
+                                       scrambling: theme.dim(on: .surface), ground: theme.surface)
                 }
-                .accessibilityLabel(Chrome.outcomeTitle(verdict.verdict))
-            if verdict.status.isOpen {
-                Text("proposed by the verifier")
-                    .readingStyle(size: TypeScale.readingSmall)
-                    .foregroundStyle(.secondary)
             }
+            .accessibilityLabel(Chrome.outcomeTitle(verdict.verdict))
+        // The tally beside the outcome while it fits; under it in a narrow column.
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.l) {
+                title
+                CheckTally(checklist: checklist)
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: Space.xs) {
+                title
+                CheckTally(checklist: checklist)
+            }
+        }
+    }
+
+    /// The verifier's words: short ones in full, long ones to `folded` lines until opened.
+    /// Numbers are what a reviewer checks, so two lines was never enough for a verdict
+    /// without checks; in full, the steps the words name are chips that open them.
+    @ViewBuilder
+    private func reasons(_ reason: [MarkdownText.Block], words: String, detailed: Bool, folded: Int = 3) -> some View {
+        if detailed || words.count <= (folded == 3 ? 280 : 160) {
+            MarkdownView(blocks: reason) { step in seek(.step(step), inSteps: false) }
+        } else {
+            Text(MarkdownText.plain(reason))
+                .readingStyle(size: folded == 3 ? TypeScale.reading : TypeScale.readingSmall)
+                .lineLimit(folded)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -314,7 +341,7 @@ struct VerdictCard: View {
                     Text("Cites")
                         .readingStyle(size: TypeScale.readingSmall)
                         .foregroundStyle(.secondary)
-                    FlowLayout(spacing: Space.xs) {
+                    FlowLayout(spacing: Space.m, lineSpacing: Space.xs) {
                         ForEach(items, id: \.self) { item in
                             EvidenceLink(store: store, runId: runId, item: item) { seek(item, inSteps: false) }
                         }
@@ -399,6 +426,13 @@ struct VerdictCard: View {
                 } else if draft.confirmingAccept, verdict.status.isOpen {
                     acceptConfirmation(outcome: outcome)
                 } else {
+                    // What the buttons do, whole, with them: never inside the capped body,
+                    // where a short column cut it mid-sentence (audit V9).
+                    Text(VerdictReview.explanation(verdict, unreviewed: unreviewed,
+                                                   verifierListens: facts.verifierListens, alive: facts.isAlive))
+                        .readingStyle(size: TypeScale.small)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     // Mac order: the primary action last, on the right, apart from the other.
                     HStack(spacing: Space.s) {
                         if unreviewed {
@@ -437,25 +471,15 @@ struct VerdictCard: View {
         }
     }
 
-    /// What the actions below mean, read before them: inside the scrolling body, so a short
-    /// column scrolls these lines rather than squeezing them over the reasons.
+    /// That the verdict is older than the task the verifier is on (issue #89). What the
+    /// actions do is said with them (`actions`), never in this scrolling body.
     @ViewBuilder
     private func notes(_ verdict: VerdictState, review: VerdictReview) -> some View {
-        let unreviewed = verdict.status == .accepted && !review.humanReviewed
         let newer = VerdictReview.newerTask(than: verdict.seq, in: store.messages[runId] ?? [])
         if let newer {
             Text("! " + VerdictReview.staleNote(newerTask: newer, verifierListens: facts.verifierListens))
                 .readingStyle(size: TypeScale.readingSmall)
                 .foregroundStyle(theme.color(.attention, on: .surface))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        let draft = draft
-        if store.heldVerdictChoice(runId) == nil, verdict.status.isOpen || unreviewed,
-           draft.action == nil, !(draft.confirmingAccept && verdict.status.isOpen) {
-            Text(VerdictReview.explanation(verdict, unreviewed: unreviewed,
-                                           verifierListens: facts.verifierListens, alive: facts.isAlive))
-                .readingStyle(size: TypeScale.readingSmall)
-                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -569,17 +593,16 @@ struct EvidenceLink: View {
 
     var body: some View {
         if let step = item.step {
+            // A mono text link, no box, as a check's evidence is (companion ADR 0011).
             Button(action: open) {
-                Text("\(item.label) ↗")
-                    .underline(hovering)
-                    .font(Typeface.monoMedium.font(size: TypeScale.monoSmall))
-                    .foregroundStyle(theme.foreground)
-                    .padding(.horizontal, Space.s)
-                    .padding(.vertical, 2)
-                    .background(hovering ? theme.highlight : theme.background,
-                                in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: Radius.sm, style: .continuous).strokeBorder(theme.hairline))
-                    .contentShape(Rectangle())
+                HStack(spacing: Space.xs) {
+                    Text(item.label).underline(hovering)
+                    Text("↗").foregroundStyle(theme.dim(on: .surface))
+                }
+                .font(Typeface.monoMedium.font(size: TypeScale.monoSmall))
+                .foregroundStyle(theme.foreground)
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .onHover { inside in
@@ -756,6 +779,8 @@ struct StepThumbnail: View {
 /// Lays children out left to right, wrapping to a new line when the width runs out.
 struct FlowLayout: Layout {
     var spacing: CGFloat = 4
+    /// Between wrapped lines; `spacing` when nil.
+    var lineSpacing: CGFloat?
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
@@ -792,7 +817,7 @@ struct FlowLayout: Layout {
             let needed = current.indices.isEmpty ? size.width : current.width + spacing + size.width
             if needed > width, !current.indices.isEmpty {
                 rows.append(current)
-                current = Row(y: current.y + current.height + spacing)
+                current = Row(y: current.y + current.height + (lineSpacing ?? spacing))
             }
             current.width = current.indices.isEmpty ? min(size.width, width) : current.width + spacing + size.width
             current.height = max(current.height, size.height)

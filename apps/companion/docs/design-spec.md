@@ -11,7 +11,9 @@ the app is not a terminal and does not pretend to be one.
 Decisions: companion ADR 0004 (grid, type, colour, cursor, layout, rendering), 0005 (keys
 and the action registry), 0006 (motion and signature moments), 0007 (dependency
 allowlist), 0008 (readable type and the olive brand, amending 0004's type and colour
-decisions), with 0002 and 0003 (run state, verdict trust, one vocabulary) still in force.
+decisions), 0011 (the verdict as a ledger), with 0002 and 0003 (run state, verdict trust,
+one vocabulary) still in force. The point of view behind 0011 onward, "a lightbox with a
+ledger", is in `design-research-2.md` section 5; what it fixes is in `ux-audit.md`.
 Data: `design/themes/*.json` and `design/tokens.json` at the repo root. Research:
 `design-research.md`. Terms (run, verdict state, frame, lease, driving, cell, voice) are in
 `../CONTEXT.md`.
@@ -60,6 +62,36 @@ Window (one layout, chrome on the mono grid, prose proportional)
 - The verdict lives in one place with its actions (the pinned card). The transcript keeps
   its history; older verdicts read as superseded.
 - Screen and Steps are no longer tabs. They share the stage and move together.
+
+## The verdict as a ledger (ADR 0011)
+
+Deciding whether to trust a verdict is the first job. The card is read top to bottom in
+this order, and nothing inside it is boxed:
+
+```
+ ! NEEDS REVIEW  proposed by the verifier                         Evidence ▾
+ ✗ FAIL    ✗ 2 failed  ○ 1 not checked  ✓ 5 passed
+▌✗ Each pays shows $48.00 with 3 people  failed  visual
+    Each pays read $8.00, not $48.00.
+    ! UI read 11: "Each pays: $8.00" is not drawn
+    UI read 11 ↗   Screenshot 12 ↗   after step 10
+  ○ Each pays becomes $50.00 at 25%  not checked
+  ✓ Tip shows $24.00 for a $120 bill at 20%
+    ...
+ THE VERIFIER'S SUMMARY
+ The TipSplit app calculates "Each pays" incorrectly. After setting...
+ Accept closes it as Fail. Reject sends your reason to the verifier...
+ [Reject...]                                               [Accept Fail]
+```
+
+- The tally beside the outcome is the glance: counts with their marks, failed first, in
+  the mono face; a failed count in bold foreground, the rest dim.
+- A row is a claim (reading face) and its data (mono): kind, evidence named by tool,
+  the actions it depends on. "Not checked" reads as loud as "failed" in words, in dim.
+- The selected check (click, `]`, `[`) has a 2 pt brand edge and the highlight; its
+  first evidence shows on the screen, and the bar over the picture says the claim.
+- Pass stays a quiet mark: only a fail, a not-checked check and a warning take a colour
+  or a word beyond the mark.
 
 ## Spacing, chrome and the accent (ADR 0008)
 
@@ -343,7 +375,7 @@ These may exceed the motion budget. Each is short and plays once per event.
    click shows as a static mark. This amends the old rule "nothing is drawn over the
    screen" (ADR 0006): click marks are the only thing drawn over the picture.
 5. **Power-down.** On destroy the video dissolves into glyphs and freezes as a dithered
-   still. The still becomes the run's thumbnail.
+   still, held on the screen (ADR 0012 keeps it off the runs list).
 6. **Welcome.** The empty state types the `greenroom█` wordmark and the one command that
    starts the daemon.
 
@@ -363,7 +395,7 @@ secondary facts, so it stays scannable.
 | `ToolCallGroup`, `ToolCallLine` | Tool Chips | one line per tool call in plain words ("Ran swift test"), state glyph, at most two secondary facts; the raw command is behind `⏎`; groups fold |
 | `VerdictCard`, `QuestionCard` | Approval Card | the decision stated in plain words, the evidence under it, the actions named by what they do, the result replacing the actions after the choice |
 | `ScreenWindow` | Agent Screen | a resting framed capture; open to a full viewer (our `z` zoom); "teach a task" becomes take control (`t`); a `REC` label while driving is recorded into the evidence; a connecting state inside the frame |
-| `RunRow` | Task Rows | a row per run with running, failed and done states: tick, `✗`, `✓`, and the state in words |
+| `RunRow` | Task Rows | a row per run with running, failed and done states: tick, `✗`, `✓`, and the state in words; a verdict's outcome and its checks' tally (ADR 0012), no thumbnail |
 | `Loader` | Loading State (Drive) | a 3 x 3 pixel grid with a chevron wavefront, drawn with block glyphs (`█` on `░`); a shimmering label; a live elapsed timer in tabular figures; Reduce Motion freezes the grid, the timer still ticks |
 | `CommandPalette` | Search | a live filter as you type; an empty state that says what was searched and offers the nearest action |
 | `MarkdownGrid` with `EvidenceChip` | Streaming Text | the reply streams at its real rate, in the reading face; inline citations become evidence chips that seek the step; follow-ups offered as registry actions |
@@ -399,14 +431,15 @@ The rest, in our own terms:
 | Live, stream down | The recording shows; a dim line under the track says why |
 | No frames | "No recording" with why (not ready yet, or none captured) |
 | Agent working | The loader under the transcript ("verifier is working", elapsed); a tick on the running step; the agent's cursor blinks |
-| Needs you | The run pins under "Needs you"; its state word in yellow; the hint bar offers the action |
-| Verdict proposed | Card border dim, outcome in the foreground, "Needs review" in yellow; `a` and `d` active |
+| Needs you | The run pins under "Needs you" (the newest five, then "Show all N"); its state in yellow leads with the proposed outcome ("Fail, needs review") beside the checks' tally ("2/4 failed"); the hint bar offers the action |
+| Verdict proposed | Card border dim, outcome in the foreground with the tally, "Needs review" in yellow; the checks lead; `a`, `d`, `[` and `]` active |
+| Evidence shown | The bar over the picture is the check that step answers: its mark, claim, kind, observation, what is not drawn, and which evidence it is; paused, the picture outlines where unseen text sits, dashed, labelled "not drawn" (ADR 0014) |
 | Verdict closed | Outcome in its colour (unless agent-accepted), who decided in words; `a` and `d` absent |
 | Undo window | After accept or dispute, the hint bar shows `u undo 5s` counting down; nothing is sent until it ends |
-| Driving | House lights down, the screen's border and the hint bar magenta: `all keys → machine · click switch to return` |
+| Driving | House lights down, the screen's border and the hint bar magenta: `all keys → machine · click switch to return`; the driving bar over the screen says "You have control" and offers Give Back (ADR 0013) |
 | Typing | The hint bar shows `⏎ send  ⇧⏎ newline  esc leave`; bare keys type |
 | Zoomed | One pane fills the window; the hint bar shows `z restore` |
-| Destroyed | Power-down still as the thumbnail; "Ended: destroyed by you" in words |
+| Destroyed | Power-down still on the screen; "Ended: destroyed by you" in words |
 | Long transcript | Tool calls fold into groups; lazy stacks; new messages follow only at the bottom, `G` jumps to latest otherwise |
 | Many runs | Day sections; `/` searches by task, id, state, verdict |
 | Errors | The daemon's own words, inline where the action was |
@@ -439,6 +472,7 @@ it.
 | `a` | Accept the verdict (`a` again answers "accept without opening the evidence?") | verdict open for review |
 | `d` | Dispute the verdict (opens the reason) | verdict open for review |
 | `u` | Undo the last accept or dispute | within 5 s |
+| `]`, `[` | Next or previous check, with its evidence on the screen | a verdict with checks |
 | `space` | Play or pause | screen |
 | `←` `→` | Previous or next frame | screen |
 | `c` | Capture a screenshot | a ready machine |

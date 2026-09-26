@@ -9,7 +9,9 @@ status vocabulary, the daemon changes the UI waits on), `0004` (the glyph-native
 on a character grid), `0005` (keys and the action registry), `0006` (motion, signature
 moments, click marks), `0007` (the dependency allowlist), `0008` (readable type and the
 olive brand, amending 0004's type and colour decisions), `0009` (transcript cards and
-the Markdown renderer) and `0010` (run thumbnails from the last frame). Design: `docs/design-spec.md`
+the Markdown renderer), `0010` (run thumbnails from the last frame, superseded by
+`0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict), `0013` (one
+primary in the top bar, Give Back on the driving bar) and `0014` (evidence marks on the picture). Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -53,7 +55,14 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
 - `CompanionSnapshots` renders every key state, light and dark, at three sizes, into
   `<dir>`. Point it at a daemon serving copied runs (`greenroom serve -root <scratch> -tart
   /usr/bin/false`), never at VMs. `GREENROOM_SNAPSHOTS_EMPTY_URL` (a daemon with no runs)
-  adds the welcome state; `GREENROOM_SNAPSHOTS_ONLY` filters by scenario name.
+  adds the welcome state; `GREENROOM_SNAPSHOTS_ONLY` filters by scenario name;
+  `GREENROOM_SNAPSHOTS_THEMES` (comma-separated `light`, `dark`, `light-hc`, `dark-hc`;
+  default `light,dark`) picks the themes, named in each file (`<scenario>-<theme>-<size>`).
+  The harness keeps its settings in the argument domain (`HarnessDefaults`), so two runs
+  at once never read each other's theme or pane (they share one defaults domain).
+  Scenarios 41 to 45 are verifier bench verdicts exactly as recorded: copy
+  `~/.greenroom/bench/runs` and `~/.greenroom/bench-0027/runs` into the daemon's root
+  (`cp -cR`, an APFS clone, costs no disk).
 - The harness must never show on the person's screen: it runs `.prohibited` (no Dock
   icon), its windows sit far off every display and are never key, and it captures with
   `cacheDisplay`. It never launches the app or a bundle. It is an executable, not a test,
@@ -283,8 +292,10 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
 - Motion uses only the vocabulary in ADR 0006 and `tokens.json` `motion`. Motion never
   blocks input; effects never own content; accessibility sees the final state; Reduce
   Motion makes every change instant.
-- Click marks (transient, `m` toggles; static on a paused step) are the only thing drawn
-  over the screen's picture.
+- Click marks (transient, `m` toggles; static on a paused step) and evidence marks
+  (companion ADR 0014: on a paused verdict's evidence, a check's unseen UI-read text
+  outlined where it sits, `EvidenceMarkLayer`, from `AcceptanceCheck.unseenMarks`) are the
+  only things drawn over the screen's picture.
 - Signature moments (layer 6, ADR 0006; math in `Model/GlyphRendering.swift`,
   `ClickMarks.swift`, `HouseLights.swift`, `BootLog.swift`; layers in `Views/GlyphLayer.swift`
   and `Views/HouseLightsScrim.swift`; timings in `tokens.json` `motion`). Each is an effect
@@ -306,15 +317,6 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
     main actor only receives the drawn still.
   - Power-down: a machine ending while its picture shows dissolves that picture into glyphs
     and holds it, then the well shows the recording. The moment itself is local to the view.
-  - Run thumbnails (ADR 0010, `Model/RunThumbnails.swift`, drawn by `RunThumbnailView` in
-    `SidebarView.swift`): the run's last recorded frame (`RunSummary.lastFrame`, from
-    `/api/runs`) as the same braille dither, fetched lazily by the row as it appears
-    (`RunThumbnails.request`), decoded downsampled and sampled off the main actor, held as
-    the rendering in a byte-bounded LRU (`ThumbnailCache`) and drawn in the theme's dim on a
-    whole-point dot lattice (crisp at 1x). One fetch per run per frame per session; a frame
-    the daemon refused is not asked for again. A live run's `lastFrame` follows `frame`
-    events no faster than `RunThumbnails.liveRefresh` (`advances`, in `apply`). The box is
-    always reserved, so rows never move. The strip keeps its marks.
   - House lights (`HouseLights.down`): down exactly while the hint bar says every key goes to
     the machine (`drivingFocused`). Lit holes are reported with `.houseLightsLit()`: the
     well, the driving bar, Give Back and the hint bar. The scrim takes no clicks, so Give
@@ -344,10 +346,14 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   - `CompanionSnapshots` scenarios 28 to 36 hold each moment part way (`momentFreeze`); they
     read `GREENROOM_SNAPSHOTS_MOMENTS_RUN` (default a TipSplit run with clicks) and, for the
     verdict-lands fail, `GREENROOM_SNAPSHOTS_FAIL_RUN` (default a TipSplit fail).
-- A run is named by a short title from its task (`RunTitle.short`, made distinct with
-  `RunTitle.distinct`), never by its id. The sidebar pins "Needs You" and "Running"
-  above the days; a row is the thumbnail and title, then the start time and counts and its
-  state in words under both (the time gives way before the state is clipped).
+- A run is named by a short title from its task (`RunTitle.short`), never by its id. The
+  sidebar pins "Needs you" and "Running" above the days, each showing its newest
+  `SidebarView.pinnedShown` then "Show all N" (the open run always shows; a search shows
+  every match). A row is the title at full width, then the verdict's `rowTally` (`2/4
+  failed`) or the step count with the start time, and its state in words (companion ADR
+  0012): a waiting verdict leads with its outcome, `Fail, needs review`. Rows have no
+  thumbnail (0012 supersedes 0010). `RunTitle.distinct` (the time appended to twins) is for
+  places without the row's time, never the row.
 - The verdict's Accept and Dispute live only in `VerdictCard`, pinned above the
   conversation (or above the stage when the conversation is hidden or has no room). A
   narrow window keeps it with the conversation, one pane away; `a` and `d` bring the
@@ -378,10 +384,13 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   when its verdict changes or closes, or its run leaves the list; a resync keeps it. The verdict
   flow has no sheet, alert or dialog: accepting rebuilds the card, and a sheet whose
   presenter goes away leaves the window unable to take a click. Ask inline.
-- The player shows one source chip (live, connecting, recording, driving). Take Control
-  / Give Back exists once, in the top bar (`RunView.actions`, published with `.topBar`).
-  The top bar survives every zoom and width class.
-- Nothing but click marks is drawn over the screen's picture. The driving bar sits above it, and
+- The player shows one source chip (live, connecting, recording, driving). The top bar
+  (`RunView.actions`, published with `.topBar`) holds one primary, Take Control / Give
+  Back, and the "More" menu (screenshot, export, the conversation, destroy); companion ADR
+  0013. While driving, Give Back is also a button on the driving bar over the screen; the
+  top bar's stays, since the bar is covered whenever the screen is. The top bar survives
+  every zoom and width class.
+- Nothing but click marks and evidence marks is drawn over the screen's picture. The driving bar sits above it, and
   position, the step under the pointer, live state and stream errors go under the track.
   The well takes the picture's shape, so there is no letterbox.
 - The window has its own chrome (`.windowStyle(.hiddenTitleBar)`, `WindowConfigurator`):
@@ -489,16 +498,23 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   its result where the actions were.
   Emphasis uses Mona Sans's own italics (`Typeface.readingItalic`), never a synthetic
   slant.
-- A verdict is a checklist (root ADR 0024; `Model/Checklist.swift`, drawn by
-  `Views/ChecklistViews.swift`). `Message.checks` is decoded leniently (an unknown status is
-  `unchecked`, a malformed list is dropped, never the message). The card lists them under the
-  reasons with the scope line (`Checklist.scope`: "Verified: 3 of 4 checks; not checked: ..."),
-  fails first, then not checked, then passes; each is a mark (`CheckMark`), its criterion,
-  what was observed and its evidence chips. Every "which steps does the verdict cite" reads
-  `Message.citedSteps` / `RunStore.citedSteps` (checks' evidence, failed first, then the free
-  list), never `VerdictState.evidence` alone. The verifier's declaring progress message is
-  its own transcript item (`TranscriptLayout.Item.plan`, `CheckPlanBlock`), shown even with
-  tool calls hidden. A verdict without checks reads as before. Harness scenarios 37 to 40.
+- A verdict is a checklist (root ADR 0024, 0027; companion ADR 0011, the ledger;
+  `Model/Checklist.swift`, drawn by `Views/ChecklistViews.swift`). `Message.checks` is decoded
+  leniently (an unknown status is `unchecked`, a malformed list is dropped, never the message;
+  `kinds` or the early single `kind`, and `within`). The card reads: headline, outcome with
+  the tally (`CheckTally`), the checks (`VerdictChecklist`, fails first, then not checked, then
+  passes), then "The verifier's summary" folded to two lines. A row is its mark, criterion
+  (state word, `kindTag`), observed, `unseenWarnings` (UI-read text not drawn, off screen or
+  covered that the check's words are about) and its evidence as `EvidenceStepLink`s named by
+  tool (`EvidenceStep.label`). A click on a row or `]`/`[` (`RunStore.selectCheck`) selects it
+  (`VerdictDraft.selectedCheck`) and seeks its evidence; the stage's `EvidenceBar` shows that
+  check's claim over the picture (`Checklist.check(citing:preferring:)`). Every "which steps
+  does the verdict cite" reads `Message.citedSteps` / `RunStore.citedSteps` (checks' evidence,
+  failed first, then the free list), never `VerdictState.evidence` alone. The verifier's
+  declaring progress message is its own transcript item (`TranscriptLayout.Item.plan`,
+  `CheckPlanBlock`), one line once the current verdict answers it. A verdict without checks
+  reads as before. While one with checks is open, the card may take `verdictReviewShare` of
+  its column. Harness scenarios 37 to 45 (41 to 45 real bench verdicts).
 - Prose (`readingStyle`) sits at `tokens.json` `reading.lineHeight` (1.45): the gap is
   worked out from the face's own line (`Typeface.lineSpacing`), never a fraction of the
   size added on top.

@@ -164,8 +164,7 @@ struct ScreenView: View {
         .onChange(of: store.verdict(runId)?.seq) {
             // Opened on the old verdict's evidence and not moved since: follow the new one.
             guard evidenceStep != nil, returnPoint == nil, !facts.isAlive, let cited = firstCitedStep else { return }
-            player.seek(toStep: cited)
-            evidenceStep = cited
+            openOnEvidence(cited)
         }
         .onChange(of: frameCount) {
             syncFrames()
@@ -238,7 +237,7 @@ struct ScreenView: View {
     private var stack: some View {
         VStack(spacing: 0) {
             if driving {
-                DrivingBar(screen: pilot?.screen)
+                DrivingBar(screen: pilot?.screen, busy: pilot?.busy ?? false) { toggleControl() }
                     .houseLightsLit(radius: Radius.md)
                     .padding(.horizontal, Space.l)
                     .padding(.top, Space.l)
@@ -246,7 +245,8 @@ struct ScreenView: View {
             } else if let evidenceStep, !facts.isAlive || returnPoint != nil, facts.verdict != nil {
                 // A live run too, once evidence was opened from the card: the way back
                 // (and Esc) must be there, not only Go Live.
-                EvidenceBar(step: evidenceStep, back: backAction, record: {
+                EvidenceBar(step: evidenceStep, check: evidenceCheck(evidenceStep), steps: store.steps[runId] ?? [],
+                            back: backAction, record: {
                     store.requestSeek(runId: runId, step: evidenceStep, fromVerdict: true, inSteps: true)
                 })
             }
@@ -389,6 +389,17 @@ struct ScreenView: View {
         }
     }
 
+    // MARK: - Evidence marks (companion ADR 0014)
+
+    /// While the picture is paused on a verdict's evidence: what its check's UI read there
+    /// reports but a person cannot see, with where it sits.
+    private var evidenceMarks: [UnseenText] {
+        guard let evidenceStep, !driving, !player.playing, !(player.live && machineIsReady),
+              player.index == FrameTimeline.index(ofStep: evidenceStep, in: player.frames),
+              let check = evidenceCheck(evidenceStep) else { return [] }
+        return check.unseenMarks(atStep: evidenceStep, in: store.steps[runId] ?? [])
+    }
+
     // MARK: - Click marks
 
     /// A paused recording on a step that clicked or typed: its mark, held still.
@@ -452,9 +463,14 @@ struct ScreenView: View {
                     pilot?.send(actions)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // The only thing drawn over the picture (ADR 0006 decision 5).
+                // Click marks (ADR 0006 decision 5) and, on a verdict's evidence, the text a
+                // UI read reports that is not on screen (companion ADR 0014): the only things
+                // drawn over the picture.
                 if showsClickMarks, !driving, !ripples.isEmpty || stillMark != nil {
                     ClickMarkLayer(picture: pictureSize, ripples: ripples, still: stillMark?.fraction)
+                }
+                if !evidenceMarks.isEmpty {
+                    EvidenceMarkLayer(picture: pictureSize, marks: evidenceMarks)
                 }
             } else {
                 emptyWell
@@ -589,6 +605,21 @@ struct ScreenView: View {
         store.citedSteps(runId).first
     }
 
+    /// The check a shown piece of evidence answers: the selected one when it cites the step.
+    private func evidenceCheck(_ step: Int) -> AcceptanceCheck? {
+        store.checklist(runId).check(citing: step, preferring: store.verdictDraft(runId).selectedCheck)
+    }
+
+    /// Opening a run on its evidence selects the check that evidence answers, so the card
+    /// marks the check the screen shows.
+    private func openOnEvidence(_ step: Int) {
+        player.seek(toStep: step)
+        evidenceStep = step
+        if store.verdictDraft(runId).selectedCheck == nil, let check = evidenceCheck(step) {
+            store.updateVerdictDraft(runId) { $0.selectedCheck = check.id }
+        }
+    }
+
     private func goLive() {
         player.live = true
         if !player.frames.isEmpty { player.index = player.frames.count - 1 }
@@ -643,8 +674,7 @@ struct ScreenView: View {
         player.frames = latest
         if previousFile == nil, !facts.isAlive, let cited = firstCitedStep, !latest.isEmpty {
             // A finished run is judged by what its verdict cites: open there.
-            player.seek(toStep: cited)
-            evidenceStep = cited
+            openOnEvidence(cited)
         } else if player.live || previousFile == nil {
             player.index = max(0, latest.count - 1)
         } else if let previousFile, let found = latest.firstIndex(where: { $0.file == previousFile }) {
@@ -740,33 +770,86 @@ private struct BootLinesView: View {
     }
 }
 
-/// Opened from the verdict: says which step this is and offers the way back.
+/// Opened from the verdict: the check this step is evidence for, over the picture of it
+/// (companion ADR 0011), so the claim and what shows it are read together. A step no check
+/// cites says only that the verdict cites it. Offers the way back.
 struct EvidenceBar: View {
     let step: Int
+    var check: AcceptanceCheck?
+    var steps: [Step] = []
     var back: (() -> Void)?
     var record: (() -> Void)?
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
-        HStack(spacing: Space.s) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
             if let back {
-                Button("← Back to Verdict", action: back)
+                Button("← Back", action: back)
                     .buttonStyle(.quiet(small: true))
                     .help("Back to where you were (\(ActionRegistry.label(.back)))")
             }
-            Text("◆ Step \(step), cited by the verdict")
-                .monoStyle(size: TypeScale.monoSmall)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            if let check {
+                claim(check)
+            } else {
+                Text("◆ Step \(step), cited by the verdict")
+                    .monoStyle(size: TypeScale.monoSmall)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             Spacer(minLength: 0)
+            if check != nil {
+                Text(EvidenceStep.of(step, in: steps).label)
+                    .monoStyle(.monoMedium, size: TypeScale.monoSmall)
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
             if let record {
                 Button("Step Record", action: record)
                     .buttonStyle(.textLink)
+                    .fixedSize()
                     .help("Open this step's input and output in Steps")
             }
         }
         .padding(.horizontal, Space.l)
         .padding(.top, Space.m)
+    }
+
+    /// The check's mark and criterion, then what was observed and what a person cannot see.
+    private func claim(_ check: AcceptanceCheck) -> some View {
+        let mark = check.mark
+        return HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+            Text(mark.glyph)
+                .monoStyle(.monoBold, size: TypeScale.readingSmall)
+                .foregroundStyle(theme.color(mark.role))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                (Text(check.criterion.isEmpty ? check.id : check.criterion)
+                    .font(Typeface.readingSemiBold.font(size: TypeScale.readingSmall))
+                    + (check.kindTag.map {
+                        Text("  " + $0).font(Typeface.monoRegular.font(size: TypeScale.monoSmall))
+                            .foregroundStyle(theme.dim(on: .background))
+                    } ?? Text("")))
+                    .lineLimit(2)
+                if let observed = check.observed {
+                    Text(observed)
+                        .readingStyle(size: TypeScale.small)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                ForEach(check.unseenWarnings(in: steps), id: \.self) { warning in
+                    Text("! " + warning)
+                        .readingStyle(.readingMedium, size: TypeScale.small)
+                        .foregroundStyle(theme.color(.attention))
+                        .lineLimit(1)
+                }
+            }
+            // Its lines before the picture's: the well gives way, the claim does not.
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(mark.word): \(check.criterion). \(check.observed.map { "Observed: \($0)" } ?? "")")
     }
 }
 
@@ -774,23 +857,40 @@ struct EvidenceBar: View {
 /// picture, where it would cover the guest's own menu bar.
 private struct DrivingBar: View {
     let screen: GuestScreen?
+    var busy = false
+    /// Gives the screen back: the way out sits where the eye is (companion ADR 0013), as
+    /// well as in the top bar, which stays when this bar is covered.
+    let giveBack: () -> Void
 
     @Environment(\.theme) private var theme
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+        HStack(alignment: .center, spacing: Space.s) {
             Text("You have control")
                 .readingStyle(.readingSemiBold, size: TypeScale.readingSmall)
             Text("Your keys and clicks go to the machine\(screen.map { " (\($0.label))" } ?? "")")
                 .readingStyle(size: TypeScale.small)
+                .lineLimit(1)
             Spacer(minLength: Space.s)
-            Text("Give Back is in the top bar")
-                .monoStyle(.monoMedium, size: TypeScale.monoSmall)
+            Button(action: giveBack) {
+                Text("Give Back")
+                    .readingStyle(.readingSemiBold, size: TypeScale.readingSmall)
+                    .foregroundStyle(theme.color(.driving))
+                    .padding(.horizontal, Space.m)
+                    .frame(minHeight: 24)
+                    .background(theme.background, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
+            .fixedSize()
+            .help("Give the mouse and keys back to the agents")
         }
         // The ground as ink: it clears the text threshold on the driving role in every theme.
         .foregroundStyle(theme.background)
-        .padding(.horizontal, Space.m)
-        .padding(.vertical, Space.s)
+        .padding(.leading, Space.m)
+        .padding(.trailing, Space.xs)
+        .padding(.vertical, Space.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.color(.driving), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         .accessibilityElement(children: .contain)

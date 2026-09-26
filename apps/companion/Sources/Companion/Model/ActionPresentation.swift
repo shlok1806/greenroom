@@ -193,6 +193,8 @@ enum KeyHelp {
         case .capture: "capture screenshot"
         case .nextFailure: "next error"
         case .previousFailure: "previous error"
+        case .nextCheck: "next check"
+        case .previousCheck: "previous check"
         case .exportRecording: "export recording"
         case .destroy: "destroy machine"
         case .accept: "accept"

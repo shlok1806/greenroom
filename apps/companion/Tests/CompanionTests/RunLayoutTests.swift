@@ -103,6 +103,16 @@ final class RunLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(cap, 608 * RunLayout.verdictCardShare)
     }
 
+    /// A verdict with checks waiting for review takes more of its column (companion ADR 0011).
+    func testAVerdictUnderReviewTakesMoreOfTheColumn() {
+        let column = 800.0
+        let usual = try! XCTUnwrap(RunLayout.verdictCardMaximum(column: column))
+        let review = try! XCTUnwrap(RunLayout.verdictCardMaximum(column: column, reviewing: true))
+        XCTAssertGreaterThan(review, usual)
+        XCTAssertLessThanOrEqual(review, column * RunLayout.verdictReviewShare)
+        XCTAssertLessThanOrEqual(review, column - RunLayout.verdictReviewLeaves)
+    }
+
     func testTheVerdictBodyScrollsInWhatTheCapLeaves() {
         // Short: all of it.
         XCTAssertEqual(RunLayout.verdictBody(natural: 120, card: 360, chrome: 150), 120)
