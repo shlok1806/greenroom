@@ -22,7 +22,9 @@ const prepareTimeout = 12 * time.Minute
 // the helper (ADR 0026). The toolchain manifest records it as imageRecipe; boot warns on an
 // image with another one, and the VM suite names its image greenroom-base-v<helper>-r<recipe>,
 // so a bump rebuilds it. 1: Xcode in every image (ADR 0026); images before it have none.
-const imageRecipeVersion = 1
+// 2: the Login Items & Extensions alert installing Xcode raises is closed at build time
+// (xcode.sh waits for it, base.sh closes it), so it is not on every clone's screen.
+const imageRecipeVersion = 2
 
 // InputHelperVersion is the helper version PrepareGuest bakes into an image.
 func InputHelperVersion() int { return inputHelperVersion }

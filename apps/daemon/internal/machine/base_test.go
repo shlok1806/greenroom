@@ -20,6 +20,12 @@ import (
 //	                           settle wait, as it does for an app still running
 //	BASE_TCC_READONLY=1        the TCC writes do nothing (SIP on, or a moved database)
 //	BASE_LAUNCHD_FORGET=1      launchd forgets the DiagnosticsReporter disable
+//	BASE_ALERT_STUCK=1         Notification Center ignores Close
+//
+// The osascript stub plays Notification Center's alerts: <dir>/alerts holds each alert's
+// text, one a line, starting with the one installing Xcode leaves (xcodeExtensionsAlert).
+// Given a text it closes the first alert holding it, as the script's AppleScript does, and
+// logs it to <dir>/closed; given none it lists them.
 type baseGuest struct {
 	dir, home, sys, user string
 }
@@ -98,6 +104,16 @@ esac`,
 		"sleep": `[ -n "${BASE_RELAUNCH:-}" ] || exit 0
 exec plutil -insert PersistentApps.1 -json "{\"BundleID\":\"$BASE_RELAUNCH\",\"Path\":\"/x.app\"}" "` + list + `"`,
 		"tart-guest-agent": `exit 0`,
+		"osascript": `f="` + g.dir + `/alerts"
+[ "$1" = -e ] && shift 2
+if [ $# -eq 0 ]; then
+  [ -f "$f" ] && sed 's/$/ /' "$f"
+  exit 0
+fi
+line="$(grep -F -m 1 -- "$1" "$f" 2>/dev/null)" || exit 0
+[ -n "${BASE_ALERT_STUCK:-}" ] || { grep -vxF -- "$line" "$f" > "$f.new"; mv "$f.new" "$f"; }
+echo "$line" >> "` + g.dir + `/closed"
+echo "closed: $line "`,
 	}
 	for name, body := range stubs {
 		path := filepath.Join(bin, name)
@@ -121,7 +137,22 @@ exec plutil -insert PersistentApps.1 -json "{\"BundleID\":\"$BASE_RELAUNCH\",\"P
 			t.Fatal(err)
 		}
 	}
+	g.alert(t, xcodeExtensionsAlert)
 	return g
+}
+
+// xcodeExtensionsAlert is the text of the alert Login Items & Extensions posts when Xcode is
+// installed, as System Events reads it (title, then body).
+const xcodeExtensionsAlert = "Multiple Extensions Added “Xcode” added multiple extensions. You can manage extensions in Login Items & Extensions."
+
+// alert puts an alert with text on the stub Notification Center.
+func (g *baseGuest) alert(t *testing.T, text string) {
+	t.Helper()
+	path := filepath.Join(g.dir, "alerts")
+	b, _ := os.ReadFile(path)
+	if err := os.WriteFile(path, append(b, text+"\n"...), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (g *baseGuest) run(t *testing.T, env ...string) (string, error) {
@@ -199,6 +230,7 @@ func TestBaseScriptFailsTheBuildByName(t *testing.T) {
 		"BASE_RELAUNCH=com.apple.ical": "relaunch-list-finder-only",
 		"BASE_TCC_READONLY=1":          "appleevents-system-tart-guest-agent-com.apple.Safari",
 		"BASE_LAUNCHD_FORGET=1":        "diagnostics-reporter",
+		"BASE_ALERT_STUCK=1":           "notification-alerts: " + xcodeExtensionsAlert,
 	} {
 		t.Run(check, func(t *testing.T) {
 			g := newBaseGuest(t)
@@ -207,6 +239,32 @@ func TestBaseScriptFailsTheBuildByName(t *testing.T) {
 				t.Fatalf("%s did not fail check %s: %v\n%s", env, check, err, out)
 			}
 		})
+	}
+}
+
+// Installing Xcode leaves "Multiple Extensions Added" on screen as an alert that every clone
+// showed at every login (the dialog gate's finding for PR #141). base.sh closes the alerts the
+// recipe is known to raise, and any other alert fails the build by its text instead of being
+// swept away.
+func TestBaseScriptClosesTheXcodeExtensionsAlertAndNoOther(t *testing.T) {
+	g := newBaseGuest(t)
+	out, err := g.run(t)
+	if err != nil || !strings.Contains(out, "base: ok") {
+		t.Fatalf("base script failed: %v\n%s", err, out)
+	}
+	if b, _ := os.ReadFile(filepath.Join(g.dir, "closed")); strings.TrimSpace(string(b)) != xcodeExtensionsAlert {
+		t.Errorf("closed %q, want the Xcode extensions alert alone", b)
+	}
+
+	g = newBaseGuest(t)
+	other := "App Background Activity “sleep” can run in the background. You can manage background activity in Login Items & Extensions."
+	g.alert(t, other)
+	out, err = g.run(t)
+	if err == nil || !strings.Contains(out, "base: check failed: notification-alerts: "+other+"\n") {
+		t.Fatalf("an alert the recipe does not raise did not fail the build by its text: %v\n%s", err, out)
+	}
+	if b, _ := os.ReadFile(filepath.Join(g.dir, "closed")); strings.Contains(string(b), "sleep") {
+		t.Errorf("an alert the recipe does not raise was closed: %q", b)
 	}
 }
 

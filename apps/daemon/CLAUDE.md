@@ -750,12 +750,25 @@ mode, each read back with the copy's signature).
   `xcode-select -s` names the developer directory and nothing searches for Xcode.app.
 - The gate's `xcodebuild` exercise has a 240 s watchdog (a cold build in a fresh clone);
   the others keep 30 s. A new exercise sets `seconds` only when it needs more.
+- Installing Xcode makes Login Items & Extensions (BTM) post "Multiple Extensions Added" as
+  an alert (Xcode's Quick Look previewer and Spotlight importer). An alert stays until closed
+  and usernoted keeps it, so without a fix every clone shows it at every login; BTM itself
+  never posts twice. `xcode.sh` registers the copy (`lsregister -f`) and waits until
+  `sfltool dumpbtm` reads every Xcode item `notified` (check `btm-notified`), so the alert is
+  up before `base.sh`; `base.sh` closes it with the alert's Close action through System
+  Events (it needs the Apple Events rows written above it, so it cannot live in `xcode.sh`,
+  which runs first) and reads back that no alert is left (`notification-alerts: <text>`).
+  It closes only the texts in `build_alerts`; a new alert the recipe raises fails the build
+  by its text, and belongs in that list only once it is understood. Lean hid this alert by
+  disabling `notificationcenterui`, which is why a lean build passed the gate and base did not:
+  test base as well as lean when the recipe changes.
 
 - BASE gets every fix that needs no click; LEAN adds only hiding. A fix that makes a
   machine work goes in `base.sh`, never `lean.sh`, so `greenroom-base` stays complete.
-- `base.sh` and `lean.sh` read every setting back and fail by check name. `base_test.go`
-  and `lean_test.go` run the real scripts in `/bin/sh` under stubs (real SQLite and
-  plutil for base).
+- `base.sh`, `lean.sh` and `xcode.sh` read every setting back and fail by check name.
+  `base_test.go`, `lean_test.go` and `xcodescript_test.go` run the real scripts in `/bin/sh`
+  under stubs (real SQLite and plutil for base, real plutil for xcode; an `osascript` stub
+  plays Notification Center's alerts, an `sfltool` stub plays BTM).
 - Apple Events rows are per target bundle id, for tart-guest-agent (path resolved at build,
   never pinned) and sshd-keygen-wrapper, in the system and the tccd-open user TCC.db. A new
   target app that agents script needs a row there.
