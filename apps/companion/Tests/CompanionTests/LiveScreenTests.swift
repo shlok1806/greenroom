@@ -1,4 +1,5 @@
 import AVFoundation
+import IOKit.pwr_mgt
 import XCTest
 
 @testable import Companion
@@ -17,6 +18,8 @@ final class LiveScreenTests: XCTestCase {
     }
 
     func testAStreamPlaysIntoTheLayerAtItsPixelSize() async throws {
+        let awake = try await keepTheDisplayAwake()
+        defer { IOPMAssertionRelease(awake) }
         let source = FakeScreenSource(try messages())
         let live = LiveScreen(runId: "r", source: source)
         let window = hostedWindow(live)
@@ -59,6 +62,21 @@ final class LiveScreenTests: XCTestCase {
         window.contentView = view
         window.orderBack(nil)
         return window
+    }
+
+    /// The layer presents a frame only on a display's refresh, so while the display
+    /// sleeps (a locked, idle Mac, like the unattended CI runner) the renderer decodes
+    /// and `displayedPixelBuffer()` stays nil. Declaring user activity wakes it, as
+    /// `caffeinate -u` does, even behind the lock screen. Release the returned assertion.
+    private func keepTheDisplayAwake() async throws -> IOPMAssertionID {
+        var displays: UInt32 = 0
+        CGGetOnlineDisplayList(0, nil, &displays)
+        if displays == 0 { throw XCTSkip("No display is online, so the layer presents nothing.") }
+        var assertion = IOPMAssertionID(0)
+        let declared = IOPMAssertionDeclareUserActivity("LiveScreenTests" as CFString, kIOPMUserActiveLocal, &assertion)
+        XCTAssertEqual(declared, kIOReturnSuccess)
+        try await eventually(within: .seconds(10)) { CGDisplayIsAsleep(CGMainDisplayID()) == 0 }
+        return assertion
     }
 
     func testStoppingHangsUp() async throws {

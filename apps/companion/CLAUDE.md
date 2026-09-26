@@ -555,6 +555,10 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
   sends nothing, which is not a stall.
 - An `AVSampleBufferDisplayLayer` outside a window decodes nothing visible; tests that
   read `displayedPixelBuffer()` host it in an offscreen `NSWindow` (`isReleasedWhenClosed = false`).
+  It also presents only on a display refresh: while the display sleeps (a locked, idle
+  Mac, like the unattended CI runner) samples decode, status stays `.rendering`, and
+  nothing is displayed until the display wakes, when the held frame appears unasked. Such
+  tests wake it first (`LiveScreenTests.keepTheDisplayAwake`, a user-activity assertion).
 - Unknown enum values decode to `unknown(String)`, never throw. Use `JSONDecoder.daemon()`
   (RFC3339 with or without fractional seconds).
 - `apps/daemon/internal/api/api.go` is the authority on shapes. A `step` event carries the
