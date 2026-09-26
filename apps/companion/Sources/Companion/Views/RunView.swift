@@ -300,35 +300,27 @@ struct RunView: View {
             )
         } else {
             HStack(spacing: Space.s) {
-                if facts.machineReady {
-                    Button("Screenshot") { Task { await capture() } }
-                        .disabled(!canCapture)
-                        .help("Capture the screen as a step (\(ActionRegistry.label(.capture)))")
+                if savingRecording {
+                    HStack(spacing: Space.xs) {
+                        Spinner(size: TypeScale.readingSmall)
+                        Text("Exporting")
+                    }
+                    .readingStyle(size: TypeScale.small)
+                    .foregroundStyle(.secondary)
                 }
-                if !(store.frames[runId] ?? []).isEmpty {
-                    Button {
-                        Task { await saveRecording() }
+                // One primary in the top bar (companion ADR 0013); the occasional actions
+                // are one menu, each also a key, a palette entry and a menu-bar item.
+                if hasMoreActions {
+                    Menu {
+                        moreActions
                     } label: {
-                        HStack(spacing: Space.xs) {
-                            if savingRecording { Spinner(size: TypeScale.readingSmall) }
-                            Text("Export")
-                        }
+                        Text("More ▾")
                     }
-                    .disabled(!canExport)
-                    .help("Save the recording as a movie (\(ActionRegistry.label(.exportRecording)))")
-                }
-                if canDestroy {
-                    Button("Destroy...") { keyboard?.perform(.destroy, in: .run) }
-                        .buttonStyle(.quiet(tint: .failure))
-                        .help("Destroy the machine and end the run (\(ActionRegistry.label(.destroy)))")
-                }
-                // Narrow: the pane switch shows the conversation; hiding it there hides nothing.
-                if layout.widthClass != .narrow {
-                    let shown = conversationToggle.wrappedValue
-                    Button(shown ? "Hide Conversation" : "Conversation") {
-                        conversationToggle.wrappedValue.toggle()
-                    }
-                    .help("\(shown ? "Hide" : "Show") the conversation")
+                    .menuStyle(.button)
+                    .menuIndicator(.hidden)
+                    .buttonStyle(.quiet)
+                    .fixedSize()
+                    .help("Screenshot, export, the conversation, destroy")
                 }
                 if facts.machineReady {
                     // The one way to take and give back the screen.
@@ -336,6 +328,36 @@ struct RunView: View {
                         // Give Back stays lit and clickable while the rest dims.
                         .houseLightsLit(radius: Radius.md)
                 }
+            }
+        }
+    }
+
+    private var hasMoreActions: Bool {
+        facts.machineReady || !(store.frames[runId] ?? []).isEmpty || canDestroy || layout.widthClass != .narrow
+    }
+
+    /// What the More menu holds, named as the menu bar names it, with its keys.
+    @ViewBuilder
+    private var moreActions: some View {
+        if facts.machineReady {
+            Button("Capture Screenshot  \(ActionRegistry.label(.capture))") { Task { await capture() } }
+                .disabled(!canCapture)
+        }
+        if !(store.frames[runId] ?? []).isEmpty {
+            Button("Export Recording...  \(ActionRegistry.label(.exportRecording))") { Task { await saveRecording() } }
+                .disabled(!canExport)
+        }
+        // Narrow: the pane switch shows the conversation; hiding it there hides nothing.
+        if layout.widthClass != .narrow {
+            let shown = conversationToggle.wrappedValue
+            Button(shown ? "Hide Conversation" : "Show Conversation") {
+                conversationToggle.wrappedValue.toggle()
+            }
+        }
+        if canDestroy {
+            Divider()
+            Button("Destroy Machine...  \(ActionRegistry.label(.destroy))", role: .destructive) {
+                keyboard?.perform(.destroy, in: .run)
             }
         }
     }

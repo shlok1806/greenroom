@@ -266,9 +266,12 @@ private struct StepsHeader: View {
                 Toggle("Follow newest", isOn: following)
                     .help("Keep the newest step in view")
             }
-            Toggle(failures > 0 ? "Only the \(failures) that errored" : "Only errors", isOn: $errorsOnly)
-                .disabled(failures == 0 && !errorsOnly)
-                .help("Show only failed tool calls and non-zero exits")
+            // A filter that can do nothing is not offered (audit P3); one left on stays, to
+            // be switched off.
+            if failures > 0 || errorsOnly {
+                Toggle(failures > 0 ? "Only the \(failures) that errored" : "Only errors", isOn: $errorsOnly)
+                    .help("Show only failed tool calls and non-zero exits")
+            }
             if let collapse {
                 Button("Fold ⌃", action: collapse)
                     .buttonStyle(.textLink)

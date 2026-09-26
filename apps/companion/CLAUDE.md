@@ -10,7 +10,8 @@ on a character grid), `0005` (keys and the action registry), `0006` (motion, sig
 moments, click marks), `0007` (the dependency allowlist), `0008` (readable type and the
 olive brand, amending 0004's type and colour decisions), `0009` (transcript cards and
 the Markdown renderer), `0010` (run thumbnails from the last frame, superseded by
-`0012`), `0011` (the verdict as a ledger) and `0012` (a run's row says its verdict). Design: `docs/design-spec.md`
+`0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict) and `0013` (one
+primary in the top bar, Give Back on the driving bar). Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -379,9 +380,12 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   when its verdict changes or closes, or its run leaves the list; a resync keeps it. The verdict
   flow has no sheet, alert or dialog: accepting rebuilds the card, and a sheet whose
   presenter goes away leaves the window unable to take a click. Ask inline.
-- The player shows one source chip (live, connecting, recording, driving). Take Control
-  / Give Back exists once, in the top bar (`RunView.actions`, published with `.topBar`).
-  The top bar survives every zoom and width class.
+- The player shows one source chip (live, connecting, recording, driving). The top bar
+  (`RunView.actions`, published with `.topBar`) holds one primary, Take Control / Give
+  Back, and the "More" menu (screenshot, export, the conversation, destroy); companion ADR
+  0013. While driving, Give Back is also a button on the driving bar over the screen; the
+  top bar's stays, since the bar is covered whenever the screen is. The top bar survives
+  every zoom and width class.
 - Nothing but click marks is drawn over the screen's picture. The driving bar sits above it, and
   position, the step under the pointer, live state and stream errors go under the track.
   The well takes the picture's shape, so there is no letterbox.
