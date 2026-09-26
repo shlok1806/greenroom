@@ -23,6 +23,22 @@ echo stale $(ls "$HOME/.greenroom/bin" 2>/dev/null | grep '^greenroom-input-')
 `, helperName())
 }
 
+// warnStaleRecipe says so when the image's manifest names another recipe than this daemon's
+// imageRecipeVersion (ADR 0026), as bootInputHelper does for the helper: such an image lacks
+// what the recipe since added (Xcode, for images from before recipe 1). It only reports; the
+// machine boots as it is. Step keys imageRecipeStale and imageRecipeFound (0: none recorded).
+func (m *Manager) warnStaleRecipe(mc *Machine, toolchain map[string]any, timings map[string]any) {
+	found, stale := staleRecipe(toolchain)
+	if !stale {
+		return
+	}
+	timings["imageRecipeStale"], timings["imageRecipeFound"] = true, found
+	m.Log.Warn("the image was built by another image recipe than this daemon's, so it may lack what the recipe "+
+		"now puts in every image (such as Xcode): run scripts/build-image.sh -force (or -lean -name "+
+		"greenroom-lean-a -force for the lean image)",
+		"runId", mc.RunID, "image", mc.Image, "found", found, "need", imageRecipeVersion)
+}
+
 // bootInputHelper is boot's input helper phase (issue #41). An image baked
 // before inputHelperVersion changed makes the first UI call of every machine
 // compile the helper with swiftc, 30 to 50 s inside one agent's tool call.

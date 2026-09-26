@@ -86,8 +86,8 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		Name: "machine_wait",
 		Description: "Wait for a machine to finish booting. Returns its status: booting (call again), ready (ip and " +
 			"bootSeconds are set), or failed (error is set). A ready machine also reports toolchain, what its image " +
-			"measured when it was built (Xcode present or not, whether XCTest and swift-testing packages run with " +
-			"swift test, swift and Command Line Tools versions; known false when the image says nothing), and " +
+			"measured when it was built (Xcode present or not and its version, whether XCTest and swift-testing packages run with " +
+			"swift test and whether xcodebuild builds, swift and Command Line Tools versions; known false when the image says nothing), and " +
 			"desktop, whether the screen showed anything besides the desktop and Finder at ready (clean false lists " +
 			"unexpectedWindows and unexpectedApps, such as a permission prompt; greenroom never closes them).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitIn) (*mcp.CallToolResult, *machine.Machine, error) {

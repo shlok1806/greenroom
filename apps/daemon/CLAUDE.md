@@ -22,7 +22,7 @@ go run . serve -verifier manual                 # no model; a person types instr
 go run . serve -image greenroom-base -max-machines 2 -frame-interval 2s
 go run . serve -tart <path>                     # or GREENROOM_TART
 go run . serve -public-host gr.example.com      # or GREENROOM_PUBLIC_HOST; needs GREENROOM_TOKEN; -dist <dir>
-go run . prepare-image -vm <running vm>          # build-image.sh runs it; not on its own
+go run . prepare-image -vm <running vm> [-xcode <Xcode.app>]   # build-image.sh runs it; not on its own
 go run . check-image -image <local image> [-out dir]   # the dialog gate, on a clone of a clone
 go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir>]
 go run . connect [-url URL] [-token T] [-config F] [-dir D]   # stdio MCP server for a daemon on another host
@@ -33,7 +33,7 @@ go run . bench score <results.jsonl>             # writes <results>.md
 scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
                         # image default: local greenroom-lean-a, then greenroom-base, then upstream Cirrus
 scripts/uninstall.sh    # keeps the binary and ~/.greenroom
-scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-lean] [-force]   # ends with check-image
+scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-lean] [-force] [-xcode <app>] [-disk-size 90]   # ends with check-image
 ```
 
 `usage()` prints each subcommand's flag set, so `greenroom` with no arguments lists every flag.
@@ -215,6 +215,10 @@ Boot and lifecycle
 - Boot reads the image's toolchain manifest (`base.go`, `ToolchainPath`, ADR 0019) into
   `Machine.Toolchain` as the image wrote it, `{"known":false}` when absent. The daemon never
   interprets it and never assumes a toolchain. Error key `toolchainError`, never fatal.
+  The one field it reads is `imageRecipe` (ADR 0026, `warnStaleRecipe` in `helperboot.go`):
+  a known manifest with another recipe than `imageRecipeVersion`, or none, is logged with
+  the rebuild command and recorded as `imageRecipeStale` and `imageRecipeFound` (0: none).
+  It only reports; the machine boots as it is.
 - Boot checks the desktop once (`desktopcheck.go`, ADR 0018), after the login settles (Dock
   and Finder up, Finder running 12 s, since loginwindow relaunches apps about then):
   `greenroom-input --desktop` lists on-screen windows and regular apps, compared with the allowlist the image gate uses.
@@ -558,8 +562,8 @@ Computer use (ADR 0009)
   `greenroom-lean-a` when it exists (`build-image.sh -lean -name greenroom-lean-a -force`),
   and `greenroom-base` as the rollback target (`build-image.sh -force`). Locally boot detects a
   stale image, warns and compiles the helper (see Boot and lifecycle). The VM suite workflow bakes and tests
-  `greenroom-base-v<inputHelperVersion>` itself, so a bump rebuilds its image once. Source and input travel base64, never
-  through a shell.
+  `greenroom-base-v<inputHelperVersion>-r<imageRecipeVersion>` itself, so a bump of either rebuilds its image once.
+  Source and input travel base64, never through a shell.
 - `InputAction` means what the tools say: positive `deltaY` scrolls down, positive `deltaX`
   right. A positive CGEvent wheel scrolls up and left, so `pixels` negates both on the way to
   the helper (issue #51) and clamps them to Int32, where the helper's conversion would trap
@@ -721,6 +725,32 @@ input helper, ssh key, screen-capture approvals, desktop preferences, `guest/bas
 because lean.sh still talks to softwareupdated), stops it, runs `check-image` on it and
 renames it to `<name>` only if that passes. A failed gate deletes the build.
 
+Every image carries the host's Xcode (ADR 0026). `build-image.sh` resolves it (`-xcode`, else
+`xcode-select -p`'s app; none fails by name before any clone) and grows the clone's disk
+(`tart set --disk-size`, default 90 GB). `prepare-image` runs `machine.InstallXcode` before
+`PrepareGuest`, so the manifest measures it: `guest/disk.sh` (wait for the container to fill
+the disk, read back), a `ditto -c | ssh | sudo ditto -x --hfsCompression` copy to
+`/Applications/Xcode.app`, then `guest/xcode.sh` (select, license, first launch, developer
+mode, each read back with the copy's signature).
+
+- Bump `imageRecipeVersion` (`image.go`) with every recipe change an existing image lacks:
+  a guest script, `PrepareGuest`, `InstallXcode`, lean, or something new the gate demands.
+  It goes into the manifest, the boot warning and the VM suite's image name.
+- With Xcode in the manifest, `writeToolchainManifest` fails the build unless
+  `xcodeFirstLaunch`, `xctest`, `swiftTesting` and `xcodebuild` are all true
+  (`toolchainProblems`), and unless `imageRecipe` reads back as this recipe's.
+- Not rsync: Xcode's files are APFS-compressed and rsync writes them expanded (10.2 GB, not
+  4.0 GB, for Xcode 27), which the host's sparse disk pays for. ADR 0026 says rsync (see
+  Known divergence from ADRs).
+- The disk grows at boot by itself: the Cirrus base's LaunchDaemon runs
+  `tart-guest-agent --run-daemon` (`--resize-disk`), about 35 s after the agent answers.
+  `diskutil apfs resizeContainer` after that fails with -69743 ("must be different"), which
+  is why `disk.sh` reads the size before it resizes.
+- `lean.sh` turns Spotlight indexing off; nothing Xcode needs uses it here, because
+  `xcode-select -s` names the developer directory and nothing searches for Xcode.app.
+- The gate's `xcodebuild` exercise has a 240 s watchdog (a cold build in a fresh clone);
+  the others keep 30 s. A new exercise sets `seconds` only when it needs more.
+
 - BASE gets every fix that needs no click; LEAN adds only hiding. A fix that makes a
   machine work goes in `base.sh`, never `lean.sh`, so `greenroom-base` stays complete.
 - `base.sh` and `lean.sh` read every setting back and fail by check name. `base_test.go`
@@ -763,7 +793,8 @@ renames it to `<name>` only if that passes. A failed gate deletes the build.
   every call; control files turn on failures. The list is in that file's header comment, plus
   `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-timezone`, `fail-lean`, `ui.json` (what `--ui-base64`
   prints), `desktop.json` (what `--desktop` prints), `toolchain.json` (the image's manifest),
-  `fail-base`, `fail-toolchain`, `fail-softwareupdate`, `fail-check-<exercise>` and
+  `fail-base`, `fail-toolchain`, `toolchain-measured` (what the manifest script writes),
+  `fail-disk`, `fail-xcode`, `fail-softwareupdate`, `fail-check-<exercise>` and
   `softwareupdate` (image build and gate), `tart-version` (fake a version mismatch), `exec-sleep` and `exec-stdout` (a slow or
   loud machine_exec), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session reaches tart on a
@@ -776,6 +807,8 @@ renames it to `<name>` only if that passes. A failed gate deletes the build.
   files are listed there; `testsupport.ServeStarts` counts starts.
 - `WithSSHProbe`, `WithReadyTimeout` shorten or replace boot waits; `WithScreenIdle` the
   live screen's idle stop.
+- `InstallXcode` tests (`xcode_test.go`) put a fake `ssh` first on `PATH` and a fake
+  Xcode.app (xcodebuild and an Info.plist); the host's real `ditto` makes the stream.
 - A fake `rsync` earlier on `PATH` covers `Sync`. Pull tests run the host's real rsync
   with a fake `ssh` that runs the remote side in a local shell in a temp `HOME`
   (`localSSH`); the fake tart runs the pull probe and tar for real from the same `HOME`.
@@ -790,6 +823,11 @@ renames it to `<name>` only if that passes. A failed gate deletes the build.
 ## Known divergence from ADRs
 
 - ADR 0004 is amended for `state.json`.
+- ADR 0026 copies Xcode "with rsync over ssh"; `InstallXcode` streams `ditto -c` over ssh
+  into `ditto -x --hfsCompression`, because rsync writes Xcode's APFS-compressed files
+  expanded (10.2 GB instead of 4.0 GB for Xcode 27). It also turns developer mode on
+  (`DevToolsSecurity -enable`), which the ADR does not list, so a debugger or test runner
+  does not raise the Developer Tools Access password dialog.
 - ADR 0024 compares evidence with the #124 handover count; the code compares step numbers with
   `Manager.HandoverStep` (the step claimed when the count last moved), which orders the same
   way because steps are monotonic. Like the count, it resets when the daemon restarts.

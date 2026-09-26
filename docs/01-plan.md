@@ -26,16 +26,17 @@ What exists today:
   take control.
 - One image recipe, `apps/daemon/scripts/build-image.sh`: base and lean layers, a
   toolchain manifest, and a dialog gate that fails the build on any prompt or stray app
-  (ADR 0018, ADR 0019).
+  (ADR 0018, ADR 0019). Every image carries the host's Xcode, so `xcodebuild`, XCTest and
+  swift-testing work in a machine (ADR 0026).
 
 ## Next steps
 
 In rough priority order.
 
-1. **Build and launch a real Mac app end to end.** The last M1 item. Needs a SwiftPM app
-   first (fits the base image), then Xcode.
-2. **Xcode.** No Xcode layer yet (ADR 0019): needs ~200 GB free and a hand-downloaded
-   `.xip`. Until then images report their toolchain in `machine_wait`.
+1. **Build and launch a real Mac app end to end.** The last M1 item. Xcode is in every
+   image now (ADR 0026), so an Xcode project works as well as a SwiftPM app.
+2. (Done: Xcode in every image, copied from the host, ADR 0026. No simulator runtime yet;
+   that comes with the iOS work, `docs/12-ios-expansion.md`.)
 3. (Done: one image recipe, ADR 0018.)
 4. **Sync as a boot phase.** `machine_create` takes a project path and reports ready once
    synced (`10-build-transport.md`, option C). Decide on mutagen (SSPL licence question)

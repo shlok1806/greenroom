@@ -70,27 +70,37 @@ jobs:
             sleep 15
           done
 
-      # The image name carries the helper version, so bumping inputHelperVersion
-      # bakes a fresh image here instead of silently testing a stale one.
-      - name: Prepare greenroom-base for this input helper version
+      # The image name carries the helper version and the image recipe version, so bumping
+      # inputHelperVersion or imageRecipeVersion bakes a fresh image here instead of
+      # silently testing a stale one (ADR 0026). Every image carries this runner's Xcode.
+      # Of the older images, the newest one is kept, so a branch on the previous version
+      # does not rebuild on every alternate run; the rest are deleted.
+      - name: Prepare greenroom-base for this input helper and image recipe
         working-directory: apps/daemon
         run: |
           set -euo pipefail
           version="$(grep -oE 'inputHelperVersion[[:space:]]*=[[:space:]]*[0-9]+' internal/machine/input.go | grep -oE '[0-9]+$')"
-          if [ -z "$version" ]; then
-            echo "::error::Could not parse inputHelperVersion out of internal/machine/input.go."
+          recipe="$(grep -oE 'imageRecipeVersion[[:space:]]*=[[:space:]]*[0-9]+' internal/machine/image.go | grep -oE '[0-9]+$')"
+          if [ -z "$version" ] || [ -z "$recipe" ]; then
+            echo "::error::Could not parse inputHelperVersion out of internal/machine/input.go or imageRecipeVersion out of internal/machine/image.go."
             exit 1
           fi
-          image="greenroom-base-v$version"
-          echo "Daemon expects input helper version $version: using $image"
+          image="greenroom-base-v$version-r$recipe"
+          echo "Daemon expects input helper version $version and image recipe $recipe: using $image"
           if tart list --source local --quiet | grep -qx "$image"; then
             echo "$image already exists."
           else
             echo "$image not found; building it with scripts/build-image.sh."
             scripts/build-image.sh -name "$image"
           fi
-          for stale in $(tart list --source local --quiet | grep -E '^greenroom-base-v[0-9]+$' | grep -vx "$image" || true); do
-            echo "Deleting $stale, baked for another helper version."
+          # Newest first by helper then recipe; an image named before recipe versions is r0.
+          others="$(tart list --source local --quiet | grep -E '^greenroom-base-v[0-9]+(-r[0-9]+)?$' | grep -vx "$image" |
+            awk '{ n = $0; sub(/^greenroom-base-v/, "", n); split(n, p, "-r"); printf "%d %d %s\n", p[1], p[2], $0 }' |
+            sort -k1,1nr -k2,2nr | awk '{ print $3 }' || true)"
+          keep="$(printf '%s\n' "$others" | sed -n 1p)"
+          [ -n "$keep" ] && echo "Keeping $keep, the newest older image."
+          for stale in $(printf '%s\n' "$others" | sed 1d); do
+            echo "Deleting $stale, baked for another helper or recipe version."
             tart delete "$stale" || echo "::warning::Failed to delete $stale"
           done
           echo "GREENROOM_BASE_IMAGE=$image" >> "$GITHUB_ENV"
