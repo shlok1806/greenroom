@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
@@ -138,10 +139,14 @@ var tools = []nim.Tool{
 	},
 	{
 		Name: "declare_checks",
-		Description: "Declare the acceptance checks you derived from the task, before any input: each one a " +
-			"result you can observe on the machine. Input tools are refused on a task until you do. Declaring " +
-			"again replaces the list. Your verdict answers each check by id. Each check has a kind: value (a text, " +
-			"number or state), visual (how it looks on screen: needs a machine_screenshot after its actions) or " +
+		Description: "Declare the acceptance checks you derived from the task, before any input: each one an " +
+			"outcome the task claims, what should be true after the actions it describes, that you can observe on " +
+			"the machine. A setup step or an action the task tells you to do is not a check; an intermediate state " +
+			"is one only when the task claims something about it. Input tools are refused on a task until you " +
+			"declare. Declaring again replaces the list until your first input; after it, a new declaration must " +
+			"keep every check and its kinds, and may only add. Your verdict answers each check by id. Each check has " +
+			"a kind: value (a text, number or state; the default), visual (only for a claim about how it looks or " +
+			"whether it can be seen: needs a machine_screenshot after its actions) or " +
 			"timing (it happens within some seconds of its last action: needs an observation that started in time); " +
 			"a check can be visual and timing. greenroom adds a kind when the criterion's words claim appearance or " +
 			"speed, and says so.",
@@ -200,11 +205,12 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 		return v.machineTool(ctx, runID, call)
 	}
 	prev, hadPrev := v.mgr.LastUI(runID, machine.HolderVerifier)
+	inputAt := time.Now()
 	result, step = v.machineTool(ctx, runID, call)
 	if step == 0 || strings.HasPrefix(result, "error:") {
 		return result, step
 	}
-	return result + "\n" + v.effectCheck(ctx, runID, step, prev, hadPrev), step
+	return result + "\n" + v.effectCheck(ctx, runID, step, inputAt, prev, hadPrev), step
 }
 
 // machineTool executes one machine tool call.

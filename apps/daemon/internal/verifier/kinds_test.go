@@ -271,3 +271,96 @@ func TestMentionsMatchesTextAndNumbers(t *testing.T) {
 		t.Error("a title must match as a whole word")
 	}
 }
+
+// unitConvertSteps is the read of unitconvert-result-invisible from the first simple-tier run on
+// the ADR 0027 verifier (step 6): the Value field shows 10 and is drawn; the result "10 km = 6.21
+// mi" is in the tree but not drawn. Step 7 is the screenshot that shows no result.
+func unitConvertSteps() []machine.Step {
+	v := machine.HolderVerifier
+	t0 := time.Date(2026, 9, 26, 5, 36, 0, 0, time.UTC)
+	read := machine.UITree{App: "UnitConvert", Apps: []string{"Finder", "UnitConvert"}, Elements: []machine.UIElement{
+		{ID: 1, Role: "Window", Subrole: "StandardWindow", Title: "UnitConvert"},
+		{ID: 2, Role: "StaticText", Value: "UnitConvert"},
+		{ID: 4, Role: "RadioButton", Subrole: "Segment", Label: "Length", Selected: true},
+		{ID: 7, Role: "StaticText", Value: "Value"},
+		{ID: 8, Role: "TextField", Label: "Value", Value: "10", Identifier: "value"},
+		{ID: 9, Role: "StaticText", Value: "km"},
+		{ID: 11, Role: "StaticText", Value: "Decimals: 2"},
+		{ID: 15, Role: "StaticText", Value: "10 km = 6.21 mi", Identifier: "result", Rendered: machine.RenderedBlank},
+	}}
+	split := machine.UITree{App: "TipSplit", Elements: []machine.UIElement{
+		{ID: 1, Role: "StaticText", Value: "Each pays"},
+		{ID: 2, Role: "StaticText", Value: "$49.56", Rendered: machine.RenderedBlank},
+	}}
+	return []machine.Step{
+		{Seq: 6, Tool: "machine_ui", By: v, At: t0, DurationMS: 500, Output: read},
+		{Seq: 7, Tool: "machine_screenshot", By: v, At: t0.Add(5 * time.Second), DurationMS: 300},
+		{Seq: 8, Tool: "machine_ui", By: v, At: t0.Add(9 * time.Second), DurationMS: 500, Output: split},
+	}
+}
+
+// unitconvert-result-invisible: the verifier's fail was refused because the input check's claim
+// "shows 10" was tied to the blank result through the number 10, though it rests on the drawn
+// Value field. A pass on the input check holds; a pass on the result check is still refused.
+func TestTheDrawnRuleFiresOnlyOnWhatTheCheckRestsOn(t *testing.T) {
+	input := session.Check{ID: "input-value", Criterion: "Input field shows 10", Kinds: []string{session.CheckValue}}
+	result := session.Check{ID: "result-text", Criterion: `Result shows "10 km = 6.21 mi" under the divider`,
+		Kinds: []string{session.CheckValue}}
+	each := session.Check{ID: "total", Criterion: "Each pays reads $49.56", Kinds: []string{session.CheckValue}}
+	cases := []struct {
+		name  string
+		check session.Check
+		call  verdictCall
+		want  string // "" for a verdict that holds
+	}{
+		{"the input, as the run answered it", input,
+			reviewArgs("pass", said(answer("input-value", "pass", []int{6}), `Value text field shows 10 (element 8 value="10")`)), ""},
+		{"the input, naming its unit", input,
+			reviewArgs("pass", said(answer("input-value", "pass", []int{6}), "The Value field shows 10 km.")), ""},
+		{"the result", result, reviewArgs("pass", answer("result-text", "pass", []int{6, 7})),
+			`check "result-text" (rendered): machine_ui step 6 marks [15] StaticText "10 km = 6.21 mi" not drawn`},
+		{"the result by its numbers", input,
+			reviewArgs("pass", said(answer("input-value", "pass", []int{6}), "It converts to 6.21 mi.")),
+			`check "input-value" (rendered): machine_ui step 6 marks [15]`},
+		// A drawn label beside a blank value does not carry the value.
+		{"a drawn label and a blank value", each, reviewArgs("pass", answer("total", "pass", []int{8})),
+			`check "total" (rendered): machine_ui step 8 marks [2] StaticText "$49.56" not drawn`},
+	}
+	for _, c := range cases {
+		r := reviewVerdict(c.call, kindTranscript(c.check), unitConvertSteps(), 0)
+		joined := strings.Join(r.problems, "\n")
+		if c.want == "" {
+			if len(r.problems) > 0 {
+				t.Errorf("%s: refused: %s", c.name, joined)
+			}
+			continue
+		}
+		if !strings.Contains(joined, c.want) {
+			t.Errorf("%s: problems = %q, want %q", c.name, joined, c.want)
+		}
+	}
+}
+
+// A bare integer names an element only as its whole text or beside another of its words.
+func TestMentionsNeedsMoreThanABareInteger(t *testing.T) {
+	result := machine.UIElement{Role: "StaticText", Value: "10 km = 6.21 mi"}
+	field := machine.UIElement{Role: "TextField", Value: "10"}
+	words := machine.UIElement{Role: "StaticText", Value: "Words: 12"}
+	for _, c := range []struct {
+		claim string
+		e     machine.UIElement
+		want  bool
+	}{
+		{"Input field shows 10", result, false},
+		{"The result reads 10 km", result, true},
+		{"The result reads 6.21", result, true},
+		{"Input field shows 10", field, true},
+		{"Input field shows $10", machine.UIElement{Role: "TextField", Value: "$10"}, true},
+		{"Words shows 12", words, true},
+		{"There are 12 items", words, false},
+	} {
+		if got := mentions(c.claim, c.e); got != c.want {
+			t.Errorf("mentions(%q, %q) = %v, want %v", c.claim, c.e.Value, got, c.want)
+		}
+	}
+}

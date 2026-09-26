@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
@@ -119,6 +120,49 @@ func parseDeclaredChecks(args string) (checks []session.Check, notes []string, p
 	return out, notes, ""
 }
 
+// redeclareRefusal is why checks may not replace the task's declared checklist, or "". Before the
+// first input on a task a declaration replaces the list freely; after it, dropping a check or
+// weakening it would let a model shed the check it is failing, so a new declaration must keep
+// every declared check with its criterion, all its kinds, and a timing window no longer. It may
+// add checks.
+func redeclareRefusal(checks []session.Check, msgs []session.Message) string {
+	prev := declaredChecks(msgs)
+	if prev == nil || !actedOnTask(msgs) {
+		return ""
+	}
+	var lost []string
+	for _, old := range prev {
+		i := slices.IndexFunc(checks, func(c session.Check) bool { return c.ID == old.ID })
+		switch {
+		case i < 0:
+			lost = append(lost, fmt.Sprintf("%q is missing", old.ID))
+		case checks[i].Criterion != old.Criterion:
+			lost = append(lost, fmt.Sprintf("%q changed its criterion (it was %q)", old.ID, old.Criterion))
+		case slices.ContainsFunc(old.Kinds, func(k string) bool { return !checks[i].Is(k) }):
+			lost = append(lost, fmt.Sprintf("%q dropped a kind (it was %s)", old.ID, strings.Join(old.Kinds, " and ")))
+		case old.Is(session.CheckTiming) && checks[i].Within > old.Within:
+			lost = append(lost, fmt.Sprintf("%q has a longer window (it was %g s)", old.ID, old.Within))
+		}
+	}
+	if len(lost) == 0 {
+		return ""
+	}
+	return "error: declare_checks refused; the declared checks stand. You have acted on this task, so a new " +
+		"declaration must keep every declared check with its criterion and kinds, and may only add checks: " +
+		strings.Join(lost, "; ") + ". Answer a check you cannot show unchecked."
+}
+
+// actedOnTask reports whether the verifier ran an input since the newest task.
+func actedOnTask(msgs []session.Message) bool {
+	for _, m := range msgs[taskStart(msgs)+1:] {
+		if name, _, _ := splitProgress(m.Text); m.From == session.Verifier && m.Kind == session.Progress &&
+			m.Step > 0 && isInputTool(name) {
+			return true
+		}
+	}
+	return false
+}
+
 // declaredResult is what the model reads after a checklist is declared: each check with its
 // applied kind and what that kind needs, and why the daemon changed a kind or a window.
 func declaredResult(checks []session.Check, notes []string) string {
@@ -127,7 +171,8 @@ func declaredResult(checks []session.Check, notes []string) string {
 		ids[i] = kindLabel(c)
 	}
 	out := fmt.Sprintf("Declared %d checks: %s. report_verdict answers each by id with its status, evidence "+
-		"steps and action steps. Declaring again replaces the list.", len(checks), strings.Join(ids, ", "))
+		"steps and action steps. Declaring again replaces the list until your first input; after it, a new "+
+		"declaration keeps every check and may only add.", len(checks), strings.Join(ids, ", "))
 	if len(notes) > 0 {
 		out += "\nKinds applied by greenroom: " + strings.Join(notes, "; ") + "."
 	}
@@ -139,12 +184,13 @@ type stepFact struct {
 	tool       string
 	by         string // the seat that made it
 	failed     bool   // it recorded an error
-	effect     string // for an input: machine.EffectChanged, EffectNone or EffectUnknown
+	effect     string // for an input: machine.EffectChanged, EffectNone, EffectUnknown or EffectQuit
 	effectRead int    // for an input: the machine_ui step of its effect check, or 0
+	quitOf     int    // for an effect read that found the app gone: its input step (ADR 0028)
 	at, end    time.Time
-	// undrawn is, for a verifier UI read, its elements the read marked not drawn, off the
-	// screen or covered (machine.UIElement.Rendered, ADR 0027).
-	undrawn []machine.UIElement
+	// elements is, for a verifier UI read, what it listed, with each element's
+	// machine.UIElement.Rendered mark (ADR 0027).
+	elements []machine.UIElement
 }
 
 // ledger is every step of the run by number. An input's effect is on the verifier's UI read
@@ -155,7 +201,7 @@ func ledger(steps []machine.Step) map[int]stepFact {
 		f := stepFact{tool: s.Tool, by: s.By, failed: s.Error != "", at: s.At,
 			end: s.At.Add(time.Duration(s.DurationMS) * time.Millisecond)}
 		if s.Tool == "machine_ui" && s.By == machine.HolderVerifier && s.Error == "" {
-			f.undrawn = undrawn(s.Output)
+			f.elements = readElements(s.Output)
 		}
 		out[s.Seq] = f
 	}
@@ -167,13 +213,18 @@ func ledger(steps []machine.Step) map[int]stepFact {
 			f.effect, f.effectRead = s.Effect.Kind, s.Seq
 			out[s.Effect.Of] = f
 		}
+		if s.Effect.Kind == machine.EffectQuit {
+			f := out[s.Seq]
+			f.quitOf = s.Effect.Of
+			out[s.Seq] = f
+		}
 	}
 	return out
 }
 
-// undrawn is the elements a recorded UI read marks as not rendered. The output is a
-// machine.UITree when the step was built in memory and its JSON when it was read from the log.
-func undrawn(output any) []machine.UIElement {
+// readElements is the elements of a recorded UI read. The output is a machine.UITree when the
+// step was built in memory and its JSON when it was read from the log.
+func readElements(output any) []machine.UIElement {
 	b, err := json.Marshal(output)
 	if err != nil {
 		return nil
@@ -184,13 +235,7 @@ func undrawn(output any) []machine.UIElement {
 	if json.Unmarshal(b, &tree) != nil {
 		return nil
 	}
-	var out []machine.UIElement
-	for _, e := range tree.Elements {
-		if e.Rendered != "" {
-			out = append(out, e)
-		}
-	}
-	return out
+	return tree.Elements
 }
 
 // verdictCall is a parsed report_verdict call.
@@ -368,7 +413,8 @@ func reviewVerdict(call verdictCall, msgs []session.Message, records []machine.S
 // breaks, worded for the model. Each rule string continues "check "id" (".
 func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []string {
 	var out []string
-	var fresh []int // valid evidence steps
+	var fresh []int            // valid evidence steps
+	quitReads := map[int]int{} // valid evidence steps that found the app gone, to their input
 	for _, n := range c.Evidence {
 		f, ok := steps[n]
 		switch {
@@ -383,10 +429,14 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 			out = append(out, fmt.Sprintf("kind): evidence step %d failed, so it observed nothing", n))
 		default:
 			fresh = append(fresh, n)
+			if f.quitOf != 0 {
+				quitReads[n] = f.quitOf
+			}
 		}
 	}
 	lastAction := 0
 	var noEffect []int // effect-check reads of actions that changed nothing
+	crashed := false   // a cited action made the app quit, and its effect read is cited
 	for _, n := range c.Actions {
 		f, ok := steps[n]
 		switch {
@@ -405,12 +455,29 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 			continue
 		}
 		lastAction = max(lastAction, n)
+		if f.effect == machine.EffectQuit && quitReads[f.effectRead] == n {
+			crashed = true
+		}
 		if f.effect == machine.EffectNone && c.Status == session.CheckPass {
 			noEffect = append(noEffect, max(f.effectRead, n))
 		}
 	}
 	if len(c.Evidence) == 0 {
 		return append(out, "freshness): no evidence steps; cite the observation that shows the result")
+	}
+	// A quit is evidence (ADR 0028): for a fail of a check whose action made the app quit, the
+	// read that found it gone is enough, whatever the check's kinds; for a pass, never.
+	if c.Status == session.CheckFail && crashed {
+		return out
+	}
+	if c.Status == session.CheckPass {
+		for _, n := range fresh {
+			if of, ok := quitReads[n]; ok {
+				out = append(out, fmt.Sprintf("quit): evidence step %d is the UI read that found the app had quit after "+
+					"action step %d; a quit is never evidence for a pass. Answer fail, or cite an observation that "+
+					"shows the expected state", n, of))
+			}
+		}
 	}
 	if len(fresh) == 0 {
 		return out
@@ -456,7 +523,8 @@ func visualRule(fresh []int, steps map[int]stepFact, lastAction int) []string {
 		after = fmt.Sprintf(" after action step %d", lastAction)
 	}
 	return []string{fmt.Sprintf("visual): it is a visual check, and no machine_screenshot%s is among its evidence; "+
-		"the UI tree does not show what is drawn. Take a machine_screenshot and cite it", after)}
+		"the UI tree does not show what is drawn. Take a machine_screenshot now if the state is still on screen, "+
+		"and cite it; a state that is gone cannot be shown, so answer that check unchecked", after)}
 }
 
 // timingRule: a timing check needs an observation that started within its window after its last
@@ -515,7 +583,10 @@ func timingRule(c session.Check, fresh []int, steps map[int]stepFact, lastAction
 
 // drawnRule: a check cannot pass on an element the latest UI read marks not drawn, off the
 // screen or covered (ADR 0027). The latest read is the verifier's newest machine_ui up to the
-// check's newest evidence step, cited or not; its claim is its criterion and observed text.
+// check's newest evidence step, cited or not; its claim is its criterion and observed text. The
+// check rests on such an element when the claim names something of it (mentionTerms) that no
+// drawn element of the same read shows too: "Value shows 10" rests on a drawn field reading 10,
+// not on a blank result reading "10 km = 6.21 mi".
 func drawnRule(c session.Check, steps map[int]stepFact, newest int) []string {
 	read := 0
 	for n, f := range steps {
@@ -527,9 +598,20 @@ func drawnRule(c session.Check, steps map[int]stepFact, newest int) []string {
 		return nil
 	}
 	claim := c.Criterion + "\n" + c.Observed
+	shown := map[string]bool{} // what the claim names that a drawn element shows
+	var hidden []machine.UIElement
+	for _, e := range steps[read].elements {
+		if e.Rendered != "" {
+			hidden = append(hidden, e)
+			continue
+		}
+		for _, t := range mentionTerms(claim, e) {
+			shown[t] = true
+		}
+	}
 	var out []string
-	for _, e := range steps[read].undrawn {
-		if !mentions(claim, e) {
+	for _, e := range hidden {
+		if !slices.ContainsFunc(mentionTerms(claim, e), func(t string) bool { return !shown[t] }) {
 			continue
 		}
 		out = append(out, fmt.Sprintf("rendered): machine_ui step %d marks [%d] %s %s, and the check rests on it; "+
@@ -555,23 +637,47 @@ func renderedWords(mark string) string {
 // numberRE finds numbers in text: "$49.56" gives 49.56, "1,024" gives 1,024.
 var numberRE = regexp.MustCompile(`\d+(?:[.,]\d+)*`)
 
-// mentions reports whether claim names element e: one of its texts (3 characters or more) as
-// whole words, or one of their numbers with two digits or a decimal point.
-func mentions(claim string, e machine.UIElement) bool {
+// mentions reports whether claim names element e (mentionTerms).
+func mentions(claim string, e machine.UIElement) bool { return len(mentionTerms(claim, e)) > 0 }
+
+// mentionTerms is what claim names of element e, lowercased: each of its title, label and value
+// (3 characters or more) found as whole words, and each of their numbers found in the claim. A
+// number with a decimal point or a separator (49.56, 1,024) is specific enough alone. A bare
+// integer is not: "10" is in "Value shows 10" and in "10 km = 6.21 mi" alike. It names e only
+// when it is e's whole text ("10", "$10") or when one of e's words is in the claim too ("Words: 12"
+// and "Words shows 12"; "10 km" and "10 km", but not "10" alone).
+func mentionTerms(claim string, e machine.UIElement) []string {
 	low := strings.ToLower(claim)
 	nums := map[string]bool{}
 	for _, n := range numberRE.FindAllString(low, -1) {
 		nums[n] = true
 	}
+	var terms []string
 	for _, text := range []string{e.Title, e.Label, e.Value} {
 		text = strings.ToLower(strings.Join(strings.Fields(text), " "))
 		if len(text) >= 3 && wordsRE([]string{text}).MatchString(low) {
-			return true
+			terms = append(terms, text)
 		}
 		for _, n := range numberRE.FindAllString(text, -1) {
-			if (len(n) >= 2 || strings.ContainsAny(n, ".,")) && nums[n] {
-				return true
+			if !nums[n] || !strings.ContainsAny(n, ".,") && !bareIntegerNames(n, text, low) {
+				continue
 			}
+			terms = append(terms, n)
+		}
+	}
+	return terms
+}
+
+// bareIntegerNames reports whether integer n, found in claim, names the element whose text it
+// is part of: it is the whole text but for symbols, or a word of the text is in the claim.
+func bareIntegerNames(n, text, claim string) bool {
+	notAlnum := func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }
+	if strings.TrimFunc(text, notAlnum) == n {
+		return true
+	}
+	for _, w := range strings.FieldsFunc(text, func(r rune) bool { return !unicode.IsLetter(r) }) {
+		if len(w) >= 2 && wordsRE([]string{w}).MatchString(claim) {
+			return true
 		}
 	}
 	return false

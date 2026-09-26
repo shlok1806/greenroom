@@ -428,7 +428,17 @@ Conversation and verifier
   - `declare_checks` posts a verifier `progress` carrying `checks` (1 to 12, id 1 to 40
     characters, unique, each with a criterion and its applied `kinds`, ADR 0027). The checklist a verdict answers is the newest
     declaration after the newest coder or human task (`declaredChecks`); declaring again
-    replaces it. While a task is open and has no declaration, the input tools (click, type,
+    replaces it until the verifier's first input on the task (a progress with a step whose call
+    is an input tool, `actedOnTask`). After that, `redeclareRefusal` refuses a declaration that
+    drops a check, changes its criterion, loses one of its kinds or lengthens its timing window
+    (an `error:` result, no `checks` on the progress, the old list stands): otherwise a model
+    could shed the check it is failing. Adding checks is allowed. The prompt and the tool
+    description say a check is an outcome the task claims, not a setup step or an action it
+    asks for (a todolist run declared "three items appear" and "Milk and Eggs are ticked" as
+    visual checks and ended inconclusive), and visual is for claims about appearance or
+    visibility only; a model may still declare visual on its own ("stricter is allowed"). The
+    visual rule's refusal says to take a screenshot now if the state is still on screen, and
+    otherwise to answer the check unchecked. While a task is open and has no declaration, the input tools (click, type,
     key, scroll, input) get `declareFirst`, an ordinary `error:` result with no step that counts
     toward #125. Looking and `machine_exec` are never refused.
   - Step facts come from `Manager.Steps` (steps.jsonl), never from progress text, which is
@@ -466,13 +476,24 @@ Conversation and verifier
     later, except, on a check that is also visual, a screenshot (it shows how it looks, not
     when; the in-time step is still required, and may be the screenshot); `drawnRule` (pass only, every
     kind) refuses when the verifier's newest `machine_ui` step at or before the check's newest
-    evidence step marks an element `rendered` and the check's criterion or observed names it
-    (`mentions`: one of its texts as whole words, or one of its numbers).
+    evidence step marks an element `rendered` and the check's criterion or observed names
+    something of it that no drawn element of that read shows too (`mentionTerms`: one of its
+    texts as whole words, or one of its numbers). A number with a decimal point or separator
+    counts alone; a bare integer only when it is the element's whole text but for symbols
+    ("10", "$10") or one of the element's words (2+ letters) is in the claim too. So "Value
+    shows 10" rests on a drawn field reading 10, never on a blank "10 km = 6.21 mi", and a
+    drawn "Each pays" label does not carry a blank "$49.56" beside it.
+  - A crash is evidence (ADR 0028). A fail answer whose `actions` include an input whose effect
+    read found the app gone (`quit`), and whose `evidence` cites that read, holds on it alone:
+    no freshness, handover, visual or timing rule applies. A pass citing a `quit` read is
+    refused (`quit` rule), whatever else it cites. The prompt says a crash while doing the
+    task fails the checks that depend on it, and to relaunch once only for a later check that
+    does not.
   - The closing call at a limit (#127) goes through `downgrade`: a pass or fail that breaks a
     rule is posted as inconclusive, the reasons appended to the summary.
   - After every verifier input that ran, `runTool` reads the frontmost app's UI through
     `Manager.UIEffect` as `HolderVerifier` (a step, a look for #124, and the effect written on
-    that step's record as `{"of": <input step>, "kind": "changed|none|unknown", "summary"}`) and diffs it against the
+    that step's record as `{"of": <input step>, "kind": "changed|none|unknown|quit", "summary"}`) and diffs it against the
     verifier's previous read (`Manager.LastUI`): pairing by role plus identifier, else role,
     title and label, then comparing value, selected, focused and disabled (`diffElements`,
     capped at `maxEffectChanges`). The result ends with `machine_ui step N read the UI after
@@ -481,6 +502,17 @@ Conversation and verifier
     machine_ui read to compare)`. The wording is free to change; the kind is what the review
     reads. The effect read replaces the verifier's tree, so element ids may shift; the result says so
     when elements appeared or went away.
+  - `quit` (ADR 0028, `judgeEffect`): the app of the verifier's previous read (one with
+    elements, the same read a diff needs) was among that read's running apps (`UITree.apps`, the helper's regular apps) and is not among the effect
+    read's, whatever that read lists. An app that was not a regular app before (an accessory
+    or agent app) is never judged gone. The line is `effect: <App> is no longer running (it
+    quit or crashed).`, then `Crash report: <path>` and its first `"exception"` line when
+    `Manager.FindCrashReport` finds one: the newest `~/Library/Logs/DiagnosticReports/<App>*.ips`
+    modified since the input by the guest's own clock (the host passes an age, never a time),
+    looked for for up to 3 s because ReportCrash writes it after the process dies. The lookup
+    is a plain `tart exec` inside the effect read, records no step, and a failure is logged
+    and leaves the quit line alone. `crash.go`'s script takes the app name as an argument; its
+    real-shell test is `crash_test.go`. The fake tart answers it from `crash-report`.
   - The coder's task is projected with `claimLabel` after it (a human's task is not), and the
     system prompt says a verdict rests only on the verifier's observations.
   - `Manual` is exempt: no gate, no effect check, no review; its verdict keeps the free
@@ -841,7 +873,8 @@ mode, each read back with the copy's signature).
   `fail-keyinstall`, `fail-capture-approval`, `fail-desktop-prefs`, `fail-timezone`, `fail-lean`, `ui.json` (what `--ui-base64`
   prints), `desktop.json` (what `--desktop` prints), `toolchain.json` (the image's manifest),
   `fail-base`, `fail-toolchain`, `toolchain-measured` (what the manifest script writes),
-  `fail-disk`, `fail-xcode`, `fail-softwareupdate`, `fail-check-<exercise>` and
+  `fail-disk`, `fail-xcode`, `fail-softwareupdate`, `fail-check-<exercise>`, `crash-report` (what
+  the effect read's crash report lookup prints, ADR 0028) and
   `softwareupdate` (image build and gate), `tart-version` (fake a version mismatch), `exec-sleep` and `exec-stdout` (a slow or
   loud machine_exec), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session reaches tart on a
@@ -896,7 +929,16 @@ mode, each read back with the copy's signature).
   inflections to the ADR's (invisible, legible, color, instant, without delay). `covered`
   counts only other apps' non-system windows over the whole frame. `offscreen` marks only
   frames the helper still reports outside the display: the walk already drops elements
-  outside the screen, a window or a scroll area.
+  outside the screen, a window or a scroll area. Point 4's "rests on" does not fire when a
+  drawn element of the same read shows the same thing the claim names (see `drawnRule`),
+  and a bare integer names an element only as its whole text or beside one of its words: the
+  first simple-tier run refused a correct fail over a Value field reading 10 and a blank
+  result reading "10 km = 6.21 mi".
+- ADR 0028 detects a quit as "the frontmost app before the input no longer running"; the code
+  takes the app of the verifier's previous read (which may be an app it named, not the
+  frontmost) and the running regular apps the effect read lists. A pass is refused only when
+  it cites the quit read as evidence, as the ADR's consequences say; a pass whose actions
+  include the quitting input but cites a later read is judged by the other rules.
 - ADR 0025: a case's `patch` is the path of a `.diff` under `bench/cases/` (`patches/<id>.diff`),
   not the diff inline in the JSON, so patches read and review as diffs and lying cases reuse
   their mutant's. v1 has 4 fixture apps, not the 5 to 7 the ADR expects in all. Checklist
