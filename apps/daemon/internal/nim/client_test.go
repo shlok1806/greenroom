@@ -2,6 +2,7 @@ package nim
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -229,5 +230,77 @@ func TestChatDoesNotRetryACancelledCall(t *testing.T) {
 	}
 	if got := atomic.LoadInt64(calls); got > 1 {
 		t.Errorf("the endpoint saw %d requests after the caller gave up, want at most 1", got)
+	}
+}
+
+// describeBody sends one Describe for model to a fake endpoint and returns the request body it saw.
+func describeBody(t *testing.T, model string) map[string]any {
+	t.Helper()
+	var body map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		_, _ = io.WriteString(w, okBody)
+	}))
+	t.Cleanup(ts.Close)
+	text, err := New(ts.URL, "k").Describe(context.Background(), model, []byte{0xff, 0xd8}, "what is on screen?")
+	if err != nil {
+		t.Fatalf("Describe: %v", err)
+	}
+	if text != "hello" {
+		t.Errorf("Describe = %q, want the endpoint's answer", text)
+	}
+	if body["model"] != model || body["max_tokens"] != float64(700) {
+		t.Errorf("model, max_tokens = %v, %v; want %s, 700", body["model"], body["max_tokens"], model)
+	}
+	return body
+}
+
+// ADR 0030: muse-glimmer-30b with thinking on returns no description, so naming it as the
+// describer is enough to turn thinking off.
+func TestDescribeTurnsThinkingOffForMuseGlimmer(t *testing.T) {
+	body := describeBody(t, "meta/muse-glimmer-30b")
+	kwargs, ok := body["chat_template_kwargs"].(map[string]any)
+	if !ok || kwargs["enable_thinking"] != false || len(kwargs) != 1 {
+		t.Errorf("chat_template_kwargs = %v, want {enable_thinking: false}", body["chat_template_kwargs"])
+	}
+	msgs, _ := body["messages"].([]any)
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %v, want the one user turn with the image", body["messages"])
+	}
+}
+
+// ADR 0030: the kimi-k3 describe request is unchanged, with no chat-template fields.
+func TestDescribeSendsNoExtraFieldsForOtherModels(t *testing.T) {
+	for _, model := range []string{"moonshotai/kimi-k3", "meta/other-vision"} {
+		body := describeBody(t, model)
+		want := []string{"max_tokens", "messages", "model", "temperature"}
+		var got []string
+		for k := range body {
+			got = append(got, k)
+		}
+		if len(got) != len(want) {
+			t.Errorf("%s: request fields = %v, want exactly %v", model, got, want)
+		}
+		if _, ok := body["chat_template_kwargs"]; ok {
+			t.Errorf("%s: sent chat_template_kwargs %v", model, body["chat_template_kwargs"])
+		}
+	}
+}
+
+// ADR 0030: the per-model fields belong to Describe; a Chat call to the same model is unchanged.
+func TestChatSendsNoDescribeFields(t *testing.T) {
+	var body map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, _ = io.WriteString(w, okBody)
+	}))
+	t.Cleanup(ts.Close)
+	if _, _, err := New(ts.URL, "k").Chat(context.Background(), "meta/muse-glimmer-30b", []Message{{Role: "user", Content: "hi"}}, nil); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if _, ok := body["chat_template_kwargs"]; ok {
+		t.Errorf("Chat sent chat_template_kwargs %v", body["chat_template_kwargs"])
 	}
 }

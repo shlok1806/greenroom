@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
@@ -389,18 +390,42 @@ func (v *Verifier) describe(ctx context.Context, png []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// The vision model sometimes answers with nothing but <unk> tokens; one
-	// more try has been enough. A second garbage answer is an error, so the
-	// reasoning model is told it could not see rather than handed noise.
+	// The vision model sometimes answers with noise or nothing (see readableDescription); one
+	// more try has been enough. A second such answer is an error, so the reasoning model is
+	// told it could not see rather than handed noise or an empty description.
 	for attempt := 0; ; attempt++ {
 		text, err := v.llm.Describe(ctx, v.cfg.VisionModel, jpeg, visionPrompt)
-		if err != nil || !strings.Contains(text, "<unk>") {
+		if err != nil || readableDescription(text) {
 			return text, err
 		}
 		if attempt == 1 {
-			return "", errors.New("the vision model answered with unreadable tokens twice")
+			return "", errors.New("the vision model gave no readable description twice")
 		}
 	}
+}
+
+// minDescriptionLetters is the fewest letters a description may have. Every real answer names
+// its five parts, so it has far more.
+const minDescriptionLetters = 10
+
+// readableDescription is false for the unusable answers describers have given (ADR 0030): a
+// page of <unk> tokens (nano-omni), no text at all (nano-omni, kimi-k3 with thinking on, and
+// muse-glimmer-30b when it spends its budget reasoning) and a line of punctuation such as
+// "!!!!" (kimi-k3 with thinking off, 10 of 40 on 2026-09-26).
+func readableDescription(text string) bool {
+	if strings.Contains(text, "<unk>") {
+		return false
+	}
+	letters := 0
+	for _, r := range text {
+		if unicode.IsLetter(r) {
+			letters++
+			if letters >= minDescriptionLetters {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // screenTakenPrefix starts the tool result for input refused because someone else holds the

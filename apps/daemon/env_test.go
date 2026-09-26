@@ -73,8 +73,10 @@ func TestVisionModelDefaultsToTheEvaluatedDescriber(t *testing.T) {
 		"":                  "moonshotai/kimi-k3",
 		"  ":                "moonshotai/kimi-k3",
 		"meta/other-vision": "meta/other-vision",
-		"none":              "",
-		"NONE":              "",
+		// ADR 0030: the faster describer is chosen by name alone; nim turns its thinking off.
+		" meta/muse-glimmer-30b ": "meta/muse-glimmer-30b",
+		"none":                    "",
+		"NONE":                    "",
 	} {
 		if got := visionModel(raw); got != want {
 			t.Errorf("visionModel(%q) = %q, want %q", raw, got, want)
