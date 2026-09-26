@@ -271,6 +271,17 @@ extension Checklist {
         return tally.map(\.text).joined(separator: ", ") + " of \(total)"
     }
 
+    /// The verdict's scope in a run's row: what failed, else what was not checked, else
+    /// that all passed, short enough to sit beside the time: "2/4 failed", "3/4 unchecked",
+    /// "8/8 passed".
+    var rowTally: String? {
+        guard !checks.isEmpty else { return nil }
+        let total = checks.count
+        if failed > 0 { return "\(failed)/\(total) failed" }
+        if !unchecked.isEmpty { return "\(unchecked.count)/\(total) unchecked" }
+        return "\(total)/\(total) passed"
+    }
+
     /// The check with this id, if the verdict answers it.
     func check(_ id: String?) -> AcceptanceCheck? {
         guard let id else { return nil }

@@ -375,7 +375,7 @@ These may exceed the motion budget. Each is short and plays once per event.
    click shows as a static mark. This amends the old rule "nothing is drawn over the
    screen" (ADR 0006): click marks are the only thing drawn over the picture.
 5. **Power-down.** On destroy the video dissolves into glyphs and freezes as a dithered
-   still. The still becomes the run's thumbnail.
+   still, held on the screen (ADR 0012 keeps it off the runs list).
 6. **Welcome.** The empty state types the `greenroom█` wordmark and the one command that
    starts the daemon.
 
@@ -395,7 +395,7 @@ secondary facts, so it stays scannable.
 | `ToolCallGroup`, `ToolCallLine` | Tool Chips | one line per tool call in plain words ("Ran swift test"), state glyph, at most two secondary facts; the raw command is behind `⏎`; groups fold |
 | `VerdictCard`, `QuestionCard` | Approval Card | the decision stated in plain words, the evidence under it, the actions named by what they do, the result replacing the actions after the choice |
 | `ScreenWindow` | Agent Screen | a resting framed capture; open to a full viewer (our `z` zoom); "teach a task" becomes take control (`t`); a `REC` label while driving is recorded into the evidence; a connecting state inside the frame |
-| `RunRow` | Task Rows | a row per run with running, failed and done states: tick, `✗`, `✓`, and the state in words |
+| `RunRow` | Task Rows | a row per run with running, failed and done states: tick, `✗`, `✓`, and the state in words; a verdict's outcome and its checks' tally (ADR 0012), no thumbnail |
 | `Loader` | Loading State (Drive) | a 3 x 3 pixel grid with a chevron wavefront, drawn with block glyphs (`█` on `░`); a shimmering label; a live elapsed timer in tabular figures; Reduce Motion freezes the grid, the timer still ticks |
 | `CommandPalette` | Search | a live filter as you type; an empty state that says what was searched and offers the nearest action |
 | `MarkdownGrid` with `EvidenceChip` | Streaming Text | the reply streams at its real rate, in the reading face; inline citations become evidence chips that seek the step; follow-ups offered as registry actions |
@@ -431,7 +431,7 @@ The rest, in our own terms:
 | Live, stream down | The recording shows; a dim line under the track says why |
 | No frames | "No recording" with why (not ready yet, or none captured) |
 | Agent working | The loader under the transcript ("verifier is working", elapsed); a tick on the running step; the agent's cursor blinks |
-| Needs you | The run pins under "Needs you"; its state word in yellow; the hint bar offers the action |
+| Needs you | The run pins under "Needs you" (the newest five, then "Show all N"); its state in yellow leads with the proposed outcome ("Fail, needs review") beside the checks' tally ("2/4 failed"); the hint bar offers the action |
 | Verdict proposed | Card border dim, outcome in the foreground with the tally, "Needs review" in yellow; the checks lead; `a`, `d`, `[` and `]` active |
 | Evidence shown | The bar over the picture is the check that step answers: its mark, claim, kind, observation, what is not drawn, and which evidence it is |
 | Verdict closed | Outcome in its colour (unless agent-accepted), who decided in words; `a` and `d` absent |
@@ -439,7 +439,7 @@ The rest, in our own terms:
 | Driving | House lights down, the screen's border and the hint bar magenta: `all keys → machine · click switch to return` |
 | Typing | The hint bar shows `⏎ send  ⇧⏎ newline  esc leave`; bare keys type |
 | Zoomed | One pane fills the window; the hint bar shows `z restore` |
-| Destroyed | Power-down still as the thumbnail; "Ended: destroyed by you" in words |
+| Destroyed | Power-down still on the screen; "Ended: destroyed by you" in words |
 | Long transcript | Tool calls fold into groups; lazy stacks; new messages follow only at the bottom, `G` jumps to latest otherwise |
 | Many runs | Day sections; `/` searches by task, id, state, verdict |
 | Errors | The daemon's own words, inline where the action was |

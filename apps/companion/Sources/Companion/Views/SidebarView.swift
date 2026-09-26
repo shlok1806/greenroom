@@ -9,6 +9,23 @@ struct SidebarView: View {
     var onOpen: () -> Void = {}
 
     @State private var query = ""
+    /// Pinned sections the person opened in full.
+    @State private var showsAllPinned: Set<String> = []
+
+    /// A pinned section shows its newest few: a hundred runs to review must not push
+    /// Running and the days out of reach (audit R5). A search shows every match.
+    static let pinnedShown = 5
+
+    fileprivate func shown(_ section: RunSection) -> [RunSummary] {
+        guard section.pinned, query.isEmpty, !showsAllPinned.contains(section.title) else { return section.runs }
+        let head = Array(section.runs.prefix(Self.pinnedShown))
+        // The open run stays in view even when it is past the fold.
+        if let open = store.selectedRunId, !head.contains(where: { $0.runId == open }),
+           let run = section.runs.first(where: { $0.runId == open }) {
+            return head + [run]
+        }
+        return head
+    }
     @FocusState private var searchFocused: Bool
     @Environment(\.theme) private var theme
     @Environment(\.keyboard) private var keyboard
@@ -16,7 +33,6 @@ struct SidebarView: View {
     var body: some View {
         // One shared clock keeps idle times fresh.
         TimelineView(.periodic(from: .now, by: 30)) { tick in
-            let titles = RunTitle.distinct(store.runs)
             let sections = sections(now: tick.date)
             VStack(spacing: 0) {
                 if !store.runs.isEmpty {
@@ -32,19 +48,32 @@ struct SidebarView: View {
                                     .padding(.horizontal, Space.s)
                                     .padding(.top, Space.l)
                                     .padding(.bottom, Space.xs)
-                                ForEach(section.runs) { run in
+                                ForEach(shown(section)) { run in
                                     RunRow(
                                         run: run,
-                                        title: titles[run.runId] ?? RunTitle.short(task: run.task, runId: run.runId),
+                                        // Twins are told apart by the time under the title, never
+                                        // by a time appended to it (audit R4).
+                                        title: RunTitle.short(task: run.task, runId: run.runId),
                                         facts: store.facts(run.runId, now: tick.date),
                                         now: tick.date,
-                                        selected: store.selectedRunId == run.runId,
-                                        thumbnails: store.thumbnails
+                                        selected: store.selectedRunId == run.runId
                                     ) {
                                         store.selectedRunId = run.runId
                                         onOpen()
                                     }
                                     .id(run.runId)
+                                }
+                                if section.pinned, section.runs.count > Self.pinnedShown, query.isEmpty {
+                                    Button(showsAllPinned.contains(section.title)
+                                           ? "Show fewer"
+                                           : "Show all \(section.runs.count)") {
+                                        showsAllPinned.formSymmetricDifference([section.title])
+                                    }
+                                    .buttonStyle(.textLink)
+                                    .monoStyle(size: TypeScale.monoSmall)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, Space.s)
+                                    .padding(.vertical, Space.xs)
                                 }
                             }
                         }
@@ -153,7 +182,7 @@ struct SidebarView: View {
 
     /// Up and down move the selection through the rows in the order they are shown.
     private func move(by delta: Int, in sections: [RunSection]) {
-        let order = sections.flatMap(\.runs).map(\.runId)
+        let order = sections.flatMap(shown).map(\.runId)
         guard !order.isEmpty else { return }
         let current = store.selectedRunId.flatMap { order.firstIndex(of: $0) }
         let next = current.map { min(max($0 + delta, 0), order.count - 1) } ?? (delta > 0 ? 0 : order.count - 1)
@@ -226,7 +255,6 @@ struct RunRow: View {
     let facts: RunFacts
     let now: Date
     let selected: Bool
-    let thumbnails: RunThumbnails
     let open: () -> Void
 
     @Environment(\.theme) private var theme
@@ -237,17 +265,15 @@ struct RunRow: View {
         let ink: Color? = selected ? theme.brandText : nil
         Button(action: open) {
             VStack(alignment: .leading, spacing: Space.xs) {
-                // The title beside the thumbnail; the time and state under both, at the
-                // row's full width, so the state reads whole at every column width.
-                HStack(alignment: .top, spacing: Space.s) {
-                    RunThumbnailView(thumbnail: thumbnails.thumbnail(run.runId), recorded: run.lastFrame != nil)
-                    Text(title)
-                        .readingStyle(.readingMedium, size: TypeScale.readingSmall)
-                        .foregroundStyle(ink ?? theme.foreground)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                // The title at the row's full width (companion ADR 0012: a thumbnail at this
+                // size was the same grey tile on every row); the time, the scope of its
+                // verdict and its state under it.
+                Text(title)
+                    .readingStyle(.readingMedium, size: TypeScale.readingSmall)
+                    .foregroundStyle(ink ?? theme.foreground)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: Space.s) {
                     ViewThatFits(in: .horizontal) {
                         ForEach(meta, id: \.self) { line in
@@ -274,8 +300,6 @@ struct RunRow: View {
         .help(help(status: status.text))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        // Asks once as the row appears and again only when the run's last frame moves on.
-        .task(id: run.lastFrame?.file) { thumbnails.request(run.runId, frame: run.lastFrame) }
     }
 
     /// One time format everywhere in the list: when the run started, and for a running
@@ -285,7 +309,13 @@ struct RunRow: View {
     private var meta: [String] {
         var parts = [Chrome.shortTime(run.createdAt)]
         if facts.isAlive { parts.append("running \(Chrome.span(facts.duration(now: now)))") }
-        if facts.stepCount > 0 { parts.append(Chrome.plural(facts.stepCount, "step")) }
+        // A verdict's checks say more about a run than its size, and outlast the time when
+        // the row is narrow (companion ADR 0012).
+        if let tally = Checklist(checks: run.verdict?.checks ?? []).rowTally {
+            parts.insert(tally, at: 0)
+        } else if facts.stepCount > 0 {
+            parts.append(Chrome.plural(facts.stepCount, "step"))
+        }
         return (1...parts.count).reversed().map { parts.prefix($0).joined(separator: " · ") } + [""]
     }
 
@@ -297,49 +327,6 @@ struct RunRow: View {
     }
 }
 
-/// A run's last frame as a glyph still (the power-down still, ADR 0006), in the theme's
-/// own ink so the list stays calm: dim dots on the ground, drawn where the picture is lit
-/// in a dark theme and where it is dark in a light one, so both read as the picture and
-/// not its negative. A run with no frames shows a quiet dotted rule; one whose still is on
-/// its way shows the empty box. The box never changes size, so a row does not move when
-/// its thumbnail lands.
-struct RunThumbnailView: View {
-    let thumbnail: RunThumbnail?
-    /// Whether the run has a frame to draw from.
-    let recorded: Bool
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        let box = RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-        Canvas { graphics, size in
-            draw(in: &graphics, size: size)
-        }
-        .frame(width: ThumbnailSampler.size.width, height: ThumbnailSampler.size.height)
-        .background(theme.background)
-        .clipShape(box)
-        .overlay(box.strokeBorder(theme.hairline, lineWidth: Space.hairline))
-        .accessibilityHidden(true)
-    }
-
-    private func draw(in graphics: inout GraphicsContext, size: CGSize) {
-        let rects: [CGRect]
-        if let thumbnail {
-            let lit = theme.id.isDark
-            for cell in ThumbnailSampler.wash(of: thumbnail.rendering, in: size, lit: lit) {
-                graphics.fill(Path(cell.rect), with: .color(theme.dim.opacity(0.3 * cell.amount)))
-            }
-            rects = ThumbnailSampler.dots(of: thumbnail.rendering, in: size, lit: lit)
-        } else if !recorded {
-            rects = ThumbnailSampler.emptyMark(in: size)
-        } else {
-            return
-        }
-        var dots = Path()
-        for rect in rects { dots.addRect(rect) }
-        graphics.fill(dots, with: .color(theme.dim))
-    }
-}
 
 /// The event stream is down or an action failed. Informational: the detail says what to
 /// do when the daemon itself is gone.
