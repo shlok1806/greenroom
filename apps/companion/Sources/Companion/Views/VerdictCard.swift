@@ -341,7 +341,7 @@ struct VerdictCard: View {
                     Text("Cites")
                         .readingStyle(size: TypeScale.readingSmall)
                         .foregroundStyle(.secondary)
-                    FlowLayout(spacing: Space.xs) {
+                    FlowLayout(spacing: Space.m, lineSpacing: Space.xs) {
                         ForEach(items, id: \.self) { item in
                             EvidenceLink(store: store, runId: runId, item: item) { seek(item, inSteps: false) }
                         }
@@ -593,17 +593,16 @@ struct EvidenceLink: View {
 
     var body: some View {
         if let step = item.step {
+            // A mono text link, no box, as a check's evidence is (companion ADR 0011).
             Button(action: open) {
-                Text("\(item.label) ↗")
-                    .underline(hovering)
-                    .font(Typeface.monoMedium.font(size: TypeScale.monoSmall))
-                    .foregroundStyle(theme.foreground)
-                    .padding(.horizontal, Space.s)
-                    .padding(.vertical, 2)
-                    .background(hovering ? theme.highlight : theme.background,
-                                in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: Radius.sm, style: .continuous).strokeBorder(theme.hairline))
-                    .contentShape(Rectangle())
+                HStack(spacing: Space.xs) {
+                    Text(item.label).underline(hovering)
+                    Text("↗").foregroundStyle(theme.dim(on: .surface))
+                }
+                .font(Typeface.monoMedium.font(size: TypeScale.monoSmall))
+                .foregroundStyle(theme.foreground)
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .onHover { inside in

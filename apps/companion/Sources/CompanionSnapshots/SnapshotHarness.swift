@@ -195,7 +195,7 @@ final class SnapshotHarness {
             // Following live from the start, so Recent steps holds the newest (and longest) rows.
             Scenario(name: "24b-guest-live-long-rows", sizes: [Self.guest], runId: Self.citedRun, pane: .steps) { store in
                 Self.makeLive(store, runId: Self.citedRun, lastActivityAgo: 8)
-                UserDefaults.standard.set(StagePane.screen.rawValue, forKey: "stagePane")
+                HarnessDefaults.set(StagePane.screen.rawValue, "stagePane")
             },
             Scenario(name: "25-guest-steps", sizes: [Self.guest], runId: Self.citedRun, pane: .steps),
             Scenario(name: "25b-guest-sidebar-by-hand", sizes: [Self.guest], runId: Self.citedRun, showSidebar: true),
@@ -622,14 +622,13 @@ final class SnapshotHarness {
     // MARK: - Rendering
 
     private func render(_ scenario: Scenario, theme: ThemePreference, size: Size, base: URL, to file: URL) async throws {
-        let defaults = UserDefaults.standard
-        AppDefaults.shared.set(theme.rawValue, forKey: ThemePreference.key)
+        HarnessDefaults.set(theme.rawValue, ThemePreference.key)
         let appearance: NSAppearance.Name = theme.colorScheme == .dark ? .darkAqua : .aqua
-        defaults.set(scenario.pane.rawValue, forKey: "stagePane")
-        defaults.set(scenario.conversation, forKey: "showsConversation")
-        defaults.set(false, forKey: "stepsErrorsOnly")
-        defaults.set(scenario.sidebarWidth, forKey: "sidebarWidth")
-        defaults.set(scenario.runId ?? "none", forKey: "selectedRunId")
+        HarnessDefaults.set(scenario.pane.rawValue, "stagePane")
+        HarnessDefaults.set(scenario.conversation, "showsConversation")
+        HarnessDefaults.set(false, "stepsErrorsOnly")
+        HarnessDefaults.set(scenario.sidebarWidth, "sidebarWidth")
+        HarnessDefaults.set(scenario.runId ?? "none", "selectedRunId")
 
         let client: DaemonClient
         if scenario.unreachable {
@@ -706,6 +705,20 @@ final class SnapshotHarness {
         }
         guard let png = rep.representation(using: .png, properties: [:]) else { return }
         try png.write(to: file)
+    }
+}
+
+/// Settings for this process only. The harness shares `UserDefaults.standard` with every
+/// other harness process (one executable, one domain): two runs at once read each other's
+/// theme and pane, and drew light scenarios in dark and panes the scenario never opened.
+/// The argument domain outranks the saved one, lives only in this process and is never
+/// written to disk.
+enum HarnessDefaults {
+    static func set(_ value: Any, _ key: String) {
+        let defaults = UserDefaults.standard
+        var domain = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        domain[key] = value
+        defaults.setVolatileDomain(domain, forName: UserDefaults.argumentDomain)
     }
 }
 

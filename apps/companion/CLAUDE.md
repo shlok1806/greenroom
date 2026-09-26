@@ -58,6 +58,8 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   adds the welcome state; `GREENROOM_SNAPSHOTS_ONLY` filters by scenario name;
   `GREENROOM_SNAPSHOTS_THEMES` (comma-separated `light`, `dark`, `light-hc`, `dark-hc`;
   default `light,dark`) picks the themes, named in each file (`<scenario>-<theme>-<size>`).
+  The harness keeps its settings in the argument domain (`HarnessDefaults`), so two runs
+  at once never read each other's theme or pane (they share one defaults domain).
   Scenarios 41 to 45 are verifier bench verdicts exactly as recorded: copy
   `~/.greenroom/bench/runs` and `~/.greenroom/bench-0027/runs` into the daemon's root
   (`cp -cR`, an APFS clone, costs no disk).
