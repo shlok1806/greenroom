@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "visual_only",
   "split": "holdout",
+  "tier": "simple",
   "patch": "patches/todolist-titles-invisible.diff",
   "task": "TodoList shows each item as a checkbox with its title next to it. It is running on screen. Add Milk and Bread and check that both appear in the list, readable, with unticked checkboxes. Give a pass or fail verdict.",
   "expected": "fail",

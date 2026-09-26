@@ -256,7 +256,7 @@ func orElse(s, fallback string) string {
 
 // runTrial runs one case once on a fresh machine and destroys it.
 func (r *Runner) runTrial(ctx context.Context, c Case, trial int) (res Result) {
-	res = Result{Case: c.ID, Trial: trial, App: c.App, Kind: c.Kind, Family: c.Family, Split: c.Split,
+	res = Result{Case: c.ID, Trial: trial, App: c.App, Kind: c.Kind, Family: c.Family, Split: c.Split, Tier: c.Tier,
 		Expected: c.Expected, MustCheck: c.MustCheck, Infra: c.InfraType(), Image: r.cfg.Image, Model: r.cfg.Model,
 		StartedAt: time.Now().UTC()}
 	setupFailed := func(format string, args ...any) Result {

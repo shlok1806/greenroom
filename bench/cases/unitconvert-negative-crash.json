@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "edge_crash",
   "split": "holdout",
+  "tier": "simple",
   "patch": "patches/unitconvert-negative-crash.diff",
   "task": "UnitConvert takes negative values now. It is running on screen. Check Temperature with -40: -40 °C = -40.00 °F, and Length with -5: -5 km = -3.11 mi. Give a pass or fail verdict.",
   "expected": "fail",

@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "dead_control",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/wordcount-lowercase-no-action.diff",
   "task": "WordCount (running on screen) has UPPERCASE and lowercase buttons that change the text's case. With \"The quick brown fox\", UPPERCASE gives \"THE QUICK BROWN FOX\" and lowercase gives \"the quick brown fox\". Check both and give a pass or fail verdict.",
   "expected": "fail",

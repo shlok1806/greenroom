@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "not_persisted",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/wordcount-draft-not-persisted.diff",
   "task": "WordCount now keeps your text between launches. It is running on screen; the app is at ~/work/wordcount/build/WordCount.app. Replace the text with \"Greenroom checks apps\", quit WordCount (Cmd-Q), open it again and check the text and its counts (Words: 3) are still there. Give a pass or fail verdict.",
   "expected": "fail",

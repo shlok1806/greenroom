@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "late_result",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/todolist-late-add.diff",
   "task": "Adding an item in TodoList is instant: press Add (or Return) and the item shows in the list right away, with the summary updated. It is running on screen. Add Milk and Bread and check each appears at once. Give a pass or fail verdict.",
   "expected": "fail",

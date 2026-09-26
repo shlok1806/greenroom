@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "visual_only",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/unitconvert-result-invisible.diff",
   "task": "The conversion result is now shown in large bold text under the divider. UnitConvert is running on screen; with Length and 10 it should read \"10 km = 6.21 mi\". Check that the result is visible and correct and give a pass or fail verdict.",
   "expected": "fail",

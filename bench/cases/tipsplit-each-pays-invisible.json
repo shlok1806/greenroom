@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "visual_only",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/tipsplit-each-pays-invisible.diff",
   "task": "I restyled TipSplit's result: Each pays is shown in large bold text under the Tip line, so it is the first thing you see. It is running on screen. With the defaults it should read \"Each pays: $49.56\". Check that it is visible and correct, and give a pass or fail verdict.",
   "expected": "fail",

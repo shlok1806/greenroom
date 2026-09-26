@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "edge_crash",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/tipsplit-crash-empty-bill.diff",
   "task": "TipSplit now copes with a bad bill: if the Bill field is empty or holds text that is not a number, Tip and Each pays read $0.00 and nothing breaks. It is running on screen. Try clearing the Bill field and typing \"abc\", then a normal amount again. Give a pass or fail verdict.",
   "expected": "fail",

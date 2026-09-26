@@ -3,6 +3,7 @@
   "app": "unitconvert",
   "kind": "correct",
   "split": "holdout",
+  "tier": "simple",
   "patch": null,
   "task": "UnitConvert (running on screen) has a new Swap units button that flips the direction of the conversion. With Length and 10 it shows 10 km = 6.21 mi; after Swap units it should show 10 mi = 16.09 km, and pressing it again goes back. Check and give a pass or fail verdict.",
   "expected": "pass",
