@@ -15,8 +15,8 @@ are in the root `CONTEXT-MAP.md`.
 - **Phase**: booting, live, idle, ended or failed. **Idle** is a ready machine with no step
   or message for 5 minutes. **Ended** says how: destroyed by you, destroyed by the coding
   agent, or machine lost (its VM stopped under the run).
-- **Needs you**: a question from the verifier, a proposed verdict to review, or a
-  contested one. Pinned at the top of the sidebar.
+- **Needs you**: a question from the verifier, a proposed verdict to review, a contested
+  one, or a verifier stopped at its limit on a live machine. Pinned at the top of the sidebar.
 - **Failure**: a step whose tool call failed (its output is not a result) or whose command
   exited non-zero.
 - **Human review**: a verdict a person accepted or rejected. One the coding agent accepted
@@ -31,6 +31,10 @@ are in the root `CONTEXT-MAP.md`.
   `note`, `task`, `answer`, `accept`, `dispute`.
 - **Reply**: the verifier answering in plain words, no verdict. Ends its turn. Rendered as
   a verifier bubble.
+- **Stopped at its limit**: a verifier reply carrying `stop` (`steps`: it used all its tool
+  calls; `time`: it ran out of time), posted when a turn reaches its cap with no verdict. The
+  verifier waits until a message starts a new turn; Continue sends the note "Continue."
+  (companion ADR 0015).
 - **Verdict state**: `none`, `proposed`, `accepted`, `contested` or `rejected`, derived by
   the daemon. Accept and Dispute show only for `proposed` and `contested`.
 - **Frame**: one captured screen image (ADR 0008), `{at, file, step, bytes}`, listed at

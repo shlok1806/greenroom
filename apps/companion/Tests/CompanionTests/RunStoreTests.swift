@@ -891,6 +891,40 @@ final class RunStoreTests: XCTestCase {
         XCTAssertTrue(SidebarView.run(run, matches: Chrome.timeOfDay(created)))
         XCTAssertFalse(SidebarView.run(run, matches: "booting"))
     }
+
+    /// Continue posts your note "Continue." once, only while the verifier waits at a limit
+    /// (companion ADR 0015).
+    func testContinueSendsOneNoteOnlyWhileTheVerifierWaits() async {
+        let posts = Counter()
+        let bodies = Bodies()
+        let client = StubURLProtocol.client { request in
+            if request.httpMethod == "POST" {
+                posts.add()
+                bodies.add(request)
+                return .json("{}")
+            }
+            return .json(#"{"messages": []}"#)
+        }
+        let store = RunStore(client: client)
+        store.runs = [RunSummary(runId: "run-1", createdAt: Date(timeIntervalSince1970: 0), status: .ready)]
+        var stop = Message(seq: 2, at: Date(timeIntervalSince1970: 2), from: .verifier, kind: .reply, text: "I ran out of time")
+        stop.stop = .time
+        store.messages["run-1"] = [message(1, kind: .task), stop]
+
+        XCTAssertTrue(store.canContinue("run-1"))
+        let sent = await store.continueVerifier(runId: "run-1")
+        XCTAssertTrue(sent)
+        XCTAssertEqual(posts.value, 1)
+        XCTAssertTrue(bodies.value.first?.contains(#""kind":"note""#) == true, bodies.value.first ?? "")
+        XCTAssertTrue(bodies.value.first?.contains(#""text":"Continue.""#) == true, bodies.value.first ?? "")
+
+        // Anything after the stop that starts a turn ends the wait: no second Continue.
+        store.messages["run-1"] = [message(1, kind: .task), stop, Message(seq: 3, at: .epoch, from: .human, kind: .note, text: "Continue.")]
+        XCTAssertFalse(store.canContinue("run-1"))
+        let again = await store.continueVerifier(runId: "run-1")
+        XCTAssertFalse(again)
+        XCTAssertEqual(posts.value, 1)
+    }
 }
 
 private final class Counter: @unchecked Sendable {
@@ -898,4 +932,27 @@ private final class Counter: @unchecked Sendable {
     private var count = 0
     var value: Int { lock.withLock { count } }
     func add() { lock.withLock { count += 1 } }
+
+}
+
+/// The bodies of the requests a stub saw, as text.
+private final class Bodies: @unchecked Sendable {
+    private let lock = NSLock()
+    private var texts: [String] = []
+    var value: [String] { lock.withLock { texts } }
+
+    func add(_ request: URLRequest) {
+        var data = request.httpBody ?? Data()
+        if data.isEmpty, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                data.append(buffer, count: count)
+            }
+        }
+        lock.withLock { texts.append(String(decoding: data, as: UTF8.self)) }
+    }
 }

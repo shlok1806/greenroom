@@ -1,7 +1,8 @@
 import SwiftUI
 
 // The transcript's cards (spec, Components; companion ADR 0009): a spoken message in its
-// sender's group, the verdict's one line in the history, the question card, the tool-call
+// sender's group, the verdict's one line in the history, the question card, the card for a
+// turn that stopped at a limit, the tool-call
 // group and its rows, lifecycle events and the working row. What each says comes from
 // `Model/TranscriptCards.swift`; these only draw it. The column around them is
 // `ConversationView`'s.
@@ -92,6 +93,7 @@ struct MessageRow: View {
         case .answer: "answer"
         case .dispute: "dispute"
         case .verdict: "verdict"
+        case .reply where LimitStop.reason(of: message) != nil: "stopped"
         case .unknown(let raw): raw
         default: nil
         }
@@ -104,6 +106,8 @@ struct MessageRow: View {
             VerdictHistoryLine(store: store, runId: runId, message: message)
         case .question:
             QuestionCard(store: store, runId: runId, message: message)
+        case .reply where LimitStop.reason(of: message) != nil:
+            LimitStopCard(store: store, runId: runId, message: message)
         default:
             MessageBody(store: store, runId: runId, text: message.text)
         }
@@ -255,6 +259,73 @@ struct QuestionCard: View {
         Task {
             if await store.send(runId: runId, kind: .answer, text: text, replyTo: message.seq) { answer = "" }
             sending = false
+        }
+    }
+}
+
+/// A verifier turn that stopped at its tool-call cap or time budget (companion ADR 0015):
+/// which limit and what it means, the verifier's own words, and while it waits, Continue.
+/// Waiting, its edge takes the attention role, as an open question's does.
+struct LimitStopCard: View {
+    let store: RunStore
+    let runId: String
+    let message: Message
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        if let stop = LimitStop.of(message, in: store.messages[runId] ?? [],
+                                   verifierListens: store.facts(runId).verifierListens) {
+            card(stop)
+        }
+    }
+
+    private func card(_ stop: LimitStop) -> some View {
+        VStack(alignment: .leading, spacing: Space.s) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                Text("!")
+                    .monoStyle(size: TypeScale.small)
+                    .foregroundStyle(stop.canContinue ? theme.color(.attention, on: .surface) : theme.dim(on: .surface))
+                    .accessibilityHidden(true)
+                Text(stop.title)
+                    .readingStyle(.readingSemiBold, size: TypeScale.reading)
+            }
+            Text(stop.meaning)
+                .readingStyle(size: TypeScale.readingSmall)
+            MessageBody(store: store, runId: runId, text: message.text, size: TypeScale.readingSmall)
+                .foregroundStyle(.secondary)
+            footer(stop)
+                .padding(.top, Space.xs)
+        }
+        .padding(Space.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .panel(edge: stop.canContinue ? theme.color(.attention) : nil)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(stop.canContinue ? "The verifier stopped, \(LimitStop.short(stop.reason)), waiting to continue"
+                                             : "The verifier stopped, \(LimitStop.short(stop.reason))")
+    }
+
+    @ViewBuilder
+    private func footer(_ stop: LimitStop) -> some View {
+        switch stop.state {
+        case .waiting:
+            HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                Button("Continue") { Task { await store.continueVerifier(runId: runId) } }
+                    .buttonStyle(.primary)
+                    .disabled(!store.canContinue(runId))
+                    .help("Send \u{201C}\(LimitStop.continueText)\u{201D} to the verifier (\(ActionRegistry.label(.continueVerifier)))")
+                Text(LimitStop.waitingNote)
+                    .readingStyle(size: TypeScale.readingSmall)
+                    .foregroundStyle(.secondary)
+            }
+        case .continued(let result):
+            Text("✓ " + result + ", below")
+                .readingStyle(.readingMedium, size: TypeScale.readingSmall)
+                .foregroundStyle(.secondary)
+        case .over:
+            Text(LimitStop.overNote)
+                .readingStyle(size: TypeScale.readingSmall)
+                .foregroundStyle(.secondary)
         }
     }
 }

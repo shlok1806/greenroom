@@ -176,6 +176,8 @@ struct Message: Codable, Hashable, Sendable, Identifiable {
     /// Acceptance checks (root ADR 0024): answered on a verdict, declared (id and criterion
     /// only) on the verifier's progress message that plans them. Empty on older messages.
     var checks: [AcceptanceCheck] = []
+    /// On a verifier reply: the limit its turn stopped at before a verdict (issue #127).
+    var stop: StopReason?
 
     var id: Int { seq }
 }
@@ -194,6 +196,8 @@ extension Message {
         evidence = try c.decodeIfPresent([String].self, forKey: .evidence)
         // One malformed check drops the list, never the message.
         checks = (try? c.decodeIfPresent([AcceptanceCheck].self, forKey: .checks)) ?? []
+        // Only a verifier reply may carry it (`session.validate`); `LimitStop` reads it only there.
+        stop = (try? c.decodeIfPresent(StopReason.self, forKey: .stop)).flatMap { $0 }
     }
 }
 
