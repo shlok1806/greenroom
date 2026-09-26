@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "wrong_label_format",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/todolist-plural-label.diff",
   "task": "TodoList's summary line now uses the right words: \"0 items, 0 done\" when empty, \"1 item, 0 done\" with one item, \"2 items, 0 done\" with two. It is running on screen. Check it and give a pass or fail verdict.",
   "expected": "fail",

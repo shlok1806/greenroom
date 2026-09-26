@@ -30,6 +30,7 @@ type Result struct {
 	Kind      string   `json:"kind"`
 	Family    string   `json:"family,omitempty"`
 	Split     string   `json:"split"`
+	Tier      string   `json:"tier,omitempty"` // the case's tier when it ran; the scorer prefers the case file's (WithTiers)
 	Expected  string   `json:"expected"`
 	MustCheck []string `json:"mustCheck,omitempty"`
 	Infra     string   `json:"infra,omitempty"`

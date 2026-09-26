@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "adjacent_regression",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/tipsplit-roundup-breaks-tip.diff",
   "task": "I added a \"Round up each share\" checkbox to TipSplit (running on screen). When it is on, Each pays is rounded up to a whole dollar; nothing else changes. With the defaults (Bill 84.00, 18%, 2 people) Each pays is $49.56; with the box on it should be $50.00 while Tip stays $15.12. Check the checkbox and the rest of the display and give a pass or fail verdict.",
   "expected": "fail",

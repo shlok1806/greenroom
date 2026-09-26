@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "edge_crash",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/wordcount-clear-crash.diff",
   "task": "I added a \"Longest word\" line to WordCount (running on screen): it shows the longest word, or \"none\" for an empty text. With \"The quick brown fox\" it reads \"Longest word: quick\". Check it, including after pressing Clear (Words: 0, Characters: 0, Longest word: none). Give a pass or fail verdict.",
   "expected": "fail",

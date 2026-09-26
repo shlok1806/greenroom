@@ -164,7 +164,7 @@ func TestReportShowsTheHeadlineAndEveryWrongResultWithItsRunDirectory(t *testing
 	results[0].Text = "Each pays | reads $48.00\nas asked."
 	results[0].Model, results[0].Image = "some/model", "greenroom-lean-a"
 	results[4].Error = "no end of the verifier's turn after 30m0s"
-	out := Report("/tmp/r.jsonl", results, time.Date(2026, 9, 25, 13, 0, 0, 0, time.UTC))
+	out := Report("/tmp/r.jsonl", results, time.Date(2026, 9, 25, 13, 0, 0, 0, time.UTC), ReportOptions{})
 	for _, want := range []string{
 		"# Verifier bench report",
 		"`some/model`", "`greenroom-lean-a`",
@@ -185,6 +185,88 @@ func TestReportShowsTheHeadlineAndEveryWrongResultWithItsRunDirectory(t *testing
 	}
 	if strings.Contains(out, "—") {
 		t.Error("the report has an em dash")
+	}
+}
+
+func TestWithTiersPrefersTheCaseFilesAndKeepsTheRecordedTierOfAGoneCase(t *testing.T) {
+	old := res("m1", 1, KindMutant, SplitDev, EndVerdict, "fail") // recorded before tiers: none
+	retagged := res("m2", 1, KindMutant, SplitDev, EndVerdict, "fail")
+	retagged.Tier = TierSimple // simple when it ran, untagged since
+	gone := res("m3", 1, KindMutant, SplitDev, EndVerdict, "fail")
+	gone.Tier = TierSimple
+	results := []Result{old, retagged, gone}
+	out, matched := WithTiers(results, []Case{{ID: "m1", Tier: TierSimple}, {ID: "m2"}})
+	if matched != 2 {
+		t.Errorf("matched %d, want 2", matched)
+	}
+	for i, want := range []string{TierSimple, "", TierSimple} {
+		if out[i].Tier != want {
+			t.Errorf("%s: tier %q, want %q", out[i].Case, out[i].Tier, want)
+		}
+	}
+	if results[0].Tier != "" {
+		t.Error("WithTiers changed its input")
+	}
+}
+
+// A results line from before tiers has no tier field and reads as not tiered.
+func TestAResultWithNoTierReadsAsNotTiered(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.jsonl")
+	line := `{"case":"m1","trial":1,"kind":"mutant","split":"dev","expected":"fail","ending":"verdict","verdict":"fail","startedAt":"2026-09-25T12:00:00Z"}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := ReadResults(path)
+	if err != nil || len(rs) != 1 || rs[0].Tier != "" {
+		t.Fatalf("read %+v, %v; want one result with no tier", rs, err)
+	}
+	out := Report(path, rs, time.Now(), ReportOptions{})
+	if !strings.Contains(out, "No simple cases in these results.") {
+		t.Errorf("an untiered result was scored as simple:\n%s", out)
+	}
+}
+
+func TestReportHasATierSectionAndScoresOneTierOnRequest(t *testing.T) {
+	simple := func(r Result) Result { r.Tier = TierSimple; return r }
+	results := []Result{
+		simple(res("m1", 1, KindMutant, SplitDev, EndVerdict, "pass")),
+		simple(res("m1", 2, KindMutant, SplitDev, EndVerdict, "pass")),
+		simple(res("m1", 3, KindMutant, SplitDev, EndVerdict, "pass")),
+		simple(res("c1", 1, KindCorrect, SplitHoldout, EndVerdict, "pass")),
+		simple(res("c1", 2, KindCorrect, SplitHoldout, EndVerdict, "pass")),
+		simple(res("c1", 3, KindCorrect, SplitHoldout, EndVerdict, "pass")),
+		res("m2", 1, KindMutant, SplitDev, EndVerdict, "fail"),
+		res("m2", 2, KindMutant, SplitDev, EndVerdict, "fail"),
+		res("m2", 3, KindMutant, SplitDev, EndVerdict, "pass"),
+	}
+	now := time.Date(2026, 9, 25, 13, 0, 0, 0, time.UTC)
+	out := Report("/tmp/r.jsonl", results, now, ReportOptions{TierSource: "from the case files"})
+	for _, want := range []string{
+		"- Tiers: from the case files.",
+		"Simple tier only: **3/3 (100.0%), upper 100.0%**, per case 1/1 (100.0%), upper 100.0%.",
+		"## By tier",
+		"| Metric | simple dev | simple holdout | simple | all |",
+		"| False pass rate, per trial | 3/3 (100.0%), upper 100.0% | n/a (0 trials) | 3/3 (100.0%), upper 100.0% | 4/6 (66.7%), upper 93.7% |",
+		"| pass^k: same outcome in every trial | 1/1 (100.0%) of cases, k=3 | 1/1 (100.0%) of cases, k=3 | 2/2 (100.0%) of cases, k=3 | 2/3 (66.7%) of cases, k=3 |",
+		"| pass^k: right in every trial | 0/1 (0.0%) of cases, k=3 | 1/1 (100.0%) of cases, k=3 | 1/2 (50.0%) of cases, k=3 | 1/3 (33.3%) of cases, k=3 |",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report lacks %q\n%s", want, out)
+		}
+	}
+
+	only := Report("/tmp/r.jsonl", results, now, ReportOptions{Tier: TierSimple})
+	for _, want := range []string{
+		"- Tier: only `simple` cases",
+		"(9 lines, 6 case and trial pairs, 2 cases)",
+		"False pass rate (pass on a broken build): **3/3 (100.0%), upper 100.0%**",
+	} {
+		if !strings.Contains(only, want) {
+			t.Errorf("simple-only report lacks %q\n%s", want, only)
+		}
+	}
+	if strings.Contains(only, "## By tier") || strings.Contains(only, "m2") {
+		t.Errorf("a simple-only report shows other cases or a tier section:\n%s", only)
 	}
 }
 

@@ -27,8 +27,8 @@ go run . check-image -image <local image> [-out dir]   # the dialog gate, on a c
 go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir>]
 go run . connect [-url URL] [-token T] [-config F] [-dir D]   # stdio MCP server for a daemon on another host
 go run . connect -check                          # prints "ok: <url> (<n> tools)" or the reason, exit 1
-go run . bench run -split dev [-case a,b] [-kind mutant] [-trials 3] [-out f.jsonl]   # ADR 0025; real VMs and the model
-go run . bench score <results.jsonl>             # writes <results>.md
+go run . bench run -split dev [-case a,b] [-kind mutant] [-tier simple] [-trials 3] [-out f.jsonl]   # ADR 0025; real VMs and the model
+go run . bench score [-tier simple] [-bench dir] <results.jsonl>   # writes <results>.md
 
 scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
                         # image default: local greenroom-lean-a, then greenroom-base, then upstream Cirrus
@@ -185,6 +185,12 @@ Each layer depends only on the ones below. Keep it that way.
 - Bounds are exact one-sided Clopper-Pearson (`UpperBound`, the Beta(k+1, n-k) quantile),
   pinned against scipy values in `stats_test.go`.
 - Never tune prompts on the `holdout` split; run it before a verifier change merges.
+- Tiers: a case's optional `tier` (`Tiers`, only `simple` today; `bench/README.md` defines
+  it) is refused on infra and ambiguous cases. `TestTheSimpleTierIsPinned` lists the simple
+  cases (30 dev, 11 holdout); change it with the tags. Results record the tier, but
+  `bench score` takes each result's tier from the current case files by id (`WithTiers`), so
+  re-tagging applies to old results; the recorded tier is only the fallback for a case that
+  is gone or a results file scored with no `bench/` around. Absent means not tiered.
 
 ## Invariants
 

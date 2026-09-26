@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "adjacent_regression",
   "split": "holdout",
+  "tier": "simple",
   "patch": "patches/wordcount-toggle-breaks-words.diff",
   "task": "WordCount has a new \"Count spaces\" checkbox: when it is off, Characters leaves out spaces and new lines; the Words count does not change. It is running on screen. With \"The quick brown fox\": on, Characters: 19; off, Characters: 16. Words stays 4 either way. Check and give a pass or fail verdict.",
   "expected": "fail",

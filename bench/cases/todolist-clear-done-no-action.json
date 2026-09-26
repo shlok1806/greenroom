@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "dead_control",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/todolist-clear-done-no-action.diff",
   "task": "I added a Clear done button to TodoList (running on screen). It removes every ticked item and keeps the rest. Add Milk, Bread and Eggs, tick Milk and Eggs, press Clear done: only Bread should remain and the summary should read \"1 item, 0 done\". Give a pass or fail verdict.",
   "expected": "fail",
