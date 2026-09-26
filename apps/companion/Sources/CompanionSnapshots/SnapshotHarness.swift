@@ -71,12 +71,15 @@ final class SnapshotHarness {
         let base = URL(string: environment["GREENROOM_URL"] ?? "http://127.0.0.1:7851")!
         let only = environment["GREENROOM_SNAPSHOTS_ONLY"] ?? ""
 
+        // `GREENROOM_SNAPSHOTS_THEMES` (comma-separated: light, dark, light-hc, dark-hc;
+        // default light and dark) picks the themes each scenario renders in.
+        let themes = (environment["GREENROOM_SNAPSHOTS_THEMES"] ?? "light,dark")
+            .split(separator: ",").compactMap { ThemePreference(rawValue: String($0).trimmingCharacters(in: .whitespaces)) }
         for scenario in scenarios() where only.isEmpty || scenario.name.contains(only) {
-            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            for theme in themes {
                 for size in scenario.sizes {
-                    let mode = appearance == .aqua ? "light" : "dark"
-                    let file = directory.appending(path: "\(scenario.name)-\(mode)-\(size.name).png")
-                    try await render(scenario, appearance: appearance, size: size, base: base, to: file)
+                    let file = directory.appending(path: "\(scenario.name)-\(theme.rawValue)-\(size.name).png")
+                    try await render(scenario, theme: theme, size: size, base: base, to: file)
                     print("rendered \(file.lastPathComponent)")
                 }
             }
@@ -273,6 +276,25 @@ final class SnapshotHarness {
                 Self.cutAfterPlan(store, runId: failRun, calls: 2)
                 Self.makeLive(store, runId: failRun, lastActivityAgo: 4)
             },
+        ] + realChecklistScenarios()
+    }
+
+    /// Verdicts exactly as the verifier bench recorded them (root ADR 0024, 0025, 0027),
+    /// nothing seeded: each is open for review as it was left. Copy the bench's runs into
+    /// the daemon's root to render them.
+    private func realChecklistScenarios() -> [Scenario] {
+        let all = [Self.large, Self.medium, Self.guest]
+        return [
+            // 4 checks, 2 failed: TodoList's Clear done button.
+            Scenario(name: "41-real-four-checks-fail", sizes: all, runId: "20260926-051843-ec112051c6d7e64d"),
+            // 8 checks, all passed.
+            Scenario(name: "42-real-eight-checks-pass", sizes: [Self.large, Self.guest], runId: "20260926-061121-2f86d768db46ed22"),
+            // Inconclusive: 1 passed, 3 not checked.
+            Scenario(name: "43-real-inconclusive", sizes: [Self.large, Self.guest], runId: "20260926-050758-921d99b9003d7b59"),
+            // ADR 0027: value and visual checks, the UI read marks the answer not drawn.
+            Scenario(name: "44-real-visual-not-drawn", sizes: all, runId: "20260926-034206-4cf03f48a9538400"),
+            // ADR 0027: a timing check ("at once").
+            Scenario(name: "45-real-timing", sizes: [Self.large, Self.guest], runId: "20260926-034346-216ce610b45da6f2"),
         ]
     }
 
@@ -599,8 +621,10 @@ final class SnapshotHarness {
 
     // MARK: - Rendering
 
-    private func render(_ scenario: Scenario, appearance: NSAppearance.Name, size: Size, base: URL, to file: URL) async throws {
+    private func render(_ scenario: Scenario, theme: ThemePreference, size: Size, base: URL, to file: URL) async throws {
         let defaults = UserDefaults.standard
+        AppDefaults.shared.set(theme.rawValue, forKey: ThemePreference.key)
+        let appearance: NSAppearance.Name = theme.colorScheme == .dark ? .darkAqua : .aqua
         defaults.set(scenario.pane.rawValue, forKey: "stagePane")
         defaults.set(scenario.conversation, forKey: "showsConversation")
         defaults.set(false, forKey: "stepsErrorsOnly")
