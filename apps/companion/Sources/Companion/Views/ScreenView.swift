@@ -237,7 +237,7 @@ struct ScreenView: View {
     private var stack: some View {
         VStack(spacing: 0) {
             if driving {
-                DrivingBar(screen: pilot?.screen)
+                DrivingBar(screen: pilot?.screen, busy: pilot?.busy ?? false) { toggleControl() }
                     .houseLightsLit(radius: Radius.md)
                     .padding(.horizontal, Space.l)
                     .padding(.top, Space.l)
@@ -841,23 +841,40 @@ struct EvidenceBar: View {
 /// picture, where it would cover the guest's own menu bar.
 private struct DrivingBar: View {
     let screen: GuestScreen?
+    var busy = false
+    /// Gives the screen back: the way out sits where the eye is (companion ADR 0013), as
+    /// well as in the top bar, which stays when this bar is covered.
+    let giveBack: () -> Void
 
     @Environment(\.theme) private var theme
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+        HStack(alignment: .center, spacing: Space.s) {
             Text("You have control")
                 .readingStyle(.readingSemiBold, size: TypeScale.readingSmall)
             Text("Your keys and clicks go to the machine\(screen.map { " (\($0.label))" } ?? "")")
                 .readingStyle(size: TypeScale.small)
+                .lineLimit(1)
             Spacer(minLength: Space.s)
-            Text("Give Back is in the top bar")
-                .monoStyle(.monoMedium, size: TypeScale.monoSmall)
+            Button(action: giveBack) {
+                Text("Give Back")
+                    .readingStyle(.readingSemiBold, size: TypeScale.readingSmall)
+                    .foregroundStyle(theme.color(.driving))
+                    .padding(.horizontal, Space.m)
+                    .frame(minHeight: 24)
+                    .background(theme.background, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
+            .fixedSize()
+            .help("Give the mouse and keys back to the agents")
         }
         // The ground as ink: it clears the text threshold on the driving role in every theme.
         .foregroundStyle(theme.background)
-        .padding(.horizontal, Space.m)
-        .padding(.vertical, Space.s)
+        .padding(.leading, Space.m)
+        .padding(.trailing, Space.xs)
+        .padding(.vertical, Space.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.color(.driving), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         .accessibilityElement(children: .contain)

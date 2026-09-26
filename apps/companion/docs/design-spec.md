@@ -436,7 +436,7 @@ The rest, in our own terms:
 | Evidence shown | The bar over the picture is the check that step answers: its mark, claim, kind, observation, what is not drawn, and which evidence it is |
 | Verdict closed | Outcome in its colour (unless agent-accepted), who decided in words; `a` and `d` absent |
 | Undo window | After accept or dispute, the hint bar shows `u undo 5s` counting down; nothing is sent until it ends |
-| Driving | House lights down, the screen's border and the hint bar magenta: `all keys → machine · click switch to return` |
+| Driving | House lights down, the screen's border and the hint bar magenta: `all keys → machine · click switch to return`; the driving bar over the screen says "You have control" and offers Give Back (ADR 0013) |
 | Typing | The hint bar shows `⏎ send  ⇧⏎ newline  esc leave`; bare keys type |
 | Zoomed | One pane fills the window; the hint bar shows `z restore` |
 | Destroyed | Power-down still on the screen; "Ended: destroyed by you" in words |

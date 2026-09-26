@@ -353,15 +353,16 @@ struct CommandBlock: View {
     let command: String
 
     var body: some View {
-        HStack(spacing: Space.s) {
-            ScrollView(.horizontal) {
-                Text(command)
-                    .monoStyle()
-                    .textSelection(.enabled)
-                    .fixedSize()
-            }
-            .scrollIndicators(.never)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        // The whole command, wrapped: a hidden horizontal scroll cut it with no sign that
+        // more followed (audit P5).
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+            Text(command)
+                .monoStyle()
+                .lineLimit(4)
+                .textSelection(.enabled)
+                // Its own height; every use sits in a bounded, scrolling column.
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             CopyButton(text: command)
         }
         .padding(.leading, Space.m)
