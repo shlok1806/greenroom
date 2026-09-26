@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "not_persisted",
   "split": "holdout",
+  "tier": "simple",
   "patch": "patches/todolist-add-not-saved.diff",
   "task": "TodoList now saves the list between launches. It is running on screen; the app is at ~/work/todolist/build/TodoList.app. Add Milk and Bread, quit TodoList (Cmd-Q), open it again and check both items are still there. Give a pass or fail verdict.",
   "expected": "fail",

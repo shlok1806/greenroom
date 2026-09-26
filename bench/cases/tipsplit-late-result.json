@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "late_result",
   "split": "holdout",
+  "tier": "simple",
   "patch": "patches/tipsplit-late-result.diff",
   "task": "TipSplit updates Each pays the moment you change the bill, the tip or the number of people; there is no Calculate button. It is running on screen. Check that Each pays follows each change immediately (for example Bill 120, 20%, 3 people gives $48.00) and give a pass or fail verdict.",
   "expected": "fail",

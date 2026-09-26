@@ -3,6 +3,7 @@
   "app": "unitconvert",
   "kind": "correct",
   "split": "dev",
+  "tier": "simple",
   "patch": null,
   "task": "I added a Temperature category to UnitConvert (running on screen). It converts °C to °F, and Swap units goes the other way. Check: 100 °C = 212.00 °F, 0 °C = 32.00 °F, and swapped, 212 °F = 100.00 °C. Give a pass or fail verdict.",
   "expected": "pass",

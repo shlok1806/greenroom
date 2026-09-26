@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "not_persisted",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/unitconvert-decimals-not-persisted.diff",
   "task": "UnitConvert now remembers the Decimals setting and the chosen category between launches. It is running on screen; the app is at ~/work/unitconvert/build/UnitConvert.app. Set Decimals to 4 and pick Weight, quit the app (Cmd-Q), open it again and check both were kept (10 kg = 22.0462 lb). Give a pass or fail verdict.",
   "expected": "fail",

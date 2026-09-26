@@ -4,7 +4,9 @@
 # (ADR 0019, issue #44). Runs in the guest as the admin user through `greenroom prepare-image`.
 # Every field is measured: a tiny XCTest package and a tiny swift-testing package are built
 # and run with a plain `swift test`, with no extra search paths, exactly as an agent would.
-# The daemon passes the file through to machine_wait as it is.
+# With Xcode (ADR 0026) it also builds a tiny package with `xcodebuild`, headless.
+# The daemon passes the file through to machine_wait as it is. $1 is the image recipe
+# version (imageRecipeVersion in internal/machine/image.go), which boot compares with its own.
 set -u
 
 out=/usr/local/greenroom/toolchain.json
@@ -15,6 +17,7 @@ trap 'rm -rf "$work"' EXIT
 put() { defaults write "$plist" "$@"; } # put <key> -string|-bool <value>
 
 put known -bool true
+put imageRecipe -integer "${1:-0}"
 put measuredAt -string "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 put macos -string "$(sw_vers -productVersion) ($(sw_vers -buildVersion))"
 
@@ -28,6 +31,12 @@ if [ -n "$xcode" ]; then
   put xcode -bool true
   put xcodePath -string "$xcode"
   put xcodeVersion -string "$(DEVELOPER_DIR="$xcode/Contents/Developer" xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+  # 0 when the license is agreed to and first-launch packages are installed.
+  if DEVELOPER_DIR="$xcode/Contents/Developer" xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
+    put xcodeFirstLaunch -bool true
+  else
+    put xcodeFirstLaunch -bool false
+  fi
 else
   put xcode -bool false
 fi
@@ -66,6 +75,26 @@ probe swiftTesting 'import Testing
 @testable import Lib
 @Test func two2() { #expect(two() == 2) }' \
   'Test two2() passed'
+
+# xcodebuild, headless, on a package with one executable target: the scheme, the build
+# system and the macOS SDK, without an .xcodeproj to maintain here. Only with Xcode.
+if [ -n "$xcode" ]; then
+  dir="$work/xcodebuild"
+  mkdir -p "$dir/Sources/ProbeTool"
+  cat > "$dir/Package.swift" <<'EOF'
+// swift-tools-version:5.9
+import PackageDescription
+let package = Package(name: "ProbeTool", targets: [.executableTarget(name: "ProbeTool")])
+EOF
+  echo 'print("probe")' > "$dir/Sources/ProbeTool/main.swift"
+  if (cd "$dir" && xcodebuild -scheme ProbeTool -destination platform=macOS -derivedDataPath "$work/dd" build > "$dir/log" 2>&1) &&
+    grep -q -F '** BUILD SUCCEEDED **' "$dir/log"; then
+    put xcodebuild -bool true
+  else
+    put xcodebuild -bool false
+    put xcodebuildError -string "$({ grep -m 1 'error:' "$dir/log" || tail -n 1 "$dir/log"; } | sed 's/^.*error: //' | cut -c1-200)"
+  fi
+fi
 
 put note -string "swift test runs only the frameworks marked true here. Never delete or exclude a project's own tests to get a green run; report that the toolchain cannot run them."
 

@@ -184,3 +184,34 @@ func TestDesktopReportAllowsWidgetsUnderTheDesktopButNothingAbove(t *testing.T) 
 		})
 	}
 }
+
+// ADR 0026: every pass builds with xcodebuild under its own, longer watchdog, and a build
+// that fails (a license, first launch left undone, a prompt it waited on) fails the image.
+func TestCheckImageBuildsWithXcodebuildAndFailsWhenItCannot(t *testing.T) {
+	bin, control := testsupport.FakeTart(t)
+	writeControl(t, control, "shot.b64", busyPNG(t))
+	writeControl(t, control, "desktop.json", cleanDesktop)
+	res := runCheck(t, bin, t.TempDir())
+	if !res.Passed {
+		t.Fatalf("a clean image failed: %+v", res.Passes)
+	}
+	calls := testsupport.Calls(t, control)
+	if n := strings.Count(calls, ": greenroom-check-xcodebuild\n"); n != 2 {
+		t.Errorf("want one xcodebuild per pass, got %d", n)
+	}
+	if !regexp.MustCompile(`(?s)greenroom-check-xcodebuild.*xcodebuild -checkFirstLaunchStatus.*\*\* BUILD SUCCEEDED \*\*.* 240\n`).MatchString(calls) {
+		t.Errorf("the xcodebuild exercise did not run its build under a 240 s watchdog:\n%s", calls)
+	}
+
+	bin, control = testsupport.FakeTart(t)
+	writeControl(t, control, "shot.b64", busyPNG(t))
+	writeControl(t, control, "desktop.json", cleanDesktop)
+	testsupport.Flag(t, control, "fail-check-xcodebuild")
+	res = runCheck(t, bin, t.TempDir())
+	if res.Passed {
+		t.Fatal("an image whose xcodebuild fails passed")
+	}
+	if got := strings.Join(res.Passes[0].Findings, "\n"); !strings.Contains(got, "xcodebuild: exit 1") {
+		t.Errorf("the finding does not name the xcodebuild exercise:\n%s", got)
+	}
+}

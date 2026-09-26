@@ -3,6 +3,7 @@
   "app": "todolist",
   "kind": "correct",
   "split": "holdout",
+  "tier": "simple",
   "patch": null,
   "task": "Each TodoList item now has its own Delete button, and ticking works as before. It is running on screen. Add Milk, Bread and Eggs, delete Bread, then tick Eggs: the list should show Milk (not ticked) and Eggs (ticked), and the summary \"2 items, 1 done\". Give a pass or fail verdict.",
   "expected": "pass",

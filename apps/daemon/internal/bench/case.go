@@ -33,6 +33,7 @@ const (
 	InfraAppNotRunning = "app_not_running"
 	InfraTakeover      = "human_takeover"
 	InfraBooting       = "booting"
+	TierSimple         = "simple"
 )
 
 // Families are the mutant operator families of ADR 0025, in its order.
@@ -54,6 +55,11 @@ var Kinds = []string{KindCorrect, KindMutant, KindLying, KindInfra, KindAmbiguou
 // InfraTypes are the disturbances the runner can play.
 var InfraTypes = []string{InfraDialog, InfraAppNotRunning, InfraTakeover, InfraBooting}
 
+// Tiers are the values a case's tier may take. A simple case checks one flow of one app with
+// explicit steps and an explicit, observable outcome: about 5 inputs or fewer and 1 to 4
+// checks (bench/README.md). A case with no tier is not tiered.
+var Tiers = []string{TierSimple}
+
 // Infra is a scripted disturbance.
 type Infra struct {
 	Type string `json:"type"`
@@ -69,7 +75,8 @@ type Case struct {
 	Kind      string   `json:"kind"`
 	Family    string   `json:"family,omitempty"`
 	Split     string   `json:"split"`
-	Patch     *string  `json:"patch"` // a unified diff under bench/cases, applied with -p1; null for none
+	Tier      string   `json:"tier,omitempty"` // TierSimple, or "" for not tiered
+	Patch     *string  `json:"patch"`          // a unified diff under bench/cases, applied with -p1; null for none
 	Task      string   `json:"task"`
 	Expected  string   `json:"expected"`
 	MustCheck []string `json:"must_check"`
@@ -219,6 +226,12 @@ func (c Case) Validate() error {
 	if hasPatch && (strings.HasPrefix(*c.Patch, "/") || strings.Contains(*c.Patch, "..") || !strings.HasSuffix(*c.Patch, ".diff")) {
 		bad("patch %q must be a .diff path under bench/cases, like patches/<id>.diff", *c.Patch)
 	}
+	if c.Tier != "" && !slices.Contains(Tiers, c.Tier) {
+		bad("tier %q is not one of %s (or absent)", c.Tier, strings.Join(Tiers, ", "))
+	}
+	if c.Tier != "" && (c.Kind == KindInfra || c.Kind == KindAmbiguous) {
+		bad("%s cases take no tier: only a checkable single-flow task is simple", c.Kind)
+	}
 	if c.Family != "" && !slices.Contains(Families, c.Family) {
 		bad("family %q is not one of %s", c.Family, strings.Join(Families, ", "))
 	}
@@ -298,8 +311,8 @@ func strictDecode(data []byte, v any) error {
 	return nil
 }
 
-// Filter selects cases by id (any of ids), split and kind. Empty selects all.
-func Filter(cases []Case, ids []string, split, kind string) []Case {
+// Filter selects cases by id (any of ids), split, kind and tier. Empty selects all.
+func Filter(cases []Case, ids []string, split, kind, tier string) []Case {
 	var out []Case
 	for _, c := range cases {
 		if len(ids) > 0 && !slices.Contains(ids, c.ID) {
@@ -309,6 +322,9 @@ func Filter(cases []Case, ids []string, split, kind string) []Case {
 			continue
 		}
 		if kind != "" && c.Kind != kind {
+			continue
+		}
+		if tier != "" && c.Tier != tier {
 			continue
 		}
 		out = append(out, c)

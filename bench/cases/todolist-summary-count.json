@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "wrong_computation",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/todolist-summary-count.diff",
   "task": "TodoList (running on screen) now shows a summary line under the list, like \"3 items, 1 done\". Add three items (Milk, Bread, Eggs), tick Bread, and check the summary reads \"3 items, 1 done\"; tick Eggs too and it should read \"3 items, 2 done\". Give a pass or fail verdict.",
   "expected": "fail",

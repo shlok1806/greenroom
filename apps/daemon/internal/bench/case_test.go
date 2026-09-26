@@ -88,6 +88,42 @@ func TestTheBenchMeetsTheFirstVersionsSizes(t *testing.T) {
 	}
 }
 
+// The simple tier (bench/README.md) is exactly this set: 30 dev and 11 holdout cases. A case
+// joining or leaving the tier changes the numbers it reports, so it changes this test too.
+func TestTheSimpleTierIsPinned(t *testing.T) {
+	cases, err := LoadCases(repoBench(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		SplitDev: {"tipsplit-correct-split", "tipsplit-wrong-computation", "tipsplit-lying-fixed-split",
+			"tipsplit-correct-reset", "tipsplit-reset-no-action", "tipsplit-lying-reset-works",
+			"tipsplit-correct-persist", "tipsplit-tip-not-persisted", "tipsplit-each-pays-invisible",
+			"tipsplit-roundup-breaks-tip", "tipsplit-crash-empty-bill", "todolist-correct-clear-done",
+			"todolist-clear-done-no-action", "todolist-lying-clear-done", "todolist-correct-persist",
+			"todolist-summary-count", "todolist-plural-label", "todolist-late-add", "todolist-toggle-first",
+			"unitconvert-correct-temperature", "unitconvert-temperature-formula", "unitconvert-result-invisible",
+			"unitconvert-swap-label", "unitconvert-late-result", "unitconvert-decimals-not-persisted",
+			"wordcount-correct-case", "wordcount-lowercase-no-action", "wordcount-lying-case-works",
+			"wordcount-draft-not-persisted", "wordcount-clear-crash"},
+		SplitHoldout: {"tipsplit-each-pays-format", "tipsplit-late-result", "todolist-add-not-saved",
+			"todolist-correct-delete", "todolist-titles-invisible", "unitconvert-correct-swap",
+			"unitconvert-swap-no-action", "unitconvert-negative-crash", "unitconvert-lying-decimals",
+			"wordcount-correct-longest", "wordcount-toggle-breaks-words"},
+	}
+	counts := map[string]int{SplitDev: 30, SplitHoldout: 11}
+	for split, n := range counts {
+		var got []string
+		for _, c := range Filter(cases, nil, split, "", TierSimple) {
+			got = append(got, c.ID)
+		}
+		w := slices.Sorted(slices.Values(want[split]))
+		if len(w) != n || len(got) != n || !slices.Equal(got, w) {
+			t.Errorf("%s simple cases: got %d %v, want %d %v", split, len(got), got, n, w)
+		}
+	}
+}
+
 // Every mutant's patch really changes its app, and no two mutants share one.
 func TestEveryMutantChangesItsApp(t *testing.T) {
 	dir := repoBench(t)
@@ -171,6 +207,16 @@ func TestValidateRefusesCasesThatBreakTheRules(t *testing.T) {
 	if err := good.Validate(); err != nil {
 		t.Fatalf("a good mutant was refused: %v", err)
 	}
+	for _, kind := range []string{KindCorrect, KindMutant, KindLying} {
+		c := good
+		c.Kind, c.Tier = kind, TierSimple
+		if kind == KindCorrect {
+			c.Family, c.Expected = "", ExpectPass
+		}
+		if err := c.Validate(); err != nil {
+			t.Errorf("a simple %s case was refused: %v", kind, err)
+		}
+	}
 	for name, tt := range map[string]struct {
 		edit func(*Case)
 		want string
@@ -191,6 +237,13 @@ func TestValidateRefusesCasesThatBreakTheRules(t *testing.T) {
 		"infra expecting a verdict":  {func(c *Case) { c.Kind, c.Family, c.Infra = KindInfra, "", &Infra{Type: InfraBooting} }, "expects ask_or_inconclusive"},
 		"lying broken with no patch": {func(c *Case) { c.Kind, c.Patch = KindLying, nil }, "family and patch"},
 		"ambiguous expecting pass":   {func(c *Case) { c.Kind, c.Family, c.Expected = KindAmbiguous, "", ExpectPass }, "expects ask_or_inconclusive"},
+		"unknown tier":               {func(c *Case) { c.Tier = "hard" }, "tier \"hard\" is not one of simple"},
+		"infra with a tier": {func(c *Case) {
+			c.Kind, c.Family, c.Expected, c.Infra, c.Tier = KindInfra, "", AskOrInconclusive, &Infra{Type: InfraDialog}, TierSimple
+		}, "infra cases take no tier"},
+		"ambiguous with a tier": {func(c *Case) {
+			c.Kind, c.Family, c.Expected, c.Tier = KindAmbiguous, "", AskOrInconclusive, TierSimple
+		}, "ambiguous cases take no tier"},
 	} {
 		c := good
 		tt.edit(&c)
@@ -234,11 +287,11 @@ func TestLoadCaseRefusesUnknownFieldsAndAMismatchedID(t *testing.T) {
 	}
 }
 
-func TestFilterSelectsByIDSplitAndKind(t *testing.T) {
+func TestFilterSelectsByIDSplitKindAndTier(t *testing.T) {
 	cases := []Case{
-		{ID: "a", Split: SplitDev, Kind: KindMutant},
+		{ID: "a", Split: SplitDev, Kind: KindMutant, Tier: TierSimple},
 		{ID: "b", Split: SplitHoldout, Kind: KindMutant},
-		{ID: "c", Split: SplitDev, Kind: KindCorrect},
+		{ID: "c", Split: SplitDev, Kind: KindCorrect, Tier: TierSimple},
 	}
 	ids := func(cs []Case) []string {
 		var out []string
@@ -250,12 +303,14 @@ func TestFilterSelectsByIDSplitAndKind(t *testing.T) {
 	for name, tt := range map[string]struct {
 		got, want []string
 	}{
-		"all":     {ids(Filter(cases, nil, "", "")), []string{"a", "b", "c"}},
-		"ids":     {ids(Filter(cases, []string{"c", "a"}, "", "")), []string{"a", "c"}},
-		"split":   {ids(Filter(cases, nil, SplitHoldout, "")), []string{"b"}},
-		"kind":    {ids(Filter(cases, nil, "", KindMutant)), []string{"a", "b"}},
-		"both":    {ids(Filter(cases, nil, SplitDev, KindMutant)), []string{"a"}},
-		"no hits": {ids(Filter(cases, []string{"z"}, "", "")), nil},
+		"all":      {ids(Filter(cases, nil, "", "", "")), []string{"a", "b", "c"}},
+		"ids":      {ids(Filter(cases, []string{"c", "a"}, "", "", "")), []string{"a", "c"}},
+		"split":    {ids(Filter(cases, nil, SplitHoldout, "", "")), []string{"b"}},
+		"kind":     {ids(Filter(cases, nil, "", KindMutant, "")), []string{"a", "b"}},
+		"both":     {ids(Filter(cases, nil, SplitDev, KindMutant, "")), []string{"a"}},
+		"tier":     {ids(Filter(cases, nil, "", "", TierSimple)), []string{"a", "c"}},
+		"all four": {ids(Filter(cases, []string{"a", "b"}, SplitDev, KindMutant, TierSimple)), []string{"a"}},
+		"no hits":  {ids(Filter(cases, []string{"z"}, "", "", "")), nil},
 	} {
 		if !slices.Equal(tt.got, tt.want) {
 			t.Errorf("%s: got %v, want %v", name, tt.got, tt.want)

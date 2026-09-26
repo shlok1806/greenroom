@@ -4,6 +4,7 @@
   "kind": "mutant",
   "family": "dead_control",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/tipsplit-reset-no-action.diff",
   "task": "I added a Reset button to TipSplit, which is running on screen. Reset puts everything back to the defaults: Bill 84.00, 18% tip, 2 people, Round up off, so Each pays reads $49.56. Change a few values, press Reset and check. Give a pass or fail verdict.",
   "expected": "fail",

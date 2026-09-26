@@ -34,6 +34,7 @@ fault was planted in it, so there is no human-agreement ceiling on the verdict.
   "kind": "mutant",
   "family": "wrong_computation",
   "split": "dev",
+  "tier": "simple",
   "patch": "patches/tipsplit-wrong-computation.diff",
   "task": "TipSplit ... is running on screen. ... Each pays should read $48.00 ...",
   "expected": "fail",
@@ -75,6 +76,21 @@ fault was planted in it, so there is no human-agreement ceiling on the verdict.
   `holdout` before a verifier change merges and put its numbers in the PR. Keep about a
   quarter of the cases in holdout, spread over kinds and families.
 
+- `tier` (optional): `simple`, the only tier so far, or absent for not tiered. See below.
+
+## The simple tier
+
+A simple task is a single-app check of one flow, with explicit steps and an explicit,
+observable expected outcome: about 5 inputs or fewer and 1 to 4 checks. "Set Bill to 120,
+pick 20%, set People to 3; Each pays should read $48.00" is simple. Open-ended tasks ("any
+value", "a few values", "still works everywhere"), infra cases and ambiguous cases are not:
+the schema refuses a tier on an infra or ambiguous case, and the rest are judged by hand.
+
+The simple tier is what the verifier should get right first, and its numbers are reported
+beside the whole bench's. Today it holds 41 cases, 30 in dev and 11 in holdout, over every
+app and all three checkable kinds. `TestTheSimpleTierIsPinned` lists them, so tagging or
+untagging a case means changing that test on purpose.
+
 `go test ./internal/bench` (from `apps/daemon`) checks every case: the schema, the rules in
 the table, that each patch applies (strictly, as `patch -p1` does, and the same as `patch`),
 that each mutant changes its app, and the sizes below.
@@ -114,8 +130,10 @@ cd apps/daemon
 go run . bench run -split dev                                   # every dev case, 3 trials
 go run . bench run -case tipsplit-wrong-computation -trials 1
 go run . bench run -kind mutant -out ~/.greenroom/bench/results/mutants.jsonl
+go run . bench run -tier simple -split dev                      # the simple tier; combines with -case and -kind
 go run . bench run -split holdout -env-file ../../.env          # before merging a verifier change
 go run . bench score ~/.greenroom/bench/results/<file>.jsonl    # writes <file>.md next to it
+go run . bench score -tier simple <file>.jsonl -report -        # simple cases only, to stdout
 ```
 
 - Each trial gets a fresh machine from the image the daemon would pick (`-image` to choose):
@@ -136,7 +154,16 @@ go run . bench score ~/.greenroom/bench/results/<file>.jsonl    # writes <file>.
 
 ## What the numbers mean
 
-`bench score` writes a Markdown report per split (dev, holdout, all) and per kind.
+`bench score` writes a Markdown report per split (dev, holdout, all) and per kind, and a
+**By tier** section with the same metrics for the simple tier (dev, holdout, all) beside every
+case. `-tier simple` scores only simple results, so the whole report is theirs.
+
+Each result line records its case's tier (`tier`, absent when not tiered). The scorer does
+not trust it first: it looks each result's case up by id in the current case files (`-bench`,
+default the nearest `bench/`), so re-tagging a case applies to results recorded before the
+change, including files from before tiers existed. A result whose case is gone keeps its
+recorded tier. With no `bench/` found (a results file scored on another machine) every result
+keeps its recorded tier, with a warning. The report's header says which source it used.
 
 - **False pass rate**: pass verdicts on broken builds (mutants and lying cases on a mutant),
   over broken trials the verifier answered. The headline. Shown per trial and per case (a

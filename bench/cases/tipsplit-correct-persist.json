@@ -3,6 +3,7 @@
   "app": "tipsplit",
   "kind": "correct",
   "split": "dev",
+  "tier": "simple",
   "patch": null,
   "task": "TipSplit now remembers the tip percentage and the number of people between launches. It is running on screen; the app is at ~/work/tipsplit/build/TipSplit.app. Pick 25% and set People to 4, quit TipSplit (Cmd-Q), open it again, and check both are still 25% and 4. Give a pass or fail verdict.",
   "expected": "pass",

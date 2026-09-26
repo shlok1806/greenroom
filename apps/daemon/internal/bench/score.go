@@ -243,14 +243,48 @@ func covers(have map[string]bool, item string) bool {
 	return hit*2 >= len(words) && (len(nums) > 0 || len(words) > 0)
 }
 
+// WithTiers returns results with each Tier taken from the current case files by id, so
+// re-tagging a case applies to results recorded before. A result whose case is not in cases (a
+// case since removed or renamed) keeps the tier it was recorded with; results written before
+// tiers existed have none, which reads as not tiered. matched counts the results found in cases.
+func WithTiers(results []Result, cases []Case) (out []Result, matched int) {
+	tier := map[string]string{}
+	for _, c := range cases {
+		tier[c.ID] = c.Tier
+	}
+	out = slices.Clone(results)
+	for i := range out {
+		if t, ok := tier[out[i].Case]; ok {
+			out[i].Tier = t
+			matched++
+		}
+	}
+	return out, matched
+}
+
+// ReportOptions shape a report.
+type ReportOptions struct {
+	Tier       string // score only results of this tier; "" scores all and adds the By tier section
+	TierSource string // where the results' tiers came from, for the header; "" leaves it out
+}
+
 // Report renders the Markdown report for results read from source.
-func Report(source string, all []Result, now time.Time) string {
+func Report(source string, all []Result, now time.Time, opts ReportOptions) string {
 	results := Latest(all)
+	if opts.Tier != "" {
+		results = filterResults(results, func(r Result) bool { return r.Tier == opts.Tier })
+	}
 	var b strings.Builder
 	p := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
 
 	p("# Verifier bench report\n\n")
 	p("- Results: `%s` (%d lines, %d case and trial pairs, %d cases)\n", source, len(all), len(results), countCases(results))
+	if opts.Tier != "" {
+		p("- Tier: only `%s` cases; every number below is theirs alone.\n", opts.Tier)
+	}
+	if opts.TierSource != "" {
+		p("- Tiers: %s.\n", opts.TierSource)
+	}
 	p("- Models: %s. Images: %s.\n", joinOrNone(distinct(results, func(r Result) string { return r.Model })),
 		joinOrNone(distinct(results, func(r Result) string { return r.Image })))
 	if first, last, ok := span(results); ok {
@@ -258,48 +292,35 @@ func Report(source string, all []Result, now time.Time) string {
 	}
 	p("- Bounds are exact one-sided %.0f%% Clopper-Pearson upper bounds (0 of 30 gives 9.5%%). Trials of one case are not independent; the per-case false pass rate is the conservative reading.\n\n", Confidence*100)
 
-	splits := []string{SplitDev, SplitHoldout, ""}
-	ms := map[string]Metrics{}
-	for _, s := range splits {
-		ms[s] = Compute(filterResults(results, func(r Result) bool { return s == "" || r.Split == s }))
+	bySplit := func(rs []Result, split string) Metrics {
+		return Compute(filterResults(rs, func(r Result) bool { return split == "" || r.Split == split }))
 	}
-	all3 := ms[""]
+	all3 := bySplit(results, "")
+	var simple []Result
+	if opts.Tier == "" {
+		simple = filterResults(results, func(r Result) bool { return r.Tier == TierSimple })
+	}
 	p("## Headline\n\n")
 	p("False pass rate (pass on a broken build): **%s**, per case %s.\n\n", fmtRate(all3.FalsePass), fmtRate(all3.FalsePassCases))
-
-	p("## By split\n\n| Metric | dev | holdout | all |\n| --- | --- | --- | --- |\n")
-	row := func(name string, f func(Metrics) string) {
-		p("| %s | %s | %s | %s |\n", name, f(ms[SplitDev]), f(ms[SplitHoldout]), f(ms[""]))
+	if len(simple) > 0 {
+		s := bySplit(simple, "")
+		p("Simple tier only: **%s**, per case %s.\n\n", fmtRate(s.FalsePass), fmtRate(s.FalsePassCases))
 	}
-	row("Trials (answered, right)", func(m Metrics) string { return fmt.Sprintf("%d (%d, %d)", m.Trials, m.Answered, m.Right) })
-	row("False pass rate, per trial", func(m Metrics) string { return fmtRate(m.FalsePass) })
-	row("False pass rate, per case", func(m Metrics) string { return fmtRate(m.FalsePassCases) })
-	row("False fail rate", func(m Metrics) string { return fmtRate(m.FalseFail) })
-	row("Inconclusive or ask, correct builds", func(m Metrics) string { return fmtShare(m.AbstainCorrect) })
-	row("Inconclusive or ask, broken builds", func(m Metrics) string { return fmtShare(m.AbstainBroken) })
-	row("Inconclusive or ask, infra (right)", func(m Metrics) string { return fmtShare(m.AbstainInfra) })
-	row("Verdict or question obtained", func(m Metrics) string { return fmtShare(m.Obtained) })
-	row("pass^k: same outcome in every trial", func(m Metrics) string { return fmtPassK(m.Consistent, m.MinTrials) })
-	row("pass^k: right in every trial", func(m Metrics) string { return fmtPassK(m.AllRight, m.MinTrials) })
-	row("Checklist coverage of must_check", func(m Metrics) string {
-		if m.WithChecks == 0 {
-			return "n/a (no checks recorded)"
+
+	p("## By split\n\n")
+	metricsTable(&b, []string{"dev", "holdout", "all"},
+		[]Metrics{bySplit(results, SplitDev), bySplit(results, SplitHoldout), all3})
+
+	if opts.Tier == "" {
+		p("\n## By tier\n\n")
+		if len(simple) == 0 {
+			p("No simple cases in these results.\n")
+		} else {
+			p("Simple cases (one flow of one app, explicit steps and outcome; `bench/README.md`) against every case.\n\n")
+			metricsTable(&b, []string{"simple dev", "simple holdout", "simple", "all"},
+				[]Metrics{bySplit(simple, SplitDev), bySplit(simple, SplitHoldout), bySplit(simple, ""), all3})
 		}
-		return fmt.Sprintf("%s over %d trials", fmtShare(m.Coverage), m.WithChecks)
-	})
-	row("Verdicts refused (ADR 0024)", func(m Metrics) string { return fmtShare(m.RefusedVerdicts) })
-	row("Wall time per verdict, p50 / p95", func(m Metrics) string {
-		if m.SecondsP50 == 0 {
-			return "n/a"
-		}
-		return fmt.Sprintf("%s / %s", fmtSeconds(m.SecondsP50), fmtSeconds(m.SecondsP95))
-	})
-	row("Tokens per verdict, p50 / p95", func(m Metrics) string {
-		if m.SecondsP50 == 0 {
-			return "n/a"
-		}
-		return fmt.Sprintf("%.0f / %.0f", m.TokensP50, m.TokensP95)
-	})
+	}
 
 	p("\n## By kind\n\n| Split | Kind | Trials | Right | False pass | False fail | Inconclusive or ask | Obtained |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, s := range []string{SplitDev, SplitHoldout} {
@@ -389,6 +410,52 @@ func Report(source string, all []Result, now time.Time) string {
 		}
 	}
 	return b.String()
+}
+
+// metricsTable writes one Markdown table: a row per metric, a column per slice.
+func metricsTable(b *strings.Builder, headers []string, cols []Metrics) {
+	p := func(format string, args ...any) { fmt.Fprintf(b, format, args...) }
+	p("| Metric |")
+	for _, h := range headers {
+		p(" %s |", h)
+	}
+	p("\n| --- |%s\n", strings.Repeat(" --- |", len(headers)))
+	row := func(name string, f func(Metrics) string) {
+		p("| %s |", name)
+		for _, m := range cols {
+			p(" %s |", f(m))
+		}
+		p("\n")
+	}
+	row("Trials (answered, right)", func(m Metrics) string { return fmt.Sprintf("%d (%d, %d)", m.Trials, m.Answered, m.Right) })
+	row("False pass rate, per trial", func(m Metrics) string { return fmtRate(m.FalsePass) })
+	row("False pass rate, per case", func(m Metrics) string { return fmtRate(m.FalsePassCases) })
+	row("False fail rate", func(m Metrics) string { return fmtRate(m.FalseFail) })
+	row("Inconclusive or ask, correct builds", func(m Metrics) string { return fmtShare(m.AbstainCorrect) })
+	row("Inconclusive or ask, broken builds", func(m Metrics) string { return fmtShare(m.AbstainBroken) })
+	row("Inconclusive or ask, infra (right)", func(m Metrics) string { return fmtShare(m.AbstainInfra) })
+	row("Verdict or question obtained", func(m Metrics) string { return fmtShare(m.Obtained) })
+	row("pass^k: same outcome in every trial", func(m Metrics) string { return fmtPassK(m.Consistent, m.MinTrials) })
+	row("pass^k: right in every trial", func(m Metrics) string { return fmtPassK(m.AllRight, m.MinTrials) })
+	row("Checklist coverage of must_check", func(m Metrics) string {
+		if m.WithChecks == 0 {
+			return "n/a (no checks recorded)"
+		}
+		return fmt.Sprintf("%s over %d trials", fmtShare(m.Coverage), m.WithChecks)
+	})
+	row("Verdicts refused (ADR 0024)", func(m Metrics) string { return fmtShare(m.RefusedVerdicts) })
+	row("Wall time per verdict, p50 / p95", func(m Metrics) string {
+		if m.SecondsP50 == 0 {
+			return "n/a"
+		}
+		return fmt.Sprintf("%s / %s", fmtSeconds(m.SecondsP50), fmtSeconds(m.SecondsP95))
+	})
+	row("Tokens per verdict, p50 / p95", func(m Metrics) string {
+		if m.SecondsP50 == 0 {
+			return "n/a"
+		}
+		return fmt.Sprintf("%.0f / %.0f", m.TokensP50, m.TokensP95)
+	})
 }
 
 func filterResults(rs []Result, keep func(Result) bool) []Result {

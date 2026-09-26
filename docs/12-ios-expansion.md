@@ -203,6 +203,15 @@ gate: an Xcode "components" sheet on first GUI launch, a Device Hub first-run wi
 Coding Intelligence onboarding. None of these should appear if nothing launches Xcode.app,
 but `DeviceInteraction*` tools start "Xcode's tool service" (section 3.5).
 
+Update (2026-09-25, ADR 0026): every greenroom image now carries the host's Xcode and runs
+this recipe at build time (`apps/daemon/internal/machine/guest/xcode.sh`), plus
+`sudo DevToolsSecurity -enable` and the user in `_developer`. Measured in a 26.6.2 guest with
+Xcode 27.0 (27A266a): `-checkFirstLaunchStatus` exits 69 before `-runFirstLaunch` and 0
+after; `-runFirstLaunch` takes about 17 s; `DevToolsSecurity -status` is "disabled" on the
+Cirrus base until enabled. The dialog gate builds with `xcodebuild` in a fresh clone and
+found no prompt. Opening Xcode.app itself still shows two sheets, "External Agent Access"
+and "What's New in Xcode" (`images/README.md`, Gotchas); the gate does not open the app.
+
 ### 1.5 Simulator runtimes
 
 Commands (`xcodebuild -help` and `xcrun simctl help runtime`, local; Apple:
