@@ -363,6 +363,9 @@ struct UnseenText: Equatable, Sendable {
 
     var text: String
     var why: Why
+    /// Where the element sits, in fractions of the screen (top-left origin), when the read
+    /// gave its centre and size.
+    var frame: CGRect?
 
     /// Every marked element of a `machine_ui` step that carries text.
     static func all(in step: Step) -> [UnseenText] {
@@ -372,8 +375,23 @@ struct UnseenText: Equatable, Sendable {
             let text = [element["value"], element["title"], element["label"]]
                 .compactMap { $0?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .first { !$0.isEmpty }
-            return text.map { UnseenText(text: $0, why: why) }
+            return text.map { UnseenText(text: $0, why: why, frame: frame(of: element)) }
         }
+    }
+
+    /// A `machine_ui` element's centre (`x`, `y`) and size (`w`, `h`) as a rectangle.
+    private static func frame(of element: JSONValue) -> CGRect? {
+        func number(_ key: String) -> Double? {
+            switch element[key] {
+            case .double(let value)?: value
+            case .int(let value)?: Double(value)
+            default: nil
+            }
+        }
+        guard let x = number("x"), let y = number("y"), let w = number("w"), let h = number("h"), w > 0, h > 0 else {
+            return nil
+        }
+        return CGRect(x: x - w / 2, y: y - h / 2, width: w, height: h)
     }
 
     /// Whether a check's words are about this text: the whole text, or its label before a
@@ -390,6 +408,26 @@ struct UnseenText: Equatable, Sendable {
 }
 
 extension AcceptanceCheck {
+    /// The unseen texts its UI reads report that this check is about, with where they sit:
+    /// what the stage outlines over the picture at `step` (companion ADR 0014). Only a read
+    /// cited as its evidence, taken at or before `step` with no input between them, so the
+    /// screen has not been changed under the outline; the screenshot a reviewer checks is
+    /// usually the step right after such a read.
+    func unseenMarks(atStep step: Int, in steps: [Step]) -> [UnseenText] {
+        guard evidence.contains(step) else { return [] }
+        let inputs = Set(steps.filter { Self.inputTools.contains($0.tool) }.map(\.seq))
+        var seen = Set<String>()
+        return evidence.filter { $0 <= step }.sorted(by: >).flatMap { read -> [UnseenText] in
+            guard !inputs.contains(where: { $0 > read && $0 <= step }) else { return [] }
+            return EvidenceStep.of(read, in: steps).unseen.filter {
+                $0.concerns(self) && $0.frame != nil && seen.insert($0.text).inserted
+            }
+        }
+    }
+
+    /// Tools that change what is on screen (root ADR 0024's inputs).
+    static let inputTools: Set<String> = ["machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input"]
+
     /// What a reviewer must see before trusting this check's evidence: each unseen text
     /// its UI reads report that the check is about, once. "UI read 6: \"Each pays:
     /// $49.56\" is not drawn".

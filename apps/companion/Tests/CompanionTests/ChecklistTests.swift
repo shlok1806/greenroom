@@ -129,6 +129,48 @@ final class ChecklistTests: XCTestCase {
         XCTAssertEqual(broken.status, .proposed)
     }
 
+    // MARK: - Evidence marks (companion ADR 0014)
+
+    func testAnUnseenTextKnowsWhereItSits() {
+        let read = uiRead(6, [["value": "Each pays: $49.56", "rendered": "blank"]])
+        var step = read
+        step.output = .object(["elements": .array([.object([
+            "value": .string("Each pays: $49.56"), "rendered": .string("blank"),
+            "x": .double(0.434), "y": .double(0.636), "w": .double(0.234), "h": .int(0),
+        ]), .object([
+            "value": .string("Tip: $15.12"), "rendered": .string("covered"),
+            "x": .double(0.5), "y": .double(0.5), "w": .double(0.2), "h": .double(0.1),
+        ])])])
+        let unseen = UnseenText.all(in: step)
+        XCTAssertNil(unseen[0].frame, "a frame with no height is no frame")
+        let frame = try! XCTUnwrap(unseen[1].frame)
+        XCTAssertEqual(frame.minX, 0.4, accuracy: 1e-9)
+        XCTAssertEqual(frame.minY, 0.45, accuracy: 1e-9)
+        XCTAssertEqual(frame.width, 0.2, accuracy: 1e-9)
+        XCTAssertNil(UnseenText.all(in: read).first?.frame)
+    }
+
+    /// A read's outline carries onto later evidence only while nothing was typed or clicked.
+    func testMarksCarryFromAReadToLaterEvidenceUntilAnInput() {
+        func element(_ text: String) -> JSONValue {
+            .object(["value": .string(text), "rendered": .string("blank"),
+                     "x": .double(0.5), "y": .double(0.5), "w": .double(0.2), "h": .double(0.1)])
+        }
+        let steps = [
+            Step(seq: 6, at: .epoch, tool: "machine_ui", output: .object(["elements": .array([element("Each pays: $49.56")])])),
+            Step(seq: 7, at: .epoch, tool: "machine_screenshot"),
+            Step(seq: 8, at: .epoch, tool: "machine_click"),
+            Step(seq: 9, at: .epoch, tool: "machine_screenshot"),
+        ]
+        let check = AcceptanceCheck(id: "a", criterion: "Each pays is shown in bold", status: .fail, evidence: [6, 7, 9])
+        XCTAssertEqual(check.unseenMarks(atStep: 6, in: steps).map(\.text), ["Each pays: $49.56"])
+        XCTAssertEqual(check.unseenMarks(atStep: 7, in: steps).map(\.text), ["Each pays: $49.56"])
+        XCTAssertEqual(check.unseenMarks(atStep: 9, in: steps), [], "a click came between")
+        XCTAssertEqual(check.unseenMarks(atStep: 8, in: steps), [], "not this check's evidence")
+        let other = AcceptanceCheck(id: "b", criterion: "Tip shows $15.12", status: .pass, evidence: [6, 7])
+        XCTAssertEqual(other.unseenMarks(atStep: 7, in: steps), [])
+    }
+
     // MARK: - Kinds (root ADR 0027)
 
     func testKindsDecodeFromTheListOrTheEarlySingleKind() throws {

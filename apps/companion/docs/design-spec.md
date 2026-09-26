@@ -433,7 +433,7 @@ The rest, in our own terms:
 | Agent working | The loader under the transcript ("verifier is working", elapsed); a tick on the running step; the agent's cursor blinks |
 | Needs you | The run pins under "Needs you" (the newest five, then "Show all N"); its state in yellow leads with the proposed outcome ("Fail, needs review") beside the checks' tally ("2/4 failed"); the hint bar offers the action |
 | Verdict proposed | Card border dim, outcome in the foreground with the tally, "Needs review" in yellow; the checks lead; `a`, `d`, `[` and `]` active |
-| Evidence shown | The bar over the picture is the check that step answers: its mark, claim, kind, observation, what is not drawn, and which evidence it is |
+| Evidence shown | The bar over the picture is the check that step answers: its mark, claim, kind, observation, what is not drawn, and which evidence it is; paused, the picture outlines where unseen text sits, dashed, labelled "not drawn" (ADR 0014) |
 | Verdict closed | Outcome in its colour (unless agent-accepted), who decided in words; `a` and `d` absent |
 | Undo window | After accept or dispute, the hint bar shows `u undo 5s` counting down; nothing is sent until it ends |
 | Driving | House lights down, the screen's border and the hint bar magenta: `all keys → machine · click switch to return`; the driving bar over the screen says "You have control" and offers Give Back (ADR 0013) |

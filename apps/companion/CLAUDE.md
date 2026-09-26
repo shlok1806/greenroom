@@ -10,8 +10,8 @@ on a character grid), `0005` (keys and the action registry), `0006` (motion, sig
 moments, click marks), `0007` (the dependency allowlist), `0008` (readable type and the
 olive brand, amending 0004's type and colour decisions), `0009` (transcript cards and
 the Markdown renderer), `0010` (run thumbnails from the last frame, superseded by
-`0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict) and `0013` (one
-primary in the top bar, Give Back on the driving bar). Design: `docs/design-spec.md`
+`0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict), `0013` (one
+primary in the top bar, Give Back on the driving bar) and `0014` (evidence marks on the picture). Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -290,8 +290,10 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
 - Motion uses only the vocabulary in ADR 0006 and `tokens.json` `motion`. Motion never
   blocks input; effects never own content; accessibility sees the final state; Reduce
   Motion makes every change instant.
-- Click marks (transient, `m` toggles; static on a paused step) are the only thing drawn
-  over the screen's picture.
+- Click marks (transient, `m` toggles; static on a paused step) and evidence marks
+  (companion ADR 0014: on a paused verdict's evidence, a check's unseen UI-read text
+  outlined where it sits, `EvidenceMarkLayer`, from `AcceptanceCheck.unseenMarks`) are the
+  only things drawn over the screen's picture.
 - Signature moments (layer 6, ADR 0006; math in `Model/GlyphRendering.swift`,
   `ClickMarks.swift`, `HouseLights.swift`, `BootLog.swift`; layers in `Views/GlyphLayer.swift`
   and `Views/HouseLightsScrim.swift`; timings in `tokens.json` `motion`). Each is an effect
@@ -386,7 +388,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   0013. While driving, Give Back is also a button on the driving bar over the screen; the
   top bar's stays, since the bar is covered whenever the screen is. The top bar survives
   every zoom and width class.
-- Nothing but click marks is drawn over the screen's picture. The driving bar sits above it, and
+- Nothing but click marks and evidence marks is drawn over the screen's picture. The driving bar sits above it, and
   position, the step under the pointer, live state and stream errors go under the track.
   The well takes the picture's shape, so there is no letterbox.
 - The window has its own chrome (`.windowStyle(.hiddenTitleBar)`, `WindowConfigurator`):

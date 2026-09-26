@@ -40,6 +40,16 @@ enum ScreenGeometry {
         )
     }
 
+    /// A rectangle in screen fractions (a UI element's frame) on the picture in `view`,
+    /// clamped onto the picture. `nil` before there is a picture or for an empty frame.
+    static func rect(atFraction frame: CGRect, image: CGSize, view: CGSize) -> CGRect? {
+        guard frame.width > 0, frame.height > 0,
+              let a = point(atFraction: frame.origin, image: image, view: view),
+              let b = point(atFraction: CGPoint(x: frame.maxX, y: frame.maxY), image: image, view: view) else { return nil }
+        let rect = CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+        return rect.width > 0 && rect.height > 0 ? rect : nil
+    }
+
     /// Clamped onto the picture instead of refused: a drag's moves and release
     /// must arrive wherever the pointer went, or the guest's button stays held.
     static func clampedFraction(at point: CGPoint, image: CGSize, view: CGSize) -> CGPoint? {
