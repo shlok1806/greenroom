@@ -14,11 +14,14 @@ import (
 // Every invocation is appended to <control>/calls.log. Files in the control directory switch behavior:
 //
 //	fail-clone, fail-run, fail-ip, fail-exec, fail-stop, fail-delete, fail-keyinstall,
-//	fail-capture-approval, fail-desktop-prefs, fail-desktop-login, fail-lean, fail-base, fail-toolchain, fail-softwareupdate
+//	fail-capture-approval, fail-desktop-prefs, fail-desktop-login, fail-lean, fail-base, fail-toolchain, fail-softwareupdate,
+//	fail-disk, fail-xcode
 //	                    (capture-approval-stale: the approval check reports a stale record)
 //	                    the matching operation exits 1 with a message
 //	toolchain.json      what the image's toolchain manifest holds; the manifest script writes
 //	                    {"known":true,...} here, and boot reads it (absent: the image has none)
+//	toolchain-measured  what the manifest script writes instead (default: Xcode, every probe
+//	                    passing, and the image recipe it was given)
 //	desktop.json        what the input helper's --desktop prints (default: a clean desktop, Finder only)
 //	softwareupdate      lines the image check's Software Update probe prints (default: none, it is off)
 //	fail-check-<name>   the image check's exercise <name> exits 1 (e.g. fail-check-appleevent-safari)
@@ -141,9 +144,19 @@ case "$sub" in
       *greenroom-base-profile*)
         [ -f "$C/fail-base" ] && { echo "base: check failed: appleevents-user-tart-guest-agent-com.apple.Safari" >&2; exit 1; }
         echo "base: ok"; exit 0 ;;
+      *greenroom-grow-disk*)
+        [ -f "$C/fail-disk" ] && { echo "disk: disk0s2 is 44 GB of disk0's 90 GB: the container does not fill the disk" >&2; exit 1; }
+        echo "disk: ok, disk0s2 fills disk0 (90 GB), 49Gi free on /"; exit 0 ;;
+      *greenroom-xcode-setup*)
+        [ -f "$C/fail-xcode" ] && { echo "xcode: failed: first-launch" >&2; exit 1; }
+        echo "xcode: ok, Xcode 27.0 Build version 27A266a at /Applications/Xcode.app/Contents/Developer"; exit 0 ;;
       *greenroom-toolchain-manifest*)
         [ -f "$C/fail-toolchain" ] && { echo "swift: command not found" >&2; exit 1; }
-        echo '{"known":true,"xcode":false,"xctest":false,"swiftTesting":true,"swiftVersion":"Apple Swift version 6.3.3"}' > "$C/toolchain.json"
+        # The script's last argument is the image recipe (base.go).
+        eval "recipe=\${$#}"
+        if [ -f "$C/toolchain-measured" ]; then cp "$C/toolchain-measured" "$C/toolchain.json"; else
+          echo '{"known":true,"imageRecipe":'"$recipe"',"xcode":true,"xcodePath":"/Applications/Xcode.app","xcodeFirstLaunch":true,"xctest":true,"swiftTesting":true,"xcodebuild":true,"swiftVersion":"Apple Swift version 6.4"}' > "$C/toolchain.json"
+        fi
         cat "$C/toolchain.json"; exit 0 ;;
       *greenroom-toolchain-read*)
         cat "$C/toolchain.json" 2>/dev/null; exit 0 ;;

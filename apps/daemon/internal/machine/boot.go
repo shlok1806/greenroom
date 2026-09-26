@@ -94,6 +94,7 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 			if toolchain, terr = readToolchain(ctx, m.tart, mc.Name); terr != nil {
 				timings["toolchainError"] = terr.Error()
 			}
+			m.warnStaleRecipe(mc, toolchain, timings)
 			return terr
 		})
 		_ = phase("desktopSeconds", func() error {

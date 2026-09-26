@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -213,20 +214,36 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 // exercises are the calls real clients make, as guest scripts. Each runs under
-// exerciseWatchdog, so a call blocked on a prompt fails instead of hanging, and its prompt
-// is still on screen for the window check.
-var exercises = []struct{ name, script string }{
-	{"appleevent-system-events", `osascript -e 'tell application "System Events" to get name of first process'`},
+// exerciseWatchdog for its seconds (default 30), so a call blocked on a prompt fails
+// instead of hanging, and its prompt is still on screen for the window check.
+var exercises = []struct {
+	name, script string
+	seconds      int
+}{
+	{"appleevent-system-events", `osascript -e 'tell application "System Events" to get name of first process'`, 0},
 	// The Safari repro of issue #25, plus do JavaScript (Safari's "Allow JavaScript from
 	// Apple Events"). Safari is the check's own app, so it quits it when done.
 	{"appleevent-safari", `mkdir -p /tmp/greenroom-check && echo "<p>greenroom</p>" > /tmp/greenroom-check/index.html &&
 open -a Safari file:///tmp/greenroom-check/index.html && sleep 4 &&
 osascript -e 'tell application "Safari" to get bounds of front window' &&
-osascript -e 'tell application "Safari" to do JavaScript "1+1" in document 1'`},
-	{"quit-safari", `osascript -e 'tell application "Safari" to quit'; n=0; while pgrep -x Safari >/dev/null && [ $n -lt 100 ]; do sleep 0.1; n=$((n+1)); done; ! pgrep -x Safari >/dev/null`},
+osascript -e 'tell application "Safari" to do JavaScript "1+1" in document 1'`, 0},
+	{"quit-safari", `osascript -e 'tell application "Safari" to quit'; n=0; while pgrep -x Safari >/dev/null && [ $n -lt 100 ]; do sleep 0.1; n=$((n+1)); done; ! pgrep -x Safari >/dev/null`, 0},
+	// Xcode (ADR 0026): first launch and the license are done, and an xcodebuild of a
+	// fresh package succeeds in a new clone, with nothing it raises (a license, component,
+	// privacy or developer tools prompt) left for the window check. A cold build in a fresh
+	// clone takes about a minute.
+	{"xcodebuild", xcodebuildExercise, 240},
 }
 
-// exerciseWatchdog runs $1 in its own process group and kills the whole group after 30 s
+// xcodebuildExercise builds a one-file package with xcodebuild in the guest's /tmp.
+const xcodebuildExercise = `xcodebuild -checkFirstLaunchStatus || { echo "xcodebuild -checkFirstLaunchStatus: first launch is not done" >&2; exit 1; }
+d=/tmp/greenroom-check-xcodebuild && rm -rf "$d" && mkdir -p "$d/Sources/CheckTool" && cd "$d" &&
+printf '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "CheckTool", targets: [.executableTarget(name: "CheckTool")])\n' > Package.swift &&
+echo 'print("check")' > Sources/CheckTool/main.swift &&
+xcodebuild -scheme CheckTool -destination platform=macOS -derivedDataPath "$d/dd" build > "$d/log" 2>&1 &&
+grep -q -F '** BUILD SUCCEEDED **' "$d/log" || { grep -m 3 'error' "$d/log" >&2; tail -n 3 "$d/log" >&2; exit 1; }`
+
+// exerciseWatchdog runs $1 in its own process group and kills the whole group after $2 s
 // (exit 124), as machine_exec's wrapper does: tart exec returns only when every holder of
 // the guest's pipes has exited, so killing the shell alone left a blocked osascript holding
 // the call open. The shell's job notices go to /dev/null and the call's stderr through fd 3,
@@ -235,11 +252,11 @@ const exerciseWatchdog = `exec 3>&2 2>/dev/null
 set -m
 /bin/sh -c "$1" 2>&3 3>&- &
 p=$!
-(sleep 30; : > /tmp/greenroom-check-timedout; kill -KILL -"$p") >/dev/null 2>&1 </dev/null 3>&- &
+(sleep "$2"; : > /tmp/greenroom-check-timedout; kill -KILL -"$p") >/dev/null 2>&1 </dev/null 3>&- &
 w=$!
 wait "$p"; s=$?
 kill -KILL "$w" 2>/dev/null
-[ -f /tmp/greenroom-check-timedout ] && { rm -f /tmp/greenroom-check-timedout; echo "timed out after 30 s" >&3; s=124; }
+[ -f /tmp/greenroom-check-timedout ] && { rm -f /tmp/greenroom-check-timedout; echo "timed out after $2 s" >&3; s=124; }
 exit $s`
 
 // checkPass exercises the machine, waits Linger, and looks.
@@ -284,10 +301,14 @@ func checkPass(ctx context.Context, c *tart.Client, vm, label string, o ImageChe
 	}
 
 	for _, ex := range exercises {
-		call, cancel := context.WithTimeout(ctx, 60*time.Second)
+		secs := ex.seconds
+		if secs <= 0 {
+			secs = 30
+		}
+		call, cancel := context.WithTimeout(ctx, time.Duration(secs+30)*time.Second)
 		var res tart.ExecResult
 		err := timed(ex.name, func() (err error) {
-			res, err = c.Exec(call, vm, "/bin/sh", "-c", ": greenroom-check-"+ex.name+"\n"+exerciseWatchdog, "sh", ex.script)
+			res, err = c.Exec(call, vm, "/bin/sh", "-c", ": greenroom-check-"+ex.name+"\n"+exerciseWatchdog, "sh", ex.script, strconv.Itoa(secs))
 			return err
 		})
 		cancel()

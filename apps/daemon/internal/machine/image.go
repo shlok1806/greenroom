@@ -16,8 +16,19 @@ import (
 // the toolchain manifest, and the key install and verification.
 const prepareTimeout = 12 * time.Minute
 
+// imageRecipeVersion names what build-image.sh and prepare-image put in an image. Bump it
+// with every change to the recipe (the guest scripts, PrepareGuest, InstallXcode, lean, the
+// dialog gate's demands) that an existing image lacks, as inputHelperVersion is bumped for
+// the helper (ADR 0026). The toolchain manifest records it as imageRecipe; boot warns on an
+// image with another one, and the VM suite names its image greenroom-base-v<helper>-r<recipe>,
+// so a bump rebuilds it. 1: Xcode in every image (ADR 0026); images before it have none.
+const imageRecipeVersion = 1
+
 // InputHelperVersion is the helper version PrepareGuest bakes into an image.
 func InputHelperVersion() int { return inputHelperVersion }
+
+// ImageRecipeVersion is the recipe version PrepareGuest bakes into an image's manifest.
+func ImageRecipeVersion() int { return imageRecipeVersion }
 
 // PrepareGuest turns a running VM into a base image candidate (issue #12, ADR 0018): it
 // bakes in the input helper and the ssh key with the same idempotent scripts

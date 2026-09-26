@@ -29,6 +29,14 @@
 - Sections 1 and 3 below keep the measurements; where they describe the Packer layer or
   the seed disk, that is history.
 
+### Superseded (2026-09-25, ADR 0026)
+
+- Decision 3 is replaced: there is no separate `greenroom-xcode<N>` layer. Every image
+  (base and lean) carries Xcode, copied from the host that builds it, with the guest disk
+  grown to 90 GB (sparse). No `.xip`, no Apple ID, no simulator runtime yet. Xcode 27 is
+  4.0 GB in the guest (compressed); the ~200 GB estimate below was for a full Cirrus-style
+  Xcode image with every runtime. Recipe and measurements: `images/README.md`, section Xcode.
+
 How to build and run it: `images/README.md`.
 
 Measured on macOS 27.0 host, Tart 2.32.1 unless marked 2.37.0. Disk figures are `df`

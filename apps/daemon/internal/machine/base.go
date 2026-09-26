@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
@@ -61,9 +62,10 @@ func applyBaseProfile(ctx context.Context, c *tart.Client, vmName string) error 
 	return nil
 }
 
-// writeToolchainManifest runs toolchainScript and checks the file it wrote reads back.
+// writeToolchainManifest runs toolchainScript and checks the file it wrote reads back, with
+// this recipe's version, and that an Xcode it found passes every probe (ADR 0026).
 func writeToolchainManifest(ctx context.Context, c *tart.Client, vmName string) (map[string]any, error) {
-	if _, err := execChecked(ctx, c, vmName, "/bin/sh", "-c", toolchainScript); err != nil {
+	if _, err := execChecked(ctx, c, vmName, "/bin/sh", "-c", toolchainScript, "sh", strconv.Itoa(imageRecipeVersion)); err != nil {
 		return nil, fmt.Errorf("measure the toolchain: %w", err)
 	}
 	t, err := readToolchain(ctx, c, vmName)
@@ -73,7 +75,62 @@ func writeToolchainManifest(ctx context.Context, c *tart.Client, vmName string) 
 	if known, _ := t["known"].(bool); !known {
 		return nil, fmt.Errorf("measure the toolchain: %s does not read back: %v", ToolchainPath, t)
 	}
+	if r, ok := imageRecipeOf(t); !ok || r != imageRecipeVersion {
+		return nil, fmt.Errorf("measure the toolchain: %s records image recipe %v, want %d", ToolchainPath, t["imageRecipe"], imageRecipeVersion)
+	}
+	if p := toolchainProblems(t); len(p) > 0 {
+		return nil, fmt.Errorf("the image has Xcode at %v, but %s", t["xcodePath"], strings.Join(p, "; "))
+	}
 	return t, nil
+}
+
+// xcodeProbes are the manifest's checks that must all be true when it reports Xcode: an
+// image never claims a toolchain it does not have (ADR 0026, point 4).
+var xcodeProbes = []struct{ key, what string }{
+	{"xcodeFirstLaunch", "xcodebuild -checkFirstLaunchStatus says first launch is not done"},
+	{"xctest", "the XCTest probe failed"},
+	{"swiftTesting", "the swift-testing probe failed"},
+	{"xcodebuild", "the xcodebuild probe failed"},
+}
+
+// toolchainProblems names each Xcode probe a manifest with xcode true did not pass, with the
+// probe's own error where it wrote one. A manifest without Xcode has none.
+func toolchainProblems(t map[string]any) []string {
+	if x, _ := t["xcode"].(bool); !x {
+		return nil
+	}
+	var out []string
+	for _, p := range xcodeProbes {
+		if ok, _ := t[p.key].(bool); ok {
+			continue
+		}
+		msg := p.what
+		if e, _ := t[p.key+"Error"].(string); e != "" {
+			msg += ": " + e
+		}
+		out = append(out, msg)
+	}
+	return out
+}
+
+// imageRecipeOf is the recipe version a manifest records, false when it records none (an
+// image built before recipe versions, or one this daemon did not build).
+func imageRecipeOf(t map[string]any) (int, bool) {
+	f, ok := t["imageRecipe"].(float64)
+	if !ok || f != float64(int(f)) {
+		return 0, false
+	}
+	return int(f), true
+}
+
+// staleRecipe reports the recipe an image was built with when it is not this daemon's. Only
+// a manifest that is known is judged: an image with none is not one this recipe made.
+func staleRecipe(t map[string]any) (found int, stale bool) {
+	if known, _ := t["known"].(bool); !known {
+		return 0, false
+	}
+	found, _ = imageRecipeOf(t)
+	return found, found != imageRecipeVersion
 }
 
 // unknownToolchain is what an image without a manifest reports.
