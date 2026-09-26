@@ -1,0 +1,16 @@
+{
+  "id": "tipsplit-each-pays-format",
+  "app": "tipsplit",
+  "kind": "mutant",
+  "family": "wrong_label_format",
+  "split": "holdout",
+  "patch": "patches/tipsplit-each-pays-format.diff",
+  "task": "TipSplit shows money with two decimals everywhere now. It is running on screen. Check the Tip and Each pays lines: with the defaults (Bill 84.00, 18%, 2 people) they should read \"Tip: $15.12\" and \"Each pays: $49.56\". Also try Bill 120, 20%, 3 people: \"Each pays: $48.00\". Give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "Tip reads $15.12 with the defaults",
+    "Each pays reads $49.56 with the defaults",
+    "Each pays reads $48.00 for Bill 120, 20% tip, 3 people"
+  ],
+  "notes": "Each pays drops its cents: \"$50\" for 49.56 and \"$48\" for 48.00. Tip is still right."
+}

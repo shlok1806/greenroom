@@ -1,0 +1,11 @@
+--- a/Sources/WordCount/main.swift
++++ b/Sources/WordCount/main.swift
+@@ -6,7 +6,7 @@
+ // plain: one statement a line, no clever helpers.
+ 
+ struct ContentView: View {
+-    @AppStorage("draft") private var text = "The quick brown fox"
++    @State private var text = "The quick brown fox"
+     @AppStorage("countSpaces") private var countSpaces = true
+ 
+     var words: [Substring] {

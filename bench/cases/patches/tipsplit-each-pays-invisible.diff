@@ -1,0 +1,10 @@
+--- a/Sources/TipSplit/main.swift
++++ b/Sources/TipSplit/main.swift
+@@ -52,6 +52,7 @@
+                 .accessibilityIdentifier("tip")
+             Text(String(format: "Each pays: $%.2f", perPerson))
+                 .font(.system(size: 28, weight: .semibold))
++                .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                 .accessibilityIdentifier("perPerson")
+             Button("Reset") {
+                 reset()

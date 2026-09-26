@@ -1,0 +1,11 @@
+{
+  "id": "todolist-ambiguous-sam",
+  "app": "todolist",
+  "kind": "ambiguous",
+  "split": "holdout",
+  "patch": null,
+  "task": "TodoList should now behave the way Sam described in the meeting. It is running on screen; check it and give a verdict.",
+  "expected": "ask_or_inconclusive",
+  "must_check": [],
+  "notes": "What Sam described is not given."
+}

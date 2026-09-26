@@ -1,0 +1,11 @@
+{
+  "id": "unitconvert-ambiguous-ticket",
+  "app": "unitconvert",
+  "kind": "ambiguous",
+  "split": "dev",
+  "patch": null,
+  "task": "I fixed the conversion bug from the support ticket in UnitConvert. It is running on screen. Check the fix and give a verdict.",
+  "expected": "ask_or_inconclusive",
+  "must_check": [],
+  "notes": "The ticket is not quoted: nobody can say which conversion was wrong."
+}

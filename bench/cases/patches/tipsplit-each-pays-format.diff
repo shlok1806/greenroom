@@ -1,0 +1,11 @@
+--- a/Sources/TipSplit/main.swift
++++ b/Sources/TipSplit/main.swift
+@@ -50,7 +50,7 @@
+             Text(String(format: "Tip: $%.2f", tip))
+                 .font(.title2)
+                 .accessibilityIdentifier("tip")
+-            Text(String(format: "Each pays: $%.2f", perPerson))
++            Text(String(format: "Each pays: $%.0f", perPerson))
+                 .font(.system(size: 28, weight: .semibold))
+                 .accessibilityIdentifier("perPerson")
+             Button("Reset") {

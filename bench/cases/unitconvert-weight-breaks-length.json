@@ -1,0 +1,17 @@
+{
+  "id": "unitconvert-weight-breaks-length",
+  "app": "unitconvert",
+  "kind": "mutant",
+  "family": "adjacent_regression",
+  "split": "dev",
+  "patch": "patches/unitconvert-weight-breaks-length.diff",
+  "task": "I added a Weight category to UnitConvert (running on screen): 10 kg = 22.05 lb. Length and Temperature work as before, both ways round (Swap units). Check Weight and that the other categories still convert correctly, and give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "10 kg reads 22.05 lb",
+    "Length 10 km reads 6.21 mi",
+    "Length swapped, 10 mi reads 16.09 km",
+    "Temperature 100 °C reads 212.00 °F"
+  ],
+  "notes": "Length's reverse direction picked up the weight factor: 10 mi reads 22.05 km."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "todolist-late-add",
+  "app": "todolist",
+  "kind": "mutant",
+  "family": "late_result",
+  "split": "dev",
+  "patch": "patches/todolist-late-add.diff",
+  "task": "Adding an item in TodoList is instant: press Add (or Return) and the item shows in the list right away, with the summary updated. It is running on screen. Add Milk and Bread and check each appears at once. Give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "each item appears right after Add, not seconds later",
+    "the summary updates with each add"
+  ],
+  "notes": "An added item appears 8 s after Add."
+}

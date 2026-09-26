@@ -1,0 +1,15 @@
+--- a/Sources/TodoList/main.swift
++++ b/Sources/TodoList/main.swift
+@@ -30,8 +30,10 @@
+     func add(_ title: String) {
+         let trimmed = title.trimmingCharacters(in: .whitespaces)
+         guard !trimmed.isEmpty else { return }
+-        items.append(Item(title: trimmed))
+-        save()
++        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
++            self.items.append(Item(title: trimmed))
++            self.save()
++        }
+     }
+ 
+     func toggle(_ id: UUID) {

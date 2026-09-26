@@ -1,0 +1,22 @@
+--- a/Sources/TodoList/main.swift
++++ b/Sources/TodoList/main.swift
+@@ -28,8 +28,8 @@
+     }
+ 
+     func add(_ title: String) {
+-        let trimmed = title.trimmingCharacters(in: .whitespaces)
+-        guard !trimmed.isEmpty else { return }
++        let trimmed = title
++        guard trimmed != "" && trimmed != " " else { return }
+         items.append(Item(title: trimmed))
+         save()
+     }
+@@ -64,7 +64,7 @@
+     @State private var newTitle = ""
+ 
+     var canAdd: Bool {
+-        !newTitle.trimmingCharacters(in: .whitespaces).isEmpty
++        newTitle != "" && newTitle != " "
+     }
+ 
+     var body: some View {

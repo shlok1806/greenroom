@@ -1,0 +1,11 @@
+--- a/Sources/UnitConvert/main.swift
++++ b/Sources/UnitConvert/main.swift
+@@ -24,7 +24,7 @@
+         case .length:
+             return forward ? v * 0.621371 : v / 0.621371
+         case .temperature:
+-            return forward ? v * 9 / 5 + 32 : (v - 32) * 5 / 9
++            return forward ? v * 5 / 9 + 32 : (v - 32) * 9 / 5
+         case .weight:
+             return forward ? v * 2.20462 : v / 2.20462
+         }

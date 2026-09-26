@@ -1,0 +1,11 @@
+--- a/Sources/UnitConvert/main.swift
++++ b/Sources/UnitConvert/main.swift
+@@ -22,7 +22,7 @@
+     func convert(_ v: Double, forward: Bool) -> Double {
+         switch self {
+         case .length:
+-            return forward ? v * 0.621371 : v / 0.621371
++            return forward ? v * 0.621371 : v * 2.20462
+         case .temperature:
+             return forward ? v * 9 / 5 + 32 : (v - 32) * 5 / 9
+         case .weight:

@@ -1,0 +1,11 @@
+--- a/Sources/UnitConvert/main.swift
++++ b/Sources/UnitConvert/main.swift
+@@ -33,7 +33,7 @@
+ 
+ struct ContentView: View {
+     @AppStorage("category") private var category = Category.length
+-    @AppStorage("decimals") private var decimals = 2
++    @State private var decimals = 2
+     @State private var input = "10"
+     @State private var forward = true
+ 

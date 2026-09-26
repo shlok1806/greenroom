@@ -1,0 +1,16 @@
+{
+  "id": "wordcount-split-on-space",
+  "app": "wordcount",
+  "kind": "mutant",
+  "family": "wrong_computation",
+  "split": "dev",
+  "patch": "patches/wordcount-split-on-space.diff",
+  "task": "WordCount counts words separated by any run of spaces or new lines, so \"one  two\" (two spaces) is 2 words and an empty text is 0 words. It is running on screen. Check a few texts, including double spaces and an empty text, and give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "\"one  two\" with two spaces reads Words: 2",
+    "an empty text reads Words: 0",
+    "The quick brown fox reads Words: 4"
+  ],
+  "notes": "Words splits on single spaces and keeps empty pieces: \"one  two\" is 3 words, an empty text is 1."
+}

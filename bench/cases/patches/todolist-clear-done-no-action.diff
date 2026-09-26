@@ -1,0 +1,10 @@
+--- a/Sources/TodoList/main.swift
++++ b/Sources/TodoList/main.swift
+@@ -48,7 +48,6 @@
+     }
+ 
+     func clearDone() {
+-        items.removeAll { $0.done }
+         save()
+     }
+ 

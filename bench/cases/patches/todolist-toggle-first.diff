@@ -1,0 +1,13 @@
+--- a/Sources/TodoList/main.swift
++++ b/Sources/TodoList/main.swift
+@@ -35,8 +35,8 @@
+     }
+ 
+     func toggle(_ id: UUID) {
+-        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+-        items[i].done.toggle()
++        guard !items.isEmpty else { return }
++        items[0].done.toggle()
+         save()
+     }
+ 

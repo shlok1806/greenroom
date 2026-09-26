@@ -1,0 +1,25 @@
+--- a/Sources/TipSplit/main.swift
++++ b/Sources/TipSplit/main.swift
+@@ -9,6 +9,7 @@
+     @AppStorage("tipPercent") private var tipPercent = 18
+     @AppStorage("people") private var people = 2
+     @State private var roundUp = false
++    @State private var shownPerPerson: Double?
+ 
+     var billValue: Double {
+         Double(bill.trimmingCharacters(in: .whitespaces)) ?? 0
+@@ -50,9 +51,13 @@
+             Text(String(format: "Tip: $%.2f", tip))
+                 .font(.title2)
+                 .accessibilityIdentifier("tip")
+-            Text(String(format: "Each pays: $%.2f", perPerson))
++            Text(String(format: "Each pays: $%.2f", shownPerPerson ?? perPerson))
+                 .font(.system(size: 28, weight: .semibold))
+                 .accessibilityIdentifier("perPerson")
++                .task(id: perPerson) {
++                    do { try await Task.sleep(for: .seconds(8)) } catch { return }
++                    shownPerPerson = perPerson
++                }
+             Button("Reset") {
+                 reset()
+             }

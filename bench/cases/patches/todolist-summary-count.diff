@@ -1,0 +1,11 @@
+--- a/Sources/TodoList/main.swift
++++ b/Sources/TodoList/main.swift
+@@ -54,7 +54,7 @@
+ 
+     var summary: String {
+         let n = items.count
+-        let done = items.filter(\.done).count
++        let done = items.filter { !$0.done }.count
+         return "\(n) \(n == 1 ? "item" : "items"), \(done) done"
+     }
+ }

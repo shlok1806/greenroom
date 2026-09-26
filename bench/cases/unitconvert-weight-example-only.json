@@ -1,0 +1,15 @@
+{
+  "id": "unitconvert-weight-example-only",
+  "app": "unitconvert",
+  "kind": "mutant",
+  "family": "example_only",
+  "split": "dev",
+  "patch": "patches/unitconvert-weight-example-only.diff",
+  "task": "I added a Weight category to UnitConvert (running on screen): kilograms to pounds at 2.20462 lb per kg. For example 10 kg = 22.05 lb. Check it for a few values and give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "10 kg reads 22.05 lb",
+    "another value is exact, such as 100 kg = 220.46 lb or 5 kg = 11.02 lb"
+  ],
+  "notes": "Only 10 kg is exact; every other value uses 2.2 (100 kg reads 220.00 lb)."
+}

@@ -1,0 +1,12 @@
+--- a/Sources/TipSplit/main.swift
++++ b/Sources/TipSplit/main.swift
+@@ -15,7 +15,8 @@
+     }
+ 
+     var tip: Double {
+-        billValue * Double(tipPercent) / 100
++        let t = billValue * Double(tipPercent) / 100
++        return roundUp ? t.rounded(.up) : t
+     }
+ 
+     var perPerson: Double {

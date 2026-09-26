@@ -1,0 +1,16 @@
+{
+  "id": "todolist-blank-items",
+  "app": "todolist",
+  "kind": "mutant",
+  "family": "example_only",
+  "split": "holdout",
+  "patch": "patches/todolist-blank-items.diff",
+  "task": "TodoList no longer accepts blank items: an empty or all-spaces title cannot be added (Add stays disabled), and spaces around a title are trimmed, so \"  Milk  \" is added as \"Milk\". A single space was the reported case. It is running on screen. Check and give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "a single space cannot be added",
+    "several spaces cannot be added",
+    "\"  Milk  \" is added as \"Milk\""
+  ],
+  "notes": "Only the reported case (one space) is refused; three spaces add a blank item and titles are not trimmed."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "tipsplit-wrong-computation",
+  "app": "tipsplit",
+  "kind": "mutant",
+  "family": "wrong_computation",
+  "split": "dev",
+  "patch": "patches/tipsplit-wrong-computation.diff",
+  "task": "TipSplit (a SwiftUI tip calculator) is running on screen. I changed how Each pays is computed: it is now each person's share of the bill plus the tip. Check it: set Bill to 120, pick the 20% tip, set People to 3. Each pays should read $48.00. Then pick 25%; it should read $50.00. Give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "Each pays reads $48.00 for Bill 120, 20% tip, 3 people",
+    "Each pays reads $50.00 at 25% with the same bill and people"
+  ],
+  "notes": "Each pays is the tip per person, without the bill: $8.00 and $10.00 (the field runs' bug)."
+}

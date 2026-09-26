@@ -1,0 +1,16 @@
+{
+  "id": "unitconvert-decimals-not-persisted",
+  "app": "unitconvert",
+  "kind": "mutant",
+  "family": "not_persisted",
+  "split": "dev",
+  "patch": "patches/unitconvert-decimals-not-persisted.diff",
+  "task": "UnitConvert now remembers the Decimals setting and the chosen category between launches. It is running on screen; the app is at ~/work/unitconvert/build/UnitConvert.app. Set Decimals to 4 and pick Weight, quit the app (Cmd-Q), open it again and check both were kept (10 kg = 22.0462 lb). Give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": [
+    "Decimals is still 4 after quitting and reopening",
+    "Weight is still selected after quitting and reopening",
+    "the result reads 10 kg = 22.0462 lb after reopening"
+  ],
+  "notes": "Decimals is plain view state: back to 2 after a relaunch. The category is kept."
+}

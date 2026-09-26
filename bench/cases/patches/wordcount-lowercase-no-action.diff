@@ -1,0 +1,10 @@
+--- a/Sources/WordCount/main.swift
++++ b/Sources/WordCount/main.swift
+@@ -36,7 +36,6 @@
+                     text = text.uppercased()
+                 }
+                 Button("lowercase") {
+-                    text = text.lowercased()
+                 }
+                 Button("Clear") {
+                     text = ""

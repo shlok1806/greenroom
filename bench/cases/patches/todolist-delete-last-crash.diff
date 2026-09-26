@@ -1,0 +1,11 @@
+--- a/Sources/TodoList/main.swift
++++ b/Sources/TodoList/main.swift
+@@ -43,7 +43,7 @@
+     func delete(_ id: UUID) {
+         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+         items.remove(at: i)
+-        focus = i < items.count ? items[i].id : items.last?.id
++        focus = items[i].id
+         save()
+     }
+ 

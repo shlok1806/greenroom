@@ -1,0 +1,13 @@
+{
+  "id": "tipsplit-correct-split",
+  "app": "tipsplit",
+  "kind": "correct",
+  "split": "dev",
+  "patch": null,
+  "task": "TipSplit (a SwiftUI tip calculator) is running on screen. I changed how Each pays is computed: it is now each person's share of the bill plus the tip. Check it: set Bill to 120, pick the 20% tip, set People to 3. Each pays should read $48.00. Then pick 25%; it should read $50.00. Give a pass or fail verdict.",
+  "expected": "pass",
+  "must_check": [
+    "Each pays reads $48.00 for Bill 120, 20% tip, 3 people",
+    "Each pays reads $50.00 at 25% with the same bill and people"
+  ]
+}

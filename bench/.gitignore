@@ -1,0 +1,2 @@
+# SwiftPM output from `swift build` on a developer machine; build.sh writes build/, ignored at the root.
+.build/

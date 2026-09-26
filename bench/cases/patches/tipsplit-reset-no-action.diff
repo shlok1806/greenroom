@@ -1,0 +1,10 @@
+--- a/Sources/TipSplit/main.swift
++++ b/Sources/TipSplit/main.swift
+@@ -54,7 +54,6 @@
+                 .font(.system(size: 28, weight: .semibold))
+                 .accessibilityIdentifier("perPerson")
+             Button("Reset") {
+-                reset()
+             }
+         }
+         .padding(32)

@@ -27,6 +27,8 @@ go run . check-image -image <local image> [-out dir]   # the dialog gate, on a c
 go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir>]
 go run . connect [-url URL] [-token T] [-config F] [-dir D]   # stdio MCP server for a daemon on another host
 go run . connect -check                          # prints "ok: <url> (<n> tools)" or the reason, exit 1
+go run . bench run -split dev [-case a,b] [-kind mutant] [-trials 3] [-out f.jsonl]   # ADR 0025; real VMs and the model
+go run . bench score <results.jsonl>             # writes <results>.md
 
 scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
                         # image default: local greenroom-lean-a, then greenroom-base, then upstream Cirrus
@@ -145,6 +147,44 @@ Each layer depends only on the ones below. Keep it that way.
 - `internal/tart` - the only package that knows tart's arguments and output.
 - `internal/tarball` - unpacking an untrusted gzipped tar (`Untar`); used by `api` and
   `remote`, imports nothing of the daemon's.
+- `internal/bench` - the verifier bench (ADR 0025): cases, patches, the runner and the
+  scorer. Sits beside `api` and `mcpserver`: it drives `machine`, `session` and `verifier`,
+  and nothing imports it but `bench.go`.
+
+## bench (ADR 0025)
+
+`greenroom bench run|score` (`bench.go`, `internal/bench`). The cases and fixture apps live in
+`bench/` at the repo root (its `README.md` says how to add them and what the numbers mean).
+
+- `go test ./internal/bench` validates every `bench/cases/*.json` (schema, kind rules, the
+  v1 sizes), applies every patch with `ApplyPatch` and checks `patch(1)` agrees. A new case
+  that breaks a rule fails the build, not a VM run.
+- The runner is the daemon in miniature: `machine.Manager`, `bridgeLifecycle` and
+  `verifier.NewActors` with the `nimVerifier` serve uses, no MCP client. One `Runner` per
+  manager: a second `New` starts a second actor on every run. Steps and tokens come from
+  `verifier.WithTurnObserver`; the conversation does not carry them.
+- Its own root (`-root`, default `~/.greenroom/bench`), locked with `lockRoot`. Never point it
+  at the daemon's root: two managers on one `state.json`.
+- The host's VM limit counts the daemon's machines too. `Runner.create` waits while `Create`
+  fails with "host is at its limit" (a string match on `checkHostCapacity`'s error; change
+  both together).
+- Results are JSON lines, one per case and trial, appended when a trial ends. A rerun with
+  the same `-out` skips recorded pairs except `setup_error`. A trial cut short by a signal is
+  never recorded. Model errors, timeouts and setup errors are their own endings and never
+  count as wrong verdicts.
+- ADR 0024 compatibility: the verdict value is the message's `verdict` field; `checks` (on
+  the verdict and the declaring progress message) are read raw from `conversation.jsonl`, so
+  the bench works before and after `session.Message` gains them. A refused verdict is
+  counted as a verifier progress message whose text starts with `report_verdict` (a posted
+  verdict is never progress); if ADR 0024 records refusals another way, update `await`.
+- The takeover disturbance copies `internal/api`: the `human` seat, a lease that outlives
+  the trial, and the event "human took control of the screen" with `control: taken`. Keep
+  them in step with `api/control.go`.
+- Fixture apps build with one `swiftc` call in `build.sh`, not SwiftPM: Command Line Tools
+  only (ADR 0019), no package cache. `bench/apps/*/build/` is ignored.
+- Bounds are exact one-sided Clopper-Pearson (`UpperBound`, the Beta(k+1, n-k) quantile),
+  pinned against scipy values in `stats_test.go`.
+- Never tune prompts on the `holdout` split; run it before a verifier change merges.
 
 ## Invariants
 
@@ -739,6 +779,10 @@ renames it to `<name>` only if that passes. A failed gate deletes the build.
 - A fake `rsync` earlier on `PATH` covers `Sync`. Pull tests run the host's real rsync
   with a fake `ssh` that runs the remote side in a local shell in a temp `HOME`
   (`localSSH`); the fake tart runs the pull probe and tar for real from the same `HOME`.
+- `internal/bench` runner tests use the real manager on the fake tart, a fake `rsync` that
+  copies its source (so the patched app is visible) and a scripted `verifier.Brain`. The fake
+  tart stops every VM on one `stopped` file, so they run one trial at a time with
+  `fakeTartMachines` clearing it; the machine limit is tested on `countingMachines`.
 - Test at the highest seam that sees the behaviour: `internal/mcpserver/*_test.go` runs a
   real MCP client over HTTP against every tool; `internal/api/api_test.go` drives the real
   routes and SSE over `httptest`.
@@ -756,3 +800,8 @@ renames it to `<name>` only if that passes. A failed gate deletes the build.
 - ADR 0024 puts the effect on "the step record"; steps.jsonl is append-only and the input's
   line is written before its effect is known, so the effect lives on the UI read that found
   it (`effect.of` names the input step), not on the input's own line.
+- ADR 0025: a case's `patch` is the path of a `.diff` under `bench/cases/` (`patches/<id>.diff`),
+  not the diff inline in the JSON, so patches read and review as diffs and lying cases reuse
+  their mutant's. v1 has 4 fixture apps, not the 5 to 7 the ADR expects in all. Checklist
+  coverage matches `must_check` to the checks' text by a token heuristic (`covers`), not by
+  judgement.

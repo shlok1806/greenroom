@@ -1,0 +1,15 @@
+{
+  "id": "todolist-infra-takeover",
+  "app": "todolist",
+  "kind": "infra",
+  "split": "dev",
+  "patch": null,
+  "task": "TodoList (running on screen) now shows a summary line under the list, like \"3 items, 1 done\". Add three items (Milk, Bread, Eggs), tick Bread, and check the summary reads \"3 items, 1 done\"; tick Eggs too and it should read \"3 items, 2 done\". Give a pass or fail verdict.",
+  "expected": "ask_or_inconclusive",
+  "must_check": [],
+  "infra": {
+    "type": "human_takeover",
+    "afterSteps": 2
+  },
+  "notes": "A person takes the screen after the verifier's second tool call and keeps it."
+}
