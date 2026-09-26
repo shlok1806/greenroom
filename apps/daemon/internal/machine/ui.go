@@ -98,12 +98,31 @@ type rawUITree struct {
 // ElementCenter aims that reader's clicks at the tree it read and never at one
 // another reader fetched in between (issue #35).
 func (m *Manager) UI(ctx context.Context, runID, reader, app string, limit int) (UITree, error) {
+	tree, _, err := m.ui(ctx, runID, reader, app, limit, nil)
+	return tree, err
+}
+
+// UIEffect is UI for the read that follows reader's input step of (ADR 0024). effect turns
+// the read into what that input changed, before the step is recorded, so the step record
+// carries it (Step.Effect). It is called with the read's error too, and its result is returned.
+func (m *Manager) UIEffect(ctx context.Context, runID, reader string, limit, of int,
+	effect func(UITree, error) StepEffect) (UITree, StepEffect, error) {
+	return m.ui(ctx, runID, reader, "", limit, func(tree UITree, err error) *StepEffect {
+		e := effect(tree, err)
+		e.Of = of
+		return &e
+	})
+}
+
+// ui reads the tree, records the step as reader's, with effect's result when it is given.
+func (m *Manager) ui(ctx context.Context, runID, reader, app string, limit int,
+	effect func(UITree, error) *StepEffect) (UITree, StepEffect, error) {
 	mc, err := m.get(runID)
 	if err != nil {
-		return UITree{}, err
+		return UITree{}, StepEffect{}, err
 	}
 	if err := m.awaitReady(ctx, mc); err != nil {
-		return UITree{}, err
+		return UITree{}, StepEffect{}, err
 	}
 	if limit <= 0 {
 		limit = DefaultUILimit
@@ -119,7 +138,11 @@ func (m *Manager) UI(ctx context.Context, runID, reader, app string, limit int) 
 	if app != "" {
 		input["app"] = app
 	}
-	mc.rec.complete(seq, "machine_ui", input, tree, err, started)
+	var found *StepEffect
+	if effect != nil {
+		found = effect(tree, err)
+	}
+	mc.rec.completeAs(seq, reader, found, "machine_ui", input, tree, err, started)
 	if err == nil {
 		kept := tree // a copy, with its step: the caller may change what it was handed
 		mc.input.uiMu.Lock()
@@ -131,7 +154,10 @@ func (m *Manager) UI(ctx context.Context, runID, reader, app string, limit int) 
 		mc.noteLook(reader, at)
 	}
 	m.emitStep(mc.RunID, tree.Step)
-	return tree, err
+	if found == nil {
+		found = &StepEffect{}
+	}
+	return tree, *found, err
 }
 
 func (m *Manager) readUI(ctx context.Context, mc *Machine, app string, limit int) (UITree, error) {
@@ -177,6 +203,22 @@ func uiFractions(raw rawUITree) (UITree, error) {
 }
 
 func round3(v float64) float64 { return math.Round(v*1000) / 1000 }
+
+// LastUI is reader's most recent good UI read, the one its element clicks aim at, and false if
+// it has none. The verifier diffs it against a read after an input (ADR 0024).
+func (m *Manager) LastUI(runID, reader string) (UITree, bool) {
+	mc, err := m.get(runID)
+	if err != nil {
+		return UITree{}, false
+	}
+	mc.input.uiMu.Lock()
+	defer mc.input.uiMu.Unlock()
+	tree := mc.input.ui[reader]
+	if tree == nil {
+		return UITree{}, false
+	}
+	return *tree, true
+}
 
 // ErrNoUITree means a click named an element before any machine_ui read.
 var ErrNoUITree = errors.New("you have not read a UI tree on this machine; call machine_ui first")

@@ -23,6 +23,7 @@ func TestARepeatedFailingCallIsWarnedThenEndsTheTurnWithAQuestion(t *testing.T) 
 	postTask(t, store, "Check the split.")
 	post(t, store, session.Message{From: session.Verifier, Kind: session.Verdict, Verdict: "fail", Text: "Each pays is $45.00, not $53.10."})
 	model := &scriptedModel{replies: []string{
+		declared("each-pays"),
 		toolCallRaw("machine_type", `{"text": "", "note": "bill"}`),
 		// The same call with its keys in another order and other spacing.
 		toolCallRaw("machine_type", `{"note":"bill","text":""}`),
@@ -36,13 +37,13 @@ func TestARepeatedFailingCallIsWarnedThenEndsTheTurnWithAQuestion(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(model.request(t, 2), "You already made this exact call") {
+	if strings.Contains(model.request(t, 3), "You already made this exact call") {
 		t.Error("the first failure was already called a repeat")
 	}
-	if !strings.Contains(model.request(t, 3), "You already made this exact call and it failed the same way") {
+	if !strings.Contains(model.request(t, 4), "You already made this exact call and it failed the same way") {
 		t.Error("the second identical failure was not told it repeats")
 	}
-	if res.Ended != session.Question || res.Steps != 3 || model.calls() != 3 {
+	if res.Ended != session.Question || res.Steps != 4 || model.calls() != 4 {
 		t.Fatalf("ended %q after %d steps and %d calls, want a question after the third failure", res.Ended, res.Steps, model.calls())
 	}
 	last := lastMessage(t, store)
@@ -54,8 +55,8 @@ func TestARepeatedFailingCallIsWarnedThenEndsTheTurnWithAQuestion(t *testing.T) 
 	if got := store.Verdict(); got.Verdict != "fail" {
 		t.Errorf("verdict = %+v, want the standing fail kept", got)
 	}
-	if n := len(messagesOfKind(store, session.Progress)); n != 3 {
-		t.Errorf("%d progress messages, want the 3 failures", n)
+	if n := len(messagesOfKind(store, session.Progress)); n != 4 {
+		t.Errorf("%d progress messages, want the declaration and the 3 failures", n)
 	}
 }
 
@@ -63,6 +64,7 @@ func TestARepeatedFailingCallIsWarnedThenEndsTheTurnWithAQuestion(t *testing.T) 
 func TestDifferentFailingCallsAreNotARepeat(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
+		declared("bill"),
 		toolCall("machine_type", map[string]any{"text": ""}),
 		toolCall("machine_key", map[string]any{"key": ""}),
 		toolCall("machine_type", map[string]any{"text": ""}),
@@ -83,14 +85,14 @@ func TestDifferentFailingCallsAreNotARepeat(t *testing.T) {
 	}
 	// Each request carries the whole turn, so it counts every warning so far: the second
 	// machine_type and the second machine_key are repeats, the machine_type with value is not.
-	for n, want := range map[int]int{2: 0, 3: 0, 4: 1, 5: 2, 6: 2} {
+	for n, want := range map[int]int{3: 0, 4: 0, 5: 1, 6: 2, 7: 2} {
 		if got := strings.Count(model.request(t, n), "You already made this exact call"); got != want {
 			t.Errorf("request %d carries %d repeat warnings, want %d", n, got, want)
 		}
 	}
 	// The wrong field name is named in the error, so the model can correct it.
 	prog := messagesOfKind(store, session.Progress)
-	if len(prog) != 5 || !strings.Contains(prog[4].Text, "this call sent: value") {
+	if len(prog) != 6 || !strings.Contains(prog[5].Text, "this call sent: value") {
 		t.Errorf("last progress = %q, want the error to name the field that arrived", prog[len(prog)-1].Text)
 	}
 }
@@ -150,9 +152,10 @@ func TestCanonicalArgsIgnoresKeyOrderAndSpacing(t *testing.T) {
 func TestMachineTypeTypesANumberAsWritten(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
+		declared("bill"),
 		toolCallRaw("machine_type", `{"text": 160}`),
 		toolCallRaw("machine_key", `{"key": 5}`),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Typed 160."}),
+		verdictOf("inconclusive", "Typed 160; the result was not read."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -160,7 +163,7 @@ func TestMachineTypeTypesANumberAsWritten(t *testing.T) {
 	if _, err := v.Turn(context.Background(), runID, store); err != nil {
 		t.Fatal(err)
 	}
-	prog := messagesOfKind(store, session.Progress)
+	prog := messagesOfKind(store, session.Progress)[1:] // after the declaration
 	if len(prog) != 2 || !strings.Contains(prog[0].Text, `typed "160"`) || !strings.Contains(prog[1].Text, "pressed 5") {
 		t.Fatalf("progress = %+v, want 160 typed and 5 pressed", prog)
 	}

@@ -99,6 +99,9 @@ func project(msgs []session.Message) []nim.Message {
 				fmt.Sprintf("Posted as question %d; your turn ended until someone answers.", m.Seq))...)
 		case session.Verdict:
 			args := map[string]any{"verdict": m.Verdict, "summary": m.Text}
+			if len(m.Checks) > 0 {
+				args["checks"] = answeredChecks(m.Checks)
+			}
 			if len(m.Evidence) > 0 {
 				args["evidence"] = m.Evidence
 			}
@@ -110,6 +113,24 @@ func project(msgs []session.Message) []nim.Message {
 		}
 	}
 	return out
+}
+
+// answeredChecks is a verdict's checks as report_verdict takes them: the criterion is the
+// declaration's, so it is left out.
+func answeredChecks(checks []session.Check) []map[string]any {
+	out := make([]map[string]any, len(checks))
+	for i, c := range checks {
+		out[i] = map[string]any{"id": c.ID, "status": c.Status, "evidence": orEmpty(c.Evidence),
+			"actions": orEmpty(c.Actions), "observed": c.Observed}
+	}
+	return out
+}
+
+func orEmpty(steps []int) []int {
+	if steps == nil {
+		return []int{}
+	}
+	return steps
 }
 
 // toolTurn is one assistant tool call and its result.
@@ -144,6 +165,11 @@ const (
 		"machine_ui before any input, then carry on from where you stopped."
 )
 
+// claimLabel follows the coder's task: it wrote the code under test, so what it says it did is a
+// claim to check, never evidence (ADR 0024). A judge that sees the claim passes more often.
+const claimLabel = "(The coder's statements about what it did or what the app shows are unverified claims: a " +
+	"source of checks, never a reason for a verdict.)"
+
 // projectLate projects messages that arrive mid-turn, skipping the verifier's
 // own so they are not mistaken for new history.
 func projectLate(msgs []session.Message) []nim.Message {
@@ -161,6 +187,9 @@ func speaker(m session.Message) string {
 	label := string(m.From)
 	switch m.Kind {
 	case session.Task:
+		if m.From == session.Coder {
+			return label + " gives you a task: " + m.Text + "\n" + claimLabel
+		}
 		return label + " gives you a task: " + m.Text
 	case session.Note:
 		// A human's note is owed an answer; the coder's is background.

@@ -121,6 +121,9 @@ enum TranscriptLayout {
         case message(Message, showsSender: Bool)
         /// Consecutive verifier `progress` messages.
         case toolCalls([Message])
+        /// The verifier's declared checks (root ADR 0024): a progress message, shown as
+        /// its plan even while tool calls are hidden, since a person may correct it.
+        case plan(Message)
         /// System events and accepts: things that happened, not speech.
         case event(Message)
         /// The calendar day changed between two messages; `seq` is the first of the new day.
@@ -129,7 +132,7 @@ enum TranscriptLayout {
         /// The first seq it holds: stable while a group grows at its end.
         var id: Int {
             switch self {
-            case .message(let message, _), .event(let message): message.seq
+            case .message(let message, _), .event(let message), .plan(let message): message.seq
             case .toolCalls(let calls): calls.first?.seq ?? 0
             // Negative, so it never collides with the message it sits above.
             case .day(_, let seq): -seq - 1
@@ -138,7 +141,7 @@ enum TranscriptLayout {
 
         var lastSeq: Int {
             switch self {
-            case .message(let message, _), .event(let message): message.seq
+            case .message(let message, _), .event(let message), .plan(let message): message.seq
             case .toolCalls(let calls): calls.last?.seq ?? 0
             case .day(_, let seq): seq
             }
@@ -159,6 +162,11 @@ enum TranscriptLayout {
                 previousSpeaker = nil
             }
             previousDay = day
+            if CheckPlan.isPlan(message) {
+                out.append(.plan(message))
+                previousSpeaker = nil
+                continue
+            }
             if message.kind == .progress {
                 guard toolCalls else { continue }
                 if case .toolCalls(var calls) = out.last {

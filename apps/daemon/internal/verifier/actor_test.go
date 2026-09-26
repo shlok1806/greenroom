@@ -47,9 +47,11 @@ func waitForKind(t *testing.T, store *session.Store, k session.Kind, within time
 
 func TestActorTakesATurnWhenATaskArrivesAndStopsWithTheMachine(t *testing.T) {
 	mgr, runID, _ := ready(t)
+	build := lastStep(t, mgr, runID) + 1
 	model := &scriptedModel{replies: []string{
+		declared("build"),
 		toolCall("machine_exec", map[string]any{"command": "swift build"}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "The build succeeded."}),
+		verdictOf("pass", "The build succeeded.", answer("build", "pass", []int{build})),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 
@@ -218,7 +220,7 @@ func TestActorRetriesATurnTheEndpointCouldNotServe(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	// Five failures exhaust the client's schedule; only the actor's retry helps.
 	model := &scriptedModel{failures: 5, replies: []string{
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "The build succeeded."}),
+		verdictOf("inconclusive", "The build was not run."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	reg := session.NewRegistry(mgr.Root, 2)
@@ -232,7 +234,7 @@ func TestActorRetriesATurnTheEndpointCouldNotServe(t *testing.T) {
 	postTask(t, store, "Build the app.")
 
 	verdict := waitForKind(t, store, session.Verdict, 10*time.Second)
-	if verdict.Verdict != "pass" {
+	if verdict.Verdict != "inconclusive" {
 		t.Errorf("verdict = %+v, want the pass from the retried turn", verdict)
 	}
 	if !eventSaying(store, "verifier retrying the turn (attempt 2 of 4)") {
@@ -340,8 +342,9 @@ func TestTheTurnObserverHearsEveryAttemptsResult(t *testing.T) {
 	noRetryWaits(t)
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
+		declared("build"),
 		toolCall("machine_exec", map[string]any{"command": "swift build"}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "The build succeeded."}),
+		verdictOf("inconclusive", "The build ran; the app was not checked.", answer("build", "unchecked", nil)),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	reg := session.NewRegistry(mgr.Root, 2)
@@ -359,8 +362,8 @@ func TestTheTurnObserverHearsEveryAttemptsResult(t *testing.T) {
 	postTask(t, store, "Build the app.")
 	select {
 	case h := <-got:
-		if h.runID != runID || h.err != nil || h.res.Ended != session.Verdict || h.res.Steps != 2 {
-			t.Errorf("observer heard %+v, want run %s ending in a verdict after 2 steps", h, runID)
+		if h.runID != runID || h.err != nil || h.res.Ended != session.Verdict || h.res.Steps != 3 {
+			t.Errorf("observer heard %+v, want run %s ending in a verdict after 3 steps", h, runID)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the observer heard nothing")

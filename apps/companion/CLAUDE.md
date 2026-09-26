@@ -489,6 +489,16 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   its result where the actions were.
   Emphasis uses Mona Sans's own italics (`Typeface.readingItalic`), never a synthetic
   slant.
+- A verdict is a checklist (root ADR 0024; `Model/Checklist.swift`, drawn by
+  `Views/ChecklistViews.swift`). `Message.checks` is decoded leniently (an unknown status is
+  `unchecked`, a malformed list is dropped, never the message). The card lists them under the
+  reasons with the scope line (`Checklist.scope`: "Verified: 3 of 4 checks; not checked: ..."),
+  fails first, then not checked, then passes; each is a mark (`CheckMark`), its criterion,
+  what was observed and its evidence chips. Every "which steps does the verdict cite" reads
+  `Message.citedSteps` / `RunStore.citedSteps` (checks' evidence, failed first, then the free
+  list), never `VerdictState.evidence` alone. The verifier's declaring progress message is
+  its own transcript item (`TranscriptLayout.Item.plan`, `CheckPlanBlock`), shown even with
+  tool calls hidden. A verdict without checks reads as before. Harness scenarios 37 to 40.
 - Prose (`readingStyle`) sits at `tokens.json` `reading.lineHeight` (1.45): the gap is
   worked out from the face's own line (`Typeface.lineSpacing`), never a fraction of the
   size added on top.
@@ -545,6 +555,10 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
   sends nothing, which is not a stall.
 - An `AVSampleBufferDisplayLayer` outside a window decodes nothing visible; tests that
   read `displayedPixelBuffer()` host it in an offscreen `NSWindow` (`isReleasedWhenClosed = false`).
+  It also presents only on a display refresh: while the display sleeps (a locked, idle
+  Mac, like the unattended CI runner) samples decode, status stays `.rendering`, and
+  nothing is displayed until the display wakes, when the held frame appears unasked. Such
+  tests wake it first (`LiveScreenTests.keepTheDisplayAwake`, a user-activity assertion).
 - Unknown enum values decode to `unknown(String)`, never throw. Use `JSONDecoder.daemon()`
   (RFC3339 with or without fractional seconds).
 - `apps/daemon/internal/api/api.go` is the authority on shapes. A `step` event carries the

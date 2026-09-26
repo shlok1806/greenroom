@@ -293,6 +293,10 @@ Evidence
 - `manifest.Steps` is a high-water mark, not a count. Anything that reports a count reads
   `machine.ReadStepLog`.
 - Every tool call records itself (input, output, error, duration). A new tool does too.
+  A step made for a named seat also records `by` (`recorder.completeAs`/`stepAs`): `machine_ui`
+  and `machine_screenshot` by their reader, `machine_input` by its holder, `machine_exec` by
+  `ExecAs`'s seat (MCP's `ExecStart` is `coder`; plain `Exec` names none). The verifier's
+  effect read also records `effect` (ADR 0024). Both are omitempty, so old logs load.
   The waits (`machine_wait`, `agent_wait`, `machine_exec_wait`) and `machine_list` only
   read, and record nothing.
 - A result's `step` is claimed before its output is recorded, so `output.step` equals
@@ -408,6 +412,65 @@ Conversation and verifier
   or `StopTime`). Only a verifier reply may carry `stop` (`session.validate`); `agent_wait`
   returns it on the message and its description tells the coder what it means. A
   last-step cut-off still ends in `cutOffReply`, with no closing call and no `stop`.
+- Evidence contract (ADR 0024, issue #116; `evidence.go`, `effect.go`). The checklist comes
+  from the transcript and every step fact from the step records; both are files, so a restart
+  loses nothing:
+  - `declare_checks` posts a verifier `progress` carrying `checks` (1 to 12, id 1 to 40
+    characters, unique, each with a criterion). The checklist a verdict answers is the newest
+    declaration after the newest coder or human task (`declaredChecks`); declaring again
+    replaces it. While a task is open and has no declaration, the input tools (click, type,
+    key, scroll, input) get `declareFirst`, an ordinary `error:` result with no step that counts
+    toward #125. Looking and `machine_exec` are never refused.
+  - Step facts come from `Manager.Steps` (steps.jsonl), never from progress text, which is
+    display only and may be reworded freely (`ledger`): `tool` (every input is
+    `machine_input`), `by` (only `verifier` steps count as the verifier's), `error` (a failed
+    step), and the input's effect from the `effect` on the verifier's UI read that followed it.
+    That read is an observation the verdict may cite.
+    `TestTheReviewDoesNotDependOnProgressWording` pins it.
+  - `report_verdict` is reviewed before it is posted (`reviewVerdict`). pass and fail: every
+    declared check answered, no unknown id, each pass or fail answer cites observation steps
+    (`machine_ui`, `machine_screenshot`, `machine_exec`, not failed) in `evidence` and input
+    steps in `actions`; its newest evidence step is after every action and after
+    `Manager.HandoverStep` (the step the recorder had claimed at the latest #124 handover); a
+    pass answer on an action whose effect was "no change detected" needs evidence after that
+    effect read. pass needs every check pass; fail needs one fail answer that holds. A broken
+    rule is a tool error naming each rule and check id (`refusal`), posted as the call's
+    progress, never as a verdict. inconclusive is never refused: `settle` posts a missing
+    answer and any pass or fail answer that broke a rule as `unchecked`, `observed` saying why.
+    The top-level `evidence` is artifact paths only; a step there is refused.
+  - The closing call at a limit (#127) goes through `downgrade`: a pass or fail that breaks a
+    rule is posted as inconclusive, the reasons appended to the summary.
+  - After every verifier input that ran, `runTool` reads the frontmost app's UI through
+    `Manager.UIEffect` as `HolderVerifier` (a step, a look for #124, and the effect written on
+    that step's record as `{"of": <input step>, "kind": "changed|none|unknown", "summary"}`) and diffs it against the
+    verifier's previous read (`Manager.LastUI`): pairing by role plus identifier, else role,
+    title and label, then comparing value, selected, focused and disabled (`diffElements`,
+    capped at `maxEffectChanges`). The result ends with `machine_ui step N read the UI after
+    this input.` and `effect: <n> change(s)` plus lines, `effect: no change detected`,
+    `effect: unknown (no UI tree)` (read failed or no elements) or `effect: unknown (no earlier
+    machine_ui read to compare)`. The wording is free to change; the kind is what the review
+    reads. The effect read replaces the verifier's tree, so element ids may shift; the result says so
+    when elements appeared or went away.
+  - The coder's task is projected with `claimLabel` after it (a human's task is not), and the
+    system prompt says a verdict rests only on the verifier's observations.
+  - `Manual` is exempt: no gate, no effect check, no review; its verdict keeps the free
+    evidence list and no checks.
+  - `checks` on a message (`session.Check`; `session.validate` allows it only on a verifier
+    progress or verdict, a declaration carrying only id and criterion, a pass verdict only
+    `pass` answers). A verdict's checks come in declared order, criterion filled by the
+    daemon; `VerdictState.checks` repeats them, and `agent_wait` returns both:
+
+    ```json
+    {"kind": "progress", "from": "verifier", "text": "declare_checks {...}\nDeclared 2 checks: total, tip. ...",
+     "checks": [{"id": "total", "criterion": "Each pays shows $48.00"}, {"id": "tip", "criterion": "25% can be selected"}]}
+    {"kind": "verdict", "from": "verifier", "verdict": "fail", "text": "...", "evidence": ["/abs/run/012-screenshot.png"],
+     "checks": [{"id": "total", "criterion": "Each pays shows $48.00", "status": "fail", "evidence": [12], "actions": [9],
+                 "observed": "Each pays shows $0.00."},
+                {"id": "tip", "criterion": "25% can be selected", "status": "unchecked", "observed": "Not answered."}]}
+    ```
+
+    `status` is `pass`, `fail` or `unchecked`; `evidence`, `actions` and `observed` are left
+    out when empty. Transcripts from before ADR 0024 have no `checks` and load as they were.
 - Machine status snapshots (`snapshot` in `context.go`) ignore the turn context's
   cancellation, so a dead budget never reads as "Machine status: gone" to the closing call.
 - A failing tool call (a result starting `error:`) is counted per turn by tool, canonical
@@ -477,6 +540,8 @@ Computer use (ADR 0009)
   latest handover, for element and coordinate input alike; a verifier that never looked is
   stale once anyone else held the screen. Nothing is posted and no step is recorded. The coder
   and the human are never refused for it. Plain `Screenshot` (API, MCP) records no look.
+  Every handover also stores the recorder's current step (`handedOver`, count first, then the
+  step, both under `Manager.mu`); `HandoverStep` reads it for the ADR 0024 freshness rule.
 - `validateActions` also refuses a click, down, up or move without both `x` and `y`: the
   helper would post it at the pointer (issue #85). The verifier's `machine_input` decodes with
   `DisallowUnknownFields`, so an `element` in a batch is an error, not a click at the pointer.
@@ -526,7 +591,8 @@ UI tree (ADR 0012)
 - `Manager.UI` keeps the last good tree per machine and reader (`HolderCoder`,
   `HolderVerifier`); `machine_click {element}` aims at the caller's own tree via
   `ElementCenter` without re-reading, so a verifier read never retargets a coder's ids
-  (issue #35). An optional `uiStep` refuses a click whose ids are not from the caller's
+  (issue #35). `LastUI` returns that tree (the verifier's effect check diffs against it, ADR
+  0024), and the verifier's effect read after each input replaces it. An optional `uiStep` refuses a click whose ids are not from the caller's
   latest read. Nothing checks that the app is still frontmost, but a verifier click after a
   screen handover is refused until it reads again (`ErrStaleLook`, issue #124). `UITree.Outline` is the text both
   surfaces show a model; keep it one element a line with its id and center.
@@ -724,6 +790,16 @@ renames it to `<name>` only if that passes. A failed gate deletes the build.
 ## Known divergence from ADRs
 
 - ADR 0004 is amended for `state.json`.
+- ADR 0024 compares evidence with the #124 handover count; the code compares step numbers with
+  `Manager.HandoverStep` (the step claimed when the count last moved), which orders the same
+  way because steps are monotonic. Like the count, it resets when the daemon restarts.
+- ADR 0024 says inconclusive "must name the unchecked checks": the daemon fills in missing
+  answers as `unchecked` rather than refusing. At a limit it also downgrades a fail whose
+  evidence breaks the rules, not only a pass. An input with no earlier verifier read reports
+  `effect: unknown (no earlier machine_ui read to compare)`, a fourth effect wording.
+- ADR 0024 puts the effect on "the step record"; steps.jsonl is append-only and the input's
+  line is written before its effect is known, so the effect lives on the UI read that found
+  it (`effect.of` names the input step), not on the input's own line.
 - ADR 0025: a case's `patch` is the path of a `.diff` under `bench/cases/` (`patches/<id>.diff`),
   not the diff inline in the JSON, so patches read and review as diffs and lying cases reuse
   their mutant's. v1 has 4 fixture apps, not the 5 to 7 the ADR expects in all. Checklist

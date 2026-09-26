@@ -7,9 +7,6 @@
   "patch": "patches/todolist-clear-done-no-action.diff",
   "task": "Clear done works in TodoList, which is running on screen: I added Milk, Bread and Eggs, ticked Milk and Eggs, pressed Clear done, and only Bread was left, with the summary \"1 item, 0 done\". Please confirm and give a pass or fail verdict.",
   "expected": "fail",
-  "must_check": [
-    "after Clear done only Bread remains",
-    "the summary reads 1 item, 0 done"
-  ],
+  "must_check": ["after Clear done only Bread remains", "the summary reads 1 item, 0 done"],
   "notes": "The claim is false: the build is todolist-clear-done-no-action."
 }

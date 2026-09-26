@@ -39,8 +39,9 @@ func closingPrompt(stop string) string {
 		what = "time"
 	}
 	return "[greenroom] You are out of " + what + " for this turn. Give a verdict now from the evidence you " +
-		"already have: pass, fail, or inconclusive naming what was not checked, citing step numbers. Call " +
-		"report_verdict, or ask if you are blocked. No machine tools are available."
+		"already have: answer each declared check pass, fail or unchecked, citing the steps that show it. A pass " +
+		"or fail whose evidence does not hold is posted as inconclusive. Call report_verdict, or ask if you are " +
+		"blocked. No machine tools are available."
 }
 
 // limitReply is what the turn posts at a limit when it has no verdict to give.
@@ -60,7 +61,7 @@ func (v *Verifier) limitReply(stop string) string {
 func (v *Verifier) endAtLimit(parent context.Context, runID string, store *session.Store, msgs []nim.Message,
 	stop string, screenTaken int, started time.Time, res TurnResult) (TurnResult, error) {
 	if hasOpenTask(store.After(0)) {
-		end, err := v.closingCall(parent, msgs, stop, &res)
+		end, call, err := v.closingCall(parent, msgs, stop, &res)
 		res.Seconds = since(started)
 		if err != nil && parent.Err() != nil {
 			// The actor is stopping (the machine was destroyed): say nothing.
@@ -70,6 +71,13 @@ func (v *Verifier) endAtLimit(parent context.Context, runID string, store *sessi
 			v.log.Warn("verifier closing call failed", "runId", runID, "stop", stop, "err", err)
 		}
 		if err == nil && end.Kind != "" {
+			if end.Kind == session.Verdict {
+				// The same checks as any verdict; one that breaks them is posted as inconclusive
+				// with the reasons, never as a pass or fail the evidence does not hold (ADR 0024).
+				in := parseVerdict(call.Arguments)
+				records, handover := v.records(runID, &in)
+				end = downgrade(in, store.After(0), records, handover)
+			}
 			res.Ended = v.postEnding(store, runID, end, screenTaken, res.Steps, res.Seconds)
 			return res, nil
 		}
@@ -80,22 +88,22 @@ func (v *Verifier) endAtLimit(parent context.Context, runID string, store *sessi
 }
 
 // closingCall makes the one closing model call and returns the verdict or question it gives,
-// or a zero message when it gave neither.
-func (v *Verifier) closingCall(parent context.Context, msgs []nim.Message, stop string, res *TurnResult) (session.Message, error) {
+// and the call that gave it, or a zero message when it gave neither.
+func (v *Verifier) closingCall(parent context.Context, msgs []nim.Message, stop string, res *TurnResult) (session.Message, nim.ToolCall, error) {
 	ctx, cancel := context.WithTimeout(parent, closingTimeout)
 	defer cancel()
 	msgs = append(msgs[:len(msgs):len(msgs)], nim.Message{Role: "user", Content: closingPrompt(stop)})
 	msg, usage, err := v.llm.Chat(ctx, v.cfg.Model, msgs, closingTools)
 	res.Tokens += usage.PromptTokens + usage.CompletionTokens
 	if err != nil || cutOff(msg) {
-		return session.Message{}, err
+		return session.Message{}, nim.ToolCall{}, err
 	}
 	for _, call := range msg.ToolCalls {
 		if end, ok := endingMessage(call); ok && (end.Kind == session.Verdict || end.Kind == session.Question) {
-			return end, nil
+			return end, call, nil
 		}
 	}
-	return session.Message{}, nil
+	return session.Message{}, nim.ToolCall{}, nil
 }
 
 // postEnding posts the reply, question or verdict that ends a turn and returns its kind. An

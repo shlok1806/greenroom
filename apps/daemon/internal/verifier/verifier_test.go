@@ -275,9 +275,11 @@ func TestNewRequiresAKeyAndAModel(t *testing.T) {
 
 func TestTurnRunsACommandThenPostsAVerdict(t *testing.T) {
 	mgr, runID, control := ready(t)
+	build := lastStep(t, mgr, runID) + 1
 	model := &scriptedModel{replies: []string{
+		declared("build"),
 		toolCall("machine_exec", map[string]any{"command": "swift build"}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "The build succeeded and the app launched."}),
+		verdictOf("pass", "The build succeeded and the app launched.", answer("build", "pass", []int{build})),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -309,20 +311,26 @@ func TestTurnRunsACommandThenPostsAVerdict(t *testing.T) {
 	}
 
 	prog := messagesOfKind(store, session.Progress)
-	if len(prog) != 1 {
-		t.Fatalf("%d progress messages, want 1", len(prog))
+	if len(prog) != 2 {
+		t.Fatalf("%d progress messages, want the declaration and the command", len(prog))
 	}
-	if prog[0].Step <= 0 {
-		t.Errorf("progress step = %d, want the step it recorded", prog[0].Step)
+	if len(prog[0].Checks) != 1 || prog[0].Checks[0].ID != "build" || prog[0].Step != 0 {
+		t.Errorf("declaration = %+v, want the one check and no step", prog[0])
 	}
-	if !strings.HasPrefix(prog[0].Text, "machine_exec") {
-		t.Errorf("progress text = %q, want it to name the tool", truncateFor(prog[0].Text))
+	if prog[1].Step != build {
+		t.Errorf("progress step = %d, want %d, the step it recorded", prog[1].Step, build)
+	}
+	if !strings.HasPrefix(prog[1].Text, "machine_exec") {
+		t.Errorf("progress text = %q, want it to name the tool", truncateFor(prog[1].Text))
+	}
+	if c := last.Checks; len(c) != 1 || c[0].Status != "pass" || c[0].Criterion == "" || c[0].Evidence[0] != build {
+		t.Errorf("verdict checks = %+v, want the answered check with its criterion", c)
 	}
 
 	if !strings.Contains(testsupport.ExecStdin(t, control), "swift build") {
 		t.Error("the command never reached the machine")
 	}
-	if second := model.request(t, 2); !strings.Contains(second, "exit code") {
+	if second := model.request(t, 3); !strings.Contains(second, "exit code") {
 		t.Errorf("the tool result never reached the model: %s", truncateFor(second))
 	}
 }
@@ -330,8 +338,9 @@ func TestTurnRunsACommandThenPostsAVerdict(t *testing.T) {
 func TestTurnClicksAtAFractionAndRecordsOneStep(t *testing.T) {
 	mgr, runID, control := ready(t)
 	model := &scriptedModel{replies: []string{
+		declared("button"),
 		toolCall("machine_click", map[string]any{"x": 0.25, "y": 0.5}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Clicked the button."}),
+		verdictOf("inconclusive", "Clicked the button; the app has no UI tree to read."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -345,7 +354,7 @@ func TestTurnClicksAtAFractionAndRecordsOneStep(t *testing.T) {
 		t.Errorf("Ended = %q, want verdict", res.Ended)
 	}
 
-	prog := messagesOfKind(store, session.Progress)
+	prog := messagesOfKind(store, session.Progress)[1:] // after the declaration
 	if len(prog) != 1 {
 		t.Fatalf("%d progress messages, want 1", len(prog))
 	}
@@ -365,10 +374,11 @@ func TestTurnClicksAtAFractionAndRecordsOneStep(t *testing.T) {
 func TestTurnTypesAndScrolls(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
+		declared("text"),
 		toolCall("machine_type", map[string]any{"text": "hello"}),
 		toolCall("machine_key", map[string]any{"key": "a", "mods": []string{"cmd"}}),
 		toolCall("machine_scroll", map[string]any{"deltaY": -120.0}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Typed, pressed and scrolled."}),
+		verdictOf("inconclusive", "Typed, pressed and scrolled."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -378,7 +388,7 @@ func TestTurnTypesAndScrolls(t *testing.T) {
 		t.Fatalf("Turn: %v", err)
 	}
 
-	prog := messagesOfKind(store, session.Progress)
+	prog := messagesOfKind(store, session.Progress)[1:] // after the declaration
 	if len(prog) != 3 {
 		t.Fatalf("%d progress messages, want 3", len(prog))
 	}
@@ -397,8 +407,9 @@ func TestTurnTypesAndScrolls(t *testing.T) {
 func TestTurnEmptyTypeIsRefusedWithNoStep(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
+		declared("text"),
 		toolCall("machine_type", map[string]any{"text": ""}),
-		toolCall("report_verdict", map[string]any{"verdict": "fail", "summary": "Nothing was typed."}),
+		verdictOf("inconclusive", "Nothing was typed."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -407,7 +418,7 @@ func TestTurnEmptyTypeIsRefusedWithNoStep(t *testing.T) {
 	if _, err := v.Turn(context.Background(), runID, store); err != nil {
 		t.Fatalf("Turn: %v", err)
 	}
-	prog := messagesOfKind(store, session.Progress)
+	prog := messagesOfKind(store, session.Progress)[1:] // after the declaration
 	if len(prog) != 1 || prog[0].Step != 0 || !strings.Contains(prog[0].Text, "type needs text: pass the characters to type") {
 		t.Fatalf("progress = %+v, want one unrecorded type-needs-text refusal", prog)
 	}
@@ -416,12 +427,13 @@ func TestTurnEmptyTypeIsRefusedWithNoStep(t *testing.T) {
 func TestTurnComposesADragWithMachineInput(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
+		declared("drag"),
 		toolCall("machine_input", map[string]any{"actions": []map[string]any{
 			{"type": "down", "x": 0.1, "y": 0.1},
 			{"type": "move", "x": 0.5, "y": 0.5},
 			{"type": "up", "x": 0.5, "y": 0.5},
 		}}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Dragged it."}),
+		verdictOf("inconclusive", "Dragged it."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -431,7 +443,7 @@ func TestTurnComposesADragWithMachineInput(t *testing.T) {
 		t.Fatalf("Turn: %v", err)
 	}
 
-	prog := messagesOfKind(store, session.Progress)
+	prog := messagesOfKind(store, session.Progress)[1:] // after the declaration
 	if len(prog) != 1 {
 		t.Fatalf("a 3-action drag posted %d steps, want 1", len(prog))
 	}
@@ -461,6 +473,7 @@ func TestTurnComputerUseIsRefusedWhileAHumanHoldsTheScreen(t *testing.T) {
 		t.Fatalf("TakeControl: %v", err)
 	}
 	model := &scriptedModel{replies: []string{
+		declared("button"),
 		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
 		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "Could not click; a human has the screen."}),
 	}}
@@ -472,7 +485,7 @@ func TestTurnComputerUseIsRefusedWhileAHumanHoldsTheScreen(t *testing.T) {
 		t.Fatalf("Turn: %v", err)
 	}
 
-	prog := messagesOfKind(store, session.Progress)
+	prog := messagesOfKind(store, session.Progress)[1:] // after the declaration
 	if len(prog) != 1 || !strings.Contains(prog[0].Text, "human") {
 		t.Fatalf("progress = %+v, want an error naming the human", prog)
 	}
@@ -488,13 +501,16 @@ func TestTurnComputerUseIsRefusedWhileAHumanHoldsTheScreen(t *testing.T) {
 func TestTurnDescribesAScreenshotForABlindModel(t *testing.T) {
 	mgr, runID, control := ready(t)
 	writeShot(t, control)
+	shot := lastStep(t, mgr, runID) + 1
 	model := &scriptedModel{
 		vision: "Safari is frontmost showing github.com. A dialog covers the page: Your computer was restarted.",
 		replies: []string{
+			declared("screen"),
 			toolCall("machine_screenshot", map[string]any{}),
 			toolCall("report_verdict", map[string]any{
 				"verdict": "fail", "summary": "A system dialog covered the app.",
-				"evidence": []string{"step 1", "screenshots/1.png"},
+				"checks":   []map[string]any{answer("screen", "fail", []int{shot})},
+				"evidence": []string{"screenshots/1.png"},
 			}),
 		},
 	}
@@ -508,16 +524,19 @@ func TestTurnDescribesAScreenshotForABlindModel(t *testing.T) {
 	if model.visions != 1 {
 		t.Errorf("the vision model was called %d times, want 1", model.visions)
 	}
-	prog := messagesOfKind(store, session.Progress)
-	if len(prog) != 1 || prog[0].Step <= 0 {
-		t.Fatalf("progress = %+v, want one message with a step", prog)
+	prog := messagesOfKind(store, session.Progress)[1:] // after the declaration
+	if len(prog) != 1 || prog[0].Step != shot {
+		t.Fatalf("progress = %+v, want one message with step %d", prog, shot)
 	}
 	got := store.Verdict()
 	if got.Verdict != "fail" {
 		t.Errorf("verdict = %q, want fail", got.Verdict)
 	}
-	if len(got.Evidence) != 2 || got.Evidence[0] != "step 1" {
-		t.Errorf("evidence = %v, want what the model cited", got.Evidence)
+	if len(got.Evidence) != 1 || got.Evidence[0] != "screenshots/1.png" {
+		t.Errorf("evidence = %v, want the artifact path the model cited", got.Evidence)
+	}
+	if len(got.Checks) != 1 || got.Checks[0].Status != "fail" || got.Checks[0].Evidence[0] != shot {
+		t.Errorf("checks = %+v, want the failing check with its screenshot step", got.Checks)
 	}
 
 	// The description, not the image, must reach the reasoning model.
@@ -606,9 +625,12 @@ func TestTurnKeepsGoingWhenTheEyesFail(t *testing.T) {
 
 func TestTurnEndsWhenTheVerifierAsksAQuestion(t *testing.T) {
 	mgr, runID, _ := ready(t)
+	build := lastStep(t, mgr, runID) + 1
 	model := &scriptedModel{replies: []string{
 		toolCall("ask", map[string]any{"question": "Which scheme?"}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Debug built cleanly."}),
+		declared("build"),
+		toolCall("machine_exec", map[string]any{"command": "swift build"}),
+		verdictOf("pass", "Debug built cleanly (step 2).", answer("build", "pass", []int{build})),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -647,10 +669,13 @@ func TestTurnEndsWhenTheVerifierAsksAQuestion(t *testing.T) {
 
 func TestDisputeReopensTheConversation(t *testing.T) {
 	mgr, runID, _ := ready(t)
+	debug := lastStep(t, mgr, runID) + 1
 	model := &scriptedModel{replies: []string{
-		toolCall("report_verdict", map[string]any{"verdict": "fail", "summary": "The build failed."}),
+		declared("build"),
+		toolCall("machine_exec", map[string]any{"command": "swift build"}),
+		verdictOf("fail", "The build failed.", answer("build", "fail", []int{debug})),
 		toolCall("machine_exec", map[string]any{"command": "swift build -c release"}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Release builds cleanly; I was wrong."}),
+		verdictOf("pass", "Release builds cleanly; I was wrong.", answer("build", "pass", []int{debug + 1})),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -668,7 +693,7 @@ func TestDisputeReopensTheConversation(t *testing.T) {
 	if _, err := v.Turn(context.Background(), runID, store); err != nil {
 		t.Fatalf("second Turn: %v", err)
 	}
-	if req := model.request(t, 2); !strings.Contains(req, "disputes your verdict: you used Debug") {
+	if req := model.request(t, 4); !strings.Contains(req, "disputes your verdict: you used Debug") {
 		t.Errorf("the dispute never reached the model: %s", truncateFor(req))
 	}
 	got := store.Verdict()
@@ -688,7 +713,7 @@ func TestContextIsRebuiltAfterARestart(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
 		toolCall("ask", map[string]any{"question": "Which scheme?"}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Debug built cleanly."}),
+		verdictOf("inconclusive", "The build was not run."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -718,7 +743,7 @@ func TestANoteSentMidTurnReachesTheModel(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
 		toolCall("machine_exec", map[string]any{"command": "open -a Xcode"}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "It launched."}),
+		verdictOf("inconclusive", "It launched; nothing was checked on screen."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -981,24 +1006,37 @@ func TestUnknownToolIsReportedToTheModel(t *testing.T) {
 
 func TestParseVerdictFallsBackToInconclusive(t *testing.T) {
 	for _, args := range []string{`{"verdict":"maybe","summary":"x"}`, `{}`, `not json`, `{"verdict":"PASS","summary":"y"}`} {
-		got, summary, _ := parseVerdict(args)
-		if summary == "" {
+		in := parseVerdict(args)
+		if in.summary == "" {
 			t.Errorf("parseVerdict(%s) returned an empty summary", args)
 		}
 		want := "inconclusive"
 		if args == `{"verdict":"PASS","summary":"y"}` {
 			want = "pass"
 		}
-		if got != want {
-			t.Errorf("parseVerdict(%s) = %q, want %q", args, got, want)
+		if in.verdict != want {
+			t.Errorf("parseVerdict(%s) = %q, want %q", args, in.verdict, want)
 		}
 	}
-	got, summary, evidence := parseVerdict(`{"verdict":"fail","summary":"broken","evidence":["step 3","/tmp/a.png"]}`)
-	if got != "fail" || summary != "broken" {
-		t.Errorf("parseVerdict = %q, %q", got, summary)
+	// ADR 0024: evidence is for artifact paths; a step there is a problem the review names, and
+	// steps in checks take numbers, numeric strings and "step 4".
+	in := parseVerdict(`{"verdict":"fail","summary":"broken","evidence":["step 3","/tmp/a.png"],` +
+		`"checks":[{"id":"total","status":"FAIL","evidence":[4,"5","step 6"],"actions":["seven"],"observed":"x"}]}`)
+	if in.verdict != "fail" || in.summary != "broken" {
+		t.Errorf("parseVerdict = %q, %q", in.verdict, in.summary)
 	}
-	if len(evidence) != 2 || evidence[1] != "/tmp/a.png" {
-		t.Errorf("evidence = %v", evidence)
+	if len(in.paths) != 1 || in.paths[0] != "/tmp/a.png" {
+		t.Errorf("paths = %v, want only the artifact path", in.paths)
+	}
+	if len(in.general) != 1 || !strings.Contains(in.general[0], `"step 3" is a step`) {
+		t.Errorf("general problems = %v, want the step in evidence named", in.general)
+	}
+	c := in.checks[0]
+	if c.ID != "total" || c.Status != "fail" || len(c.Evidence) != 3 || c.Evidence[2] != 6 || len(c.Actions) != 0 {
+		t.Errorf("check = %+v", c)
+	}
+	if p := in.problems["total"]; len(p) != 1 || !strings.Contains(p[0], `"seven" is not a step number`) {
+		t.Errorf("check problems = %v", p)
 	}
 }
 
@@ -1108,11 +1146,14 @@ func putUI(t *testing.T, control, body string) {
 func TestTurnReadsTheUITreeAndClicksAnElement(t *testing.T) {
 	mgr, runID, control := ready(t)
 	putUI(t, control, segmentUI)
+	look := lastStep(t, mgr, runID) + 1
 	model := &scriptedModel{replies: []string{
+		declared("tip"),
 		toolCall("machine_ui", map[string]any{"app": "TipSplit"}),
 		toolCall("machine_click", map[string]any{"element": 1}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Clicked 25%."}),
+		verdictOf("pass", "25% is selected (step 3).", answer("tip", "pass", []int{look + 2}, look+1)),
 	}}
+	selectOnClick(t, model, control, 3)
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
 	postTask(t, store, "Click 25%.")
@@ -1120,13 +1161,16 @@ func TestTurnReadsTheUITreeAndClicksAnElement(t *testing.T) {
 	if _, err := v.Turn(context.Background(), runID, store); err != nil {
 		t.Fatalf("Turn: %v", err)
 	}
-	// The second model request carries the tree the first asked for.
-	if req := model.request(t, 2); !strings.Contains(req, `[1] RadioButton/Segment label=\"25%\" center (0.596, 0.467)`) {
+	// The request after the read carries the tree it asked for.
+	if req := model.request(t, 3); !strings.Contains(req, `[1] RadioButton/Segment label=\"25%\" center (0.596, 0.467)`) {
 		t.Errorf("the model never saw the element's center:\n%s", req)
 	}
-	prog := messagesOfKind(store, session.Progress)
+	prog := messagesOfKind(store, session.Progress)[1:] // after the declaration
 	if len(prog) != 2 || !strings.Contains(prog[1].Text, `clicked [1] RadioButton/Segment "25%" in TipSplit at (0.596, 0.467)`) {
 		t.Fatalf("progress = %+v, want the click to name the element it hit", prog)
+	}
+	if got := store.Verdict(); got.Verdict != "pass" {
+		t.Errorf("verdict = %+v, want the pass its effect check shows", got)
 	}
 	if !strings.Contains(testsupport.Calls(t, control), "--ui-base64") {
 		t.Error("the tree was never read from the guest")
@@ -1136,6 +1180,7 @@ func TestTurnReadsTheUITreeAndClicksAnElement(t *testing.T) {
 func TestTurnClickByElementNeedsATree(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
+		declared("it"),
 		toolCall("machine_click", map[string]any{"element": 3}),
 		toolCall("ask", map[string]any{"question": "Which element is it? I need to read the UI first."}),
 	}}
@@ -1145,7 +1190,7 @@ func TestTurnClickByElementNeedsATree(t *testing.T) {
 	if _, err := v.Turn(context.Background(), runID, store); err != nil {
 		t.Fatalf("Turn: %v", err)
 	}
-	if req := model.request(t, 2); !strings.Contains(req, "call machine_ui first") {
+	if req := model.request(t, 3); !strings.Contains(req, "call machine_ui first") {
 		t.Errorf("the model was not told to read the tree first:\n%s", req)
 	}
 }
@@ -1188,7 +1233,7 @@ func deliveredText(t *testing.T, model *scriptedModel, n int, role string) strin
 func TestTheDeliveredSystemPromptBindsConstraintsAndAimsFromTheTree(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "ok"}),
+		verdictOf("inconclusive", "Nothing was checked."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -1197,7 +1242,10 @@ func TestTheDeliveredSystemPromptBindsConstraintsAndAimsFromTheTree(t *testing.T
 		t.Fatalf("Turn: %v", err)
 	}
 	system := deliveredText(t, model, 1, "system")
-	for _, want := range []string{"hard rules", "do not rebuild or relaunch", "Before any click, call machine_ui", "wallpaper"} {
+	for _, want := range []string{"hard rules", "do not rebuild or relaunch", "Before any click, call machine_ui", "wallpaper",
+		// ADR 0024: checks before input, and the coder's claims are never evidence.
+		"call declare_checks before your first input", "unverified claims", "A verdict rests only on observations you made",
+		`"no change detected"`} {
 		if !strings.Contains(system, want) {
 			t.Errorf("the system prompt the model received lacks %q:\n%s", want, system)
 		}
@@ -1209,7 +1257,7 @@ func TestTheDeliveredSystemPromptBindsConstraintsAndAimsFromTheTree(t *testing.T
 func TestTheDeliveredSystemPromptCarriesTheWritingRules(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "ok"}),
+		verdictOf("inconclusive", "Nothing was checked."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -1251,7 +1299,7 @@ func TestTheDeliveredVisionPromptAsksForEveryVisibleString(t *testing.T) {
 		vision: "3. Window text:\nEach pays: $48.00",
 		replies: []string{
 			toolCall("machine_screenshot", map[string]any{}),
-			toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "ok"}),
+			verdictOf("inconclusive", "Nothing was checked."),
 		},
 	}
 	v := newVerifier(t, mgr, model.start(t))
@@ -1312,9 +1360,14 @@ func assistantProse(t *testing.T, model *scriptedModel, n int) []string {
 // a report_verdict call in the context, and the new pass supersedes the fail.
 func TestANewTaskAfterAnAcceptedVerdictGetsARealVerdict(t *testing.T) {
 	mgr, runID, _ := ready(t)
+	look := lastStep(t, mgr, runID) + 1
 	model := &scriptedModel{replies: []string{
-		toolCall("report_verdict", map[string]any{"verdict": "fail", "summary": "Each pays shows $0.00.", "evidence": []string{"step 3"}}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Each pays shows $48.00 now."}),
+		declared("total"),
+		toolCall("machine_ui", map[string]any{}),
+		verdictOf("fail", "Each pays shows $0.00.", answer("total", "fail", []int{look})),
+		declared("total"),
+		toolCall("machine_ui", map[string]any{}),
+		verdictOf("pass", "Each pays shows $48.00 now.", answer("total", "pass", []int{look + 1})),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -1330,12 +1383,13 @@ func TestANewTaskAfterAnAcceptedVerdictGetsARealVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, prose := range assistantProse(t, model, 2) {
+	for _, prose := range assistantProse(t, model, 4) {
 		if strings.Contains(prose, "verdict") {
 			t.Errorf("the past verdict reached the model as prose it can imitate: %q", prose)
 		}
 	}
-	if req := model.request(t, 2); !strings.Contains(req, `\"verdict\":\"fail\"`) || !strings.Contains(req, `"name":"report_verdict"`) {
+	if req := model.request(t, 4); !strings.Contains(req, `\"verdict\":\"fail\"`) || !strings.Contains(req, `"name":"report_verdict"`) ||
+		!strings.Contains(req, `\"checks\":[{\"actions\":[],\"evidence\":[`) {
 		t.Errorf("the past verdict is not a report_verdict call in the context:\n%s", truncateFor(req))
 	}
 	got := store.Verdict()
@@ -1352,8 +1406,8 @@ func TestANewTaskAfterAnAcceptedVerdictGetsARealVerdict(t *testing.T) {
 func TestAProseVerdictIsSentBackForTheTool(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	model := &scriptedModel{replies: []string{
-		prose("[I reported verdict pass] Each pays is $48.00."),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Each pays is $48.00."}),
+		prose("[I reported verdict inconclusive] Each pays was not read."),
+		verdictOf("inconclusive", "Each pays was not read."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -1362,8 +1416,8 @@ func TestAProseVerdictIsSentBackForTheTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Ended != session.Verdict || store.Verdict().Verdict != "pass" {
-		t.Errorf("ended %q with verdict %+v, want a recorded pass", res.Ended, store.Verdict())
+	if res.Ended != session.Verdict || store.Verdict().Verdict != "inconclusive" {
+		t.Errorf("ended %q with verdict %+v, want a recorded verdict", res.Ended, store.Verdict())
 	}
 	if !strings.Contains(model.request(t, 2), "Call report_verdict") {
 		t.Error("the model was not told to call report_verdict")
@@ -1434,7 +1488,7 @@ func TestACutOffStepIsRetriedNotPostedAsTheReply(t *testing.T) {
 	model := &scriptedModel{replies: []string{
 		truncatedReply(""),
 		truncatedReply(`All checks pass.<tool_call>report_verdict<arg_key>evidence</arg_key><arg_value>["step 22", "st`),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "Every width behaved.", "evidence": []string{"step 22"}}),
+		verdictOf("inconclusive", "The widths were not checked."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -1443,8 +1497,8 @@ func TestACutOffStepIsRetriedNotPostedAsTheReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Ended != session.Verdict || store.Verdict().Verdict != "pass" {
-		t.Fatalf("ended %q with verdict %+v, want the pass the model meant", res.Ended, store.Verdict())
+	if res.Ended != session.Verdict || store.Verdict().Verdict != "inconclusive" {
+		t.Fatalf("ended %q with verdict %+v, want the verdict the model meant", res.Ended, store.Verdict())
 	}
 	for _, m := range store.After(0) {
 		if m.Kind == session.Reply {
@@ -1479,7 +1533,7 @@ func TestATurnThatKeepsGettingCutOffSaysSo(t *testing.T) {
 // Reasoning models think inside the completion budget, so 1200 tokens was used up before any answer.
 func TestChatLeavesRoomForAReasoningModel(t *testing.T) {
 	mgr, runID, _ := ready(t)
-	model := &scriptedModel{replies: []string{toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "fine"})}}
+	model := &scriptedModel{replies: []string{verdictOf("inconclusive", "Nothing was checked.")}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
 	postTask(t, store, "Check it.")
@@ -1500,6 +1554,7 @@ func TestChatLeavesRoomForAReasoningModel(t *testing.T) {
 func TestMachineInputRefusesFieldsItDoesNotKnow(t *testing.T) {
 	mgr, runID, control := ready(t)
 	model := &scriptedModel{replies: []string{
+		declared("todo"),
 		toolCall("machine_input", map[string]any{"actions": []map[string]any{
 			{"type": "click", "element": 2}, {"type": "type", "text": "Call mom"},
 		}}),
@@ -1511,7 +1566,7 @@ func TestMachineInputRefusesFieldsItDoesNotKnow(t *testing.T) {
 	if _, err := v.Turn(context.Background(), runID, store); err != nil {
 		t.Fatalf("Turn: %v", err)
 	}
-	prog := messagesOfKind(store, session.Progress)
+	prog := messagesOfKind(store, session.Progress)[1:] // after the declaration
 	if len(prog) != 1 || !strings.Contains(prog[0].Text, `unknown field "element"`) || !strings.Contains(prog[0].Text, "machine_click") {
 		t.Fatalf("progress = %+v, want an error naming the unknown field and machine_click", prog)
 	}
@@ -1526,10 +1581,12 @@ func TestMachineInputRefusesFieldsItDoesNotKnow(t *testing.T) {
 func TestATurnWithAnOpenTaskIsSentBackFromAReply(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	store := openStore(t, mgr, runID)
+	build := lastStep(t, mgr, runID) + 1
 	model := &scriptedModel{replies: []string{
 		toolCall("machine_exec", map[string]any{"command": "true"}),
 		toolCall("reply", map[string]any{"text": "The first verdict was right for the old build; the fix works."}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "The fixed build splits correctly."}),
+		declared("split"), // after the human's task, which the checks must cover
+		verdictOf("pass", "The fixed build splits correctly.", answer("split", "pass", []int{build})),
 	}}
 	model.onReasoning = func(n int) {
 		if n == 2 {
@@ -1603,7 +1660,7 @@ func TestASentBackReplyAnswersEveryCallOfItsMessage(t *testing.T) {
 		`]}}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`
 	model := &scriptedModel{replies: []string{
 		both,
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "fine"}),
+		verdictOf("inconclusive", "Nothing was checked."),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
@@ -1653,7 +1710,7 @@ func TestAHumanOnTheScreenEndsTheTurnWithAQuestionNotAVerdict(t *testing.T) {
 	if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
 		t.Fatalf("TakeControl: %v", err)
 	}
-	var replies []string
+	replies := []string{declared("each-pays")}
 	for i := 0; i < 5; i++ {
 		replies = append(replies, toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}))
 	}
@@ -1678,11 +1735,11 @@ func TestAHumanOnTheScreenEndsTheTurnWithAQuestionNotAVerdict(t *testing.T) {
 	if last := lastMessage(t, store); !strings.Contains(last.Text, "verdict still stands") {
 		t.Errorf("question = %q, want it to say the fail still stands", last.Text)
 	}
-	if n := len(messagesOfKind(store, session.Progress)); n != 1 {
+	if n := len(messagesOfKind(store, session.Progress)) - 1; n != 1 { // less the declaration
 		t.Errorf("%d clicks were tried while the human held the screen, want 1", n)
 	}
-	if model.calls() != 1 {
-		t.Errorf("the model was asked %d times, want once: the refusal ends the turn", model.calls())
+	if model.calls() != 2 {
+		t.Errorf("the model was asked %d times, want twice: the declaration, then the refused click ends the turn", model.calls())
 	}
 	if last := lastMessage(t, store); !strings.Contains(last.Text, "Press Give Back in the Companion and I will continue") ||
 		strings.Contains(last.Text, "send a message") {
@@ -1697,6 +1754,7 @@ func TestAnInconclusiveCausedByTheLeaseIsAQuestion(t *testing.T) {
 		t.Fatalf("TakeControl: %v", err)
 	}
 	model := &scriptedModel{replies: []string{
+		declared("it"),
 		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
 		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "A human is driving."}),
 	}}
@@ -1729,6 +1787,7 @@ func TestTheQuestionDoesNotStandByARejectedVerdict(t *testing.T) {
 		t.Fatalf("TakeControl: %v", err)
 	}
 	model := &scriptedModel{replies: []string{
+		declared("it"),
 		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
 		toolCall("report_verdict", map[string]any{"verdict": "inconclusive", "summary": "A human is driving."}),
 	}}
@@ -1786,6 +1845,7 @@ func TestTheQuestionNamesTheCodingAgentWhenItHoldsTheScreen(t *testing.T) {
 		t.Fatalf("TakeControl: %v", err)
 	}
 	model := &scriptedModel{replies: []string{
+		declared("it"),
 		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
 		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
 	}}

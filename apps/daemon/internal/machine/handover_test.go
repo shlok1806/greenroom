@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
@@ -166,4 +167,93 @@ func TestOnlyAnotherSeatsHandoverIsStale(t *testing.T) {
 	if _, err := mgr.InputAs(ctx, mc.RunID, "human", click()); err != nil {
 		t.Fatalf("the human's InputAs after a handover: %v", err)
 	}
+}
+
+// ADR 0024: HandoverStep marks where the screen last changed hands, so a verdict's evidence can be
+// required to come after it. The verifier's own leases never move it.
+func TestHandoverStepMarksTheLatestChangeOfHands(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	writeUI(t, control, tipSplitUI)
+	mc := readyMachine(t, mgr)
+	ctx := context.Background()
+	if got := mgr.HandoverStep(mc.RunID); got != 0 {
+		t.Fatalf("HandoverStep before any handover = %d, want 0", got)
+	}
+	tree, err := mgr.UI(ctx, mc.RunID, HolderVerifier, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.InputAs(ctx, mc.RunID, HolderVerifier, click()); err != nil {
+		t.Fatal(err)
+	}
+	if got := mgr.HandoverStep(mc.RunID); got != 0 {
+		t.Errorf("the verifier's own lease moved HandoverStep to %d", got)
+	}
+	humanHandover(t, mgr, mc.RunID)
+	mark := mgr.HandoverStep(mc.RunID)
+	if mark <= tree.Step {
+		t.Errorf("HandoverStep = %d, want after the look at step %d", mark, tree.Step)
+	}
+	after, err := mgr.UI(ctx, mc.RunID, HolderVerifier, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Step <= mark {
+		t.Errorf("a look after the handover is step %d, want after %d", after.Step, mark)
+	}
+	if got, ok := mgr.LastUI(mc.RunID, HolderVerifier); !ok || got.Step != after.Step {
+		t.Errorf("LastUI = %d %v, want the verifier's latest read %d", got.Step, ok, after.Step)
+	}
+	if _, ok := mgr.LastUI(mc.RunID, HolderCoder); ok {
+		t.Error("LastUI returned a tree for a reader that never read one")
+	}
+	// ADR 0024: each step says who made it, and an effect read carries its input's effect.
+	if _, err := mgr.ExecAs(ctx, mc.RunID, HolderVerifier, "true", "", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.ExecStart(ctx, mc.RunID, "true", "", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	_, effect, err := mgr.UIEffect(ctx, mc.RunID, HolderVerifier, 0, after.Step,
+		func(tree UITree, err error) StepEffect { return StepEffect{Kind: EffectNone, Summary: "nothing"} })
+	if err != nil || effect.Of != after.Step || effect.Kind != EffectNone {
+		t.Fatalf("UIEffect = %+v, %v", effect, err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	var steps []Step
+	for {
+		if steps, err = mgr.Steps(mc.RunID); err != nil {
+			t.Fatal(err)
+		}
+		if len(steps) > 0 && steps[len(steps)-1].Tool == "machine_ui" && countTool(steps, "machine_exec") == 2 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	var by []string
+	for _, st := range steps {
+		if st.Seq > tree.Step-1 && (st.Tool == "machine_ui" || st.Tool == "machine_input" || st.Tool == "machine_exec") {
+			by = append(by, st.Tool+":"+st.By)
+		}
+	}
+	want := "machine_ui:verifier machine_input:verifier machine_ui:verifier machine_exec:verifier machine_exec:coder machine_ui:verifier"
+	if got := strings.Join(by, " "); got != want {
+		t.Errorf("steps by seat = %q, want %q", got, want)
+	}
+	if last := steps[len(steps)-1]; last.Effect == nil || *last.Effect != (StepEffect{Of: after.Step, Kind: EffectNone, Summary: "nothing"}) {
+		t.Errorf("effect read = %+v, want the effect on its record", last)
+	}
+	if got := mgr.HandoverStep("no-such-run"); got != 0 {
+		t.Errorf("HandoverStep of an unknown run = %d, want 0", got)
+	}
+}
+
+func countTool(steps []Step, tool string) int {
+	n := 0
+	for _, s := range steps {
+		if s.Tool == tool {
+			n++
+		}
+	}
+	return n
 }

@@ -331,3 +331,42 @@ func TestAgentToolsRefuseARunIdThatLeavesRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// ADR 0024: a verdict comes back with its checks, so the coder can act on a failing one.
+func TestAgentWaitReturnsTheVerdictsChecks(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	h.call("agent_send", map[string]any{"runId": runID, "kind": "task", "text": "Check the total."}, nil)
+	checks := []session.Check{
+		{ID: "total", Criterion: "Each pays shows $48.00.", Status: session.CheckFail, Evidence: []int{7}, Actions: []int{5},
+			Observed: "Each pays shows $0.00."},
+		{ID: "tip", Criterion: "25% can be selected.", Status: session.CheckUnchecked},
+	}
+	if _, err := h.store(runID).Append(session.Message{From: session.Verifier, Kind: session.Verdict, Verdict: "fail",
+		Text: "Each pays shows $0.00 (step 7).", Checks: checks}); err != nil {
+		t.Fatal(err)
+	}
+
+	res := h.call("agent_wait", map[string]any{"runId": runID, "after": 1, "timeoutSeconds": 5}, nil)
+	raw, _ := json.Marshal(res.StructuredContent)
+	var got transcriptResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := json.Marshal(checks)
+	onMessage, _ := json.Marshal(got.Messages[len(got.Messages)-1].Checks)
+	onVerdict, _ := json.Marshal(got.Verdict.Checks)
+	if string(onMessage) != string(want) || string(onVerdict) != string(want) {
+		t.Fatalf("agent_wait returned %s, want the checks on the message and on the verdict state", raw)
+	}
+
+	tools, err := h.session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name == "agent_wait" && !strings.Contains(tool.Description, "A verdict carries checks") {
+			t.Errorf("agent_wait's description does not explain checks: %s", tool.Description)
+		}
+	}
+}

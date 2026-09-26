@@ -245,7 +245,27 @@ type Step struct {
 	Output     any       `json:"output,omitempty"`
 	Error      string    `json:"error,omitempty"`
 	DurationMS int64     `json:"durationMs"`
+	// By is the seat that made the step, when the caller named one: HolderVerifier,
+	// HolderCoder, or a human seat. Steps from before ADR 0024 have none.
+	By string `json:"by,omitempty"`
+	// Effect is set on the verifier's UI read after one of its inputs (ADR 0024): what that
+	// input changed. Of names the input step.
+	Effect *StepEffect `json:"effect,omitempty"`
 }
+
+// StepEffect is what an input changed on the screen, found by the UI read it is recorded on.
+type StepEffect struct {
+	Of      int    `json:"of"`                // the input step
+	Kind    string `json:"kind"`              // EffectChanged, EffectNone or EffectUnknown
+	Summary string `json:"summary,omitempty"` // what changed, as the model was told
+}
+
+// StepEffect kinds.
+const (
+	EffectChanged = "changed"
+	EffectNone    = "none"
+	EffectUnknown = "unknown"
+)
 
 // recorder writes a run's manifest, step log and frame log under dir. It is
 // the only thing that hands out step numbers.
@@ -311,6 +331,12 @@ func (r *recorder) begin() int {
 
 // complete records a step under a number begin already claimed.
 func (r *recorder) complete(seq int, tool string, input, output any, err error, started time.Time) {
+	r.completeAs(seq, "", nil, tool, input, output, err, started)
+}
+
+// completeAs is complete for a step made by seat by, carrying effect when it is an input's
+// effect read (ADR 0024).
+func (r *recorder) completeAs(seq int, by string, effect *StepEffect, tool string, input, output any, err error, started time.Time) {
 	s := Step{
 		Seq:        seq,
 		At:         started.UTC(),
@@ -318,6 +344,8 @@ func (r *recorder) complete(seq int, tool string, input, output any, err error, 
 		Input:      input,
 		Output:     output,
 		DurationMS: time.Since(started).Milliseconds(),
+		By:         by,
+		Effect:     effect,
 	}
 	if err != nil {
 		s.Error = err.Error()
@@ -337,8 +365,13 @@ func (r *recorder) complete(seq int, tool string, input, output any, err error, 
 
 // step claims a number and records the step in one call.
 func (r *recorder) step(tool string, input, output any, err error, started time.Time) int {
+	return r.stepAs("", tool, input, output, err, started)
+}
+
+// stepAs is step for a step made by seat by.
+func (r *recorder) stepAs(by, tool string, input, output any, err error, started time.Time) int {
 	seq := r.begin()
-	r.complete(seq, tool, input, output, err, started)
+	r.completeAs(seq, by, nil, tool, input, output, err, started)
 	return seq
 }
 

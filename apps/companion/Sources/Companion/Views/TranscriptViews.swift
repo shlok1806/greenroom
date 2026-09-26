@@ -174,7 +174,7 @@ struct VerdictHistoryLine: View {
             if open {
                 MessageBody(store: store, runId: runId, text: message.text)
                     .foregroundStyle(.secondary)
-                let cited = VerdictCard.byStep((message.evidence ?? []).map(Evidence.parse))
+                let cited = VerdictCard.byStep(message.citedSteps.map(Evidence.step) + (message.evidence ?? []).map(Evidence.parse))
                 if !cited.isEmpty {
                     HStack(alignment: .firstTextBaseline, spacing: Space.s) {
                         Text(line.latest ? "Cites" : "Cited, superseded")

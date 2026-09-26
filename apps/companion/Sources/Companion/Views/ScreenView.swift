@@ -264,6 +264,7 @@ struct ScreenView: View {
                     player: $player,
                     steps: store.steps[runId] ?? [],
                     verdict: store.verdict(runId),
+                    citedSteps: store.citedSteps(runId),
                     supersededEvidence: supersededEvidence,
                     hoverIndex: $hoverIndex,
                     driving: driving,
@@ -570,7 +571,7 @@ struct ScreenView: View {
     private var supersededEvidence: Set<Int> {
         let current = store.verdict(runId)?.seq
         let earlier = (store.messages[runId] ?? []).filter { $0.kind == .verdict && $0.seq != current }
-        return Set(earlier.flatMap { ($0.evidence ?? []).compactMap { Evidence.parse($0).step } })
+        return Set(earlier.flatMap(\.citedSteps))
     }
 
     private func toggleControl() {
@@ -585,7 +586,7 @@ struct ScreenView: View {
     }
 
     private var firstCitedStep: Int? {
-        (store.verdict(runId)?.evidence ?? []).lazy.compactMap { Evidence.parse($0).step }.first
+        store.citedSteps(runId).first
     }
 
     private func goLive() {

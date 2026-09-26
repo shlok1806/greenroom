@@ -261,6 +261,7 @@ type VerdictState struct {
 	Verdict    string   `json:"verdict,omitempty"` // pass, fail, inconclusive
 	Summary    string   `json:"summary,omitempty"`
 	Evidence   []string `json:"evidence,omitempty"`
+	Checks     []Check  `json:"checks,omitempty"` // ADR 0024
 	Status     Status   `json:"status"`
 	AcceptedBy From     `json:"acceptedBy,omitempty"`
 	Disputes   int      `json:"disputes"` // by the coder, across the run
@@ -279,7 +280,7 @@ func (s *Store) verdictLocked() VerdictState {
 	for _, m := range s.msgs {
 		switch m.Kind {
 		case Verdict:
-			v = VerdictState{Seq: m.Seq, Verdict: m.Verdict, Summary: m.Text, Evidence: m.Evidence, Status: Proposed, Disputes: v.Disputes}
+			v = VerdictState{Seq: m.Seq, Verdict: m.Verdict, Summary: m.Text, Evidence: m.Evidence, Checks: m.Checks, Status: Proposed, Disputes: v.Disputes}
 			if v.Disputes >= s.maxDisputes || humanDisputed {
 				v.Status = Contested
 			}

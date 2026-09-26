@@ -56,12 +56,15 @@ func TestGivingTheScreenBackResumesTheTaskAndItLooksFirst(t *testing.T) {
 	if _, _, err := mgr.TakeControl(runID, "human", 0); err != nil {
 		t.Fatalf("TakeControl: %v", err)
 	}
+	look := lastStep(t, mgr, runID) + 1 // the resumed turn's machine_ui; the refused click records none
 	model := &scriptedModel{replies: []string{
+		declared("tip"),
 		toolCall("machine_click", map[string]any{"x": 0.5, "y": 0.5}),
 		toolCall("machine_ui", map[string]any{"app": "TipSplit"}),
 		toolCall("machine_click", map[string]any{"element": 1}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "25% is selected (step 4)."}),
+		verdictOf("pass", "25% is selected (step 6).", answer("tip", "pass", []int{look + 2}, look+1)),
 	}}
+	selectOnClick(t, model, control, 4)
 	store := startActors(t, newVerifier(t, mgr, model.start(t)), mgr, runID)
 	postTask(t, store, "Click 25% and report Each pays.")
 
@@ -78,7 +81,7 @@ func TestGivingTheScreenBackResumesTheTaskAndItLooksFirst(t *testing.T) {
 	if verdict.Verdict != "pass" {
 		t.Fatalf("verdict = %+v, want the resumed turn's pass", verdict)
 	}
-	told := deliveredText(t, model, 2, "user")
+	told := deliveredText(t, model, 3, "user")
 	for _, want := range []string{gaveBack, "Look at the screen with machine_ui before any input"} {
 		if !strings.Contains(told, want) {
 			t.Errorf("the resumed turn was not told %q:\n%s", want, told)
@@ -100,9 +103,11 @@ func TestGivingTheScreenBackResumesTheTaskAndItLooksFirst(t *testing.T) {
 func TestALapsedLeaseResumesThePausedTask(t *testing.T) {
 	mgr, runID, control := ready(t)
 	putUI(t, control, segmentUI)
+	look := lastStep(t, mgr, runID) + 1
 	model := &scriptedModel{replies: []string{
 		toolCall("machine_ui", map[string]any{}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "25% is selected (step 4)."}),
+		declared("tip"),
+		verdictOf("pass", "25% is selected (step 4).", answer("tip", "pass", []int{look})),
 	}}
 	v := newVerifier(t, mgr, model.start(t))
 	reg := session.NewRegistry(mgr.Root, 2)
@@ -167,9 +172,11 @@ func TestGivingBackAndANoteMakeOneTurn(t *testing.T) {
 			noRetryWaits(t)
 			mgr, runID, control := ready(t)
 			putUI(t, control, segmentUI)
+			look := lastStep(t, mgr, runID) + 1
 			model := &scriptedModel{replies: []string{
 				toolCall("machine_ui", map[string]any{}),
-				toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "25% is selected (step 4)."}),
+				declared("tip"),
+				verdictOf("pass", "25% is selected (step 4).", answer("tip", "pass", []int{look})),
 			}}
 			v := newVerifier(t, mgr, model.start(t))
 			reg := session.NewRegistry(mgr.Root, 2)
@@ -196,8 +203,8 @@ func TestGivingBackAndANoteMakeOneTurn(t *testing.T) {
 
 			waitForKind(t, store, session.Verdict, 5*time.Second)
 			quiet()
-			if n := model.calls(); n != 2 {
-				t.Errorf("the model was called %d times, want 2: one turn", n)
+			if n := model.calls(); n != 3 {
+				t.Errorf("the model was called %d times, want 3: one turn", n)
 			}
 			if n := len(messagesOfKind(store, session.Verdict)); n != 1 {
 				t.Errorf("%d verdicts, want 1", n)
@@ -239,19 +246,22 @@ func TestAStaleLookIsRefusedUntilTheVerifierLooks(t *testing.T) {
 	if _, _, err := mgr.ReleaseControl(runID, "human"); err != nil {
 		t.Fatalf("ReleaseControl: %v", err)
 	}
+	look := lastStep(t, mgr, runID) + 1
 	model := &scriptedModel{replies: []string{
+		declared("tip"),
 		toolCall("machine_click", map[string]any{"x": 0.596, "y": 0.467}),
 		toolCall("machine_ui", map[string]any{}),
 		toolCall("machine_click", map[string]any{"x": 0.596, "y": 0.467}),
-		toolCall("report_verdict", map[string]any{"verdict": "pass", "summary": "25% is selected (step 4)."}),
+		verdictOf("pass", "25% is selected (step 6).", answer("tip", "pass", []int{look + 2}, look+1)),
 	}}
+	selectOnClick(t, model, control, 4)
 	v := newVerifier(t, mgr, model.start(t))
 	store := openStore(t, mgr, runID)
 	postTask(t, store, "Click 25%.")
 	if _, err := v.Turn(context.Background(), runID, store); err != nil {
 		t.Fatal(err)
 	}
-	prog := messagesOfKind(store, session.Progress)
+	prog := messagesOfKind(store, session.Progress)[1:] // after the declaration
 	if len(prog) != 3 || !strings.Contains(prog[0].Text, staleLookPrefix) || !strings.Contains(prog[2].Text, "clicked (0.596, 0.467)") {
 		t.Fatalf("progress = %+v, want a stale refusal, a look, then the click", prog)
 	}
@@ -321,5 +331,21 @@ func TestATakeoverMidTurnTellsTheModelItMayLookButNotAct(t *testing.T) {
 	told := deliveredText(t, model, 2, "user")
 	if !strings.Contains(told, "[while you were working] machine event: human took control of the screen. "+takenAdvice) {
 		t.Errorf("the model was not told plainly that it may look but not act:\n%s", told)
+	}
+}
+
+// segmentSelectedUI is segmentUI after a click selected 25%.
+const segmentSelectedUI = `{"app":{"name":"TipSplit","pid":7},"apps":["TipSplit"],"screen":{"width":1024,"height":768},
+"truncated":false,"elements":[
+{"role":"AXRadioButton","subrole":"AXSegment","label":"25%","selected":true,"depth":0,"frame":{"x":586,"y":347,"w":48,"h":24}}]}`
+
+// selectOnClick makes the nth scripted reply's click select 25%: the tree changes before the
+// effect check reads it, as it would on a machine.
+func selectOnClick(t *testing.T, model *scriptedModel, control string, n int) {
+	t.Helper()
+	model.onReasoning = func(i int) {
+		if i == n {
+			putUI(t, control, segmentSelectedUI)
+		}
 	}
 }

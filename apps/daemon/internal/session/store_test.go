@@ -503,3 +503,50 @@ func TestRegistrySharesStoresAndFansOut(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// ADR 0024: checks ride only on a verifier progress (declared: id and criterion) or a verdict
+// (answered: id and status, a pass only of passing checks), and survive a reopen. A transcript
+// written before checks existed loads as it was.
+func TestOnlyVerifierProgressAndVerdictsCarryChecks(t *testing.T) {
+	s, dir := open(t)
+	must(t, s, Message{From: Coder, Kind: Task, Text: "build it"})
+	declared := []Check{{ID: "build", Criterion: "swift build exits 0."}}
+	answered := []Check{{ID: "build", Criterion: "swift build exits 0.", Status: CheckPass, Evidence: []int{3}, Observed: "exit 0"}}
+	many := make([]Check, MaxChecks+1)
+	for i := range many {
+		many[i] = Check{ID: string(rune('a' + i)), Criterion: "c"}
+	}
+	for _, c := range []struct {
+		m    Message
+		want string
+	}{
+		{Message{From: Coder, Kind: Task, Text: "x", Checks: declared}, "only a verifier progress or verdict may carry checks"},
+		{Message{From: Verifier, Kind: Reply, Text: "x", Checks: declared}, "only a verifier progress or verdict may carry checks"},
+		{Message{From: Verifier, Kind: Progress, Checks: many}, "at most 12 checks"},
+		{Message{From: Verifier, Kind: Progress, Checks: []Check{{ID: "a", Criterion: "c"}, {ID: "a", Criterion: "d"}}}, `check id "a" appears twice`},
+		{Message{From: Verifier, Kind: Progress, Checks: []Check{{ID: "", Criterion: "c"}}}, "needs an id"},
+		{Message{From: Verifier, Kind: Progress, Checks: []Check{{ID: "a"}}}, `declared check "a" needs a criterion`},
+		{Message{From: Verifier, Kind: Progress, Checks: answered}, `declared check "build" carries a result`},
+		{Message{From: Verifier, Kind: Verdict, Verdict: "fail", Text: "x", Checks: []Check{{ID: "a", Status: "maybe"}}}, "must be pass, fail or unchecked"},
+		{Message{From: Verifier, Kind: Verdict, Verdict: "pass", Text: "x", Checks: []Check{{ID: "a", Status: CheckUnchecked}}}, "a pass verdict needs every check pass"},
+		{Message{From: Verifier, Kind: Verdict, Verdict: "fail", Text: "x", Checks: []Check{{ID: "a", Status: CheckFail, Evidence: []int{0}}}}, "steps start at 1"},
+	} {
+		if _, err := s.Append(c.m); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("append %s from %s = %v, want %q", c.m.Kind, c.m.From, err, c.want)
+		}
+	}
+	must(t, s, Message{From: Verifier, Kind: Progress, Text: "declare_checks {}\nDeclared 1 checks: build.", Checks: declared})
+	v := must(t, s, Message{From: Verifier, Kind: Verdict, Verdict: "pass", Text: "It builds.", Checks: answered})
+	if st := s.Verdict(); st.Seq != v.Seq || len(st.Checks) != 1 || st.Checks[0].Observed != "exit 0" {
+		t.Errorf("verdict state = %+v, want its checks", st)
+	}
+	must(t, s, Message{From: Verifier, Kind: Verdict, Verdict: "fail", Text: "Old shape, no checks."})
+	reopened, err := Open(dir, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := reopened.After(0)
+	if len(all) != 4 || len(all[1].Checks) != 1 || all[2].Checks[0].Evidence[0] != 3 || all[3].Checks != nil {
+		t.Errorf("after reopening = %+v, want the checks kept and the old verdict as it was", all)
+	}
+}

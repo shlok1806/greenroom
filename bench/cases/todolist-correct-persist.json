@@ -6,7 +6,5 @@
   "patch": null,
   "task": "TodoList now saves the list between launches. It is running on screen; the app is at ~/work/todolist/build/TodoList.app. Add Milk and Bread, quit TodoList (Cmd-Q), open it again and check both items are still there. Give a pass or fail verdict.",
   "expected": "pass",
-  "must_check": [
-    "Milk and Bread are listed after quitting and reopening"
-  ]
+  "must_check": ["Milk and Bread are listed after quitting and reopening"]
 }

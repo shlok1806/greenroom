@@ -230,7 +230,7 @@ struct ConversationView: View {
         switch item {
         case .toolCalls(let calls): return calls.last?.step
         case .message(let message, _) where message.kind == .verdict:
-            return (message.evidence ?? []).lazy.compactMap { Evidence.parse($0).step }.first
+            return message.citedSteps.first
         default: return nil
         }
     }
@@ -264,6 +264,8 @@ struct ConversationView: View {
             MessageRow(store: store, runId: runId, message: message, showsSender: showsSender)
         case .toolCalls(let calls):
             ToolCallGroup(store: store, runId: runId, calls: calls)
+        case .plan(let message):
+            CheckPlanBlock(message: message)
         case .event(let message):
             EventLine(message: message, verdicts: messages.filter { $0.kind == .verdict })
         case .day(let day, _):

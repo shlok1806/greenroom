@@ -136,23 +136,70 @@ var tools = []nim.Tool{
 		Schema:      object(map[string]any{"question": str("What you need to know, in one sentence. Add the reason only when the answer depends on it.")}, "question"),
 	},
 	{
-		Name:        "report_verdict",
-		Description: "End the turn with a verdict. It is a proposal: the coder or a human may accept or dispute it.",
+		Name: "declare_checks",
+		Description: "Declare the acceptance checks you derived from the task, before any input: each one a " +
+			"result you can observe on the machine. Input tools are refused on a task until you do. Declaring " +
+			"again replaces the list. Your verdict answers each check by id.",
+		Schema: object(map[string]any{
+			"checks": map[string]any{
+				"type":     "array",
+				"minItems": 1,
+				"maxItems": 12,
+				"items": object(map[string]any{
+					"id":        str("A short unique id, like \"total\" or \"tip-25\"."),
+					"criterion": str("What you will observe when it holds, in one sentence, like \"Each pays shows $48.00 for $160, 20%, 4 people\"."),
+				}, "id", "criterion"),
+				"description": "1 to 12 checks.",
+			},
+		}, "checks"),
+	},
+	{
+		Name: "report_verdict",
+		Description: "End the turn with a verdict that answers every declared check. It is a proposal: the coder " +
+			"or a human may accept or dispute it. greenroom checks the evidence and refuses a verdict that does " +
+			"not hold: a pass needs every check pass; a fail needs a failing check with evidence; inconclusive " +
+			"marks what you could not show unchecked.",
 		Schema: object(map[string]any{
 			"verdict": map[string]any{
 				"type":        "string",
 				"enum":        []string{"pass", "fail", "inconclusive"},
-				"description": "pass if the task succeeded, fail if the thing under test is broken, inconclusive if you could not tell.",
+				"description": "pass if every check passed, fail if the thing under test is broken, inconclusive if you could not tell.",
 			},
-			"summary":  str("The result and its evidence in 2 or 3 short sentences, citing steps as 'step 4'. For a fail, name the cause."),
-			"evidence": strList("Step numbers (as 'step 4') and screenshot paths the verdict rests on. When the task is about the screen, include the full path of your latest machine_screenshot."),
-		}, "verdict", "summary"),
+			"summary": str("The result and its evidence in 2 or 3 short sentences, citing steps as 'step 4'. For a fail, name the cause."),
+			"checks": map[string]any{
+				"type": "array",
+				"items": object(map[string]any{
+					"id":     str("The id of a declared check."),
+					"status": map[string]any{"type": "string", "enum": []string{"pass", "fail", "unchecked"}},
+					"evidence": map[string]any{"type": "array", "items": map[string]any{"type": "integer"},
+						"description": "Step numbers of your observations (machine_ui, machine_screenshot, machine_exec) that show the result, at least one after every step in actions."},
+					"actions": map[string]any{"type": "array", "items": map[string]any{"type": "integer"},
+						"description": "Step numbers of the inputs this check depends on; empty for a check that only looks."},
+					"observed": str("What the evidence showed, in one sentence."),
+				}, "id", "status", "evidence", "actions", "observed"),
+				"description": "One answer per declared check.",
+			},
+			"evidence": strList("Artifact paths only, such as the full path of a machine_screenshot. Cite steps in checks."),
+		}, "verdict", "summary", "checks"),
 	},
 }
 
-// runTool executes one machine tool call and returns what the model should
-// see, plus the step it recorded (0 if none).
+// runTool executes one machine tool call and returns what the model should see, plus the step
+// it recorded (0 if none). An input that ran ends with its effect (effectCheck, ADR 0024).
 func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall) (result string, step int) {
+	if !isInputTool(call.Name) {
+		return v.machineTool(ctx, runID, call)
+	}
+	prev, hadPrev := v.mgr.LastUI(runID, machine.HolderVerifier)
+	result, step = v.machineTool(ctx, runID, call)
+	if step == 0 || strings.HasPrefix(result, "error:") {
+		return result, step
+	}
+	return result + "\n" + v.effectCheck(ctx, runID, step, prev, hadPrev), step
+}
+
+// machineTool executes one machine tool call.
+func (v *Verifier) machineTool(ctx context.Context, runID string, call nim.ToolCall) (result string, step int) {
 	switch call.Name {
 	case "machine_exec", "machine_screenshot", "machine_ui",
 		"machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input":
@@ -172,7 +219,7 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall)
 			return `error: machine_exec needs a command: pass the shell command to run in "command", like {"command": "ls"}` +
 				argsProblem(args, err), 0
 		}
-		res, err := v.mgr.Exec(ctx, runID, in.Command, in.Cwd, execTimeout)
+		res, err := v.mgr.ExecAs(ctx, runID, machine.HolderVerifier, in.Command, in.Cwd, execTimeout)
 		if err != nil {
 			return "error: " + err.Error(), res.Step
 		}

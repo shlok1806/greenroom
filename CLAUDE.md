@@ -13,7 +13,7 @@ Working instructions for agents in this repo. What greenroom is and how to run i
 - `packages/` - empty; TypeScript packages only when one is needed.
 - `bench/` - the verifier bench (ADR 0025): fixture macOS apps, cases with known verdicts and
   their mutant patches. See its `README.md`; the runner is `greenroom bench`.
-- `docs/` - notes `00`-`11`, ADRs in `docs/adr/`.
+- `docs/` - notes `00`-`15` (`12`-`15`: iOS, verifier quality, field data, market research), ADRs in `docs/adr/`.
 - `scripts/remote/` - the host's tunnel, token and client-artifact commands (`host.sh`) and
   the client installer it serves (`client-install.sh`, POSIX sh). ADR 0021, `docs/11-remote-test.md`.
 - `spikes/` - throwaway measurement scripts. Nothing imports them.
