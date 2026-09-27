@@ -675,6 +675,9 @@ private struct RunHeader: View {
                 .transition(.opacity)
             }
             RunStatusLine(store: store, runId: runId, facts: facts)
+            if let finish = facts.finish {
+                FinishNote(finish: finish)
+            }
         }
         .padding(.horizontal, Space.l)
         .padding(.top, Space.m)
@@ -744,7 +747,8 @@ struct RunStatusLine: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .help("Times are local (\(Chrome.zone)). The machine's clock may show UTC.")
         }
-        if facts.phase == .idle {
+        // A finished run is not stuck: the coding agent said it is done.
+        if facts.phase == .idle, facts.finish == nil {
             IdleActions(store: store, runId: runId)
         }
     }
@@ -763,6 +767,33 @@ struct RunStatusLine: View {
 
     @ViewBuilder
     private func phase(now: Date) -> some View {
+        if let finish = facts.finish {
+            // Done outranks the machine's phase (root ADR 0034): the work is over even when
+            // the coding agent kept the machine.
+            StatusText(text: RunFacts.doneText(finish), tone: RunFacts.doneTone(finish), size: TypeScale.monoSmall)
+                .fontWeight(.semibold)
+                .help(Self.doneHelp(finish))
+        } else {
+            machinePhase(now: now)
+        }
+    }
+
+    /// "The coding agent finished the run at 20:35. Verified: greenroom's verifier passed
+    /// it and the pass was accepted."
+    static func doneHelp(_ finish: RunFinish) -> String {
+        let when = finish.at.map { " at \(Chrome.shortTime($0))" } ?? ""
+        let why: String
+        switch finish.outcome {
+        case .verified: why = "Verified: the verifier's pass on this run was accepted."
+        case .unverified: why = "Unverified: no accepted pass backs this change."
+        case .abandoned: why = "Abandoned: the coding agent gave up on the work."
+        case .unknown: why = "\(RunFacts.outcomeWord(finish.outcome))."
+        }
+        return "The coding agent finished the run\(when). \(why)"
+    }
+
+    @ViewBuilder
+    private func machinePhase(now: Date) -> some View {
         switch facts.phase {
         case .booting:
             HStack(spacing: Space.xs) {
@@ -832,9 +863,95 @@ struct RunStatusLine: View {
         } else if case .you(let why) = facts.turn {
             out.append(why)
         }
+        if let at = facts.finish?.at { out.append("finished \(Chrome.shortTime(at))") }
         out.append("\(facts.isAlive ? "running" : "ran") \(Chrome.clock(facts.duration(now: now)))")
         out.append(Chrome.plural(facts.stepCount, "step"))
         return out
+    }
+}
+
+/// What the coding agent said when it finished (root ADR 0034): its summary in the reading
+/// face, then what the work became (branch, commit, PR) in mono. A PR that is an http(s)
+/// URL opens in the browser; every other field is text to select and copy.
+struct FinishNote: View {
+    let finish: RunFinish
+
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            if !finish.summary.isEmpty {
+                Text(finish.summary)
+                    .readingStyle(size: TypeScale.readingSmall)
+                    .lineLimit(3)
+                    .truncationMode(.tail)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(finish.summary)
+            }
+            if !finish.ref.isEmpty {
+                ViewThatFits(in: .horizontal) {
+                    refLine(FinishNote.refParts(finish.ref))
+                    refLine(FinishNote.refParts(finish.ref, short: true))
+                }
+                .monoStyle(size: TypeScale.monoSmall)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func refLine(_ parts: [FinishNote.RefPart]) -> some View {
+        HStack(spacing: Space.s) {
+            ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
+                if index > 0 { Text("·").foregroundStyle(.secondary) }
+                if let url = part.url {
+                    Button("\(part.label) \(part.value) ↗") { openURL(url) }
+                        .buttonStyle(.textLink)
+                        .help("Open \(url.absoluteString) in the browser")
+                        .fixedSize()
+                } else {
+                    HStack(spacing: Space.xs) {
+                        Text(part.label).foregroundStyle(.secondary)
+                        Text(part.value).textSelection(.enabled)
+                    }
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// One field of the ref: its label, its words and, for an http(s) PR, where it opens.
+    struct RefPart: Equatable {
+        var label: String
+        var value: String
+        var url: URL?
+    }
+
+    /// Branch, commit and PR in that order, each only when given. A PR URL on GitHub reads as
+    /// its number ("#12"); `short` also cuts a long commit sha to 7 characters.
+    static func refParts(_ ref: RunRef, short: Bool = false) -> [RefPart] {
+        var out: [RefPart] = []
+        if let branch = ref.branch { out.append(RefPart(label: "branch", value: branch)) }
+        if let commit = ref.commit {
+            let isSha = commit.count > 7 && commit.allSatisfy(\.isHexDigit)
+            out.append(RefPart(label: "commit", value: short && isSha ? String(commit.prefix(7)) : commit))
+        }
+        if let pr = ref.pr {
+            let url = ref.prURL
+            out.append(RefPart(label: "PR", value: url.map(prName) ?? pr, url: url))
+        }
+        return out
+    }
+
+    /// "#12" for a `.../pull/12` URL, else the URL's host and path.
+    static func prName(_ url: URL) -> String {
+        let parts = url.pathComponents
+        if let pull = parts.lastIndex(of: "pull"), pull + 1 < parts.count, Int(parts[pull + 1]) != nil {
+            return "#\(parts[pull + 1])"
+        }
+        return (url.host() ?? "") + url.path()
     }
 }
 

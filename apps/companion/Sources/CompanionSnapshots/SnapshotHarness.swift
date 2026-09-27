@@ -320,7 +320,38 @@ final class SnapshotHarness {
             Scenario(name: "32-moment-power-down-still", sizes: [Self.medium], runId: runId, momentFreeze: 1.0) { store in
                 await Self.destroyWhileWatched(store, runId: runId)
             },
-        ] + verdictLandsScenarios() + checklistScenarios() + limitStopScenarios()
+        ] + verdictLandsScenarios() + checklistScenarios() + limitStopScenarios() + finishScenarios()
+    }
+
+    /// A run the coding agent finished with `run_finish` (root ADR 0034, companion ADR 0016):
+    /// Done with its outcome in the header and the row, the summary and the ref under the
+    /// status line. Each seeds the other two runs' rows too, so the list shows every word.
+    private func finishScenarios() -> [Scenario] {
+        let failRun = failRun
+        let verified = RunFinish(
+            outcome: .verified,
+            summary: "Each pays now divides the total with tip by the number of people, rounded to the cent.",
+            ref: RunRef(branch: "fix/each-pays-split", commit: "4f1c2a9e0b7d3c55a1e2f9087c6b4d3e2a1f0c9b",
+                        pr: "https://github.com/shlok1806/greenroom/pull/171"))
+        let unverified = RunFinish(
+            outcome: .unverified,
+            summary: "Pushed the rounding change without a passing verdict: the verifier failed Each pays at 25%.",
+            ref: RunRef(branch: "fix/tip-rounding", pr: "#172"))
+        let abandoned = RunFinish(
+            outcome: .abandoned,
+            summary: "Stopped: the bill field needs a design decision before it can take decimals.")
+        let seeds = [(Self.passRun, verified), (failRun, unverified), (Self.inputRun, abandoned)]
+        return [
+            Scenario(name: "52-finished-verified", sizes: [Self.large, Self.guest], runId: Self.passRun) { store in
+                for (runId, finish) in seeds { Self.makeFinished(store, runId: runId, finish) }
+            },
+            Scenario(name: "53-finished-unverified", sizes: [Self.medium, Self.guest], runId: failRun) { store in
+                for (runId, finish) in seeds { Self.makeFinished(store, runId: runId, finish) }
+            },
+            Scenario(name: "54-finished-abandoned", sizes: [Self.medium, Self.small], runId: Self.inputRun) { store in
+                for (runId, finish) in seeds { Self.makeFinished(store, runId: runId, finish) }
+            },
+        ]
     }
 
     /// A verifier turn that stopped at its time budget before a verdict (issue #127,
@@ -344,6 +375,25 @@ final class SnapshotHarness {
                             "I used all 40 tool calls for this turn and did not finish. Send a message and I will continue.")
             },
         ]
+    }
+
+    /// The run as `run_finish` leaves it: the finish on its row and detail, and the system
+    /// event that recorded it just before the machine's destroyed line.
+    private static func makeFinished(_ store: RunStore, runId: String, _ finish: RunFinish) {
+        var finish = finish
+        let end = store.messages[runId]?.last { $0.text.hasPrefix("machine destroyed") }?.at
+            ?? store.run(runId)?.destroyedAt ?? Date()
+        finish.at = end.addingTimeInterval(-2)
+        if let index = store.runs.firstIndex(where: { $0.runId == runId }) { store.runs[index].finish = finish }
+        store.details[runId]?.finish = finish
+        guard var messages = store.messages[runId] else { return }
+        let insertAt = messages.lastIndex { $0.text.hasPrefix("machine destroyed") } ?? messages.count
+        let seq = insertAt < messages.count ? messages[insertAt].seq : (messages.last?.seq ?? 0) + 1
+        // The destroyed line (and anything after it, which nothing replies to) moves one on.
+        for index in messages.indices where index >= insertAt { messages[index].seq += 1 }
+        messages.insert(Message(seq: seq, at: finish.at ?? end, from: .system, kind: .event,
+                                text: "run finished: \(finish.outcome.text). \(finish.summary)", finish: finish), at: insertAt)
+        store.messages[runId] = messages
     }
 
     /// WordCount's "Longest word" task, whose verifier ran out of time (10 minutes).

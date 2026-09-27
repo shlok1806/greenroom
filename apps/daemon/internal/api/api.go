@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/report"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
@@ -24,14 +25,19 @@ type api struct {
 
 	upMu    sync.Mutex
 	upLocks map[string]*sync.Mutex // per run, held while its uploads are written or removed
+
+	models report.Models // the verifier's models, for run reports (ADR 0034)
 }
 
 // runHandler is a route under /api/runs/{id} whose run is known to exist.
 type runHandler func(w http.ResponseWriter, r *http.Request, runID string)
 
 // New returns the handler for /api/. Patterns keep the /api prefix because the daemon mounts it without stripping.
-func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Handler {
+func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger, opts ...Option) http.Handler {
 	a := &api{mgr: mgr, reg: reg, log: log, recLocks: map[string]*sync.Mutex{}, upLocks: map[string]*sync.Mutex{}}
+	for _, opt := range opts {
+		opt(a)
+	}
 	// A human lease that ran out with nobody renewing it (the Companion quit or crashed) is
 	// recorded when it lapses, not when someone next touches the screen (issue #57). The manager
 	// announces every lapse, whichever call found it, before the take or release that follows
@@ -55,6 +61,7 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger) http.Han
 		"GET /api/runs/{id}/frames/{file...}":    a.frameFile,
 		"GET /api/runs/{id}/recording.mp4":       a.recording,
 		"GET /api/runs/{id}/messages":            a.readMessages,
+		"GET /api/runs/{id}/report":              a.runReport,
 		"GET /api/runs/{id}/artifacts/{name...}": a.artifact,
 		"GET /api/runs/{id}/pull":                a.pullArchive,
 		"POST /api/runs/{id}/messages":           a.postMessage,

@@ -91,6 +91,8 @@ send either). The companion and smoke client send a loopback Host and no Origin.
   mtimes (rsync's quick check needs them, or every sync copies everything). Caps: 2 GiB
   body, 4 GiB unpacked, 200000 entries (413). A run's uploads go on its "destroyed" event,
   and `api.New` sweeps those of runs with no machine at start.
+- `GET /api/runs/{id}/report?format=md|json[&embed=true]` (`report.go`, ADR 0034) is the
+  run's proof, the same report `run_report` returns; `text/markdown` or JSON, `no-store`.
 - `GET /api/runs/{id}/pull?src=&exclude=` (`pull.go`, ADR 0022) is `Manager.PullArchive`:
   the guest's `tar czf -` streamed through `tart.ExecTo` as `application/gzip`, never held.
   The step number is the `Greenroom-Step` header; a missing source is 404 before any byte.
@@ -106,7 +108,9 @@ call with its raw arguments, returning the daemon's result as is. A transport fa
 re-dials and retries once only for the tools in `readOnlyTools` (`client.go`); any other
 call is never sent twice (the daemon may have acted before the answer was lost), so its
 error says it may have run. An error the daemon answered is never retried. A new tool that
-only reads belongs in that list.
+only reads belongs in that list (`run_report` is; `run_finish` never is). `run_report` and
+`run_finish` are forwarded unchanged: the daemon already links screenshots through its
+artifact route for a public-host call, which the connect token opens.
 
 - Config: `-url`/`-token`/`-config`, then `GREENROOM_URL`/`GREENROOM_TOKEN`, then
   `~/.greenroom/client.json`, per field.
@@ -161,6 +165,10 @@ Each layer depends only on the ones below. Keep it that way.
 - `internal/tart` - the only package that knows tart's arguments and output.
 - `internal/tarball` - unpacking an untrusted gzipped tar (`Untar`); used by `api` and
   `remote`, imports nothing of the daemon's.
+- `internal/report` - a run's proof (ADR 0034): `Build` reads the run directory (manifest,
+  steps.jsonl) and the conversation, `Report.Markdown` renders it. Below `api` and
+  `mcpserver`, above `machine` and `session`; both surfaces build the report here, so there
+  is one shape.
 - `internal/diskimage` - a stopped VM's raw disk read on the host (`MountReadOnly`): a
   clonefile copy attached read-only with `hdiutil -nomount`, only its APFS Data volume
   mounted, read-only and `nobrowse`; `Close` unmounts, detaches and removes it. Shells out to
@@ -612,6 +620,42 @@ Conversation and verifier
     checks from before ADR 0027 no `kinds` (read as value); both load as they were. A single
     `"kind"` string, which an early ADR 0027 build wrote, loads as `kinds`
     (`Check.UnmarshalJSON`).
+- Finishing a run (ADR 0034; `session/finish.go`, `mcpserver/finishtools.go`,
+  `internal/report`). `run_finish` appends a system event carrying `finish`
+  (`{outcome, summary, ref?, at}`, text `run finished: <outcome>. <summary>`), then mirrors it
+  into the manifest (`Manager.RecordFinish`), then destroys the machine unless `destroy` is
+  false (a destroy failure is `destroyError` in the result; the finish stands), then returns
+  the report. `session.validate` allows `finish` only on a system event, with a known outcome,
+  a summary (at most `MaxFinishSummary`) and ref fields of at most `MaxRefField`. The rules that
+  need the transcript live in `Store.Append` (`finishRefusalLocked`), so no other write path
+  can skip them: a run finishes once; no turn is owed (`owedTurnLocked`: the last
+  turn-starting message has no verifier reply, question or verdict after it and no system
+  event either, since the no-verifier notice, the destroyed notice and "gave up" are events);
+  `verified` needs `Verdict()` to be a pass with status `accepted` (by the coder or a human).
+  Each refusal says what to do instead. The tool also refuses while
+  `Manager.VerifierTurnOpen` (the actor's `SetVerifierTurn`), which covers a turn the transcript
+  cannot see (a "machine is ready" event lands mid-turn). The conversation is the record:
+  `/api/runs`, `/api/runs/{id}` and the report read `Store.Finished()` first and fall back to
+  the manifest's copy. `RunSummary.finish` is an explicit null while unfinished; the manifest's
+  is omitted, so old runs read as not finished. Nothing refuses messages after a finish.
+- Run reports (`internal/report`). `run_report`, `run_finish` and
+  `GET /api/runs/{id}/report?format=md|json[&embed=true]` all call `report.FromStore`. The
+  task is the newest coder or human task before the verdict. A check's steps are resolved
+  from steps.jsonl (tool, at, by); a `machine_screenshot` step's PNG is linked by its base
+  name in the run directory only, never by the recorded absolute path, and only if the file
+  is there. Links: through the public host, `https://<host>/api/runs/<id>/artifacts/<file>`
+  (the MCP server gets the host from `ForPublicHost(host)`, the route from `r.Host`); locally
+  the file's path; `embed` makes a data URI (GitHub does not render data URI images in PR
+  bodies, so embed is for places that do). Models come from the manifest's `models` (issue
+  #154), `models.source` "recorded with the run"; a run from before that record falls back to
+  the daemon's verifier configuration at report time (`mcpserver.WithModels`,
+  `api.WithModels`, set in `serve` from the same `machine.Models` it records) and says so,
+  "daemon configuration at report time". `report.runModels` picks; `report.FromMachine` names
+  a nim brain by its reasoning model, manual and none by name. The golden fixture predates
+  the record, so it shows the fallback. Goldens:
+  `internal/report/testdata/report.{md,json}` from a real recorded run in `testdata/<runId>`
+  (outputs trimmed, host paths replaced, the evidence PNG shrunk); `go test ./internal/report
+  -update` rewrites them.
 - Machine status snapshots (`snapshot` in `context.go`) ignore the turn context's
   cancellation, so a dead budget never reads as "Machine status: gone" to the closing call.
 - A failing tool call (a result starting `error:`) is counted per turn by tool, canonical
@@ -1043,6 +1087,11 @@ mode, each read back with the copy's signature).
   frontmost) and the running regular apps the effect read lists. A pass is refused only when
   it cites the quit read as evidence, as the ADR's consequences say; a pass whose actions
   include the quitting input but cites a later read is judged by the other rules.
+- ADR 0034 asks for "the models that verified it"; the report takes them from the manifest
+  (issue #154), but a run recorded before that has none, so its report names the daemon's
+  configured models at report time and says so in `models.source`, which can differ from what
+  verified it. It also refuses a finish while a turn is owed
+  (a turn-starting message nothing has answered yet), not only while one runs.
 - ADR 0025: a case's `patch` is the path of a `.diff` under `bench/cases/` (`patches/<id>.diff`),
   not the diff inline in the JSON, so patches read and review as diffs and lying cases reuse
   their mutant's. v1 has 4 fixture apps, not the 5 to 7 the ADR expects in all. Checklist

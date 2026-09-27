@@ -32,6 +32,10 @@ type Manifest struct {
 	// Verdict is the conversation's latest verdict (ADR 0006).
 	Verdict *session.VerdictState `json:"verdict,omitempty"`
 
+	// Finish is how the coding agent ended the run (ADR 0034), mirrored from the conversation's
+	// finish event. Absent on a run that has not finished, and on every run from before it.
+	Finish *session.Finish `json:"finish,omitempty"`
+
 	// Models is who verified the run, as the daemon was configured when the run was created
 	// (issue #154). Absent in runs from before it.
 	Models *Models `json:"models,omitempty"`
