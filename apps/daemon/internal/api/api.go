@@ -26,7 +26,7 @@ type api struct {
 	upMu    sync.Mutex
 	upLocks map[string]*sync.Mutex // per run, held while its uploads are written or removed
 
-	models report.Models // the verifier's models, for run reports (ADR 0031)
+	models report.Models // the verifier's models, for run reports (ADR 0034)
 }
 
 // runHandler is a route under /api/runs/{id} whose run is known to exist.

@@ -84,7 +84,7 @@ show me the window." The agent uses `machine_*` tools for the VM and `agent_send
 
 ### How a coding agent ends a job
 
-A job ends with a verdict and a finish (ADR 0031):
+A job ends with a verdict and a finish (ADR 0034):
 
 1. `agent_send` kind `task`: what to check. `agent_wait` until the verdict arrives. It lists
    each acceptance check the verifier declared, with its status and evidence steps.

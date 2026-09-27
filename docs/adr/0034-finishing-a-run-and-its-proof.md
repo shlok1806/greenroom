@@ -1,4 +1,4 @@
-# 0031. A coding agent finishes a run, and the run gives back its proof
+# 0034. A coding agent finishes a run, and the run gives back its proof
 
 Date: 2026-09-27
 Status: accepted.

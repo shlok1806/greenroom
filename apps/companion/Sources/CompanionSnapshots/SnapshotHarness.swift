@@ -244,7 +244,7 @@ final class SnapshotHarness {
         ] + verdictLandsScenarios() + checklistScenarios() + limitStopScenarios() + finishScenarios()
     }
 
-    /// A run the coding agent finished with `run_finish` (root ADR 0031, companion ADR 0016):
+    /// A run the coding agent finished with `run_finish` (root ADR 0034, companion ADR 0016):
     /// Done with its outcome in the header and the row, the summary and the ref under the
     /// status line. Each seeds the other two runs' rows too, so the list shows every word.
     private func finishScenarios() -> [Scenario] {

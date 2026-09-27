@@ -176,7 +176,7 @@ func serveUntil(ctx context.Context, args []string) error {
 	if kind == "" {
 		kind = strings.ToLower(strings.TrimSpace(os.Getenv("GREENROOM_VERIFIER")))
 	}
-	// Which models verify this daemon's runs, for run reports (ADR 0031). Empty: no verifier.
+	// Which models verify this daemon's runs, for run reports (ADR 0034). Empty: no verifier.
 	var models report.Models
 	switch kind {
 	case "manual":
@@ -253,7 +253,7 @@ func nimVerifier(mgr *machine.Manager, maxSteps int, budget time.Duration, log *
 func routes(mgr *machine.Manager, reg *session.Registry, image, publicHost, token, dist string, models report.Models, log *slog.Logger) http.Handler {
 	// A call through the public host gets its own server, whose tools never write where the
 	// caller names on this host (machine_pull's dest, ADR 0022) and whose reports link through
-	// the artifact route there (ADR 0031). Guard marks those requests.
+	// the artifact route there (ADR 0034). Guard marks those requests.
 	local := mcpserver.New(mgr, image, reg, mcpserver.WithModels(models))
 	public := mcpserver.New(mgr, image, reg, mcpserver.ForPublicHost(publicHost), mcpserver.WithModels(models))
 	server := func(r *http.Request) *mcp.Server {

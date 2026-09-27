@@ -2,7 +2,7 @@ import XCTest
 
 @testable import Companion
 
-/// A finished run (root ADR 0031, companion ADR 0016): the wire decodes leniently, the store
+/// A finished run (root ADR 0034, companion ADR 0016): the wire decodes leniently, the store
 /// picks the finish up from the event stream, and every indicator says Done with the outcome.
 @MainActor
 final class RunFinishTests: XCTestCase {

@@ -48,7 +48,7 @@ type Message struct {
 	Stop     string    `json:"stop,omitempty"`     // verifier reply: the limit that ended its turn (issue #127)
 	Control  string    `json:"control,omitempty"`  // system event: the screen was taken or came back (issue #124)
 	Checks   []Check   `json:"checks,omitempty"`   // verifier progress (declared) or verdict (answered), ADR 0024
-	Finish   *Finish   `json:"finish,omitempty"`   // system event: the coding agent finished the run (ADR 0031)
+	Finish   *Finish   `json:"finish,omitempty"`   // system event: the coding agent finished the run (ADR 0034)
 }
 
 // Check is one acceptance check of the verifier's (ADR 0024). A progress message from

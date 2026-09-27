@@ -35,7 +35,7 @@ type Option func(*options)
 
 type options struct {
 	publicHost   bool
-	artifactBase string // the public host's origin, for report links (ADR 0031)
+	artifactBase string // the public host's origin, for report links (ADR 0034)
 	models       report.Models
 }
 
@@ -43,7 +43,7 @@ type options struct {
 // caller is on another computer, so no tool writes where the caller names on this host.
 // machine_pull refuses a dest there and always copies into the run directory (ADR 0022). A
 // run's report links its screenshots through the artifact route on host, not by host path
-// (ADR 0031).
+// (ADR 0034).
 func ForPublicHost(host string) Option {
 	return func(o *options) {
 		o.publicHost = true
@@ -51,7 +51,7 @@ func ForPublicHost(host string) Option {
 	}
 }
 
-// WithModels names the verifier's models for run reports (ADR 0031).
+// WithModels names the verifier's models for run reports (ADR 0034).
 func WithModels(m report.Models) Option { return func(o *options) { o.models = m } }
 
 // ErrRemoteDest is machine_pull's answer to a dest from the public host.

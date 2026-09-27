@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 )
 
-// Outcomes of a finished run (ADR 0031).
+// Outcomes of a finished run (ADR 0034).
 const (
 	// OutcomeVerified: the run's current verdict is a pass that was accepted. Only then.
 	OutcomeVerified = "verified"
@@ -35,7 +35,7 @@ type Ref struct {
 // IsZero reports whether r names nothing.
 func (r Ref) IsZero() bool { return r.Branch == "" && r.Commit == "" && r.PR == "" }
 
-// Finish is how a run ended, as the coding agent said with run_finish (ADR 0031). It rides on
+// Finish is how a run ended, as the coding agent said with run_finish (ADR 0034). It rides on
 // the system event that records it and is mirrored in the run manifest.
 type Finish struct {
 	Outcome string    `json:"outcome"`

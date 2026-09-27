@@ -13,10 +13,10 @@ import (
 // Option configures New beyond its required arguments.
 type Option func(*api)
 
-// WithModels names the verifier's models for run reports (ADR 0031).
+// WithModels names the verifier's models for run reports (ADR 0034).
 func WithModels(m report.Models) Option { return func(a *api) { a.models = m } }
 
-// runReport is GET /api/runs/{id}/report?format=md|json[&embed=true] (ADR 0031): the run's proof,
+// runReport is GET /api/runs/{id}/report?format=md|json[&embed=true] (ADR 0034): the run's proof,
 // the same report run_report and run_finish return. Through the public host its screenshots link
 // to the artifact route there; locally, to their paths on this host.
 func (a *api) runReport(w http.ResponseWriter, r *http.Request, id string) {

@@ -20,7 +20,7 @@ import (
 // reportFixture is the recorded run internal/report's goldens use.
 const reportFixture = "20260926-231011-600cf88cfbdbcba8"
 
-// ADR 0031: GET /api/runs/{id}/report is behind api.Guard like every route. Through the public
+// ADR 0034: GET /api/runs/{id}/report is behind api.Guard like every route. Through the public
 // host it needs the token, and its screenshot links go through the artifact route there, which
 // the same token opens; locally they are paths on this host.
 func TestRoutesServeARunReportLocallyAndToThePublicHostWithTheToken(t *testing.T) {

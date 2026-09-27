@@ -93,7 +93,7 @@ func main() {
 	call("machine_destroy", map[string]any{"runId": runID})
 	time.Sleep(300 * time.Millisecond)
 	call("agent_transcript", map[string]any{"runId": runID, "after": 3})
-	call("run_report", map[string]any{"runId": runID}) // the record answers after the destroy (ADR 0031)
+	call("run_report", map[string]any{"runId": runID}) // the record answers after the destroy (ADR 0034)
 	fmt.Println("runId:", runID)
 }
 

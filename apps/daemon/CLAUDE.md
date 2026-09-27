@@ -77,7 +77,7 @@ send either). The companion and smoke client send a loopback Host and no Origin.
   mtimes (rsync's quick check needs them, or every sync copies everything). Caps: 2 GiB
   body, 4 GiB unpacked, 200000 entries (413). A run's uploads go on its "destroyed" event,
   and `api.New` sweeps those of runs with no machine at start.
-- `GET /api/runs/{id}/report?format=md|json[&embed=true]` (`report.go`, ADR 0031) is the
+- `GET /api/runs/{id}/report?format=md|json[&embed=true]` (`report.go`, ADR 0034) is the
   run's proof, the same report `run_report` returns; `text/markdown` or JSON, `no-store`.
 - `GET /api/runs/{id}/pull?src=&exclude=` (`pull.go`, ADR 0022) is `Manager.PullArchive`:
   the guest's `tar czf -` streamed through `tart.ExecTo` as `application/gzip`, never held.
@@ -151,7 +151,7 @@ Each layer depends only on the ones below. Keep it that way.
 - `internal/tart` - the only package that knows tart's arguments and output.
 - `internal/tarball` - unpacking an untrusted gzipped tar (`Untar`); used by `api` and
   `remote`, imports nothing of the daemon's.
-- `internal/report` - a run's proof (ADR 0031): `Build` reads the run directory (manifest,
+- `internal/report` - a run's proof (ADR 0034): `Build` reads the run directory (manifest,
   steps.jsonl) and the conversation, `Report.Markdown` renders it. Below `api` and
   `mcpserver`, above `machine` and `session`; both surfaces build the report here, so there
   is one shape.
@@ -578,7 +578,7 @@ Conversation and verifier
     checks from before ADR 0027 no `kinds` (read as value); both load as they were. A single
     `"kind"` string, which an early ADR 0027 build wrote, loads as `kinds`
     (`Check.UnmarshalJSON`).
-- Finishing a run (ADR 0031; `session/finish.go`, `mcpserver/finishtools.go`,
+- Finishing a run (ADR 0034; `session/finish.go`, `mcpserver/finishtools.go`,
   `internal/report`). `run_finish` appends a system event carrying `finish`
   (`{outcome, summary, ref?, at}`, text `run finished: <outcome>. <summary>`), then mirrors it
   into the manifest (`Manager.RecordFinish`), then destroys the machine unless `destroy` is
@@ -1023,7 +1023,7 @@ mode, each read back with the copy's signature).
   frontmost) and the running regular apps the effect read lists. A pass is refused only when
   it cites the quit read as evidence, as the ADR's consequences say; a pass whose actions
   include the quitting input but cites a later read is judged by the other rules.
-- ADR 0031 asks for "the models that verified it"; until the manifest records them (issue
+- ADR 0034 asks for "the models that verified it"; until the manifest records them (issue
   #154) the report names the daemon's configured models at report time and says so, which
   can differ from what verified an older run. It also refuses a finish while a turn is owed
   (a turn-starting message nothing has answered yet), not only while one runs.

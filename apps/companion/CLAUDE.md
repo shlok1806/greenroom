@@ -62,7 +62,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   default `light,dark`) picks the themes, named in each file (`<scenario>-<theme>-<size>`).
   The harness keeps its settings in the argument domain (`HarnessDefaults`), so two runs
   at once never read each other's theme or pane (they share one defaults domain).
-  Scenarios 46 to 48 seed `run_finish` (root ADR 0031) onto the pass, fail and input runs
+  Scenarios 47 to 49 seed `run_finish` (root ADR 0034) onto the pass, fail and input runs
   (`makeFinished`: the finish on the row and detail, the event before "machine destroyed").
   Scenarios 41 to 45 are verifier bench verdicts exactly as recorded: copy
   `~/.greenroom/bench/runs` and `~/.greenroom/bench-0027/runs` into the daemon's root
@@ -358,7 +358,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   0012): a waiting verdict leads with its outcome, `Fail, needs review`. Rows have no
   thumbnail (0012 supersedes 0010). `RunTitle.distinct` (the time appended to twins) is for
   places without the row's time, never the row.
-- A finished run (root ADR 0031, companion ADR 0016) is Done: `RunFacts.finish`, taken from
+- A finished run (root ADR 0034, companion ADR 0016) is Done: `RunFacts.finish`, taken from
   the transcript's system event carrying `finish` first (it arrives over the event stream;
   `apply` also copies it onto the row and the held detail and asks for the run), then the
   detail's manifest, then the list. Only a `system` message's finish counts. `rowStatus`
@@ -607,7 +607,7 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
   is 409.
 - `RunSummary.task` is optional: a daemon before it decodes, and the run reads "Run <hash>".
 - `finish` (on `RunSummary`, `RunDetail` and `Message`) is optional and decoded with `try?`:
-  a daemon before root ADR 0031, or a malformed one, reads as not finished, never a failed
+  a daemon before root ADR 0034, or a malformed one, reads as not finished, never a failed
   list. An unknown outcome is `FinishOutcome.unknown` and a malformed ref or time is dropped
   (`RunFinishTests`). Blank ref fields read as absent.
 - `ScrollViewReader.scrollTo` in a `LazyVStack` finds a row it has not built only by its

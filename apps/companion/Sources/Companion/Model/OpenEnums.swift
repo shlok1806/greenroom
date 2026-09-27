@@ -164,7 +164,7 @@ enum LifecycleKind: OpenEnum {
     }
 }
 
-/// How the coding agent ended a run (root ADR 0031, `run_finish`). `verified` needs an
+/// How the coding agent ended a run (root ADR 0034, `run_finish`). `verified` needs an
 /// accepted pass on the run; the daemon refuses it otherwise.
 enum FinishOutcome: OpenEnum {
     case verified, unverified, abandoned

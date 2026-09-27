@@ -28,7 +28,7 @@ type RunSummary struct {
 	// companion draws the run's thumbnail from it (companion ADR 0006, the power-down still)
 	// and fetches the JPEG at /frames/{file}. Read with Frames, so the list costs no more.
 	LastFrame *machine.Frame `json:"lastFrame"`
-	// Finish is how the coding agent ended the run (ADR 0031), explicit null while it has not.
+	// Finish is how the coding agent ended the run (ADR 0034), explicit null while it has not.
 	Finish *session.Finish `json:"finish"`
 }
 

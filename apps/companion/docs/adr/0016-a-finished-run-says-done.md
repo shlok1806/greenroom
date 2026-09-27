@@ -1,12 +1,12 @@
 # 0016. A finished run says Done, and only Verified is green
 
 Date: 2026-09-27
-Status: accepted. Implements root ADR 0031 point 3. Amends 0002 (the colour of a pass
+Status: accepted. Implements root ADR 0034 point 3. Amends 0002 (the colour of a pass
 nobody reviewed) and 0012 (the row's words for a finished run).
 
 ## Context
 
-Root ADR 0031 lets the coding agent end a run with `run_finish`: an outcome (`verified`,
+Root ADR 0034 lets the coding agent end a run with `run_finish`: an outcome (`verified`,
 `unverified`, `abandoned`), a summary and a ref. The daemon puts it on the run list, on
 the run detail (the manifest's `finish`) and on the system event that recorded it. Before
 it, the window could only say "Ended" once the machine was gone, for shipped and abandoned

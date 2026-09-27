@@ -681,7 +681,7 @@ func (m *Manager) SetVerifierTurn(runID string, open bool) {
 }
 
 // VerifierTurnOpen reports whether greenroom's verifier is in a turn on runID right now
-// (SetVerifierTurn). run_finish refuses while it is (ADR 0031).
+// (SetVerifierTurn). run_finish refuses while it is (ADR 0034).
 func (m *Manager) VerifierTurnOpen(runID string) bool { return m.inVerifierTurn(runID) }
 
 func (m *Manager) inVerifierTurn(runID string) bool {

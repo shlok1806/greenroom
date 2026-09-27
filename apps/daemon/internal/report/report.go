@@ -1,4 +1,4 @@
-// Package report builds a run's proof (ADR 0031): the task, how the run finished, the models
+// Package report builds a run's proof (ADR 0034): the task, how the run finished, the models
 // that verified it, and the verdict with every check and its evidence steps, as JSON and as
 // Markdown shaped for a PR body. It reads only the run directory and the conversation, so it
 // answers for a live run and for one whose machine is long gone. run_report, run_finish and
@@ -177,7 +177,7 @@ func task(msgs []session.Message, verdictSeq int) (int, string) {
 	return seq, text
 }
 
-// scope says what the verdict certifies (ADR 0024 point 6, ADR 0031 point 2).
+// scope says what the verdict certifies (ADR 0024 point 6, ADR 0034 point 2).
 func scope(v *Verdict) string {
 	switch {
 	case v == nil:

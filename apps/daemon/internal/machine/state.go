@@ -181,7 +181,7 @@ func (m *Manager) RecordVerdict(runID string, v session.VerdictState) error {
 	return saveManifest(dir, man)
 }
 
-// RecordFinish writes how the run finished into its manifest (ADR 0031), through the live
+// RecordFinish writes how the run finished into its manifest (ADR 0034), through the live
 // recorder if the machine is alive, else directly on disk, like RecordVerdict.
 func (m *Manager) RecordFinish(runID string, f session.Finish) error {
 	if mc, err := m.get(runID); err == nil {

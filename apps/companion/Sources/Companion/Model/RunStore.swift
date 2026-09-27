@@ -416,7 +416,7 @@ final class RunStore: PilotHost {
     func apply(_ event: ServerEvent) -> Followup {
         switch event {
         case .message(let runId, let message):
-            // A finish (root ADR 0031) marks the run Done at once, open or not; the re-read
+            // A finish (root ADR 0034) marks the run Done at once, open or not; the re-read
             // that follows brings the manifest's copy.
             if let finish = message.finish, message.from == .system {
                 if let index = runs.firstIndex(where: { $0.runId == runId }) { runs[index].finish = finish }

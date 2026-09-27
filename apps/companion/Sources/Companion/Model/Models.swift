@@ -136,7 +136,7 @@ struct InputResult: Codable, Hashable, Sendable {
     var step: Int?
 }
 
-/// How a run ended, as the coding agent said with `run_finish` (root ADR 0031): on the run
+/// How a run ended, as the coding agent said with `run_finish` (root ADR 0034): on the run
 /// list, the run detail (from its manifest) and the system event that recorded it. Absent on
 /// an unfinished run and on every run from before it.
 struct RunFinish: Codable, Hashable, Sendable {
@@ -230,7 +230,7 @@ struct Message: Codable, Hashable, Sendable, Identifiable {
     /// Acceptance checks (root ADR 0024): answered on a verdict, declared (id and criterion
     /// only) on the verifier's progress message that plans them. Empty on older messages.
     var checks: [AcceptanceCheck] = []
-    /// On the system event that recorded `run_finish` (root ADR 0031).
+    /// On the system event that recorded `run_finish` (root ADR 0034).
     var finish: RunFinish?
     /// On a verifier reply: the limit its turn stopped at before a verdict (issue #127).
     var stop: StopReason?
@@ -330,7 +330,7 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     /// The newest recorded frame, what the row's thumbnail is drawn from. nil for a run
     /// with none, and from a daemon before it (the row then shows the empty mark).
     var lastFrame: Frame?
-    /// How the coding agent ended the run (root ADR 0031); nil while it has not.
+    /// How the coding agent ended the run (root ADR 0034); nil while it has not.
     var finish: RunFinish?
 
     var id: String { runId }
@@ -396,7 +396,7 @@ struct RunDetail: Codable, Hashable, Sendable, Identifiable {
     var steps = 0
     var machine: Machine?
     var verdict = VerdictState()
-    /// The manifest's `finish` (root ADR 0031).
+    /// The manifest's `finish` (root ADR 0034).
     var finish: RunFinish?
 
     var id: String { runId }

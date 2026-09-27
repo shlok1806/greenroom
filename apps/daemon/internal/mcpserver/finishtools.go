@@ -15,11 +15,11 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
-// errTurnOpen is run_finish's answer while the verifier is in a turn (ADR 0031): a turn is
+// errTurnOpen is run_finish's answer while the verifier is in a turn (ADR 0034): a turn is
 // never cut short, so the coding agent waits for its reply.
 var errTurnOpen = errors.New("the verifier is in a turn on this run; call agent_wait until it replies, then finish")
 
-// addFinishTools adds run_finish and run_report (ADR 0031): how a coding agent ends its job,
+// addFinishTools adds run_finish and run_report (ADR 0034): how a coding agent ends its job,
 // and the run's proof.
 func addFinishTools(s *mcp.Server, mgr *machine.Manager, reg *session.Registry, o options) {
 	links := func(embed bool) report.Links { return report.Links{BaseURL: o.artifactBase, Embed: embed} }

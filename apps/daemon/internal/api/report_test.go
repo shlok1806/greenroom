@@ -8,7 +8,7 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
-// ADR 0031: a finished run says so in the run list and the run detail, from its finish event,
+// ADR 0034: a finished run says so in the run list and the run detail, from its finish event,
 // before the manifest mirror is written; an unfinished one carries an explicit null (list).
 func TestAFinishedRunSaysSoInTheListAndTheDetail(t *testing.T) {
 	h := newHarness(t)

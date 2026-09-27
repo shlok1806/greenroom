@@ -717,7 +717,7 @@ struct RunStatusLine: View {
     @ViewBuilder
     private func phase(now: Date) -> some View {
         if let finish = facts.finish {
-            // Done outranks the machine's phase (root ADR 0031): the work is over even when
+            // Done outranks the machine's phase (root ADR 0034): the work is over even when
             // the coding agent kept the machine.
             StatusText(text: RunFacts.doneText(finish), tone: RunFacts.doneTone(finish), size: TypeScale.monoSmall)
                 .fontWeight(.semibold)
@@ -819,7 +819,7 @@ struct RunStatusLine: View {
     }
 }
 
-/// What the coding agent said when it finished (root ADR 0031): its summary in the reading
+/// What the coding agent said when it finished (root ADR 0034): its summary in the reading
 /// face, then what the work became (branch, commit, PR) in mono. A PR that is an http(s)
 /// URL opens in the browser; every other field is text to select and copy.
 struct FinishNote: View {

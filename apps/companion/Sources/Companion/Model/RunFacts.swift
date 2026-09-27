@@ -54,7 +54,7 @@ struct RunFacts: Equatable, Sendable {
     /// The daemon's verifier still reads this run's conversation. It stops only when the
     /// machine is destroyed (`verifier.Actors`); a failed or lost machine keeps it.
     var verifierListens: Bool
-    /// How the coding agent ended the run (root ADR 0031): Done, whatever the machine does
+    /// How the coding agent ended the run (root ADR 0034): Done, whatever the machine does
     /// next. nil for a run it has not finished, and for every run from before `run_finish`.
     var finish: RunFinish? = nil
     /// The verifier's last turn stopped at a limit and nothing has followed it (issue
@@ -218,7 +218,7 @@ extension RunFacts {
             if let stoppedAt { return ("Stopped, \(LimitStop.short(stoppedAt))", .attention) }
             return (why.contains("question") ? "Question for you" : "Needs you", .attention)
         }
-        // A finished run is Done, whether its machine is gone or kept (root ADR 0031). Only
+        // A finished run is Done, whether its machine is gone or kept (root ADR 0034). Only
         // something waiting on the person (above) says more.
         if let finish { return (Self.doneText(finish), Self.doneTone(finish)) }
         switch phase {
@@ -258,7 +258,7 @@ extension RunFacts {
     }
 
     /// Only a verified finish (an accepted pass on this run) earns the pass colour; the rest
-    /// are neutral (root ADR 0031, companion ADR 0016).
+    /// are neutral (root ADR 0034, companion ADR 0016).
     static func doneTone(_ finish: RunFinish) -> Tone {
         finish.outcome == .verified ? .pass : .done
     }
