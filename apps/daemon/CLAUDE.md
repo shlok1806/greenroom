@@ -30,12 +30,14 @@ go run . connect -check                          # prints "ok: <url> (<n> tools)
 go run . bench run -split dev [-case a,b] [-kind mutant] [-tier simple] [-trials 3] [-out f.jsonl]   # ADR 0025; real VMs and the model
 go run . bench score [-tier simple] [-bench dir] <results.jsonl>   # writes <results>.md
 
-scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
+scripts/install.sh [-rebuild] [-dry-run]   # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
                         # image default: local greenroom-lean-a, then greenroom-base, then upstream Cirrus
+                        # then checks those images (image-status) and prints, or with -rebuild runs, the rebuild
                         # stamps the build (ADR 0033) and records the checkout as GREENROOM_CHECKOUT in the plist
                         # unset GREENROOM_* reuse the replaced job's settings (scripts/install-settings.sh)
 ../../scripts/update.sh [--check]   # fast-forward main, install.sh, then the Companion's install.sh (ADR 0033)
 go run . version                # "greenroom 0.0.2 abc1234 (local changes), built <time>", or "unstamped build"
+go run . image-status [-image a,b] [-rebuild-args]   # local images' input helper and recipe against this daemon's (#159)
 scripts/uninstall.sh    # keeps the binary and ~/.greenroom
 scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-lean] [-force] [-xcode <app>] [-disk-size 90]   # ends with check-image
 ```
@@ -159,6 +161,11 @@ Each layer depends only on the ones below. Keep it that way.
 - `internal/tart` - the only package that knows tart's arguments and output.
 - `internal/tarball` - unpacking an untrusted gzipped tar (`Untar`); used by `api` and
   `remote`, imports nothing of the daemon's.
+- `internal/diskimage` - a stopped VM's raw disk read on the host (`MountReadOnly`): a
+  clonefile copy attached read-only with `hdiutil -nomount`, only its APFS Data volume
+  mounted, read-only and `nobrowse`; `Close` unmounts, detaches and removes it. Shells out to
+  `hdiutil`, `diskutil` and `plutil` only; imports nothing of the daemon's. Its test makes a
+  real raw APFS image with `hdiutil create -format UDTO`.
 - `internal/buildinfo` - the build's identity (ADR 0033): `commit`, `dirty` and `builtAt`, set only
   by `install.sh` through `-ldflags -X .../internal/buildinfo.<name>=`. Unstamped (`go run`, tests)
   is empty, never a guess from `debug.ReadBuildInfo`. Renaming a var breaks the stamp silently:
@@ -284,6 +291,13 @@ Boot and lifecycle
   screen lock off (a sleeping guest display makes every capture black, with no error).
   Also never fatal. `prepare-image`
   bakes both with the same scripts, so build time and boot time cannot disagree.
+- Image drift (issue #159, `machine/drift.go`, `imagestatus.go`): `greenroom image-status` reads
+  each default image's disk while it is stopped (never a running one) and judges it by the
+  helpers under `Users/*/.greenroom/bin` and the manifest at `ToolchainPath` on the Data
+  volume: stale unless it has `greenroom-input-<inputHelperVersion>` and recipe
+  `imageRecipeVersion`. Unlike boot's `staleRecipe`, no manifest counts as stale here: the
+  default images are always greenroom-built. `RebuildArgs` keeps the lean profile for
+  `greenroom-lean*`. It reports and exits 0; `install.sh` acts on `-rebuild-args`.
 - `finishBoot` writes the step before closing `ready`. `manifest.json` is written by
   temp file and rename.
 - A run's `models` (manifest and `Machine`) is what `Manager.SetModels` held when `Create` ran:
