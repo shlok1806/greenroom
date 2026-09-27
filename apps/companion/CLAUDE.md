@@ -633,6 +633,11 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
 - `ScrollViewReader.scrollTo` in a `LazyVStack` finds a row it has not built only by its
   `ForEach` identity (Steps: the `Step`), never by an `.id` set inside the row. Scroll to
   the identity first, then to the inner id once the row exists (`StepsView.reveal`).
+- A lazy stack must not nest a `ForEach` per section when an item can move between
+  sections (issue #162). The runs list did: a run that went from Running to its day kept
+  drawing an old row there, stale (selected fill, "Live") beside the new selection. Both run
+  lists are one flat `ForEach` keyed by run id (`SidebarView.ListItem`, `RunsStrip.Item`);
+  `HostedViewTests` counts the selected fills after such a move.
 - `ScreenView` claims SwiftUI focus a turn after it appears (`Task`), once the layout has
   placed it: claimed at once it was dropped and the window gave the keyboard to the run
   search. `StepsView` beside the screen does not claim (`claimsFocus`): two claims cancel.

@@ -172,6 +172,64 @@ final class HostedViewTests: XCTestCase {
                              "the list stayed at \(scroll.documentVisibleRect) of \(document)")
     }
 
+    // MARK: - #162 two rows looked selected after a run changed section
+
+    /// Tall bands in a one-pixel column of `view` that differ from its ground: in the runs
+    /// list, just inside a row's left edge, only a selected row's fill paints there.
+    private func filledBands(_ view: NSView, x: CGFloat) throws -> Int {
+        let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+        let column = Int(x * scale)
+        let ground = try XCTUnwrap(rep.colorAt(x: 1, y: rep.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
+        var bands = 0, run = 0
+        for y in 0..<rep.pixelsHigh {
+            guard let color = rep.colorAt(x: column, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+            let difference = max(abs(color.redComponent - ground.redComponent),
+                                 abs(color.greenComponent - ground.greenComponent),
+                                 abs(color.blueComponent - ground.blueComponent))
+            if difference > 0.15 {
+                run += 1
+            } else {
+                if run > Int(24 * scale) { bands += 1 }
+                run = 0
+            }
+        }
+        return bands + (run > Int(24 * scale) ? 1 : 0)
+    }
+
+    /// #162, seen by the maintainer: run A was open while live (under Running), its
+    /// machine went away (it moved to its day) and run B was opened. The lazy list drew A's
+    /// first row, stale, under its day: filled as selected and "Live" beside B's. Exactly
+    /// one row may look selected, and A reads as ended.
+    func testOpeningAnotherRunAfterOneEndsLeavesOneRowSelected() async throws {
+        let at = { (minutes: Double) in Date(timeIntervalSince1970: 1_000_000 - minutes * 60) }
+        let store = RunStore()
+        var a = RunSummary(runId: "20260926-231011-600cf88cfbdbcba8", createdAt: at(60), status: .ready,
+                           verdict: VerdictState(seq: 9, verdict: "pass", status: .accepted, acceptedBy: .human),
+                           lastActivity: Date(), task: "Please verify a Greenroom Companion change")
+        let b = RunSummary(runId: "20260927-000233-acbc2b008dfc6a8f", createdAt: at(10), status: .ready,
+                           lastActivity: Date(), task: "Check the transcript fix")
+        let others = (1...4).map { index in
+            RunSummary(runId: "20260926-10000\(index)-00000000000000\(index)0", createdAt: at(Double(200 + index)), destroyedAt: at(Double(190 + index)),
+                       status: .finished, task: "Older run \(index)")
+        }
+        store.runs = [b, a] + others
+        store.selectedRunId = a.runId
+        let window = host(SidebarView(store: store).frame(width: 280, height: 700), size: CGSize(width: 280, height: 700))
+        try await settle()
+        let list = try XCTUnwrap(window.contentView)
+        XCTAssertEqual(try filledBands(list, x: 11), 1, "A open: one selected row")
+
+        // A's machine goes away, and the person opens B.
+        a.status = .finished
+        a.destroyedAt = Date()
+        store.runs = [b, a] + others
+        store.selectedRunId = b.runId
+        try await settle()
+        XCTAssertEqual(try filledBands(list, x: 11), 1, "two rows look selected")
+    }
+
     // MARK: - #65 Shift-Return in the composer
 
     private func textView(in view: NSView) -> NSView? {

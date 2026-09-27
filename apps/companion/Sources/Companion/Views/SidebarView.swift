@@ -45,12 +45,17 @@ struct SidebarView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(sections) { section in
-                                SectionLabel(title: section.title, count: section.pinned ? section.runs.count : nil)
-                                    .padding(.horizontal, Space.s)
-                                    .padding(.top, Space.l)
-                                    .padding(.bottom, Space.xs)
-                                ForEach(shown(section)) { run in
+                            // One flat ForEach keyed by run id (issue #162): nested per section,
+                            // a run moving to another section (live, then ended) kept its old
+                            // row drawn there, stale, selected fill and all.
+                            ForEach(items(sections)) { item in
+                                switch item {
+                                case .label(let section):
+                                    SectionLabel(title: section.title, count: section.pinned ? section.runs.count : nil)
+                                        .padding(.horizontal, Space.s)
+                                        .padding(.top, Space.l)
+                                        .padding(.bottom, Space.xs)
+                                case .run(let run):
                                     RunRow(
                                         run: run,
                                         // Twins are told apart by a mark under the title, never
@@ -64,9 +69,7 @@ struct SidebarView: View {
                                         store.selectedRunId = run.runId
                                         onOpen()
                                     }
-                                    .id(run.runId)
-                                }
-                                if section.pinned, section.runs.count > Self.pinnedShown, query.isEmpty {
+                                case .more(let section):
                                     Button(showsAllPinned.contains(section.title)
                                            ? "Show fewer"
                                            : "Show all \(section.runs.count)") {
@@ -205,6 +208,29 @@ struct SidebarView: View {
             Chrome.timeOfDay(run.createdAt), run.verdict?.verdict ?? "", run.task ?? "",
         ]
         .contains { $0.lowercased().contains(needle) }
+    }
+
+    /// The list's rows in order, flat: each section's label, its runs as shown, and its
+    /// "Show all" when it folds. A run's identity is its id alone, wherever it sits.
+    fileprivate enum ListItem: Identifiable {
+        case label(RunSection)
+        case run(RunSummary)
+        case more(RunSection)
+
+        var id: String {
+            switch self {
+            case .label(let section): "label " + section.title
+            case .run(let run): run.runId
+            case .more(let section): "more " + section.title
+            }
+        }
+    }
+
+    fileprivate func items(_ sections: [RunSection]) -> [ListItem] {
+        sections.flatMap { section -> [ListItem] in
+            let folds = section.pinned && section.runs.count > Self.pinnedShown && query.isEmpty
+            return [.label(section)] + shown(section).map(ListItem.run) + (folds ? [.more(section)] : [])
+        }
     }
 
     fileprivate struct RunSection: Identifiable {
@@ -393,11 +419,12 @@ struct RunsStrip: View {
                 .padding(.bottom, Space.s)
                 ScrollView {
                     LazyVStack(spacing: Space.xs) {
-                        ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
-                            if index > 0 {
+                        // Flat and keyed by run id, as the list is (issue #162).
+                        ForEach(Self.items(sections)) { item in
+                            switch item {
+                            case .gap:
                                 Hairline().frame(width: 16).padding(.vertical, Space.xs)
-                            }
-                            ForEach(section.runs) { run in
+                            case .mark(let run):
                                 StripMark(
                                     title: titles[run.runId] ?? RunTitle.short(task: run.task, runId: run.runId),
                                     status: store.facts(run.runId, now: tick.date).rowStatus(now: tick.date),
@@ -416,6 +443,27 @@ struct RunsStrip: View {
         }
         .ground(.chrome)
         .background(theme.chromeTint)
+    }
+}
+
+extension RunsStrip {
+    /// The strip's marks in order, a gap before each section after the first.
+    fileprivate enum Item: Identifiable {
+        case gap(String)
+        case mark(RunSummary)
+
+        var id: String {
+            switch self {
+            case .gap(let section): "gap " + section
+            case .mark(let run): run.runId
+            }
+        }
+    }
+
+    fileprivate static func items(_ sections: [SidebarView.RunSection]) -> [Item] {
+        sections.enumerated().flatMap { index, section -> [Item] in
+            (index > 0 ? [.gap(section.id)] : []) + section.runs.map(Item.mark)
+        }
     }
 }
 
