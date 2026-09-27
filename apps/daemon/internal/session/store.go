@@ -106,8 +106,18 @@ func (s *Store) Append(m Message) (Message, error) {
 	if err := s.checkReplyLocked(m); err != nil {
 		return Message{}, err
 	}
+	if m.Finish != nil {
+		if err := s.finishRefusalLocked(m); err != nil {
+			return Message{}, err
+		}
+	}
 	m.Seq = len(s.msgs) + 1
 	m.At = time.Now().UTC()
+	if m.Finish != nil {
+		f := *m.Finish // the caller's copy stays as it was
+		f.At = m.At
+		m.Finish = &f
+	}
 	line, err := json.Marshal(m)
 	if err != nil {
 		return Message{}, err

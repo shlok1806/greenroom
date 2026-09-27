@@ -21,6 +21,7 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/api"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/mcpserver"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/report"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/verifier"
@@ -175,8 +176,11 @@ func serveUntil(ctx context.Context, args []string) error {
 	if kind == "" {
 		kind = strings.ToLower(strings.TrimSpace(os.Getenv("GREENROOM_VERIFIER")))
 	}
+	// Which models verify this daemon's runs, for run reports (ADR 0031). Empty: no verifier.
+	var models report.Models
 	switch kind {
 	case "manual":
+		models = report.Models{Brain: "manual"}
 		bridgeLifecycle(mgr, reg, true)
 		_ = verifier.NewActors(verifier.NewManual(mgr, log), mgr, reg, verifier.WithLogger(log))
 		log.Info("verifier enabled", "brain", "manual")
@@ -193,6 +197,7 @@ func serveUntil(ctx context.Context, args []string) error {
 			return err
 		}
 		_ = verifier.NewActors(v, mgr, reg, verifier.WithLogger(log))
+		models = report.Models{Brain: v.Model(), Vision: visionModel(os.Getenv("GREENROOM_VISION_MODEL"))}
 		log.Info("verifier enabled", "brain", "nim", "model", v.Model(), "vision", visionModel(os.Getenv("GREENROOM_VISION_MODEL")))
 	default:
 		return fmt.Errorf("unknown -verifier %q: want nim or manual", kind)
@@ -203,7 +208,7 @@ func serveUntil(ctx context.Context, args []string) error {
 	// the root lock with it (issue #98).
 	baseCtx, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
-	httpServer := &http.Server{Addr: o.addr, Handler: routes(mgr, reg, o.image, o.publicHost, token, o.dist, log), ReadHeaderTimeout: 10 * time.Second,
+	httpServer := &http.Server{Addr: o.addr, Handler: routes(mgr, reg, o.image, o.publicHost, token, o.dist, models, log), ReadHeaderTimeout: 10 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return baseCtx }}
 	httpServer.RegisterOnShutdown(cancelRequests)
 
@@ -245,10 +250,12 @@ func nimVerifier(mgr *machine.Manager, maxSteps int, budget time.Duration, log *
 
 // routes is the daemon's whole HTTP surface. Loopback needs no token, so nothing a web page can
 // reach gets through; publicHost (tunnel traffic) needs token on everything but the install files.
-func routes(mgr *machine.Manager, reg *session.Registry, image, publicHost, token, dist string, log *slog.Logger) http.Handler {
+func routes(mgr *machine.Manager, reg *session.Registry, image, publicHost, token, dist string, models report.Models, log *slog.Logger) http.Handler {
 	// A call through the public host gets its own server, whose tools never write where the
-	// caller names on this host (machine_pull's dest, ADR 0022). Guard marks those requests.
-	local, public := mcpserver.New(mgr, image, reg), mcpserver.New(mgr, image, reg, mcpserver.ForPublicHost())
+	// caller names on this host (machine_pull's dest, ADR 0022) and whose reports link through
+	// the artifact route there (ADR 0031). Guard marks those requests.
+	local := mcpserver.New(mgr, image, reg, mcpserver.WithModels(models))
+	public := mcpserver.New(mgr, image, reg, mcpserver.ForPublicHost(publicHost), mcpserver.WithModels(models))
 	server := func(r *http.Request) *mcp.Server {
 		if api.FromPublicHost(r.Context()) {
 			return public
@@ -264,7 +271,7 @@ func routes(mgr *machine.Manager, reg *session.Registry, image, publicHost, toke
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprintf(w, "ok %d machines\n", len(mgr.List()))
 	})
-	mux.Handle("/api/", api.New(mgr, reg, log))
+	mux.Handle("/api/", api.New(mgr, reg, log, api.WithModels(models)))
 	install := api.Dist(dist)
 	mux.Handle("GET /install.sh", install)
 	mux.Handle("GET /dl/{file}", install)

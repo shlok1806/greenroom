@@ -180,3 +180,18 @@ func (m *Manager) RecordVerdict(runID string, v session.VerdictState) error {
 	man.Verdict = &v
 	return saveManifest(dir, man)
 }
+
+// RecordFinish writes how the run finished into its manifest (ADR 0031), through the live
+// recorder if the machine is alive, else directly on disk, like RecordVerdict.
+func (m *Manager) RecordFinish(runID string, f session.Finish) error {
+	if mc, err := m.get(runID); err == nil {
+		return mc.rec.update(func(man *Manifest) { man.Finish = &f })
+	}
+	dir := m.RunDir(runID)
+	man, err := ReadManifest(dir)
+	if err != nil {
+		return err
+	}
+	man.Finish = &f
+	return saveManifest(dir, man)
+}

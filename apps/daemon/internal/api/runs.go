@@ -28,6 +28,8 @@ type RunSummary struct {
 	// companion draws the run's thumbnail from it (companion ADR 0006, the power-down still)
 	// and fetches the JPEG at /frames/{file}. Read with Frames, so the list costs no more.
 	LastFrame *machine.Frame `json:"lastFrame"`
+	// Finish is how the coding agent ended the run (ADR 0031), explicit null while it has not.
+	Finish *session.Finish `json:"finish"`
 }
 
 // Statuses of a run with no live machine; a live one reports its machine.Status.
@@ -80,6 +82,7 @@ func (a *api) summary(runID string, mc *machine.Machine) RunSummary {
 	if man, err := machine.ReadManifest(a.mgr.RunDir(runID)); err == nil {
 		s.CreatedAt, s.DestroyedAt, s.Image = man.CreatedAt, man.DestroyedAt, man.Image
 		s.IP, s.Verdict, s.Status = man.IP, man.Verdict, statusFinished
+		s.Finish = man.Finish
 	}
 	// Count steps.jsonl: manifest.Steps is a high-water mark, and the list must agree with /steps.
 	steps := a.stepLog(runID)
@@ -109,6 +112,9 @@ func (a *api) summary(runID string, mc *machine.Machine) RunSummary {
 		if v := store.Verdict(); v.Status != session.None {
 			s.Verdict = &v
 		}
+		if f := store.Finished(); f != nil {
+			s.Finish = f // the conversation is the record; the manifest mirrors it
+		}
 	}
 	return s
 }
@@ -130,6 +136,9 @@ func (a *api) runDetail(w http.ResponseWriter, _ *http.Request, id string) {
 	if store, err := a.reg.Get(id); err == nil {
 		if v := store.Verdict(); v.Status != session.None {
 			d.Verdict = &v
+		}
+		if f := store.Finished(); f != nil {
+			d.Finish = f
 		}
 	}
 	writeJSON(w, http.StatusOK, d)

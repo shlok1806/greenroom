@@ -256,7 +256,7 @@ struct Theme: Equatable, Sendable {
         case .failure: color(.failure, on: ground)
         case .attention: color(.attention, on: ground)
         case .live: color(.live, on: ground)
-        case .neutral, .unsure: foreground
+        case .neutral, .unsure, .done: foreground
         case .quiet: dim(on: ground)
         }
     }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/report"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
@@ -25,7 +26,7 @@ func TestRoutesRefuseWhatAWebPageCanSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", "", "", t.TempDir(), log))
+	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", "", "", t.TempDir(), report.Models{}, log))
 	t.Cleanup(ts.Close)
 
 	const initialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
@@ -75,7 +76,7 @@ func TestRoutesServeMCPToThePublicHostWithTheToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	const public, token = "gr.example.com", "0123456789abcdef0123456789abcdef"
-	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, t.TempDir(), log))
+	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, t.TempDir(), report.Models{}, log))
 	t.Cleanup(ts.Close)
 
 	const initialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
@@ -131,7 +132,7 @@ func TestRoutesServeTheInstallFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	const public, token = "gr.example.com", "0123456789abcdef0123456789abcdef"
-	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, dist, log))
+	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, dist, report.Models{}, log))
 	t.Cleanup(ts.Close)
 
 	for _, tc := range []struct {

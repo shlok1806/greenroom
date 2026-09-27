@@ -43,6 +43,12 @@ type harness struct {
 // and connects a real MCP client. No VM is involved.
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newHarnessWith(t)
+}
+
+// newHarnessWith is newHarness with the server built with opts.
+func newHarnessWith(t *testing.T, opts ...Option) *harness {
+	t.Helper()
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
 	mgr, err := machine.NewManager(root, slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -63,7 +69,7 @@ func newHarness(t *testing.T) *harness {
 	// Tests play the verifier by appending to the store directly.
 	reg := session.NewRegistry(mgr.Root, 2)
 	mgr.SetMessageActivity(reg.LastMessageAt) // as main wires it
-	server := New(mgr, defaultImage, reg)
+	server := New(mgr, defaultImage, reg, opts...)
 	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true},
@@ -157,7 +163,7 @@ func TestServerExposesExactlyItsTools(t *testing.T) {
 		"machine_create": false, "machine_wait": false, "machine_list": false,
 		"machine_sync": false, "machine_pull": false, "machine_exec": false, "machine_exec_wait": false, "machine_screenshot": false,
 		"machine_destroy": false, "machine_approve_capture": false,
-		"agent_send": false, "agent_wait": false, "agent_transcript": false,
+		"agent_send": false, "agent_wait": false, "agent_transcript": false, "run_finish": false, "run_report": false,
 		"machine_click": false, "machine_type": false, "machine_key": false,
 		"machine_scroll": false, "machine_input": false, "machine_ui": false,
 		"machine_session_start": false, "machine_session_send": false,

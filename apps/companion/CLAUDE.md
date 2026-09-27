@@ -11,7 +11,7 @@ moments, click marks), `0007` (the dependency allowlist), `0008` (readable type 
 olive brand, amending 0004's type and colour decisions), `0009` (transcript cards and
 the Markdown renderer), `0010` (run thumbnails from the last frame, superseded by
 `0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict), `0013` (one
-primary in the top bar, Give Back on the driving bar) and `0014` (evidence marks on the picture). Design: `docs/design-spec.md`
+primary in the top bar, Give Back on the driving bar), `0014` (evidence marks on the picture) and `0015` (a finished run says Done, only Verified is green). Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -60,6 +60,8 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   default `light,dark`) picks the themes, named in each file (`<scenario>-<theme>-<size>`).
   The harness keeps its settings in the argument domain (`HarnessDefaults`), so two runs
   at once never read each other's theme or pane (they share one defaults domain).
+  Scenarios 46 to 48 seed `run_finish` (root ADR 0031) onto the pass, fail and input runs
+  (`makeFinished`: the finish on the row and detail, the event before "machine destroyed").
   Scenarios 41 to 45 are verifier bench verdicts exactly as recorded: copy
   `~/.greenroom/bench/runs` and `~/.greenroom/bench-0027/runs` into the daemon's root
   (`cp -cR`, an APFS clone, costs no disk).
@@ -354,6 +356,17 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   0012): a waiting verdict leads with its outcome, `Fail, needs review`. Rows have no
   thumbnail (0012 supersedes 0010). `RunTitle.distinct` (the time appended to twins) is for
   places without the row's time, never the row.
+- A finished run (root ADR 0031, companion ADR 0015) is Done: `RunFacts.finish`, taken from
+  the transcript's system event carrying `finish` first (it arrives over the event stream;
+  `apply` also copies it onto the row and the held detail and asks for the run), then the
+  detail's manifest, then the list. Only a `system` message's finish counts. `rowStatus`
+  says `Done, verified` (pass, `✓`) or `Done, unverified` / `Done, abandoned` (tone `done`:
+  foreground, `■`) unless something waits on the person, which still leads the row. The
+  header's status line says the same, then `FinishNote`: the summary, then the ref
+  (`FinishNote.refParts`: branch, commit, PR; only an http(s) PR opens, through `openURL`).
+  The phase is untouched, so a kept machine stays live or idle; an idle finished run shows
+  no idle actions. Verified is green even when the coding agent accepted the pass: the
+  daemon checked it; the verdict card still says nobody reviewed it.
 - The verdict's Accept and Dispute live only in `VerdictCard`, pinned above the
   conversation (or above the stage when the conversation is hidden or has no room). A
   narrow window keeps it with the conversation, one pane away; `a` and `d` bring the
@@ -363,7 +376,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   reviewed it. The transcript shows the live verdict as one line, never a second card.
 - Each colour means one thing: the roles above, through `Theme.color(_:on:)`,
   `tone(_:on:)` and `outcome(_:on:)`. Booting and offline carry none. Every state is also
-  a glyph and a word (`StatusText`: `●` live, `!` needs you, `✓` pass, `✗` failure, the
+  a glyph and a word (`StatusText`: `●` live, `!` needs you, `✓` pass, `✗` failure, `■` done (ADR 0015), the
   tick while working), and the words are one vocabulary (ADR 0003): the sidebar's
   `rowStatus` and the card's `VerdictReview.state` must say the same thing.
 - A verdict's actions are only the ones the daemon's session rules accept. When it
@@ -583,6 +596,10 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
   explicit `null`. Errors are `{"error": "..."}`; a message refused on a contested verdict
   is 409.
 - `RunSummary.task` is optional: a daemon before it decodes, and the run reads "Run <hash>".
+- `finish` (on `RunSummary`, `RunDetail` and `Message`) is optional and decoded with `try?`:
+  a daemon before root ADR 0031, or a malformed one, reads as not finished, never a failed
+  list. An unknown outcome is `FinishOutcome.unknown` and a malformed ref or time is dropped
+  (`RunFinishTests`). Blank ref fields read as absent.
 - `ScrollViewReader.scrollTo` in a `LazyVStack` finds a row it has not built only by its
   `ForEach` identity (Steps: the `Step`), never by an `.id` set inside the row. Scroll to
   the identity first, then to the inner id once the row exists (`StepsView.reveal`).

@@ -1,0 +1,69 @@
+{
+  "runId": "20260926-231011-600cf88cfbdbcba8",
+  "image": "greenroom-base-v7-r2",
+  "machineName": "greenroom-20260926-231011-600cf88cfbdbcba8",
+  "ip": "192.168.64.3",
+  "createdAt": "2026-09-26T23:10:11.655877Z",
+  "destroyedAt": "2026-09-26T23:56:24.303701Z",
+  "steps": 113,
+  "verdict": {
+    "seq": 91,
+    "verdict": "pass",
+    "summary": "All three checks pass with screenshot evidence (step 107). The stop card shows the Continue button replaced by \"You continued it at 18:39, below\", a \"You\" message \"Continue.\", and the verifier's \"Instructions, one per line...\" reply. The runs-list row reads \"No verdict\" without \"out of time\". The hint bar has no \"C continue\" entry.",
+    "evidence": [
+      "/Users/you/.greenroom/runs/20260926-231011-600cf88cfbdbcba8/107-screenshot.png"
+    ],
+    "checks": [
+      {
+        "id": "run-b-card-after",
+        "criterion": "Run B's stop card shows button gone, reads \"You continued it at 18:39, below\"; under it a message from \"You\" reads \"Continue.\", and under that the verifier's reply starts \"Instructions, one per line\"",
+        "kinds": [
+          "visual"
+        ],
+        "status": "pass",
+        "evidence": [
+          103,
+          107
+        ],
+        "actions": [
+          98,
+          101
+        ],
+        "observed": "Run B's stop card shows \"You continued it at 18:39, below\", a message \"You 18:39\" with \"Continue.\", and the verifier reply \"Verifier 18:39\" starting \"Instructions, one per line, case-insensitive first word:\". The Continue button is gone."
+      },
+      {
+        "id": "run-b-row-after",
+        "criterion": "Run B's row in the runs list reads \"No verdict\" without \"out of time\"",
+        "kinds": [
+          "value"
+        ],
+        "status": "pass",
+        "evidence": [
+          107
+        ],
+        "actions": [
+          104
+        ],
+        "observed": "Run B's folded row in the screenshot reads \"I added a Longest word line to WordCount ... No verdict\" with no \"out of time\"."
+      },
+      {
+        "id": "run-b-hint-gone",
+        "criterion": "The hint bar at the bottom of the window has no \"C continue\" entry",
+        "kinds": [
+          "value"
+        ],
+        "status": "pass",
+        "evidence": [
+          107
+        ],
+        "actions": [
+          104
+        ],
+        "observed": "The hint bar in the screenshot shows \"The machine is gone. The verifier answers from the record.\" with no \"C continue\" entry."
+      }
+    ],
+    "status": "accepted",
+    "acceptedBy": "coder",
+    "disputes": 1
+  }
+}

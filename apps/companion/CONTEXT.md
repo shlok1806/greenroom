@@ -15,6 +15,10 @@ are in the root `CONTEXT-MAP.md`.
 - **Phase**: booting, live, idle, ended or failed. **Idle** is a ready machine with no step
   or message for 5 minutes. **Ended** says how: destroyed by you, destroyed by the coding
   agent, or machine lost (its VM stopped under the run).
+- **Done**: a run the coding agent finished with `run_finish` (root ADR 0031), with its
+  **outcome**: `Verified` (an accepted pass on this run), `Unverified` or `Abandoned`, a
+  summary and a ref (branch, commit, PR). Done outranks the phase; the machine may still
+  be up. A run with no finish, every run from before it included, is not finished.
 - **Needs you**: a question from the verifier, a proposed verdict to review, or a
   contested one. Pinned at the top of the sidebar.
 - **Failure**: a step whose tool call failed (its output is not a result) or whose command
