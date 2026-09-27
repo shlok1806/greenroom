@@ -209,4 +209,14 @@ final class RunLayoutTests: XCTestCase {
         }
         return store
     }
+
+    /// Details unfolded with a long task scroll past a share of the column, so the stage
+    /// keeps its room in a 768-point window; short details take only their own height.
+    func testTheUnfoldedDetailsScrollPastAShareOfTheColumn() {
+        XCTAssertEqual(RunLayout.unfoldedDetails(natural: 150, column: 650), 150)
+        XCTAssertEqual(RunLayout.unfoldedDetails(natural: 900, column: 650), 216)
+        XCTAssertEqual(RunLayout.unfoldedDetails(natural: nil, column: 650), 216)
+        XCTAssertEqual(RunLayout.unfoldedDetails(natural: 900, column: 200), RunLayout.unfoldedLeast)
+        XCTAssertEqual(RunLayout.unfoldedDetails(natural: 900, column: 0), RunLayout.unfoldedLeast)
+    }
 }

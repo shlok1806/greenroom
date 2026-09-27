@@ -184,6 +184,10 @@ Each layer depends only on the ones below. Keep it that way.
 - The host's VM limit counts the daemon's machines too. `Runner.create` waits while `Create`
   fails with "host is at its limit" (a string match on `checkHostCapacity`'s error; change
   both together).
+- Each result records `models` (`machine.Models`: brain, reasoning model, describer and the
+  options their requests carry) beside the older `model` (issue #154). `bench score` names
+  each brain and describer in its header (`modelsLabel`; a result without `models` says
+  "describer not recorded", never a guess) and adds a By models table when a file mixes them.
 - Results are JSON lines, one per case and trial, appended when a trial ends. A rerun with
   the same `-out` skips recorded pairs except `setup_error`. A trial cut short by a signal is
   never recorded. Model errors, timeouts and setup errors are their own endings and never
@@ -282,6 +286,10 @@ Boot and lifecycle
   bakes both with the same scripts, so build time and boot time cannot disagree.
 - `finishBoot` writes the step before closing `ready`. `manifest.json` is written by
   temp file and rename.
+- A run's `models` (manifest and `Machine`) is what `Manager.SetModels` held when `Create` ran:
+  serve and bench set it once, from `Verifier.Models` (or `manual`/`none`), before any run.
+  The options come from `nim.ChatOptions`/`nim.DescribeOptions`, the same maps the requests
+  are built from, so a new request field is recorded without anyone remembering to.
 - `waitReady` watches `tart run`'s process; if it exits, fail at once with the tail of
   `vm.log`. `watchProcess` does the same after ready; a reattached machine has no process,
   so it polls `tart list` every `WithVMPollInterval` (15 s) instead.
@@ -819,7 +827,7 @@ Values already set in the environment win.
 | `NVIDIA_API_KEY` | none | Without it the `nim` verifier is off; machine tools still work. |
 | `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint. |
 | `GREENROOM_VERIFIER_MODEL` | none, required with a key | Model for verifier turns. |
-| `GREENROOM_VISION_MODEL` | `meta/muse-glimmer-30b` | Model that describes screenshots for the verifier (ADR 0032). `none`: the verifier works without seeing the screen. Other describers (kimi-k3, omni) still work by name; see below. |
+| `GREENROOM_VISION_MODEL` | `meta/muse-glimmer-30b` | Model that describes screenshots for the verifier (ADR 0032). `none`: the verifier works without seeing the screen. Other describers (kimi-k3, omni) still work by name; see below. Any value but the default makes `serve` and `bench run` log a warning at start naming both (`warnDescriberOverride`, issue #154). |
 | `GREENROOM_TART` | none | tart binary, see below. `-tart` overrides. |
 | `GREENROOM_PUBLIC_HOST` | none | Tunnel hostname that may reach the daemon with the token (ADR 0021). `-public-host` overrides. |
 | `GREENROOM_TOKEN` | none | Bearer token for the public host, at least 32 characters (`openssl rand -hex 32`). |

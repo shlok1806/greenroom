@@ -95,6 +95,7 @@ func (m *Manager) reattachManifest(mc *Machine) Manifest {
 	if saved, err := ReadManifest(mc.Dir); err == nil {
 		man.Steps = saved.Steps
 		man.Verdict = saved.Verdict
+		man.Models = saved.Models
 		if !saved.CreatedAt.IsZero() {
 			man.CreatedAt = saved.CreatedAt
 		}

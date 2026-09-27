@@ -28,6 +28,8 @@ type RunSummary struct {
 	// companion draws the run's thumbnail from it (companion ADR 0006, the power-down still)
 	// and fetches the JPEG at /frames/{file}. Read with Frames, so the list costs no more.
 	LastFrame *machine.Frame `json:"lastFrame"`
+	// Models is who verifies the run, from its manifest (issue #154); absent in older runs.
+	Models *machine.Models `json:"models,omitempty"`
 }
 
 // Statuses of a run with no live machine; a live one reports its machine.Status.
@@ -79,7 +81,7 @@ func (a *api) summary(runID string, mc *machine.Machine) RunSummary {
 	s := RunSummary{RunID: runID, Status: statusFailed}
 	if man, err := machine.ReadManifest(a.mgr.RunDir(runID)); err == nil {
 		s.CreatedAt, s.DestroyedAt, s.Image = man.CreatedAt, man.DestroyedAt, man.Image
-		s.IP, s.Verdict, s.Status = man.IP, man.Verdict, statusFinished
+		s.IP, s.Verdict, s.Status, s.Models = man.IP, man.Verdict, statusFinished, man.Models
 	}
 	// Count steps.jsonl: manifest.Steps is a high-water mark, and the list must agree with /steps.
 	steps := a.stepLog(runID)

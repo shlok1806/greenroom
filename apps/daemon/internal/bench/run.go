@@ -39,7 +39,8 @@ type Config struct {
 	Trials   int    // per case; default 3
 	Out      string // results file, appended to; pairs already in it are skipped
 	Image    string
-	Model    string // recorded with each result
+	Model    string          // the reasoning model, recorded with each result
+	Models   *machine.Models // the brain, describer and request options, recorded with each result (issue #154)
 
 	Parallel int // machines at once; default 2, Apple's limit
 
@@ -258,7 +259,7 @@ func orElse(s, fallback string) string {
 func (r *Runner) runTrial(ctx context.Context, c Case, trial int) (res Result) {
 	res = Result{Case: c.ID, Trial: trial, App: c.App, Kind: c.Kind, Family: c.Family, Split: c.Split, Tier: c.Tier,
 		Expected: c.Expected, MustCheck: c.MustCheck, Infra: c.InfraType(), Image: r.cfg.Image, Model: r.cfg.Model,
-		StartedAt: time.Now().UTC()}
+		Models: r.cfg.Models, StartedAt: time.Now().UTC()}
 	setupFailed := func(format string, args ...any) Result {
 		res.Ending = EndSetupError
 		res.Error = fmt.Sprintf(format, args...)

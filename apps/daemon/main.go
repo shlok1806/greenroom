@@ -183,6 +183,7 @@ func serveUntil(ctx context.Context, args []string) error {
 	case "manual":
 		bridgeLifecycle(mgr, reg, true)
 		_ = verifier.NewActors(verifier.NewManual(mgr, log), mgr, reg, verifier.WithLogger(log))
+		mgr.SetModels(machine.Models{Brain: machine.BrainManual})
 		ver.Verifier = "manual"
 		log.Info("verifier enabled", "brain", "manual")
 	case "", "nim":
@@ -190,6 +191,7 @@ func serveUntil(ctx context.Context, args []string) error {
 		key := os.Getenv("NVIDIA_API_KEY")
 		bridgeLifecycle(mgr, reg, key != "")
 		if key == "" {
+			mgr.SetModels(machine.Models{Brain: machine.BrainNone})
 			log.Info("verifier disabled", "reason", "no NVIDIA_API_KEY in environment or "+o.envFile)
 			break
 		}
@@ -198,6 +200,8 @@ func serveUntil(ctx context.Context, args []string) error {
 			return err
 		}
 		_ = verifier.NewActors(v, mgr, reg, verifier.WithLogger(log))
+		mgr.SetModels(v.Models())
+		warnDescriberOverride(log, os.Getenv("GREENROOM_VISION_MODEL"), o.envFile)
 		ver.Verifier, ver.VerifierModel, ver.VisionModel = "nim", v.Model(), visionModel(os.Getenv("GREENROOM_VISION_MODEL"))
 		log.Info("verifier enabled", "brain", "nim", "model", v.Model(), "vision", ver.VisionModel)
 	default:

@@ -17,6 +17,14 @@ func (m *Manager) SetMessageActivity(fn func(runID string) time.Time) {
 	m.mu.Unlock()
 }
 
+// SetModels names who verifies the runs created from now on (issue #154): each one's manifest
+// and machine record it. serve and bench call it once, before any run is created.
+func (m *Manager) SetModels(models Models) {
+	m.mu.Lock()
+	m.models = &models
+	m.mu.Unlock()
+}
+
 // LastActivity is when anyone last did something with runID: the end of its
 // newest step or its newest message, and never earlier than its creation. It
 // reads the run directory, so it answers for finished runs too. Zero when the
