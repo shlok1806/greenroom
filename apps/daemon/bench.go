@@ -144,6 +144,9 @@ func benchRun(args []string) error {
 	if err != nil {
 		return err
 	}
+	models := v.Models()
+	mgr.SetModels(models)
+	warnDescriberOverride(log, os.Getenv("GREENROOM_VISION_MODEL"), o.envFile)
 	reg := session.NewRegistry(o.root, session.DefaultMaxDisputes, session.WithOnVerdict(func(runID string, st session.VerdictState) { _ = mgr.RecordVerdict(runID, st) }))
 	mgr.SetMessageActivity(reg.LastMessageAt)
 	bridgeLifecycle(mgr, reg, true) // as serve does: ready, failed, stopped and destroyed reach the transcript
@@ -151,11 +154,11 @@ func benchRun(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	runner := bench.New(bench.Config{
-		BenchDir: dir, Cases: cases, Trials: o.trials, Out: o.out, Image: o.image, Model: v.Model(),
+		BenchDir: dir, Cases: cases, Trials: o.trials, Out: o.out, Image: o.image, Model: v.Model(), Models: &models,
 		Parallel: o.parallel, TurnTimeout: o.turnTimeout, Log: log, Progress: os.Stderr,
 		MinFreeDisk: uint64(max(o.minFreeGB, 0) * (1 << 30)), DiskWait: o.diskWait,
 	}, mgr, reg, v)
-	fmt.Fprintf(os.Stderr, "bench: %d cases x %d trials, image %s, model %s, results %s\n", len(cases), o.trials, o.image, v.Model(), o.out)
+	fmt.Fprintf(os.Stderr, "bench: %d cases x %d trials, image %s, models %s, results %s\n", len(cases), o.trials, o.image, models.Label(), o.out)
 	sum, err := runner.Run(ctx)
 	fmt.Fprintf(os.Stderr, "bench: ran %d (%d right, %d setup errors), skipped %d already in %s\n", sum.Ran, sum.Right, sum.SetupErrors, sum.Skipped, o.out)
 	fmt.Fprintf(os.Stderr, "bench: score with: greenroom bench score %s\n", o.out)

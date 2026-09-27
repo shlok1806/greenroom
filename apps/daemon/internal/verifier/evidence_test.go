@@ -689,3 +689,61 @@ func TestTheReviewReadsTheStepRecordsAfterARestart(t *testing.T) {
 		t.Error("Steps read outside the runs directory")
 	}
 }
+
+// Issue #153: a fail stands when at least one failing check is properly evidenced. The answers
+// that break a rule are posted unchecked, each with its reason, a check not answered is
+// unchecked too, and the summary lists them. A false pass is the costly error (ADR 0024); a
+// grounded fail hidden behind two bad answers helps nobody (ADR 0031).
+func TestAGroundedFailStandsOverBadAnswers(t *testing.T) {
+	r := reviewVerdict(reviewArgs("fail",
+		answer("milk", "fail", []int{6}, 5), // valid: its read found the click changed nothing
+		answer("total", "fail", []int{4}),   // the coder's look
+		answer("eggs", "pass", []int{7}, 8), // stale: no look after the click
+	), reviewTranscript("milk", "total", "eggs", "bread"), reviewSteps(), 0)
+	if len(r.problems) != 0 {
+		t.Fatalf("a grounded fail was refused: %v", r.problems)
+	}
+	if r.msg.Verdict != "fail" {
+		t.Fatalf("verdict = %q, want fail", r.msg.Verdict)
+	}
+	want := map[string]string{
+		"milk":  "fail",
+		"total": "unchecked Not verified: cited step: evidence step 4 was recorded by the coder, not by you",
+		"eggs":  "unchecked Not verified: freshness: no evidence step comes after action step 8",
+		"bread": "unchecked Not answered.",
+	}
+	if len(r.msg.Checks) != len(want) {
+		t.Fatalf("checks = %+v, want %d", r.msg.Checks, len(want))
+	}
+	for _, c := range r.msg.Checks {
+		got := c.Status
+		if c.Status != session.CheckFail {
+			got += " " + c.Observed
+		}
+		if !strings.HasPrefix(got, want[c.ID]) {
+			t.Errorf("check %s = %q, want %q", c.ID, got, want[c.ID])
+		}
+		if c.Criterion != "The "+c.ID+" holds." {
+			t.Errorf("check %s lost its criterion: %q", c.ID, c.Criterion)
+		}
+	}
+	for _, s := range []string{"s\n\n[greenroom] Posted as fail on its evidenced failing checks. 3 answers did not hold " +
+		"and are shown as unchecked:", `check "total" (cited step)`, `check "eggs" (freshness)`, `check "bread" (answered)`} {
+		if !strings.Contains(r.msg.Text, s) {
+			t.Errorf("summary = %q, want it to contain %q", r.msg.Text, s)
+		}
+	}
+
+	// A fail whose only failing answer breaks a rule is still refused: nothing grounds it.
+	r = reviewVerdict(reviewArgs("fail", answer("milk", "fail", []int{4}), answer("total", "unchecked", nil)),
+		reviewTranscript("milk", "total"), reviewSteps(), 0)
+	if !strings.Contains(strings.Join(r.problems, "\n"), "fail: no check is fail with valid evidence") {
+		t.Errorf("problems = %q, want the ungrounded fail refused", r.problems)
+	}
+	// A pass is unchanged: one bad answer refuses it.
+	r = reviewVerdict(reviewArgs("pass", answer("milk", "pass", []int{9}, 8), answer("total", "pass", []int{4})),
+		reviewTranscript("milk", "total"), reviewSteps(), 0)
+	if !strings.Contains(strings.Join(r.problems, "\n"), `check "total" (cited step)`) {
+		t.Errorf("problems = %q, want the pass refused", r.problems)
+	}
+}

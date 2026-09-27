@@ -455,6 +455,7 @@ private struct StripMark: View {
         case .neutral: Spinner(size: TypeScale.monoSmall)
         case .unsure: Text("?")
         case .quiet: Text("·")
+        case .done: Text("■")
         }
     }
 }

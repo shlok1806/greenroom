@@ -112,12 +112,9 @@ type wireResponse struct {
 // Chat sends one turn and returns the assistant message. A model that asks
 // for a function returns ToolCalls; otherwise Content holds its answer.
 func (c *Client) Chat(ctx context.Context, model string, msgs []Message, tools []Tool) (Message, Usage, error) {
-	body := map[string]any{
-		"model":       model,
-		"messages":    encodeMessages(msgs),
-		"max_tokens":  ChatMaxTokens,
-		"temperature": 0.2,
-	}
+	body := ChatOptions()
+	body["model"] = model
+	body["messages"] = encodeMessages(msgs)
 	if len(tools) > 0 {
 		body["tools"] = encodeTools(tools)
 		body["tool_choice"] = "auto"
@@ -141,26 +138,36 @@ var describeFields = map[string]map[string]any{
 	"meta/muse-glimmer-30b": {"chat_template_kwargs": map[string]any{"enable_thinking": false}},
 }
 
+// ChatOptions are the fields of every Chat request besides the model, messages and tools. A run
+// records them with the model's name (issue #154), so they are built here, once, for both.
+func ChatOptions() map[string]any {
+	return map[string]any{"max_tokens": ChatMaxTokens, "temperature": 0.2}
+}
+
+// DescribeOptions are the fields of a Describe request to model besides the model and the
+// message: the plain ones and the model's own (describeFields). Recorded like ChatOptions.
+func DescribeOptions(model string) map[string]any {
+	out := map[string]any{"max_tokens": 700, "temperature": 0.2}
+	for k, v := range describeFields[model] {
+		out[k] = v
+	}
+	return out
+}
+
 // Describe asks a vision model what is in an image (ADR 0005: the reasoning
 // model cannot take images).
 func (c *Client) Describe(ctx context.Context, model string, jpeg []byte, prompt string) (string, error) {
-	body := map[string]any{
-		"model":       model,
-		"max_tokens":  700,
-		"temperature": 0.2,
-		"messages": []any{map[string]any{
-			"role": "user",
-			"content": []any{
-				map[string]any{"type": "text", "text": prompt},
-				map[string]any{"type": "image_url", "image_url": map[string]any{
-					"url": "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(jpeg),
-				}},
-			},
-		}},
-	}
-	for k, v := range describeFields[model] {
-		body[k] = v
-	}
+	body := DescribeOptions(model)
+	body["model"] = model
+	body["messages"] = []any{map[string]any{
+		"role": "user",
+		"content": []any{
+			map[string]any{"type": "text", "text": prompt},
+			map[string]any{"type": "image_url", "image_url": map[string]any{
+				"url": "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(jpeg),
+			}},
+		},
+	}}
 	wm, _, _, err := c.complete(ctx, model, body)
 	if err != nil {
 		return "", err

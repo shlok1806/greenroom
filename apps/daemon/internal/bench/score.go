@@ -285,7 +285,8 @@ func Report(source string, all []Result, now time.Time, opts ReportOptions) stri
 	if opts.TierSource != "" {
 		p("- Tiers: %s.\n", opts.TierSource)
 	}
-	p("- Models: %s. Images: %s.\n", joinOrNone(distinct(results, func(r Result) string { return r.Model })),
+	labels := distinct(results, modelsLabel)
+	p("- Models (brain and describer): %s. Images: %s.\n", joinOrNone(labels),
 		joinOrNone(distinct(results, func(r Result) string { return r.Image })))
 	if disk := len(filterResults(results, func(r Result) bool { return r.Cause == CauseDisk })); disk > 0 {
 		trials := "trials"
@@ -328,6 +329,18 @@ func Report(source string, all []Result, now time.Time, opts ReportOptions) stri
 			metricsTable(&b, []string{"simple dev", "simple holdout", "simple", "all"},
 				[]Metrics{bySplit(simple, SplitDev), bySplit(simple, SplitHoldout), bySplit(simple, ""), all3})
 		}
+	}
+
+	if len(labels) > 1 {
+		// A file that mixes describers (or brains) must not read as one verifier (issue #154).
+		p("\n## By models\n\nThese results mix models; each column is one brain and describer.\n\n")
+		cols := make([]Metrics, len(labels))
+		heads := make([]string, len(labels))
+		for i, l := range labels {
+			cols[i] = Compute(filterResults(results, func(r Result) bool { return modelsLabel(r) == l }))
+			heads[i] = "`" + l + "`"
+		}
+		metricsTable(&b, heads, cols)
 	}
 
 	p("\n## By kind\n\n| Split | Kind | Trials | Right | False pass | False fail | Inconclusive or ask | Obtained |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
@@ -493,6 +506,18 @@ func sortedResults(rs []Result) []Result {
 
 func countCases(rs []Result) int {
 	return len(distinct(rs, func(r Result) string { return r.Case }))
+}
+
+// modelsLabel names a result's brain and describer (machine.Models.Label). A result from before
+// issue #154 recorded only the reasoning model, so its describer is unknown, never assumed.
+func modelsLabel(r Result) string {
+	switch {
+	case r.Models != nil:
+		return r.Models.Label()
+	case r.Model != "":
+		return "nim " + r.Model + ", describer not recorded"
+	}
+	return ""
 }
 
 func distinct(rs []Result, f func(Result) string) []string {

@@ -32,7 +32,16 @@ if [ ! -f "$INNER/Fonts/MonaSans-Regular.otf" ] || [ ! -f "$INNER/Design/tokens.
 fi
 cp -R "$RESOURCES" "$CONTENTS/Resources/"
 
-cat > "$CONTENTS/Info.plist" <<'PLIST'
+# The build's identity (root ADR 0033): the Greenroom section shows it beside the daemon's and
+# compares both with main; the checkout is where it runs scripts/update.sh. Dirty means any
+# change git sees, untracked files included, as the daemon's install.sh counts it.
+REPO="$(cd ../.. && pwd)"
+COMMIT="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo "")"
+DIRTY="false"
+[ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ] && DIRTY="true"
+BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -59,6 +68,14 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<key>GreenroomCommit</key>
+	<string>$COMMIT</string>
+	<key>GreenroomDirty</key>
+	<$DIRTY/>
+	<key>GreenroomBuiltAt</key>
+	<string>$BUILT_AT</string>
+	<key>GreenroomCheckout</key>
+	<string>$REPO</string>
 </dict>
 </plist>
 PLIST

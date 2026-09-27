@@ -95,6 +95,7 @@ func (m *Manager) reattachManifest(mc *Machine) Manifest {
 	if saved, err := ReadManifest(mc.Dir); err == nil {
 		man.Steps = saved.Steps
 		man.Verdict = saved.Verdict
+		man.Models = saved.Models
 		if !saved.CreatedAt.IsZero() {
 			man.CreatedAt = saved.CreatedAt
 		}
@@ -178,5 +179,20 @@ func (m *Manager) RecordVerdict(runID string, v session.VerdictState) error {
 		return err
 	}
 	man.Verdict = &v
+	return saveManifest(dir, man)
+}
+
+// RecordFinish writes how the run finished into its manifest (ADR 0034), through the live
+// recorder if the machine is alive, else directly on disk, like RecordVerdict.
+func (m *Manager) RecordFinish(runID string, f session.Finish) error {
+	if mc, err := m.get(runID); err == nil {
+		return mc.rec.update(func(man *Manifest) { man.Finish = &f })
+	}
+	dir := m.RunDir(runID)
+	man, err := ReadManifest(dir)
+	if err != nil {
+		return err
+	}
+	man.Finish = &f
 	return saveManifest(dir, man)
 }

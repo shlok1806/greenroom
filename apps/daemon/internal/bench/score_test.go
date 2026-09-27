@@ -167,7 +167,7 @@ func TestReportShowsTheHeadlineAndEveryWrongResultWithItsRunDirectory(t *testing
 	out := Report("/tmp/r.jsonl", results, time.Date(2026, 9, 25, 13, 0, 0, 0, time.UTC), ReportOptions{})
 	for _, want := range []string{
 		"# Verifier bench report",
-		"`some/model`", "`greenroom-lean-a`",
+		"- Models (brain and describer): `nim some/model, describer not recorded`. Images: `greenroom-lean-a`.",
 		"False pass rate (pass on a broken build): **1/2 (50.0%), upper 97.5%**",
 		"| False pass rate, per trial | 1/1 (100.0%), upper 100.0% | 0/1 (0.0%), upper 95.0% | 1/2 (50.0%), upper 97.5% |",
 		"## Wrong results (2)",

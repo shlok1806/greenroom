@@ -116,6 +116,7 @@ struct RunView: View {
                 RunHeader(
                     store: store,
                     runId: runId,
+                    column: detailSize.height,
                     facts: facts,
                     failureCursor: failureCursor,
                     showFailure: showFailure
@@ -311,19 +312,18 @@ struct RunView: View {
                     .foregroundStyle(.secondary)
                 }
                 // One primary in the top bar (companion ADR 0013); the occasional actions
-                // are one menu, each also a key, a palette entry and a menu-bar item.
-                if hasMoreActions {
-                    Menu {
-                        moreActions
-                    } label: {
-                        Text("More ▾")
-                    }
-                    .menuStyle(.button)
-                    .menuIndicator(.hidden)
-                    .buttonStyle(.quiet)
-                    .fixedSize()
-                    .help("Screenshot, export, the conversation, destroy")
+                // are one menu, each also a key, a palette entry and a menu-bar item. Always
+                // there: builds and updates apply to every run (root ADR 0033).
+                Menu {
+                    moreActions
+                } label: {
+                    Text("More ▾")
                 }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(.quiet)
+                .fixedSize()
+                .help("Screenshot, export, the conversation, builds and updates, destroy")
                 if facts.machineReady {
                     // The one way to take and give back the screen.
                     ControlButton(driving: driving, busy: pilot.busy, action: toggleControl)
@@ -332,10 +332,6 @@ struct RunView: View {
                 }
             }
         }
-    }
-
-    private var hasMoreActions: Bool {
-        facts.machineReady || !(store.frames[runId] ?? []).isEmpty || canDestroy || layout.widthClass != .narrow
     }
 
     /// What the More menu holds, named as the menu bar names it, with its keys.
@@ -356,11 +352,25 @@ struct RunView: View {
                 conversationToggle.wrappedValue.toggle()
             }
         }
+        if facts.machineReady || !(store.frames[runId] ?? []).isEmpty || layout.widthClass != .narrow {
+            Divider()
+        }
+        // Builds and updates (root ADR 0033), with the news when there is some.
+        Button(greenroomTitle) { keyboard?.perform(.greenroom) }
         if canDestroy {
             Divider()
             Button("Destroy Machine...  \(ActionRegistry.label(.destroy))", role: .destructive) {
                 keyboard?.perform(.destroy, in: .run)
             }
+        }
+    }
+
+    private var greenroomTitle: String {
+        let title = ActionRegistry.spec(.greenroom).menuTitle ?? "Builds and Updates..."
+        switch store.updates.summary.headline {
+        case .updates(let n): return "\(title)  \(n) new"
+        case .rebuild: return "\(title)  rebuild"
+        default: return store.updates.summary.mismatch ? "\(title)  mismatch" : title
         }
     }
 
@@ -531,6 +541,21 @@ enum RunLayout {
         let room = max(card - chrome, verdictBodyMinimum)
         return min(natural ?? verdictBodyMinimum, room)
     }
+
+    /// The header's unfolded details (the run's facts, then its whole task) take at most this
+    /// share of the column, and scroll past it, so the stage under them keeps its picture,
+    /// player and steps. Unbounded, a long task pushed the facts out of a 768-point window and
+    /// squeezed the stage until its player and steps track drew over each other.
+    static let unfoldedShare: Double = 1.0 / 3
+    /// The least the details get in a short column: a few facts' lines.
+    static let unfoldedLeast: Double = 120
+
+    /// How tall the unfolded details are: all of their `natural` height up to the column's
+    /// cap, the cap until they are measured.
+    static func unfoldedDetails(natural: Double?, column: Double) -> Double {
+        let cap = column > 0 ? max(column * unfoldedShare, unfoldedLeast) : unfoldedLeast
+        return min(natural ?? cap, cap).rounded(.down)
+    }
 }
 
 /// The line between the stage and the conversation. Dragging it resizes the
@@ -574,11 +599,15 @@ private struct ColumnDivider: View {
 private struct RunHeader: View {
     let store: RunStore
     let runId: String
+    /// The run column's height, which bounds the unfolded details.
+    let column: Double
     let facts: RunFacts
     let failureCursor: Int?
     let showFailure: (Int) -> Void
 
     @State private var expanded = false
+    @State private var detailsHeight: CGFloat?
+    @Environment(\.theme) private var theme
 
     private var summary: RunSummary? { store.run(runId) }
 
@@ -589,6 +618,13 @@ private struct RunHeader: View {
 
     private var title: String { RunTitle.short(task: task, runId: runId) }
     private var fullTask: String { RunTitle.subtitle(task: task, alive: facts.isAlive) }
+
+    private var taskText: some View {
+        Text(fullTask)
+            .readingStyle(size: TypeScale.readingSmall)
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {
@@ -604,13 +640,9 @@ private struct RunHeader: View {
                 }
             }
             HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-                Text(fullTask)
-                    .readingStyle(size: TypeScale.readingSmall)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(expanded ? nil : 1)
+                taskText
+                    .lineLimit(1)
                     .truncationMode(.tail)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: expanded)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button(expanded ? "Less" : "Details") {
                     withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
@@ -620,10 +652,32 @@ private struct RunHeader: View {
                 .help("Full task and machine details")
             }
             if expanded {
-                RunInfo(store: store, runId: runId, facts: facts)
-                    .transition(.opacity)
+                // The facts lead and the whole task follows; past a share of the column they
+                // scroll, so a long task never pushes the facts or the stage out of the window.
+                ScrollView(.vertical) {
+                    RunInfo(store: store, runId: runId, facts: facts, task: fullTask)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { detailsHeight = $0 }
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .overlayScrollers()
+                .frame(height: RunLayout.unfoldedDetails(natural: detailsHeight.map(Double.init), column: column))
+                // Capped: the last line fades into the pane, so a cut line reads as "more
+                // below", as the verdict card's body does.
+                .overlay(alignment: .bottom) {
+                    if let detailsHeight,
+                       Double(detailsHeight) > RunLayout.unfoldedDetails(natural: Double(detailsHeight), column: column) + 1 {
+                        LinearGradient(colors: [theme.background.opacity(0), theme.background], startPoint: .top, endPoint: .bottom)
+                            .frame(height: Space.l)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .transition(.opacity)
             }
             RunStatusLine(store: store, runId: runId, facts: facts)
+            if let finish = facts.finish {
+                FinishNote(finish: finish)
+            }
         }
         .padding(.horizontal, Space.l)
         .padding(.top, Space.m)
@@ -693,7 +747,8 @@ struct RunStatusLine: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .help("Times are local (\(Chrome.zone)). The machine's clock may show UTC.")
         }
-        if facts.phase == .idle {
+        // A finished run is not stuck: the coding agent said it is done.
+        if facts.phase == .idle, facts.finish == nil {
             IdleActions(store: store, runId: runId)
         }
     }
@@ -712,6 +767,33 @@ struct RunStatusLine: View {
 
     @ViewBuilder
     private func phase(now: Date) -> some View {
+        if let finish = facts.finish {
+            // Done outranks the machine's phase (root ADR 0034): the work is over even when
+            // the coding agent kept the machine.
+            StatusText(text: RunFacts.doneText(finish), tone: RunFacts.doneTone(finish), size: TypeScale.monoSmall)
+                .fontWeight(.semibold)
+                .help(Self.doneHelp(finish))
+        } else {
+            machinePhase(now: now)
+        }
+    }
+
+    /// "The coding agent finished the run at 20:35. Verified: greenroom's verifier passed
+    /// it and the pass was accepted."
+    static func doneHelp(_ finish: RunFinish) -> String {
+        let when = finish.at.map { " at \(Chrome.shortTime($0))" } ?? ""
+        let why: String
+        switch finish.outcome {
+        case .verified: why = "Verified: the verifier's pass on this run was accepted."
+        case .unverified: why = "Unverified: no accepted pass backs this change."
+        case .abandoned: why = "Abandoned: the coding agent gave up on the work."
+        case .unknown: why = "\(RunFacts.outcomeWord(finish.outcome))."
+        }
+        return "The coding agent finished the run\(when). \(why)"
+    }
+
+    @ViewBuilder
+    private func machinePhase(now: Date) -> some View {
         switch facts.phase {
         case .booting:
             HStack(spacing: Space.xs) {
@@ -781,9 +863,95 @@ struct RunStatusLine: View {
         } else if case .you(let why) = facts.turn {
             out.append(why)
         }
+        if let at = facts.finish?.at { out.append("finished \(Chrome.shortTime(at))") }
         out.append("\(facts.isAlive ? "running" : "ran") \(Chrome.clock(facts.duration(now: now)))")
         out.append(Chrome.plural(facts.stepCount, "step"))
         return out
+    }
+}
+
+/// What the coding agent said when it finished (root ADR 0034): its summary in the reading
+/// face, then what the work became (branch, commit, PR) in mono. A PR that is an http(s)
+/// URL opens in the browser; every other field is text to select and copy.
+struct FinishNote: View {
+    let finish: RunFinish
+
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            if !finish.summary.isEmpty {
+                Text(finish.summary)
+                    .readingStyle(size: TypeScale.readingSmall)
+                    .lineLimit(3)
+                    .truncationMode(.tail)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(finish.summary)
+            }
+            if !finish.ref.isEmpty {
+                ViewThatFits(in: .horizontal) {
+                    refLine(FinishNote.refParts(finish.ref))
+                    refLine(FinishNote.refParts(finish.ref, short: true))
+                }
+                .monoStyle(size: TypeScale.monoSmall)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func refLine(_ parts: [FinishNote.RefPart]) -> some View {
+        HStack(spacing: Space.s) {
+            ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
+                if index > 0 { Text("·").foregroundStyle(.secondary) }
+                if let url = part.url {
+                    Button("\(part.label) \(part.value) ↗") { openURL(url) }
+                        .buttonStyle(.textLink)
+                        .help("Open \(url.absoluteString) in the browser")
+                        .fixedSize()
+                } else {
+                    HStack(spacing: Space.xs) {
+                        Text(part.label).foregroundStyle(.secondary)
+                        Text(part.value).textSelection(.enabled)
+                    }
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// One field of the ref: its label, its words and, for an http(s) PR, where it opens.
+    struct RefPart: Equatable {
+        var label: String
+        var value: String
+        var url: URL?
+    }
+
+    /// Branch, commit and PR in that order, each only when given. A PR URL on GitHub reads as
+    /// its number ("#12"); `short` also cuts a long commit sha to 7 characters.
+    static func refParts(_ ref: RunRef, short: Bool = false) -> [RefPart] {
+        var out: [RefPart] = []
+        if let branch = ref.branch { out.append(RefPart(label: "branch", value: branch)) }
+        if let commit = ref.commit {
+            let isSha = commit.count > 7 && commit.allSatisfy(\.isHexDigit)
+            out.append(RefPart(label: "commit", value: short && isSha ? String(commit.prefix(7)) : commit))
+        }
+        if let pr = ref.pr {
+            let url = ref.prURL
+            out.append(RefPart(label: "PR", value: url.map(prName) ?? pr, url: url))
+        }
+        return out
+    }
+
+    /// "#12" for a `.../pull/12` URL, else the URL's host and path.
+    static func prName(_ url: URL) -> String {
+        let parts = url.pathComponents
+        if let pull = parts.lastIndex(of: "pull"), pull + 1 < parts.count, Int(parts[pull + 1]) != nil {
+            return "#\(parts[pull + 1])"
+        }
+        return (url.host() ?? "") + url.path()
     }
 }
 
@@ -820,6 +988,8 @@ private struct RunInfo: View {
     let store: RunStore
     let runId: String
     let facts: RunFacts
+    /// The whole task, last: the header's own line shows only its start.
+    var task: String?
 
     var body: some View {
         let detail = store.details[runId]
@@ -829,6 +999,9 @@ private struct RunInfo: View {
             if let ended = facts.ended { row("Ended", "\(Chrome.stamp(ended)) (\(Chrome.zone))") }
             row("Duration", Chrome.clock(facts.duration(now: Date())))
             row("Image", detail?.image ?? summary?.image ?? "-")
+            let models = detail?.models ?? summary?.models
+            row("Verifier", models?.verifier ?? "Not recorded for this run")
+            if let describer = models?.describer { row("Describer", describer) }
             if let name = detail?.machineName, !name.isEmpty { row("Machine", name) }
             if let ip = detail?.address { row("Address", ip) }
             if let boot = detail?.machine?.bootSeconds { row("Boot", String(format: "%.1f s", boot)) }
@@ -839,6 +1012,16 @@ private struct RunInfo: View {
                 HStack(spacing: Space.s) {
                     Text(runId).textSelection(.enabled)
                     CopyButton(text: runId, label: "Copy")
+                }
+            }
+            if let task, !task.isEmpty {
+                GridRow(alignment: .firstTextBaseline) {
+                    label("Task")
+                    Text(task)
+                        .readingStyle(size: TypeScale.readingSmall)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
