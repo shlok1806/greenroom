@@ -136,6 +136,60 @@ struct InputResult: Codable, Hashable, Sendable {
     var step: Int?
 }
 
+/// How a run ended, as the coding agent said with `run_finish` (root ADR 0034): on the run
+/// list, the run detail (from its manifest) and the system event that recorded it. Absent on
+/// an unfinished run and on every run from before it.
+struct RunFinish: Codable, Hashable, Sendable {
+    var outcome: FinishOutcome
+    /// One or two sentences of what changed.
+    var summary: String = ""
+    var ref = RunRef()
+    var at: Date?
+}
+
+extension RunFinish {
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        outcome = try c.decode(.outcome, or: .unknown(""))
+        summary = try c.decode(.summary, or: "")
+        // A malformed ref drops the ref, never the finish.
+        ref = (try? c.decodeIfPresent(RunRef.self, forKey: .ref)) ?? RunRef()
+        at = try? c.decodeIfPresent(Date.self, forKey: .at)
+    }
+}
+
+/// What the work became. Each field is free text: a branch name, a commit sha, a PR URL or
+/// number. Only an http(s) PR is a link.
+struct RunRef: Codable, Hashable, Sendable {
+    var branch: String?
+    var commit: String?
+    var pr: String?
+
+    var isEmpty: Bool { [branch, commit, pr].allSatisfy { ($0 ?? "").isEmpty } }
+
+    /// The PR as a link to open in the browser, only when it is an http(s) URL.
+    var prURL: URL? {
+        guard let pr = pr?.trimmingCharacters(in: .whitespaces), let url = URL(string: pr),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https", url.host() != nil
+        else { return nil }
+        return url
+    }
+}
+
+extension RunRef {
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func text(_ key: CodingKeys) -> String? {
+            guard let value = try? c.decodeIfPresent(String.self, forKey: key) else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        branch = text(.branch)
+        commit = text(.commit)
+        pr = text(.pr)
+    }
+}
+
 struct VerdictState: Codable, Hashable, Sendable {
     var seq: Int?
     var verdict: String?
@@ -176,6 +230,8 @@ struct Message: Codable, Hashable, Sendable, Identifiable {
     /// Acceptance checks (root ADR 0024): answered on a verdict, declared (id and criterion
     /// only) on the verifier's progress message that plans them. Empty on older messages.
     var checks: [AcceptanceCheck] = []
+    /// On the system event that recorded `run_finish` (root ADR 0034).
+    var finish: RunFinish?
     /// On a verifier reply: the limit its turn stopped at before a verdict (issue #127).
     var stop: StopReason?
 
@@ -196,6 +252,7 @@ extension Message {
         evidence = try c.decodeIfPresent([String].self, forKey: .evidence)
         // One malformed check drops the list, never the message.
         checks = (try? c.decodeIfPresent([AcceptanceCheck].self, forKey: .checks)) ?? []
+        finish = try? c.decodeIfPresent(RunFinish.self, forKey: .finish)
         // Only a verifier reply may carry it (`session.validate`); `LimitStop` reads it only there.
         stop = (try? c.decodeIfPresent(StopReason.self, forKey: .stop)).flatMap { $0 }
     }
@@ -273,6 +330,10 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     /// The newest recorded frame, what the row's thumbnail is drawn from. nil for a run
     /// with none, and from a daemon before it (the row then shows the empty mark).
     var lastFrame: Frame?
+    /// How the coding agent ended the run (root ADR 0034); nil while it has not.
+    var finish: RunFinish?
+    /// Who verified the run. nil for a run from before the daemon recorded it.
+    var models: VerifierModels?
 
     var id: String { runId }
 
@@ -289,7 +350,9 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         messages: Int = 0,
         frames: Int? = nil,
         task: String? = nil,
-        lastFrame: Frame? = nil
+        lastFrame: Frame? = nil,
+        finish: RunFinish? = nil,
+        models: VerifierModels? = nil
     ) {
         self.runId = runId
         self.createdAt = createdAt
@@ -304,6 +367,8 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         self.frames = frames
         self.task = task
         self.lastFrame = lastFrame
+        self.finish = finish
+        self.models = models
     }
 
     init(from decoder: any Decoder) throws {
@@ -321,6 +386,65 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         frames = try c.decodeIfPresent(Int.self, forKey: .frames)
         task = try c.decodeIfPresent(String.self, forKey: .task)
         lastFrame = try c.decodeIfPresent(Frame.self, forKey: .lastFrame)
+        finish = try? c.decodeIfPresent(RunFinish.self, forKey: .finish)
+        models = try c.decodeIfPresent(VerifierModels.self, forKey: .models)
+    }
+}
+
+/// Who verified a run (daemon issue #154): the verifier's brain, its reasoning model, its
+/// screenshot describer and the options their requests carried. The describer decides what
+/// the verifier can see, so a verdict is read with it in mind.
+struct VerifierModels: Codable, Hashable, Sendable {
+    /// `nim` (a model), `manual` (a person types the verifier's side) or `none`.
+    var brain: String
+    var model: String?
+    var vision: String?
+    var modelOptions: [String: JSONValue]?
+    var visionOptions: [String: JSONValue]?
+
+    init(brain: String, model: String? = nil, vision: String? = nil,
+         modelOptions: [String: JSONValue]? = nil, visionOptions: [String: JSONValue]? = nil) {
+        self.brain = brain
+        self.model = model
+        self.vision = vision
+        self.modelOptions = modelOptions
+        self.visionOptions = visionOptions
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        brain = try c.decode(.brain, or: "")
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        vision = try c.decodeIfPresent(String.self, forKey: .vision)
+        modelOptions = try? c.decodeIfPresent([String: JSONValue].self, forKey: .modelOptions)
+        visionOptions = try? c.decodeIfPresent([String: JSONValue].self, forKey: .visionOptions)
+    }
+
+    /// The Details row for who answered: the reasoning model, or what stood in for one.
+    var verifier: String {
+        switch brain {
+        case "nim": return model.flatMap { $0.isEmpty ? nil : $0 } ?? "A model greenroom did not name"
+        case "manual": return "A person, typing its side"
+        case "none": return "None: greenroom had no model key"
+        default: return brain
+        }
+    }
+
+    /// The Details row for the describer; nil when nothing reads screenshots on a model's behalf.
+    var describer: String? {
+        guard brain == "nim" else { return nil }
+        guard let vision, !vision.isEmpty else { return "None: the verifier saw no screenshots" }
+        guard let thinking else { return vision }
+        return vision + (thinking ? ", thinking on" : ", thinking off")
+    }
+
+    /// Thinking as the describe request set it; nil when the request left it to the model.
+    var thinking: Bool? {
+        guard case .object(let kwargs)? = visionOptions?["chat_template_kwargs"] else { return nil }
+        for key in ["enable_thinking", "thinking"] {
+            if case .bool(let on)? = kwargs[key] { return on }
+        }
+        return nil
     }
 }
 
@@ -334,6 +458,10 @@ struct RunDetail: Codable, Hashable, Sendable, Identifiable {
     var steps = 0
     var machine: Machine?
     var verdict = VerdictState()
+    /// The manifest's `finish` (root ADR 0034).
+    var finish: RunFinish?
+    /// Who verified the run, from its manifest; nil for a run from before it was recorded.
+    var models: VerifierModels?
 
     var id: String { runId }
 
@@ -359,6 +487,8 @@ extension RunDetail {
         steps = try c.decode(.steps, or: 0)
         machine = try c.decodeIfPresent(Machine.self, forKey: .machine)
         verdict = try c.decode(.verdict, or: VerdictState())
+        finish = try? c.decodeIfPresent(RunFinish.self, forKey: .finish)
+        models = try c.decodeIfPresent(VerifierModels.self, forKey: .models)
     }
 }
 

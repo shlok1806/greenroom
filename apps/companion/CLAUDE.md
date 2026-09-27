@@ -12,7 +12,9 @@ olive brand, amending 0004's type and colour decisions), `0009` (transcript card
 the Markdown renderer), `0010` (run thumbnails from the last frame, superseded by
 `0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict), `0013` (one
 primary in the top bar, Give Back on the driving bar), `0014` (evidence marks on the picture), `0015` (a
-verifier stopped at its limit is a card with Continue) and `0016` (twins say what tells them apart). Design: `docs/design-spec.md`
+verifier stopped at its limit is a card with Continue), `0016` (a finished run says Done, only Verified is
+green), `0017` (in-window menus are drawn by the app) and `0018` (twins say what tells them apart).
+Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -61,6 +63,8 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   default `light,dark`) picks the themes, named in each file (`<scenario>-<theme>-<size>`).
   The harness keeps its settings in the argument domain (`HarnessDefaults`), so two runs
   at once never read each other's theme or pane (they share one defaults domain).
+  Scenarios 52 to 54 seed `run_finish` (root ADR 0034) onto the pass, fail and input runs
+  (`makeFinished`: the finish on the row and detail, the event before "machine destroyed").
   Scenarios 41 to 45 are verifier bench verdicts exactly as recorded: copy
   `~/.greenroom/bench/runs` and `~/.greenroom/bench-0027/runs` into the daemon's root
   (`cp -cR`, an APFS clone, costs no disk).
@@ -131,6 +135,10 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   licence, Swift 6 mode, exit plan) before it goes into `Package.swift`. `Package.resolved`
   is checked in, and packages are pinned `exact:`. Rejected:
   Textual and MarkdownUI (they break the grid), animation libraries, Highlightr.
+- The run header's Details (`RunInfo`) names who verified the run from the daemon's `models`
+  (`VerifierModels`, daemon issue #154): a Verifier row always (an older run says "Not
+  recorded for this run", never a guess) and a Describer row for a model brain, with
+  "thinking on/off" only when the describe request set it.
 - Beautiful UI's components are ported as behaviour, credited under MIT in the app's
   acknowledgements; no code from it is copied into the Mac app (ADR 0007).
 - `design/` is the source of colours, faces, cell metrics, spacing, radii, motion timings
@@ -361,10 +369,21 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   failed`) or the step count with the start time, and its state in words (companion ADR
   0012): a waiting verdict leads with its outcome, `Fail, needs review`. Rows have no
   thumbnail (0012 supersedes 0010). Twins (runs sharing a short title) carry a mark that
-  tells them apart (companion ADR 0016, `RunTitle.twinMarks`): the start time to the minute,
+  tells them apart (companion ADR 0018, `RunTitle.twinMarks`): the start time to the minute,
   else to the second, else an id tag (`RunTitle.idTags`); it leads the row's second line and
   never gives way (`RowMeta.lines`). `RunTitle.distinct` (the title with that mark) is for
   places without the row's line, never the row.
+- A finished run (root ADR 0034, companion ADR 0016) is Done: `RunFacts.finish`, taken from
+  the transcript's system event carrying `finish` first (it arrives over the event stream;
+  `apply` also copies it onto the row and the held detail and asks for the run), then the
+  detail's manifest, then the list. Only a `system` message's finish counts. `rowStatus`
+  says `Done, verified` (pass, `✓`) or `Done, unverified` / `Done, abandoned` (tone `done`:
+  foreground, `■`) unless something waits on the person, which still leads the row. The
+  header's status line says the same, then `FinishNote`: the summary, then the ref
+  (`FinishNote.refParts`: branch, commit, PR; only an http(s) PR opens, through `openURL`).
+  The phase is untouched, so a kept machine stays live or idle; an idle finished run shows
+  no idle actions. Verified is green even when the coding agent accepted the pass: the
+  daemon checked it; the verdict card still says nobody reviewed it.
 - The verdict's Accept and Dispute live only in `VerdictCard`, pinned above the
   conversation (or above the stage when the conversation is hidden or has no room). A
   narrow window keeps it with the conversation, one pane away; `a` and `d` bring the
@@ -374,7 +393,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   reviewed it. The transcript shows the live verdict as one line, never a second card.
 - Each colour means one thing: the roles above, through `Theme.color(_:on:)`,
   `tone(_:on:)` and `outcome(_:on:)`. Booting and offline carry none. Every state is also
-  a glyph and a word (`StatusText`: `●` live, `!` needs you, `✓` pass, `✗` failure, the
+  a glyph and a word (`StatusText`: `●` live, `!` needs you, `✓` pass, `✗` failure, `■` done (ADR 0016), the
   tick while working), and the words are one vocabulary (ADR 0003): the sidebar's
   `rowStatus` and the card's `VerdictReview.state` must say the same thing.
 - A verdict's actions are only the ones the daemon's session rules accept. When it
@@ -397,7 +416,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   presenter goes away leaves the window unable to take a click. Ask inline.
 - The player shows one source chip (live, connecting, recording, driving). The top bar
   (`RunView.actions`, published with `.topBar`) holds one primary, Take Control / Give
-  Back, and the "More" menu (screenshot, export, the conversation, destroy); companion ADR
+  Back, and the "More" menu (screenshot, export, the conversation, builds, destroy); companion ADR
   0013. While driving, Give Back is also a button on the driving bar over the screen; the
   top bar's stays, since the bar is covered whenever the screen is. The top bar survives
   every zoom and width class.
@@ -566,6 +585,23 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
     `Updates` by hand and open the section with `greenroomOpen`, never `perform(.greenroom)`,
     which would read and check for real.
 
+- The More menu (companion ADR 0017) is drawn by the app, never a SwiftUI `Menu` (an
+  `NSMenu`): `MoreMenuTests` fails on `Menu`, `.contextMenu`, `.menuStyle` or `NSMenu` in
+  `Views/`. Only the menu bar (`CompanionApp.swift`) is AppKit's.
+  - Rows are `MoreMenu.items` (`Model/ActionPresentation.swift`): registry entries with
+    `ActionSpec.more` (a `MoreSection`) that are enabled now, titled by `MenuTitles` (shared
+    with the menu bar). To add a row, set `more` on the entry; never list actions in a view.
+    Builds and Updates carries `MoreBadge.of(summary)`.
+  - `KeyboardModel` holds `moreOpen`, `moreSelection` (an `ActionID`, not an index, so rows
+    appearing while open do not move it) and `moreAnchor`, the button's window frame that
+    `MoreButton` reports. `RootView` draws `MoreMenuView` under it, over a clear layer that
+    closes it on a click (and `focusPane` ignores that click). It closes when any other
+    action runs, on a run change and when the app resigns active.
+  - While open, `ActionContext.more` owns the keyboard: its entries (`moreDown`, `moreUp`,
+    `moreRun`, `moreClose`), then an item's own key through `MoreMenu.item(for:)`, other bare
+    keys swallowed, chords to the menu bar. `.` opens it (`more`, not in the palette).
+  - Harness scenarios 55 to 55f (`more`, `moreBuilds`): opened as its key opens it, with a row selected.
+
 ## Copy
 
 Every string a person reads (states, notes, hints, tooltips, labels, errors) follows these
@@ -630,6 +666,10 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
   explicit `null`. Errors are `{"error": "..."}`; a message refused on a contested verdict
   is 409.
 - `RunSummary.task` is optional: a daemon before it decodes, and the run reads "Run <hash>".
+- `finish` (on `RunSummary`, `RunDetail` and `Message`) is optional and decoded with `try?`:
+  a daemon before root ADR 0034, or a malformed one, reads as not finished, never a failed
+  list. An unknown outcome is `FinishOutcome.unknown` and a malformed ref or time is dropped
+  (`RunFinishTests`). Blank ref fields read as absent.
 - `ScrollViewReader.scrollTo` in a `LazyVStack` finds a row it has not built only by its
   `ForEach` identity (Steps: the `Step`), never by an `.id` set inside the row. Scroll to
   the identity first, then to the inner id once the row exists (`StepsView.reveal`).
@@ -638,6 +678,13 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
   drawing an old row there, stale (selected fill, "Live") beside the new selection. Both run
   lists are one flat `ForEach` keyed by run id (`SidebarView.ListItem`, `RunsStrip.Item`);
   `HostedViewTests` counts the selected fills after such a move.
+- The transcript is an eager `VStack`, never a `LazyVStack` (issue #146). A lazy stack
+  guesses the height of rows it has not built; while the window settled its width,
+  `defaultScrollAnchor(.bottom, for: .sizeChanges)` chased each guess until the offset
+  moved after the stack had built rows for it, and the transcript drew no row at all (its
+  end marker unbuilt too, so nothing scrolled to rebuild them). A long run is a few
+  hundred rows once tool calls group. `HostedViewTests` fails if the transcript's body holds a
+  `LazyVStack`, and checks it draws after the width settles and a row goes.
 - `ScreenView` claims SwiftUI focus a turn after it appears (`Task`), once the layout has
   placed it: claimed at once it was dropped and the window gave the keyboard to the run
   search. `StepsView` beside the screen does not claim (`claimsFocus`): two claims cancel.

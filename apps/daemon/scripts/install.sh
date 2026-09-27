@@ -1,7 +1,21 @@
 #!/bin/bash
 # Install the daemon as a launchd user agent, so it runs on 127.0.0.1:7777
 # without a terminal: at login, and again whenever it crashes.
+# It then checks the local default images against this daemon's input helper and image
+# recipe (greenroom image-status, issue #159) and prints the command that rebuilds a stale one.
+#   -rebuild   rebuild each stale image with build-image.sh (about 20 GB free each)
+#   -dry-run   build to a temp path, check the images and say what it would do; installs nothing
 set -euo pipefail
+
+rebuild=""
+dry_run=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -rebuild) rebuild="yes"; shift ;;
+    -dry-run) dry_run="yes"; shift ;;
+    *) echo "usage: $0 [-rebuild] [-dry-run]" >&2; exit 2 ;;
+  esac
+done
 
 cd "$(dirname "$0")/.."     # apps/daemon
 repo="$(cd ../.. && pwd)"
@@ -16,7 +30,8 @@ addr="127.0.0.1:7777"
 # both and is used as given, even when missing: never another file in its place.
 auto_env="$repo/.env"
 if [ ! -f "$auto_env" ]; then
-  main="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')"
+  # || true: outside a git checkout (a tarball) git fails, and with pipefail that ended the script with no word.
+  main="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||' || true)"
   [ -n "$main" ] && [ -f "$main/.env" ] && auto_env="$main/.env"
 fi
 
@@ -100,12 +115,43 @@ pkg="github.com/shlok1806/greenroom/apps/daemon/internal/buildinfo"
 ldflags="-X $pkg.commit=$commit -X $pkg.dirty=$dirty -X $pkg.builtAt=$built_at"
 echo "commit: ${commit:-unknown}$([ "$dirty" = true ] && echo " (local changes)")"
 
-# Build beside the binary and swap it in only once the build succeeded, so a failed build
-# leaves the running daemon and its binary as they were.
-echo "building $bin"
-mkdir -p "$root/bin"
-go build -ldflags "$ldflags" -o "$bin.new" .
-mv -f "$bin.new" "$bin"
+if [ -n "$dry_run" ]; then
+  bin="$(mktemp -d -t greenroom-install)/greenroom" # never replace the installed daemon
+  echo "building $bin"
+  go build -ldflags "$ldflags" -o "$bin" .
+else
+  # Build beside the binary and swap it in only once the build succeeded, so a failed build
+  # leaves the running daemon and its binary as they were.
+  echo "building $bin"
+  mkdir -p "$root/bin"
+  go build -ldflags "$ldflags" -o "$bin.new" .
+  mv -f "$bin.new" "$bin"
+fi
+
+# Images built before this daemon's input helper or image recipe (issue #159): each machine
+# from one compiles the helper at boot, or lacks Xcode. The check reads the stopped images'
+# disks on the host, read-only; it only reports, and never stops the install.
+echo "checking the local images against this daemon"
+if ! "$bin" image-status -tart "$tart"; then
+  echo "could not check the local images; the daemon warns when a machine from a stale one boots" >&2
+elif [ -n "$rebuild" ]; then
+  while read -r args; do
+    [ -n "$args" ] || continue
+    if [ -n "$dry_run" ]; then
+      echo "dry run: would rebuild with scripts/build-image.sh $args"
+      continue
+    fi
+    echo "rebuilding: scripts/build-image.sh $args"
+    # shellcheck disable=SC2086 # the arguments are words
+    scripts/build-image.sh $args
+  done < <("$bin" image-status -tart "$tart" -rebuild-args)
+fi
+
+if [ -n "$dry_run" ]; then
+  echo "dry run: would write $plist, (re)load $label and serve on $addr with image $image"
+  rm -rf "$(dirname "$bin")"
+  exit 0
+fi
 
 # tart lives in /opt/homebrew/bin, and a launchd agent inherits almost no PATH. GREENROOM_CHECKOUT is
 # the checkout this build came from: GET /api/version reports it, and the Companion runs

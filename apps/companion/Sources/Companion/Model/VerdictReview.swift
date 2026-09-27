@@ -322,7 +322,7 @@ extension RunTitle {
         return out
     }
 
-    /// What tells apart runs that share a short title (issue #157, companion ADR 0016): for
+    /// What tells apart runs that share a short title (issue #157, companion ADR 0018): for
     /// each such run, when it started, to the minute when no twin started in the same
     /// minute, else to the second; failing both (copies of one run), its id tag. A run whose
     /// title is its own has none. It does not change as more runs arrive, unless a new twin
@@ -444,7 +444,7 @@ extension RunTitle {
     }
 }
 
-/// What tells a run apart from others with the same title (companion ADR 0016).
+/// What tells a run apart from others with the same title (companion ADR 0018).
 enum TwinMark: Equatable, Sendable {
     /// When it started: "04:00", or "04:00:17" when a twin started in the same minute.
     case time(String)

@@ -43,7 +43,7 @@ final class HostedViewTests: XCTestCase {
 
     /// Answers every route for one run, `run-1`, with `steps` steps. Messages the app
     /// posts are handed to `posted`.
-    private func client(steps: Int = 0, failing: Set<Int> = [], live: Bool = false,
+    private func client(steps: Int = 0, failing: Set<Int> = [], live: Bool = false, notes: Int = 0,
                         posted: (@Sendable (Data) -> Void)? = nil) -> DaemonClient {
         let status = live ? "ready" : "finished"
         let machine = live
@@ -54,6 +54,11 @@ final class HostedViewTests: XCTestCase {
                 ? #"{"seq": \#(seq), "at": "\#(Self.created)", "tool": "machine_exec", "input": {"command": "false"}, "error": "exit 1"}"#
                 : #"{"seq": \#(seq), "at": "\#(Self.created)", "tool": "machine_exec", "input": {"command": "echo \#(seq)"}, "output": {"exitCode": 0}}"#
         }.joined(separator: ",")
+        // Each note long enough to wrap, so the transcript is many screens tall.
+        let messageList = ([#"{"seq": 1, "at": "\#(Self.created)", "from": "coder", "kind": "task", "text": "Check the tip splitter"}"#]
+            + (0..<notes).map { index in
+                #"{"seq": \#(index + 2), "at": "\#(Self.created)", "from": "human", "kind": "note", "text": "Note \#(index + 1). Check the tip with 4 people as well, and the total after a 20% tip on a bill of 120."}"#
+            }).joined(separator: ",")
         return StubURLProtocol.client { request in
             switch (request.httpMethod ?? "GET", request.url?.path(percentEncoded: true) ?? "") {
             case ("GET", "/api/runs"):
@@ -61,7 +66,7 @@ final class HostedViewTests: XCTestCase {
             case ("GET", "/api/runs/run-1"):
                 return .json(#"{"runId": "run-1", "createdAt": "\#(Self.created)", "status": "\#(status)"\#(machine)}"#)
             case ("GET", "/api/runs/run-1/messages"):
-                return .json(#"{"messages": [{"seq": 1, "at": "\#(Self.created)", "from": "coder", "kind": "task", "text": "Check the tip splitter"}]}"#)
+                return .json(#"{"messages": [\#(messageList)]}"#)
             case ("GET", "/api/runs/run-1/steps"):
                 return .json("[\(stepList)]")
             case ("POST", "/api/runs/run-1/messages"):
@@ -170,6 +175,66 @@ final class HostedViewTests: XCTestCase {
         await waitUntil { scroll.documentVisibleRect.maxY > document.height * 0.9 }
         XCTAssertGreaterThan(scroll.documentVisibleRect.maxY, document.height * 0.9,
                              "the list stayed at \(scroll.documentVisibleRect) of \(document)")
+    }
+
+    // MARK: - #146 the transcript drew nothing after its rows changed
+
+    /// The scroll views under `view`, deepest last.
+    private func scrollViews(in view: NSView) -> [NSScrollView] {
+        ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap { scrollViews(in: $0) }
+    }
+
+    /// How many sampled pixels of `view` differ from its first: 0 for a view that draws
+    /// only its ground.
+    private func ink(_ view: NSView) throws -> Int {
+        let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let ground = try XCTUnwrap(rep.colorAt(x: 1, y: 1)).usingColorSpace(.deviceRGB)
+        var count = 0
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 3) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: 3) {
+                guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB), let ground else { continue }
+                let difference = max(abs(color.redComponent - ground.redComponent),
+                                     abs(color.greenComponent - ground.greenComponent),
+                                     abs(color.blueComponent - ground.blueComponent))
+                if difference > 0.12 { count += 1 }
+            }
+        }
+        return count
+    }
+
+    /// #146: a lazy stack built only the rows it guessed were on screen, and while the
+    /// window settled its width the bottom anchor chased each guess until the offset moved
+    /// after the stack had built rows for it: the transcript drew no row at all (about 1 in
+    /// 30 harness renders). The transcript is an eager stack, so every row is built wherever
+    /// the scroll lands. The type check is the deterministic half; the drawing half is the
+    /// case the harness caught, which a lazy stack failed only now and then.
+    func testTheTranscriptDrawsItsRowsWhileTheWindowSettlesAndRowsChange() async throws {
+        let store = RunStore(client: client(notes: 60))
+        await store.resync()
+        await store.select("run-1")
+        XCTAssertEqual(store.messages["run-1"]?.count, 61)
+        let view = ConversationView(store: store, runId: "run-1")
+        XCTAssertFalse(String(reflecting: type(of: view.body)).contains("LazyVStack"),
+                       "the transcript is a lazy stack again")
+
+        let size = CGSize(width: 440, height: 560)
+        let window = host(view, size: size)
+        // The width settles in steps, as the real window's does when it folds its runs.
+        for width in [1400.0, 1100, 560, 480, 450, size.width] {
+            window.setContentSize(CGSize(width: width, height: size.height))
+            try await settle(0.05)
+        }
+        try await settle()
+        // Then the rows change, as a note taken back or "Tool calls" switched off does.
+        store.messages["run-1"]?.removeLast()
+        try await settle()
+
+        // The transcript is the tallest scroll view (the composer's field may hold one too).
+        let transcript = try XCTUnwrap(scrollViews(in: try XCTUnwrap(window.contentView))
+            .max { $0.frame.height < $1.frame.height })
+        XCTAssertGreaterThan(transcript.frame.height, 100)
+        XCTAssertGreaterThan(try ink(transcript), 50, "the transcript drew only its ground")
     }
 
     // MARK: - #162 two rows looked selected after a run changed section

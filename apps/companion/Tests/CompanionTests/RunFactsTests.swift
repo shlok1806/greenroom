@@ -349,7 +349,7 @@ final class TitleAndWordsTests: XCTestCase {
         XCTAssertNotEqual(RunTitle.distinct([old, twin])["a"], RunTitle.distinct([old, twin])["d"])
     }
 
-    // MARK: - Twins (issue #157, companion ADR 0016)
+    // MARK: - Twins (issue #157, companion ADR 0018)
 
     /// Five trials of one task, two in one minute, and copies of one run in one second:
     /// every twin gets a mark no other twin has; a run with its own title gets none.

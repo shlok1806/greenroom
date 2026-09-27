@@ -268,3 +268,55 @@ func TestAClosingPassIsCheckedLikeAnyVerdict(t *testing.T) {
 		})
 	}
 }
+
+// Issue #153: at the step cap a closing fail with one evidenced failing check is posted as a
+// fail, its broken answer unchecked with the reason, not downgraded to inconclusive.
+func TestAClosingGroundedFailStands(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	first := lastStep(t, mgr, runID) + 1
+	replies := append([]string{declared("picker", "total")}, execs(5)...)
+	replies = append(replies, verdictOf("fail", "The picker is empty (step 1).",
+		answer("picker", "fail", []int{first}), answer("total", "fail", []int{999})))
+	model := &scriptedModel{replies: replies}
+	v := newVerifier(t, mgr, model.start(t)) // MaxSteps 6
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check the picker and the total.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := store.Verdict()
+	if res.Ended != session.Verdict || model.calls() != 7 || got.Verdict != "fail" {
+		t.Fatalf("ended %q after %d calls with %+v, want the closing fail", res.Ended, model.calls(), got)
+	}
+	if c := got.Checks; len(c) != 2 || c[0].Status != "fail" || c[1].Status != "unchecked" ||
+		!strings.HasPrefix(c[1].Observed, "Not verified: cited step: evidence step 999") {
+		t.Errorf("checks = %+v, want picker fail and total unchecked with its reason", c)
+	}
+	if strings.Contains(got.Summary, "posted as inconclusive") {
+		t.Errorf("summary = %q, want no downgrade", got.Summary)
+	}
+}
+
+// Issue #153, outside a limit: the same fail posts at once instead of being refused.
+func TestAGroundedFailIsPostedNotRefused(t *testing.T) {
+	mgr, runID, _ := ready(t)
+	first := lastStep(t, mgr, runID) + 1
+	model := &scriptedModel{replies: []string{
+		declared("picker", "total"),
+		toolCall("machine_exec", map[string]any{"command": "echo look"}),
+		verdictOf("fail", "The picker is empty (step 1).",
+			answer("picker", "fail", []int{first}), answer("total", "fail", []int{999})),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	postTask(t, store, "Check the picker and the total.")
+	res, err := v.Turn(context.Background(), runID, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Verdict(); res.Ended != session.Verdict || model.calls() != 3 || got.Verdict != "fail" ||
+		got.Checks[1].Status != "unchecked" {
+		t.Fatalf("ended %q after %d calls with %+v, want the fail posted on the first report", res.Ended, model.calls(), got)
+	}
+}

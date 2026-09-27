@@ -187,7 +187,7 @@ struct RunMenuCommands: Commands {
             if index > 0, specs[index - 1].group != spec.group {
                 Divider()
             }
-            Button(title(spec)) { keyboard.perform(spec.id) }
+            Button(MenuTitles.title(spec, current, clickMarksShown: showsClickMarks)) { keyboard.perform(spec.id) }
                 .keyboardShortcut(for: spec.id)
                 .disabled(!ActionRules.isEnabledAnywhere(spec.id, current))
         }
@@ -196,15 +196,4 @@ struct RunMenuCommands: Commands {
     /// The window's state: as published while it is focused, else read from the model
     /// (the menu bar is also used with no window key, and observation redraws it).
     private var current: ActionState { state ?? keyboard.state() }
-
-    /// An entry's menu title, in the words its state calls for.
-    private func title(_ spec: ActionSpec) -> String {
-        switch spec.id {
-        case .toggleSidebar: current.sidebarShown ? "Hide Sidebar" : "Show Sidebar"
-        case .toggleConversation: current.conversationShown ? "Hide Conversation" : "Show Conversation"
-        case .zoom: current.zoomed == nil ? "Zoom Focused Pane" : "Restore Pane"
-        case .clickMarks: showsClickMarks ? "Hide Click Marks" : "Show Click Marks"
-        default: spec.menuTitle ?? spec.title
-        }
-    }
 }

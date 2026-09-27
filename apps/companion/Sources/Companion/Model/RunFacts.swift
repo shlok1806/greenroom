@@ -54,6 +54,9 @@ struct RunFacts: Equatable, Sendable {
     /// The daemon's verifier still reads this run's conversation. It stops only when the
     /// machine is destroyed (`verifier.Actors`); a failed or lost machine keeps it.
     var verifierListens: Bool
+    /// How the coding agent ended the run (root ADR 0034): Done, whatever the machine does
+    /// next. nil for a run it has not finished, and for every run from before `run_finish`.
+    var finish: RunFinish? = nil
     /// The verifier's last turn stopped at a limit and nothing has followed it (issue
     /// #127, `LimitStop.waiting`): the limit it stopped at.
     var stoppedAt: StopReason? = nil
@@ -145,8 +148,15 @@ struct RunFacts: Equatable, Sendable {
             verdict: openVerdict,
             machineReady: machine?.status == .ready,
             verifierListens: !destroyed,
+            finish: finish(summary: summary, detail: detail, messages: messages),
             stoppedAt: stoppedAt
         )
+    }
+
+    /// The finish the transcript recorded (it comes over the event stream before the run is
+    /// re-read), else the detail's manifest, else the list's copy.
+    static func finish(summary: RunSummary?, detail: RunDetail?, messages: [Message]?) -> RunFinish? {
+        messages?.last { $0.from == .system && $0.finish != nil }?.finish ?? detail?.finish ?? summary?.finish
     }
 
     /// Why a machine is gone, from the lifecycle lines the daemon wrote (`main.go`).
@@ -208,6 +218,9 @@ extension RunFacts {
             if let stoppedAt { return ("Stopped, \(LimitStop.short(stoppedAt))", .attention) }
             return (why.contains("question") ? "Question for you" : "Needs you", .attention)
         }
+        // A finished run is Done, whether its machine is gone or kept (root ADR 0034). Only
+        // something waiting on the person (above) says more.
+        if let finish { return (Self.doneText(finish), Self.doneTone(finish)) }
         switch phase {
         case .booting: return ("Booting", .neutral)
         case .live: return ("Live", .live)
@@ -228,10 +241,33 @@ extension RunFacts {
         }
     }
 
+    /// "Done, verified": the row's and the header's words for a finished run.
+    static func doneText(_ finish: RunFinish) -> String {
+        "Done, \(outcomeWord(finish.outcome).lowercased())"
+    }
+
+    /// "Verified", "Unverified", "Abandoned"; an outcome this app does not know reads as sent.
+    static func outcomeWord(_ outcome: FinishOutcome) -> String {
+        switch outcome {
+        case .verified: "Verified"
+        case .unverified: "Unverified"
+        case .abandoned: "Abandoned"
+        case .unknown(let raw):
+            raw.isEmpty ? "Finished" : raw.prefix(1).uppercased() + raw.dropFirst()
+        }
+    }
+
+    /// Only a verified finish (an accepted pass on this run) earns the pass colour; the rest
+    /// are neutral (root ADR 0034, companion ADR 0016).
+    static func doneTone(_ finish: RunFinish) -> Tone {
+        finish.outcome == .verified ? .pass : .done
+    }
+
     /// Colours each mean one thing (design spec, "Colour").
     enum Tone: Equatable, Sendable {
-        /// `neutral` is work in progress (booting); `unsure` an inconclusive outcome.
-        case pass, failure, attention, live, neutral, unsure, quiet
+        /// `neutral` is work in progress (booting); `unsure` an inconclusive outcome; `done` a
+        /// run the coding agent finished without a verified change (foreground, `■`).
+        case pass, failure, attention, live, neutral, unsure, quiet, done
 
         static func outcome(_ verdict: String?) -> Tone {
             switch verdict {

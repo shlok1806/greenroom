@@ -277,7 +277,7 @@ enum ConnectionState: Equatable, Sendable {
     }
 }
 
-/// A run row's second line (companion ADR 0012, 0016): when it started, how long it has
+/// A run row's second line (companion ADR 0012, 0018): when it started, how long it has
 /// run, the verdict's tally or its size, joined with " · ", longest first for
 /// `ViewThatFits`. The tally outlasts the time; a twin's mark leads and outlasts both, and
 /// only a row with no twin may end with nothing.

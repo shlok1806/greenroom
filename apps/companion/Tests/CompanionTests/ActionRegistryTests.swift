@@ -443,8 +443,9 @@ final class ActionRegistryTests: XCTestCase {
         XCTAssertEqual(hints.first { $0.id == .play }?.enabled, true)
         XCTAssertEqual(hints.first { $0.id == .accept }?.enabled, false)
         XCTAssertNil(hints.first { $0.id == .paletteDown }, "the palette's own keys are in the palette")
+        XCTAssertNil(hints.first { $0.id == .moreDown }, "the More menu's own keys are in its hint bar")
         // Every key a person can press outside a mode is in the help.
-        for spec in ActionRegistry.all where !spec.keys.isEmpty && spec.contexts != [.palette] && spec.contexts != [.confirm] {
+        for spec in ActionRegistry.all where !spec.keys.isEmpty && ![[.palette], [.confirm], [.more]].contains(spec.contexts) {
             if [.moveUp, .previousFrame].contains(spec.id) { continue }
             XCTAssertTrue(hints.contains { $0.id == spec.id }, "\(spec.id) is missing from the help")
         }

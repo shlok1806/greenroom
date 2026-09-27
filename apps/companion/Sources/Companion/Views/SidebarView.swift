@@ -59,7 +59,7 @@ struct SidebarView: View {
                                     RunRow(
                                         run: run,
                                         // Twins are told apart by a mark under the title, never
-                                        // by a time appended to it (audit R4, ADR 0016).
+                                        // by a time appended to it (audit R4, ADR 0018).
                                         title: RunTitle.short(task: run.task, runId: run.runId),
                                         twin: twins[run.runId],
                                         facts: store.facts(run.runId, now: tick.date),
@@ -281,7 +281,7 @@ struct SidebarView: View {
 struct RunRow: View {
     let run: RunSummary
     let title: String
-    /// What tells it apart from runs with the same title (companion ADR 0016); nil when
+    /// What tells it apart from runs with the same title (companion ADR 0018); nil when
     /// its title is its own.
     var twin: TwinMark?
     let facts: RunFacts
@@ -338,7 +338,7 @@ struct RunRow: View {
     /// one how long it has run. Errors are counted once, in the run's header. Longest
     /// first; the last is empty, so in a narrow column a long state ("Inconclusive, you
     /// accepted") keeps its words and the time gives way, never a clipped time. A twin's
-    /// mark leads instead and never gives way (companion ADR 0016): it is what tells the
+    /// mark leads instead and never gives way (companion ADR 0018): it is what tells the
     /// row from another with the same title.
     private var meta: [String] {
         RowMeta.lines(time: Chrome.shortTime(run.createdAt), twin: twin,
@@ -506,6 +506,7 @@ private struct StripMark: View {
         case .neutral: Spinner(size: TypeScale.monoSmall)
         case .unsure: Text("?")
         case .quiet: Text("·")
+        case .done: Text("■")
         }
     }
 }

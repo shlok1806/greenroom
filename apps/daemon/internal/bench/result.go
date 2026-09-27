@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 )
 
 // Endings: how a trial ended. The first four come from the verifier's turn; the rest are not
@@ -38,7 +40,10 @@ type Result struct {
 	RunID  string `json:"runId,omitempty"`
 	RunDir string `json:"runDir,omitempty"`
 	Image  string `json:"image,omitempty"`
-	Model  string `json:"model,omitempty"`
+	Model  string `json:"model,omitempty"` // the reasoning model, kept beside Models for older readers
+	// Models is the brain, reasoning model, describer and their request options (issue #154).
+	// Absent in results from before it: their describer was not recorded.
+	Models *machine.Models `json:"models,omitempty"`
 
 	StartedAt time.Time `json:"startedAt"`
 	Ending    string    `json:"ending"`

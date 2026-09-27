@@ -1,4 +1,4 @@
-# 0016. Twins say what tells them apart
+# 0018. Twins say what tells them apart
 
 Date: 2026-09-27
 Status: accepted. Amends 0012 decisions 2 and 4 (the row carries the verdict's scope; titles
@@ -36,5 +36,5 @@ times, and an agent re-runs a check. Their rows share a title, and 0012 said the
 
 - A twin in a narrow column may show its mark where a lone run shows its tally; its state
   word (`Fail, needs review`) still says the outcome.
-- Harness scenario 47 serves five bench trials of one WordCount task and three copies of
+- Harness scenario 56 serves five bench trials of one WordCount task and three copies of
   one run in one second, two of them sharing `b48b96`.

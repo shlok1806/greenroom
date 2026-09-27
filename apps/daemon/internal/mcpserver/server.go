@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/report"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
@@ -33,13 +34,26 @@ const (
 type Option func(*options)
 
 type options struct {
-	publicHost bool
+	publicHost   bool
+	artifactBase string // the public host's origin, for report links (ADR 0034)
+	models       report.Models
 }
 
 // ForPublicHost builds the server that answers calls from the public host (ADR 0021): its
 // caller is on another computer, so no tool writes where the caller names on this host.
-// machine_pull refuses a dest there and always copies into the run directory (ADR 0022).
-func ForPublicHost() Option { return func(o *options) { o.publicHost = true } }
+// machine_pull refuses a dest there and always copies into the run directory (ADR 0022). A
+// run's report links its screenshots through the artifact route on host, not by host path
+// (ADR 0034).
+func ForPublicHost(host string) Option {
+	return func(o *options) {
+		o.publicHost = true
+		o.artifactBase = "https://" + host
+	}
+}
+
+// WithModels names the verifier's models now, which a run report names for a run whose
+// manifest recorded none (ADR 0034, runs from before issue #154).
+func WithModels(m report.Models) Option { return func(o *options) { o.models = m } }
 
 // ErrRemoteDest is machine_pull's answer to a dest from the public host.
 var ErrRemoteDest = errors.New("through the tunnel, dest is chosen by greenroom connect on your computer; omit dest")
@@ -55,10 +69,15 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 			"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_pull to copy files out, machine_exec to build " +
 			"and run (a command still going after 45 s comes back running, with an execId for machine_exec_wait), " +
 			"machine_screenshot to look at the screen, machine_ui to find controls and their centers before " +
-			"machine_click, and machine_destroy when done. " +
+			"machine_click. " +
 			"Every run also owns one conversation: agent_send posts into it, agent_wait blocks for what comes " +
 			"back, and agent_transcript reads it. That is how you reach greenroom's verifier and how a watching " +
 			"human reaches you. " +
+			"A job ends like this: send the verifier a task, agent_wait for its verdict, accept a pass (agent_send " +
+			"kind accept), then call run_finish with the outcome, a summary and the ref (branch, commit, PR). " +
+			"run_finish records how the run ended, destroys the machine and returns the run's report, Markdown for " +
+			"the PR body with every check and its evidence; run_report reads the same report at any time. Only an " +
+			"accepted pass finishes as verified; without one, finish as unverified or abandoned. " +
 			"Every run is recorded under ~/.greenroom/runs/<runId>.",
 	})
 
@@ -89,7 +108,9 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 			"measured when it was built (Xcode present or not and its version, whether XCTest and swift-testing packages run with " +
 			"swift test and whether xcodebuild builds, swift and Command Line Tools versions; known false when the image says nothing), and " +
 			"desktop, whether the screen showed anything besides the desktop and Finder at ready (clean false lists " +
-			"unexpectedWindows and unexpectedApps, such as a permission prompt; greenroom never closes them).",
+			"unexpectedWindows and unexpectedApps, such as a permission prompt; greenroom never closes them). models " +
+			"names who verifies the run: the brain (nim, manual or none), its reasoning model and its screenshot " +
+			"describer, with the options their requests carry.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitIn) (*mcp.CallToolResult, *machine.Machine, error) {
 		return wrap(mgr.Wait(ctx, in.RunID, waitTimeout(in.TimeoutSeconds)))
 	})
@@ -260,8 +281,9 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		OK bool `json:"ok"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "machine_destroy",
-		Description: "Stop and delete the machine. The run's recording stays on disk.",
+		Name: "machine_destroy",
+		Description: "Stop and delete the machine. The run's recording stays on disk. To end a job, prefer run_finish: it " +
+			"records how the run ended and destroys the machine in one call.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, destroyOut, error) {
 		// Nothing is posted here: main.go's lifecycle bridge announces the destroy once it has happened.
 		if err := mgr.Destroy(ctx, in.RunID); err != nil {
@@ -271,6 +293,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 	})
 
 	addAgentTools(s, reg)
+	addFinishTools(s, mgr, reg, o)
 	addInputTools(s, mgr)
 	addSessionTools(s, mgr)
 	s.AddReceivingMiddleware(recoverPanics)
