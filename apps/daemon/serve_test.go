@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
 // pendingRoot is a root holding one undestroyed run whose last message, a human note, has
@@ -207,5 +209,54 @@ func TestServeTakesThePublicHostAndTokenFromTheEnvFile(t *testing.T) {
 	}
 	if code := get(""); code != http.StatusUnauthorized {
 		t.Errorf("the public host without a token: %d, want 401", code)
+	}
+}
+
+// Issue #103: serve sweeps orphaned run clones at start, in the background, and says so;
+// -sweep-orphans-after 0 keeps them.
+func TestServeSweepsOrphanedRunClonesAtStart(t *testing.T) {
+	for _, tc := range []struct {
+		after string
+		swept bool
+	}{{"6h", true}, {"0", false}} {
+		t.Run(tc.after, func(t *testing.T) {
+			bin, control := testsupport.FakeTart(t)
+			t.Setenv("TART_HOME", t.TempDir())
+			const orphan = "greenroom-20260923-215022-10d218794d3d8da9"
+			list := `[{"Source":"local","Name":"` + orphan + `","State":"stopped"},{"Source":"local","Name":"greenroom-lean-a","State":"stopped"}]`
+			if err := os.WriteFile(filepath.Join(control, "list.json"), []byte(list), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			probe, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			addr := probe.Addr().String()
+			_ = probe.Close()
+			ctx, stop := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() {
+				done <- serveUntil(ctx, []string{"-addr", addr, "-root", t.TempDir(), "-tart", bin, "-verifier", "manual",
+					"-env-file", filepath.Join(t.TempDir(), "none.env"), "-sweep-orphans-after", tc.after})
+			}()
+			deleted := func() bool { return strings.Contains(testsupport.Calls(t, control), "delete "+orphan) }
+			wait := 500 * time.Millisecond // the sweep runs at start: long enough to see one that should not happen
+			if tc.swept {
+				wait = 5 * time.Second
+			}
+			for deadline := time.Now().Add(wait); !deleted() && time.Now().Before(deadline); {
+				time.Sleep(20 * time.Millisecond)
+			}
+			stop()
+			if err := <-done; err != nil {
+				t.Errorf("serve: %v", err)
+			}
+			if deleted() != tc.swept {
+				t.Errorf("deleted %s = %v, want %v\ncalls:\n%s", orphan, deleted(), tc.swept, testsupport.Calls(t, control))
+			}
+			if strings.Contains(testsupport.Calls(t, control), "delete greenroom-lean-a") {
+				t.Error("the sweep deleted an image")
+			}
+		})
 	}
 }

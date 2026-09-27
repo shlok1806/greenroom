@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -403,4 +404,16 @@ var killGroup = func(pgid int) error {
 		return fmt.Errorf("kill process group %d: %w", pgid, err)
 	}
 	return nil
+}
+
+// Home is where tart keeps its VMs (vms/<name>) and OCI cache: $TART_HOME, else ~/.tart.
+func Home() string {
+	if h := strings.TrimSpace(os.Getenv("TART_HOME")); h != "" {
+		return h
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".tart"
+	}
+	return filepath.Join(home, ".tart")
 }

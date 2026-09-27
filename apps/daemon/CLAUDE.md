@@ -21,6 +21,8 @@ go run . serve                                  # 127.0.0.1:7777, root ~/.greenr
 go run . serve -verifier manual                 # no model; a person types instructions
 go run . serve -image greenroom-base -max-machines 2 -frame-interval 2s
 go run . serve -tart <path>                     # or GREENROOM_TART
+go run . serve -sweep-orphans-after 0           # keep orphaned run clones (default: sweep those older than 6h at start)
+go run . sweep-orphans [-delete] [-older-than 6h] [-root dir]   # list (or delete) what that sweep takes (#103)
 go run . serve -public-host gr.example.com      # or GREENROOM_PUBLIC_HOST; needs GREENROOM_TOKEN; -dist <dir>
 go run . prepare-image -vm <running vm> [-xcode <Xcode.app>]   # build-image.sh runs it; not on its own
 go run . check-image -image <local image> [-out dir]   # the dialog gate, on a clone of a clone
@@ -243,6 +245,16 @@ Each layer depends only on the ones below. Keep it that way.
 Boot and lifecycle
 
 - `runId` is the one handle: map key, VM name (`greenroom-<runId>`), run directory.
+- Orphaned run clones (issue #103, `machine/sweep.go`): `serve` starts `SweepOrphans` in the
+  background after `loadState`. It deletes only a VM named exactly `greenroom-<runId>`
+  (`runCloneRE`; images never match), local, **stopped** (a live `tart run` makes tart list
+  it running), not a live machine, with no run directory under the root, the default root
+  (`~/.greenroom`, so a scratch-root daemon never takes the real daemon's clones) or a root
+  one level under either (the bench's), and older than `-sweep-orphans-after` (6h) by both
+  its runId time and its directory in `tart.Home()`. One log line per clone. Every test that
+  starts `serve` uses `-tart /usr/bin/false` (the sweep then only warns); never start `serve`
+  on the real tart from a test without `-sweep-orphans-after 0`. `greenroom sweep-orphans`
+  lists the same set and deletes only with `-delete`.
 - `Create` holds `createMu` for its whole length, so the host-capacity check and the clone
   cannot interleave. Default limit 2 (Apple's), `-max-machines` changes it.
 - `machine_create` returns `booting` at once; callers poll `machine_wait` (capped at 50 s,
