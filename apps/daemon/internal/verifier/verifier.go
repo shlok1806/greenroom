@@ -163,8 +163,8 @@ const (
 	cutOffNudge = "[greenroom] Your last message was cut off at the output limit before it finished, so nothing " +
 		"in it was received. Answer again, shorter: call the tool you meant to call, with brief arguments " +
 		"(cite a few key steps as evidence, not every step)."
-	cutOffReply = "The model's output limit cut off my answers, so I reported nothing. Send a message and I " +
-		"will try again, shorter."
+	cutOffReply = "The model's output limit cut off my answers, so I reported nothing. Send a task, or a note " +
+		"from a person, and I will try again, shorter. A coding agent's note does not start a turn."
 )
 
 // cutOff reports whether the endpoint stopped msg at its token limit, or msg carries a tool
