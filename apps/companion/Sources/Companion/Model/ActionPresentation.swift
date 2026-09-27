@@ -61,6 +61,8 @@ enum HintBar {
             return HintBarContent(mode: .palette, context: ActionContext.palette.title, hints: hints(in: [.palette], s), undo: nil)
         case [.greenroom]:
             return HintBarContent(mode: .normal, context: ActionContext.greenroom.title, hints: hints(in: [.greenroom], s), undo: undo)
+        case [.more]:
+            return HintBarContent(mode: .normal, context: ActionContext.more.title, hints: hints(in: [.more], s), undo: undo)
         case [.composer]:
             return HintBarContent(mode: .typing, context: ActionContext.composer.title, hints: hints(in: [.composer], s), undo: undo)
         default:
@@ -109,7 +111,7 @@ enum HintBar {
 
     /// The trailing hint: the palette, everywhere it opens.
     static func trailing(_ s: ActionState) -> KeyHint? {
-        guard !s.paletteOpen, !s.greenroomOpen, !s.drivingFocused, !s.confirmingDestroy else { return nil }
+        guard !s.paletteOpen, !s.greenroomOpen, !s.moreOpen, !s.drivingFocused, !s.confirmingDestroy else { return nil }
         return KeyHint(id: .palette, key: ActionRegistry.label(.palette), title: "commands")
     }
 
@@ -162,7 +164,7 @@ enum KeyHelp {
     static func groups(_ s: ActionState) -> [Group] {
         ActionGroup.allCases.compactMap { group in
             let hints = ActionRegistry.all
-                .filter { $0.group == group && !$0.keys.isEmpty && $0.contexts != [.palette] && $0.contexts != [.confirm] }
+                .filter { $0.group == group && !$0.keys.isEmpty && ![[.palette], [.confirm], [.more]].contains($0.contexts) }
                 // One row for a pair a person reads as one: up with down, previous with next.
                 .filter { ![.moveUp, .previousFrame].contains($0.id) }
                 .map { spec in
@@ -198,6 +200,7 @@ enum KeyHelp {
         case .nextCheck: "next check"
         case .previousCheck: "previous check"
         case .exportRecording: "export recording"
+        case .more: "more actions menu"
         case .destroy: "destroy machine"
         case .accept: "accept"
         case .dispute: "dispute"
@@ -284,5 +287,103 @@ enum PaletteModel {
     static func move(_ index: Int, by delta: Int, count: Int) -> Int {
         guard count > 0 else { return 0 }
         return min(max(index + delta, 0), count - 1)
+    }
+}
+
+// MARK: - Menu titles
+
+/// An entry's title in a menu, in the words its state calls for ("Hide Conversation"). The
+/// menu bar and the More menu both read it, so they name an action the same way.
+enum MenuTitles {
+    static func title(_ spec: ActionSpec, _ s: ActionState, clickMarksShown: Bool = true) -> String {
+        switch spec.id {
+        case .toggleSidebar: s.sidebarShown ? "Hide Sidebar" : "Show Sidebar"
+        case .toggleConversation: s.conversationShown ? "Hide Conversation" : "Show Conversation"
+        case .zoom: s.zoomed == nil ? "Zoom Focused Pane" : "Restore Pane"
+        case .clickMarks: clickMarksShown ? "Hide Click Marks" : "Show Click Marks"
+        default: spec.menuTitle ?? spec.title
+        }
+    }
+}
+
+// MARK: - The More menu
+
+/// The news beside Builds and Updates in the More menu (root ADR 0033), in words.
+enum MoreBadge: Equatable, Sendable {
+    case updates(Int)
+    case rebuild
+    case mismatch
+
+    /// Updates available lead, then a build not from main, then the app and greenroom built
+    /// from different commits; nothing when there is no news.
+    static func of(_ summary: BuildsSummary) -> MoreBadge? {
+        switch summary.headline {
+        case .updates(let n): .updates(n)
+        case .rebuild: .rebuild
+        default: summary.mismatch ? .mismatch : nil
+        }
+    }
+
+    var text: String {
+        switch self {
+        case .updates(let n): "\(n) new"
+        case .rebuild: "rebuild"
+        case .mismatch: "mismatch"
+        }
+    }
+
+    /// What VoiceOver reads after the title.
+    var spoken: String {
+        switch self {
+        case .updates(let n): n == 1 ? "1 update available" : "\(n) updates available"
+        case .rebuild: "not built from main"
+        case .mismatch: "the app and greenroom were built from different commits"
+        }
+    }
+}
+
+/// One row of the More menu.
+struct MoreItem: Equatable, Sendable {
+    var id: ActionID
+    var title: String
+    /// Its key as the hint bar spells it; empty when it has none.
+    var key: String
+    var section: MoreSection
+    var destructive: Bool
+    var badge: MoreBadge?
+}
+
+/// What the top bar's More menu holds (companion ADR 0017): the registry's `more` entries
+/// that work now, by section, titled as the menu bar titles them.
+enum MoreMenu {
+    static func items(_ s: ActionState, badge: MoreBadge? = nil) -> [MoreItem] {
+        ActionRegistry.moreEntries.compactMap { spec in
+            guard let section = spec.more, ActionRules.isEnabledAnywhere(spec.id, s) else { return nil }
+            // A narrow window names the conversation in its pane switch; hiding it there hides nothing.
+            if spec.id == .toggleConversation, s.widthClass == .narrow { return nil }
+            return MoreItem(id: spec.id, title: MenuTitles.title(spec, s), key: spec.keyLabel, section: section,
+                            destructive: spec.destructive, badge: spec.id == .greenroom ? badge : nil)
+        }
+    }
+
+    /// The selection after moving `delta` rows: from none (or a row that went away), down
+    /// selects the first and up the last; otherwise it stays on the list. Held by id, so a
+    /// row that appears while the menu is open (the machine became ready) does not move it.
+    static func move(_ selected: ActionID?, by delta: Int, in items: [MoreItem]) -> ActionID? {
+        guard !items.isEmpty else { return nil }
+        guard let index = items.firstIndex(where: { $0.id == selected }) else {
+            return delta > 0 ? items.first?.id : items.last?.id
+        }
+        return items[min(max(index + delta, 0), items.count - 1)].id
+    }
+
+    /// The item whose own key is `chord`, as a native menu's key equivalent.
+    static func item(for chord: KeyChord, in items: [MoreItem]) -> MoreItem? {
+        items.first { ActionRegistry.spec($0.id).keys.contains(KeyBinding(chord)) }
+    }
+
+    /// Whether a line goes above the row at `index`: where the section changes.
+    static func startsSection(_ index: Int, in items: [MoreItem]) -> Bool {
+        index > 0 && items[index - 1].section != items[index].section
     }
 }

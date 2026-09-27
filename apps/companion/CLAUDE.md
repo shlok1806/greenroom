@@ -12,8 +12,8 @@ olive brand, amending 0004's type and colour decisions), `0009` (transcript card
 the Markdown renderer), `0010` (run thumbnails from the last frame, superseded by
 `0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict), `0013` (one
 primary in the top bar, Give Back on the driving bar), `0014` (evidence marks on the picture), `0015` (a
-verifier stopped at its limit is a card with Continue) and `0016` (a finished run says Done, only Verified is
-green). Design: `docs/design-spec.md`
+verifier stopped at its limit is a card with Continue), `0016` (a finished run says Done, only Verified is
+green) and `0017` (in-window menus are drawn by the app). Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -412,7 +412,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   presenter goes away leaves the window unable to take a click. Ask inline.
 - The player shows one source chip (live, connecting, recording, driving). The top bar
   (`RunView.actions`, published with `.topBar`) holds one primary, Take Control / Give
-  Back, and the "More" menu (screenshot, export, the conversation, destroy); companion ADR
+  Back, and the "More" menu (screenshot, export, the conversation, builds, destroy); companion ADR
   0013. While driving, Give Back is also a button on the driving bar over the screen; the
   top bar's stays, since the bar is covered whenever the screen is. The top bar survives
   every zoom and width class.
@@ -580,6 +580,23 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
     from different commits, the verifier-working ask (49b), updating, failed. They stage
     `Updates` by hand and open the section with `greenroomOpen`, never `perform(.greenroom)`,
     which would read and check for real.
+
+- The More menu (companion ADR 0017) is drawn by the app, never a SwiftUI `Menu` (an
+  `NSMenu`): `MoreMenuTests` fails on `Menu`, `.contextMenu`, `.menuStyle` or `NSMenu` in
+  `Views/`. Only the menu bar (`CompanionApp.swift`) is AppKit's.
+  - Rows are `MoreMenu.items` (`Model/ActionPresentation.swift`): registry entries with
+    `ActionSpec.more` (a `MoreSection`) that are enabled now, titled by `MenuTitles` (shared
+    with the menu bar). To add a row, set `more` on the entry; never list actions in a view.
+    Builds and Updates carries `MoreBadge.of(summary)`.
+  - `KeyboardModel` holds `moreOpen`, `moreSelection` (an `ActionID`, not an index, so rows
+    appearing while open do not move it) and `moreAnchor`, the button's window frame that
+    `MoreButton` reports. `RootView` draws `MoreMenuView` under it, over a clear layer that
+    closes it on a click (and `focusPane` ignores that click). It closes when any other
+    action runs, on a run change and when the app resigns active.
+  - While open, `ActionContext.more` owns the keyboard: its entries (`moreDown`, `moreUp`,
+    `moreRun`, `moreClose`), then an item's own key through `MoreMenu.item(for:)`, other bare
+    keys swallowed, chords to the menu bar. `.` opens it (`more`, not in the palette).
+  - Harness scenarios 55 to 55f (`more`, `moreBuilds`): opened as its key opens it, with a row selected.
 
 ## Copy
 

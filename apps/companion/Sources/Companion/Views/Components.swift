@@ -426,15 +426,18 @@ extension View {
 struct QuietButtonStyle: ButtonStyle {
     var small = false
     var tint: Role?
+    /// Holds something open (the More menu): drawn pressed, with a brand edge.
+    var active = false
 
     func makeBody(configuration: Configuration) -> some View {
-        QuietButton(configuration: configuration, small: small, tint: tint)
+        QuietButton(configuration: configuration, small: small, tint: tint, active: active)
     }
 
     private struct QuietButton: View {
         let configuration: ButtonStyleConfiguration
         let small: Bool
         let tint: Role?
+        let active: Bool
 
         @Environment(\.theme) private var theme
         @Environment(\.isEnabled) private var enabled
@@ -448,8 +451,8 @@ struct QuietButtonStyle: ButtonStyle {
                 .lineLimit(1)
                 .padding(.horizontal, small ? Space.s : Space.m)
                 .frame(minHeight: small ? 22 : 28)
-                .background(configuration.isPressed || hovering ? theme.highlight : theme.surface, in: shape)
-                .overlay(shape.strokeBorder(theme.hairline, lineWidth: Space.hairline))
+                .background(configuration.isPressed || hovering || active ? theme.highlight : theme.surface, in: shape)
+                .overlay(shape.strokeBorder(active ? theme.brand : theme.hairline, lineWidth: Space.hairline))
                 .contentShape(shape)
                 .opacity(enabled ? 1 : 0.45)
                 .onHover { hovering = $0 && enabled }
@@ -516,8 +519,8 @@ struct TextLinkButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == QuietButtonStyle {
     static var quiet: QuietButtonStyle { QuietButtonStyle() }
-    static func quiet(small: Bool = false, tint: Role? = nil) -> QuietButtonStyle {
-        QuietButtonStyle(small: small, tint: tint)
+    static func quiet(small: Bool = false, tint: Role? = nil, active: Bool = false) -> QuietButtonStyle {
+        QuietButtonStyle(small: small, tint: tint, active: active)
     }
 }
 

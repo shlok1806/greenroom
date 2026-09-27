@@ -32,7 +32,6 @@ struct RunView: View {
 
     private var canCapture: Bool { facts.machineReady && !capturing }
     private var canExport: Bool { !(store.frames[runId] ?? []).isEmpty && !savingRecording }
-    private var canDestroy: Bool { store.details[runId]?.machine != nil }
 
     /// The window's arrangement; a view hosted alone (tests) works one out from its own width.
     private var layout: PaneLayout {
@@ -313,17 +312,11 @@ struct RunView: View {
                 }
                 // One primary in the top bar (companion ADR 0013); the occasional actions
                 // are one menu, each also a key, a palette entry and a menu-bar item. Always
-                // there: builds and updates apply to every run (root ADR 0033).
-                Menu {
-                    moreActions
-                } label: {
-                    Text("More ▾")
+                // there: builds and updates apply to every run (root ADR 0033). Drawn by the
+                // app, hung from this button by `RootView` (companion ADR 0017).
+                if let keyboard {
+                    MoreButton(keyboard: keyboard)
                 }
-                .menuStyle(.button)
-                .menuIndicator(.hidden)
-                .buttonStyle(.quiet)
-                .fixedSize()
-                .help("Screenshot, export, the conversation, builds and updates, destroy")
                 if facts.machineReady {
                     // The one way to take and give back the screen.
                     ControlButton(driving: driving, busy: pilot.busy, action: toggleControl)
@@ -331,46 +324,6 @@ struct RunView: View {
                         .houseLightsLit(radius: Radius.md)
                 }
             }
-        }
-    }
-
-    /// What the More menu holds, named as the menu bar names it, with its keys.
-    @ViewBuilder
-    private var moreActions: some View {
-        if facts.machineReady {
-            Button("Capture Screenshot  \(ActionRegistry.label(.capture))") { Task { await capture() } }
-                .disabled(!canCapture)
-        }
-        if !(store.frames[runId] ?? []).isEmpty {
-            Button("Export Recording...  \(ActionRegistry.label(.exportRecording))") { Task { await saveRecording() } }
-                .disabled(!canExport)
-        }
-        // Narrow: the pane switch shows the conversation; hiding it there hides nothing.
-        if layout.widthClass != .narrow {
-            let shown = conversationToggle.wrappedValue
-            Button(shown ? "Hide Conversation" : "Show Conversation") {
-                conversationToggle.wrappedValue.toggle()
-            }
-        }
-        if facts.machineReady || !(store.frames[runId] ?? []).isEmpty || layout.widthClass != .narrow {
-            Divider()
-        }
-        // Builds and updates (root ADR 0033), with the news when there is some.
-        Button(greenroomTitle) { keyboard?.perform(.greenroom) }
-        if canDestroy {
-            Divider()
-            Button("Destroy Machine...  \(ActionRegistry.label(.destroy))", role: .destructive) {
-                keyboard?.perform(.destroy, in: .run)
-            }
-        }
-    }
-
-    private var greenroomTitle: String {
-        let title = ActionRegistry.spec(.greenroom).menuTitle ?? "Builds and Updates..."
-        switch store.updates.summary.headline {
-        case .updates(let n): return "\(title)  \(n) new"
-        case .rebuild: return "\(title)  rebuild"
-        default: return store.updates.summary.mismatch ? "\(title)  mismatch" : title
         }
     }
 

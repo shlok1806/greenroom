@@ -82,6 +82,9 @@ struct RootView: View {
                 if keyboard.greenroomOpen {
                     greenroom
                 }
+                if keyboard.moreOpen, let anchor = keyboard.moreAnchor {
+                    more(under: anchor)
+                }
             }
             .ignoresSafeArea()
         }
@@ -101,6 +104,10 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await store.resync() }
         }
+        // A menu does not stay open behind another app.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            if keyboard.moreOpen { keyboard.closeMore() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: Self.showSidebarNotification)) { _ in
             keyboard.sidebarShown = true
         }
@@ -108,6 +115,7 @@ struct RootView: View {
             if let new { savedSelection = new } else { keyboard.zoom.restore() }
             if old == nil, new != nil { keyboard.settleFocus(runRestored: true) }
             keyboard.confirmingDestroy = nil
+            keyboard.closeMore()
         }
         .onChange(of: store.runs.isEmpty) {
             restoreSelection()
@@ -191,6 +199,27 @@ struct RootView: View {
                            maximumHeight: max(windowHeight - TopBar.height - Space.xxl * 2 - 160, 200))
                 .padding(.top, TopBar.height + Space.xxl)
                 .padding(.horizontal, Space.l)
+        }
+        .transition(.opacity)
+    }
+
+    /// The More menu (companion ADR 0017), hung under its button with their right edges
+    /// together, kept inside the window. A click anywhere else only closes it, as a menu's
+    /// does: the layer under it takes that click and nothing beneath sees it.
+    private func more(under anchor: CGRect) -> some View {
+        GeometryReader { proxy in
+            let origin = proxy.frame(in: .global).origin
+            let leading = min(max(anchor.maxX - origin.x - MoreMenuView.width, Space.s),
+                              max(proxy.size.width - MoreMenuView.width - Space.s, Space.s))
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { keyboard.closeMore() }
+                    .accessibilityHidden(true)
+                MoreMenuView(keyboard: keyboard)
+                    .padding(.leading, leading)
+                    .padding(.top, anchor.maxY - origin.y + Space.xs)
+            }
         }
         .transition(.opacity)
     }
