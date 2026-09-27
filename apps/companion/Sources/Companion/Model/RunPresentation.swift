@@ -276,3 +276,27 @@ enum ConnectionState: Equatable, Sendable {
         return nil
     }
 }
+
+/// A run row's second line (companion ADR 0012, 0018): when it started, how long it has
+/// run, the verdict's tally or its size, joined with " · ", longest first for
+/// `ViewThatFits`. The tally outlasts the time; a twin's mark leads and outlasts both, and
+/// only a row with no twin may end with nothing.
+enum RowMeta {
+    static func lines(time: String, twin: TwinMark?, running: String?, tally: String?, steps: String?) -> [String] {
+        var parts: [String]
+        switch twin {
+        case .time(let mark)?: parts = [mark]
+        case .tag(let mark)?: parts = [mark, time]
+        case nil: parts = [time]
+        }
+        if let running { parts.append(running) }
+        if let tally {
+            parts.insert(tally, at: twin == nil ? 0 : 1)
+        } else if let steps {
+            parts.append(steps)
+        }
+        let lines = (1...parts.count).reversed().map { parts.prefix($0).joined(separator: " · ") }
+        return twin == nil ? lines + [""] : lines
+    }
+}
+

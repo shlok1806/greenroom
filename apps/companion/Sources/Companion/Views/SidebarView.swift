@@ -34,6 +34,8 @@ struct SidebarView: View {
         // One shared clock keeps idle times fresh.
         TimelineView(.periodic(from: .now, by: 30)) { tick in
             let sections = sections(now: tick.date)
+            // From every run held, not the search's matches: a mark stays put while typing.
+            let twins = RunTitle.twinMarks(store.runs)
             VStack(spacing: 0) {
                 if !store.runs.isEmpty {
                     searchField
@@ -43,17 +45,23 @@ struct SidebarView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(sections) { section in
-                                SectionLabel(title: section.title, count: section.pinned ? section.runs.count : nil)
-                                    .padding(.horizontal, Space.s)
-                                    .padding(.top, Space.l)
-                                    .padding(.bottom, Space.xs)
-                                ForEach(shown(section)) { run in
+                            // One flat ForEach keyed by run id (issue #162): nested per section,
+                            // a run moving to another section (live, then ended) kept its old
+                            // row drawn there, stale, selected fill and all.
+                            ForEach(items(sections)) { item in
+                                switch item {
+                                case .label(let section):
+                                    SectionLabel(title: section.title, count: section.pinned ? section.runs.count : nil)
+                                        .padding(.horizontal, Space.s)
+                                        .padding(.top, Space.l)
+                                        .padding(.bottom, Space.xs)
+                                case .run(let run):
                                     RunRow(
                                         run: run,
-                                        // Twins are told apart by the time under the title, never
-                                        // by a time appended to it (audit R4).
+                                        // Twins are told apart by a mark under the title, never
+                                        // by a time appended to it (audit R4, ADR 0018).
                                         title: RunTitle.short(task: run.task, runId: run.runId),
+                                        twin: twins[run.runId],
                                         facts: store.facts(run.runId, now: tick.date),
                                         now: tick.date,
                                         selected: store.selectedRunId == run.runId
@@ -61,9 +69,7 @@ struct SidebarView: View {
                                         store.selectedRunId = run.runId
                                         onOpen()
                                     }
-                                    .id(run.runId)
-                                }
-                                if section.pinned, section.runs.count > Self.pinnedShown, query.isEmpty {
+                                case .more(let section):
                                     Button(showsAllPinned.contains(section.title)
                                            ? "Show fewer"
                                            : "Show all \(section.runs.count)") {
@@ -204,6 +210,29 @@ struct SidebarView: View {
         .contains { $0.lowercased().contains(needle) }
     }
 
+    /// The list's rows in order, flat: each section's label, its runs as shown, and its
+    /// "Show all" when it folds. A run's identity is its id alone, wherever it sits.
+    fileprivate enum ListItem: Identifiable {
+        case label(RunSection)
+        case run(RunSummary)
+        case more(RunSection)
+
+        var id: String {
+            switch self {
+            case .label(let section): "label " + section.title
+            case .run(let run): run.runId
+            case .more(let section): "more " + section.title
+            }
+        }
+    }
+
+    fileprivate func items(_ sections: [RunSection]) -> [ListItem] {
+        sections.flatMap { section -> [ListItem] in
+            let folds = section.pinned && section.runs.count > Self.pinnedShown && query.isEmpty
+            return [.label(section)] + shown(section).map(ListItem.run) + (folds ? [.more(section)] : [])
+        }
+    }
+
     fileprivate struct RunSection: Identifiable {
         var title: String
         var runs: [RunSummary]
@@ -252,6 +281,9 @@ struct SidebarView: View {
 struct RunRow: View {
     let run: RunSummary
     let title: String
+    /// What tells it apart from runs with the same title (companion ADR 0018); nil when
+    /// its title is its own.
+    var twin: TwinMark?
     let facts: RunFacts
     let now: Date
     let selected: Bool
@@ -305,19 +337,16 @@ struct RunRow: View {
     /// One time format everywhere in the list: when the run started, and for a running
     /// one how long it has run. Errors are counted once, in the run's header. Longest
     /// first; the last is empty, so in a narrow column a long state ("Inconclusive, you
-    /// accepted") keeps its words and the time gives way, never a clipped time.
+    /// accepted") keeps its words and the time gives way, never a clipped time. A twin's
+    /// mark leads instead and never gives way (companion ADR 0018): it is what tells the
+    /// row from another with the same title.
     private var meta: [String] {
-        var parts = [Chrome.shortTime(run.createdAt)]
-        if facts.isAlive { parts.append("running \(Chrome.span(facts.duration(now: now)))") }
-        // A verdict's checks say more about a run than its size, and outlast the time when
-        // the row is narrow (companion ADR 0012).
-        if let tally = Checklist(checks: run.verdict?.checks ?? []).rowTally {
-            parts.insert(tally, at: 0)
-        } else if facts.stepCount > 0 {
-            parts.append(Chrome.plural(facts.stepCount, "step"))
-        }
-        return (1...parts.count).reversed().map { parts.prefix($0).joined(separator: " · ") } + [""]
+        RowMeta.lines(time: Chrome.shortTime(run.createdAt), twin: twin,
+                    running: facts.isAlive ? "running \(Chrome.span(facts.duration(now: now)))" : nil,
+                    tally: Checklist(checks: run.verdict?.checks ?? []).rowTally,
+                    steps: facts.stepCount > 0 ? Chrome.plural(facts.stepCount, "step") : nil)
     }
+
 
     private func help(status: String) -> String {
         var lines = [RunTitle.text(task: run.task, runId: run.runId), "", "\(status). Started \(Chrome.stamp(run.createdAt))."]
@@ -390,11 +419,12 @@ struct RunsStrip: View {
                 .padding(.bottom, Space.s)
                 ScrollView {
                     LazyVStack(spacing: Space.xs) {
-                        ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
-                            if index > 0 {
+                        // Flat and keyed by run id, as the list is (issue #162).
+                        ForEach(Self.items(sections)) { item in
+                            switch item {
+                            case .gap:
                                 Hairline().frame(width: 16).padding(.vertical, Space.xs)
-                            }
-                            ForEach(section.runs) { run in
+                            case .mark(let run):
                                 StripMark(
                                     title: titles[run.runId] ?? RunTitle.short(task: run.task, runId: run.runId),
                                     status: store.facts(run.runId, now: tick.date).rowStatus(now: tick.date),
@@ -413,6 +443,27 @@ struct RunsStrip: View {
         }
         .ground(.chrome)
         .background(theme.chromeTint)
+    }
+}
+
+extension RunsStrip {
+    /// The strip's marks in order, a gap before each section after the first.
+    fileprivate enum Item: Identifiable {
+        case gap(String)
+        case mark(RunSummary)
+
+        var id: String {
+            switch self {
+            case .gap(let section): "gap " + section
+            case .mark(let run): run.runId
+            }
+        }
+    }
+
+    fileprivate static func items(_ sections: [SidebarView.RunSection]) -> [Item] {
+        sections.enumerated().flatMap { index, section -> [Item] in
+            (index > 0 ? [.gap(section.id)] : []) + section.runs.map(Item.mark)
+        }
     }
 }
 

@@ -360,6 +360,7 @@ final class SnapshotHarness {
                 await Self.destroyWhileWatched(store, runId: runId)
             },
         ] + verdictLandsScenarios() + checklistScenarios() + limitStopScenarios() + finishScenarios()
+            + twinScenarios() + selectionScenarios()
     }
 
     /// A run the coding agent finished with `run_finish` (root ADR 0034, companion ADR 0016):
@@ -433,6 +434,59 @@ final class SnapshotHarness {
         messages.insert(Message(seq: seq, at: finish.at ?? end, from: .system, kind: .event,
                                 text: "run finished: \(finish.outcome.text). \(finish.summary)", finish: finish), at: insertAt)
         store.messages[runId] = messages
+    }
+
+    /// Runs that share a title (issue #157): five bench trials of one WordCount task, two
+    /// started in the same minute, and three copies of one run started in the same second,
+    /// two of them sharing the id's first six hex digits. Serve the bench runs and the
+    /// copies (the PR says how they were made).
+    private func twinScenarios() -> [Scenario] {
+        let runId = "20260926-040010-37e61663c2b10bbb"
+        return [
+            Scenario(name: "56-twin-runs", sizes: [Self.large], runId: runId),
+            // The narrowest runs column: a lone run's time gives way there, a twin's mark never.
+            Scenario(name: "56b-twin-runs-narrow-column", sizes: [Self.large], runId: runId,
+                     sidebarWidth: RunLayout.sidebarMinimum),
+        ]
+    }
+
+    /// Issue #162: a person opens run A while it is live (pinned, selected), A's machine
+    /// goes away (it moves to its day), and they open run B. Exactly one row may look
+    /// selected: B's. Serve the WordCount bench trials.
+    private func selectionScenarios() -> [Scenario] {
+        let a = "20260926-054344-a002363c058e0127"
+        let b = "20260926-040010-37e61663c2b10bbb"
+        return [
+            // The maintainer's case: A is open (selected) while live, its machine goes away
+            // (it moves from Running to its day), then B is opened.
+            Scenario(name: "57-open-another-run-after-one-ends", sizes: [Self.large], runId: a) { store in
+                let accept = { Self.setVerdict(store, runId: a) { $0.status = .accepted; $0.acceptedBy = .human } }
+                accept()
+                Self.setLive(store, runId: a, true)
+                try? await Task.sleep(for: .seconds(2))
+                accept()
+                Self.setLive(store, runId: a, false)
+                store.selectedRunId = b
+                try? await Task.sleep(for: .seconds(2))
+            },
+        ]
+    }
+
+    /// A run in the list (and its detail, if held) as live on a ready machine, or as
+    /// ended, its machine destroyed now.
+    private static func setLive(_ store: RunStore, runId: String, _ live: Bool) {
+        if let index = store.runs.firstIndex(where: { $0.runId == runId }) {
+            store.runs[index].status = live ? .ready : .finished
+            store.runs[index].destroyedAt = live ? nil : Date()
+            store.runs[index].lastActivity = Date()
+        }
+        guard var detail = store.details[runId] else { return }
+        detail.destroyedAt = live ? nil : Date()
+        detail.machine = live
+            ? Machine(runId: runId, name: detail.machineName, image: detail.image, ip: "192.168.64.12",
+                      status: .ready, error: nil, bootSeconds: 11.4, createdAt: detail.createdAt, dir: "", control: nil)
+            : nil
+        store.details[runId] = detail
     }
 
     /// WordCount's "Longest word" task, whose verifier ran out of time (10 minutes).

@@ -13,7 +13,8 @@ the Markdown renderer), `0010` (run thumbnails from the last frame, superseded b
 `0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict), `0013` (one
 primary in the top bar, Give Back on the driving bar), `0014` (evidence marks on the picture), `0015` (a
 verifier stopped at its limit is a card with Continue), `0016` (a finished run says Done, only Verified is
-green) and `0017` (in-window menus are drawn by the app). Design: `docs/design-spec.md`
+green), `0017` (in-window menus are drawn by the app) and `0018` (twins say what tells them apart).
+Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -367,8 +368,11 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   every match). A row is the title at full width, then the verdict's `rowTally` (`2/4
   failed`) or the step count with the start time, and its state in words (companion ADR
   0012): a waiting verdict leads with its outcome, `Fail, needs review`. Rows have no
-  thumbnail (0012 supersedes 0010). `RunTitle.distinct` (the time appended to twins) is for
-  places without the row's time, never the row.
+  thumbnail (0012 supersedes 0010). Twins (runs sharing a short title) carry a mark that
+  tells them apart (companion ADR 0018, `RunTitle.twinMarks`): the start time to the minute,
+  else to the second, else an id tag (`RunTitle.idTags`); it leads the row's second line and
+  never gives way (`RowMeta.lines`). `RunTitle.distinct` (the title with that mark) is for
+  places without the row's line, never the row.
 - A finished run (root ADR 0034, companion ADR 0016) is Done: `RunFacts.finish`, taken from
   the transcript's system event carrying `finish` first (it arrives over the event stream;
   `apply` also copies it onto the row and the held detail and asks for the run), then the
@@ -507,7 +511,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   (`VerdictReview.explanation`, and the rejected note): on a destroyed run nothing looks
   again, so nothing may say it will.
 - A run's clock time comes from `createdAt`, never from its id (ids are UTC).
-  `Chrome.runHash` takes the id's tail for display.
+  `Chrome.runHash` takes the first six hex digits of the id's last part for display.
 - Durations go through `Chrome.clock`, or an 8-hour run reads "476:12".
 
 - Sender identity in the transcript is the name in words plus a 2 pt left edge
@@ -669,6 +673,11 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
 - `ScrollViewReader.scrollTo` in a `LazyVStack` finds a row it has not built only by its
   `ForEach` identity (Steps: the `Step`), never by an `.id` set inside the row. Scroll to
   the identity first, then to the inner id once the row exists (`StepsView.reveal`).
+- A lazy stack must not nest a `ForEach` per section when an item can move between
+  sections (issue #162). The runs list did: a run that went from Running to its day kept
+  drawing an old row there, stale (selected fill, "Live") beside the new selection. Both run
+  lists are one flat `ForEach` keyed by run id (`SidebarView.ListItem`, `RunsStrip.Item`);
+  `HostedViewTests` counts the selected fills after such a move.
 - The transcript is an eager `VStack`, never a `LazyVStack` (issue #146). A lazy stack
   guesses the height of rows it has not built; while the window settled its width,
   `defaultScrollAnchor(.bottom, for: .sizeChanges)` chased each guess until the offset
