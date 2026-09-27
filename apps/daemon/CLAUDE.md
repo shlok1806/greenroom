@@ -98,6 +98,9 @@ send either). The companion and smoke client send a loopback Host and no Origin.
   and `api.New` sweeps those of runs with no machine at start.
 - `GET /api/runs/{id}/report?format=md|json[&embed=true]` (`report.go`, ADR 0034) is the
   run's proof, the same report `run_report` returns; `text/markdown` or JSON, `no-store`.
+- `POST /api/runs/{id}/reboot` (`control.go`, daemon ADR 0004) is `Manager.Reboot` for a person:
+  202 with the machine rebooting and its step, 409 for any refusal. The Companion has no button
+  for it yet. Guest routes answer 409 while a machine reboots (`failMachine`, `ErrRebooting`).
 - `GET /api/runs/{id}/pull?src=&exclude=` (`pull.go`, ADR 0022) is `Manager.PullArchive`:
   the guest's `tar czf -` streamed through `tart.ExecTo` as `application/gzip`, never held.
   The step number is the `Greenroom-Step` header; a missing source is 404 before any byte.
@@ -153,7 +156,8 @@ artifact route for a public-host call, which the connect token opens.
 Each layer depends only on the ones below. Keep it that way.
 
 - `main.go` - flags, HTTP mux, and the lifecycle bridge (manager events to transcript
-  events: ready, failed, stopped, destroyed).
+  events: ready, failed, stopped, destroyed, rebooting; a `ready` or `failed` with `reboot`
+  says the reboot's outcome).
 - `internal/mcpserver` - the only agent-facing surface. Tool schemas, defaults, PNG to
   JPEG. No VM logic. `recoverPanics` turns a handler panic into that call's error: the SDK
   runs handlers on its own goroutines, beyond net/http's recovery, so a panic there ends the
@@ -266,8 +270,8 @@ Boot and lifecycle
 - `Create` holds `createMu` for its whole length, so the host-capacity check and the clone
   cannot interleave. Default limit 2 (Apple's), `-max-machines` changes it.
 - `machine_create` returns `booting` at once; callers poll `machine_wait` (capped at 50 s,
-  under Claude Code's 60 s first-byte timeout). `agent_wait`, `machine_exec` and
-  `machine_exec_wait` have the same cap. No tool may block longer.
+  under Claude Code's 60 s first-byte timeout). `agent_wait`, `machine_exec`,
+  `machine_exec_wait` and `machine_reboot` have the same cap. No tool may block longer.
 - Ready means usable: guest agent answers, IP known, ssh key installed, sshd accepts on
   guest 127.0.0.1:22 (probed via `tart exec`). The waiting phases each get their own
   `readyTimeout` (3 min). A timeout names the last probe error.
@@ -354,10 +358,23 @@ Boot and lifecycle
   machine's `tart run` fds every 30 s (a reattached one's pid from `tart.RunPID`, the fcntl
   lock owner of its `config.json`) into `Machine.Files`, set only on copies
   (`publicLocked`), so `state.json` never holds a count; one WARN per machine from 80 percent.
+  The watch carries its boot's `gen` and reads `mc.proc` under `m.mu`: a reboot clears
+  `files` and `filesWarned`, the old watch stops and a count it had in flight is dropped.
   The upstream fix (tart's `ControlSocket.handleClient`) is not ours; #186 stays open for it.
 - `waitReady` watches `tart run`'s process; if it exits, fail at once with the tail of
   `vm.log`. `watchProcess` does the same after ready; a reattached machine has no process,
   so it polls `tart list` every `WithVMPollInterval` (15 s) instead.
+- `machine_reboot` (daemon ADR 0004, `reboot.go`, issue #187) stops the VM (`tart stop
+  --timeout 20`, then a kill of this daemon's `tart run`), starts the same clone and runs
+  `bootGuest` again, under one 5 min bound (`WithRebootTimeout`). Status `rebooting` until
+  ready or failed; guest calls on it fail at once with `ErrRebooting` (`awaitReady`), never
+  wait. A failed reboot keeps the disk and stops the VM: status failed, run not ended,
+  `machine_reboot` retries and Destroy deletes it. Destroy decides whether a VM is left by
+  `Machine.vmDeleted`, never by the status. Every boot of a clone has a `Machine.gen`: a
+  watcher, `machineGone` or `startFrames` of an older gen stands down, so the reboot's own
+  stop never fails the machine or deletes its clone. Anything new that watches a machine's
+  VM or process must carry the gen too. `mc.ready` and `mc.proc` are replaced by a reboot:
+  read them under `m.mu` (`readyCh`), except in the boot goroutine that set them.
 - `Destroy` cancels the boot and waits for `finishBoot` to return, which then records
   nothing. It also waits for the frame recorder to return, so no frame lands in the run
   directory after it. The machine stays in the map and `state.json` (marked `destroying`) until its
@@ -454,7 +471,8 @@ Exec
 - `machine_exec` waits at most `waitSeconds` (max 50), then returns `running` and an
   `execId`; `machine_exec_wait` collects the rest (ADR 0015, issue #39). The command is a
   job owned by the machine (`execjob.go`), detached from the call, cancelled by
-  `detachLocked`. Its step is claimed at start and written when it ends. The verifier's
+  `detachLocked`, or aborted by a reboot with `errExecRebooted` as its error
+  (`execJob.abort`). Its step is claimed at start and written when it ends. The verifier's
   `Manager.Exec` blocks on the same job.
 - Each stream keeps its first `ExecHeadLimit` (8 KiB) and last `ExecTailLimit` (24 KiB),
   with `stdoutBytes`/`stderrBytes` and `*Truncated` (issue #29). `tart.ExecTo` streams
@@ -1094,6 +1112,11 @@ mode, each read back with the copy's signature).
   probe and tar and the mirror guard (`greenroom-sync-guard`) for real from the same `HOME`.
   A test that mirrors must set `HOME` to a temp dir first, or the guard's `mkdir -p` lands in
   the real home.
+- The fake tart boots a VM again after `tart stop <name>` (it writes `stop-<name>` beside
+  `stopped`, and a `tart run <name>` after it clears both) and lists a VM stopped by name as
+  stopped: that is what reboot tests run on. `agent-down` holds a reboot in `rebooting`;
+  `stop-sleep` slows `tart stop`. `exec-sleep` sleeps in 0.1 s steps so a killed exec
+  returns at once, as a real `tart exec` does.
 - `internal/bench` runner tests use the real manager on the fake tart, a fake `rsync` that
   copies its source (so the patched app is visible) and a scripted `verifier.Brain`. The fake
   tart stops every VM on one `stopped` file, so they run one trial at a time with

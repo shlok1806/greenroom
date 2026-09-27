@@ -25,14 +25,16 @@ extension OpenEnum {
 
 /// `finished` means the machine is gone; the rest mirror `MachineStatus`.
 enum RunStatus: OpenEnum {
-    case booting, ready, failed, finished
+    /// `rebooting`: machine_reboot is restarting a live machine on the same disk (daemon ADR 0004).
+    case booting, ready, failed, finished, rebooting
     case unknown(String)
 
-    static let known: [Self] = [.booting, .ready, .failed, .finished]
+    static let known: [Self] = [.booting, .ready, .failed, .finished, .rebooting]
 
     var text: String {
         switch self {
         case .booting: "booting"
+        case .rebooting: "rebooting"
         case .ready: "ready"
         case .failed: "failed"
         case .finished: "finished"
@@ -42,14 +44,15 @@ enum RunStatus: OpenEnum {
 }
 
 enum MachineStatus: OpenEnum {
-    case booting, ready, failed
+    case booting, ready, failed, rebooting
     case unknown(String)
 
-    static let known: [Self] = [.booting, .ready, .failed]
+    static let known: [Self] = [.booting, .ready, .failed, .rebooting]
 
     var text: String {
         switch self {
         case .booting: "booting"
+        case .rebooting: "rebooting"
         case .ready: "ready"
         case .failed: "failed"
         case .unknown(let raw): raw

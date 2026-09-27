@@ -177,3 +177,110 @@ func TestNewFileUseWarnsFromEightyPercent(t *testing.T) {
 		}
 	}
 }
+
+// blockingCount wraps fakeCount: while held, every count waits until release, so the
+// number of counts waiting is the number of watches running (each counts one at a time).
+type blockingCount struct {
+	fakeCount
+	held    atomic.Bool
+	waiting atomic.Int32
+	release chan struct{}
+}
+
+func (b *blockingCount) count(ctx context.Context, pid int) (int, error) {
+	if b.held.Load() {
+		b.waiting.Add(1)
+		<-b.release
+		b.waiting.Add(-1)
+	}
+	return b.fakeCount.count(ctx, pid)
+}
+
+// A reboot starts a new `tart run` and a new watch for it. The old boot's watch must stop,
+// not go on counting the new process beside the new watch, and machine_list must describe
+// the new process, never the dead one.
+func TestAfterARebootOneFileWatchCountsTheNewTartRun(t *testing.T) {
+	counter := &blockingCount{release: make(chan struct{})}
+	counter.open.Store(40)
+	mgr, _, _ := newTestManager(t, WithFileCheck(FileCheck{
+		Interval: 10 * time.Millisecond,
+		Count:    counter.count,
+		Limit:    func() (uint64, bool) { return 256, true },
+	}))
+	var once sync.Once
+	unhold := func() { once.Do(func() { counter.held.Store(false); close(counter.release) }) }
+	t.Cleanup(unhold)
+	mc := readyMachine(t, mgr)
+	oldPID := filesOf(t, mgr, mc.RunID, func(*FileUse) bool { return true }).PID
+
+	if _, _, err := mgr.Reboot(context.Background(), mc.RunID); err != nil {
+		t.Fatalf("Reboot: %v", err)
+	}
+	if got := waitRebooted(t, mgr, mc.RunID); got.Status != Ready {
+		t.Fatalf("the reboot ended %s", got.Status)
+	}
+	raw := mustRaw(t, mgr, mc.RunID)
+	mgr.mu.Lock()
+	newPID := raw.proc.Pid()
+	mgr.mu.Unlock()
+	if newPID == oldPID {
+		t.Fatalf("the reboot's tart run has the old pid %d", oldPID)
+	}
+
+	use := filesOf(t, mgr, mc.RunID, func(u *FileUse) bool { return u.PID == newPID })
+	if use.Open != 40 || use.Limit != 256 {
+		t.Errorf("after the reboot files = %+v", use)
+	}
+	// Hold every count: each running watch ends up waiting in one. The old boot's watch, had
+	// it survived, would wait beside the new one.
+	seen := len(counter.calls())
+	counter.held.Store(true)
+	deadline := time.Now().Add(5 * time.Second)
+	for counter.waiting.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond) // ten intervals: every live watch has ticked
+	if n := counter.waiting.Load(); n != 1 {
+		t.Errorf("%d file watches run after the reboot, want 1", n)
+	}
+	unhold()
+	time.Sleep(50 * time.Millisecond)
+	for _, pid := range counter.calls()[seen:] {
+		if pid != newPID {
+			t.Errorf("counted pid %d after the reboot, want only the new tart run %d", pid, newPID)
+		}
+	}
+	if l := mgr.List(); len(l) != 1 || l[0].Files == nil || l[0].Files.PID != newPID {
+		t.Errorf("machine_list shows %+v, want the new tart run's count", l)
+	}
+}
+
+// A reboot clears the old tart run's count and its near-limit warning: they describe a
+// process that is gone.
+func TestARebootClearsTheOldFileCount(t *testing.T) {
+	counter := &fakeCount{}
+	counter.open.Store(230)
+	mgr, _, control := newTestManager(t, WithFileCheck(FileCheck{
+		Interval: 10 * time.Millisecond,
+		Count:    counter.count,
+		Limit:    func() (uint64, bool) { return 256, true },
+	}))
+	mc := readyMachine(t, mgr)
+	filesOf(t, mgr, mc.RunID, func(u *FileUse) bool { return u.Warning != "" })
+	testsupport.Flag(t, control, "agent-down") // hold the reboot in rebooting
+	if _, _, err := mgr.Reboot(context.Background(), mc.RunID); err != nil {
+		t.Fatalf("Reboot: %v", err)
+	}
+	for _, m := range mgr.List() {
+		if m.RunID == mc.RunID && m.Files != nil {
+			t.Errorf("a rebooting machine still shows the old count %+v", m.Files)
+		}
+	}
+	raw := mustRaw(t, mgr, mc.RunID)
+	mgr.mu.Lock()
+	warned := raw.filesWarned
+	mgr.mu.Unlock()
+	if warned {
+		t.Error("the reboot kept the old tart run's near-limit warning, so the new one would never warn")
+	}
+}
