@@ -486,6 +486,10 @@ Conversation and verifier
     rule is a tool error naming each rule and check id (`refusal`), posted as the call's
     progress, never as a verdict. inconclusive is never refused: `settle` posts a missing
     answer and any pass or fail answer that broke a rule as `unchecked`, `observed` saying why.
+    A fail with one fail answer that holds is settled the same way and posted as fail, the
+    summary listing what did not hold (ADR 0031, #153), unless a problem is with the verdict as
+    a whole (`whole`: bad arguments, no id, unknown or repeated id, a step in `evidence`, no
+    checks declared); a new rule that is not one check's answer must go through `general`.
     The top-level `evidence` is artifact paths only; a step there is refused.
   - Check kinds (ADR 0027; `kinds.go`, rules in `evidence.go`). `kinds` is `["value"]`
     (default), or `visual`, `timing` or both (`["visual", "timing"]`, always in that order);
@@ -991,8 +995,7 @@ mode, each read back with the copy's signature).
   `Manager.HandoverStep` (the step claimed when the count last moved), which orders the same
   way because steps are monotonic. Like the count, it resets when the daemon restarts.
 - ADR 0024 says inconclusive "must name the unchecked checks": the daemon fills in missing
-  answers as `unchecked` rather than refusing. At a limit it also downgrades a fail whose
-  evidence breaks the rules, not only a pass. An input with no earlier verifier read reports
+  answers as `unchecked` rather than refusing. An input with no earlier verifier read reports
   `effect: unknown (no earlier machine_ui read to compare)`, a fourth effect wording.
 - ADR 0024 puts the effect on "the step record"; steps.jsonl is append-only and the input's
   line is written before its effect is known, so the effect lives on the UI read that found
