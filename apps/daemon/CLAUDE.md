@@ -21,13 +21,15 @@ go run . serve                                  # 127.0.0.1:7777, root ~/.greenr
 go run . serve -verifier manual                 # no model; a person types instructions
 go run . serve -image greenroom-base -max-machines 2 -frame-interval 2s
 go run . serve -tart <path>                     # or GREENROOM_TART
+go run . serve -sweep-orphans-after 0           # keep orphaned run clones (default: sweep those older than 6h at start)
+go run . sweep-orphans [-delete] [-older-than 6h] [-root dir]   # list (or delete) what that sweep takes (#103)
 go run . serve -public-host gr.example.com      # or GREENROOM_PUBLIC_HOST; needs GREENROOM_TOKEN; -dist <dir>
 go run . prepare-image -vm <running vm> [-xcode <Xcode.app>]   # build-image.sh runs it; not on its own
 go run . check-image -image <local image> [-out dir]   # the dialog gate, on a clone of a clone
 go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir>]
 go run . connect [-url URL] [-token T] [-config F] [-dir D]   # stdio MCP server for a daemon on another host
 go run . connect -check                          # prints "ok: <url> (<n> tools)" or the reason, exit 1
-go run . bench run -split dev [-case a,b] [-kind mutant] [-tier simple] [-trials 3] [-out f.jsonl]   # ADR 0025; real VMs and the model
+go run . bench run -split dev [-case a,b] [-kind mutant] [-tier simple] [-trials 3] [-out f.jsonl] [-min-free-gb 5] [-disk-wait 10m]   # ADR 0025; real VMs and the model
 go run . bench score [-tier simple] [-bench dir] <results.jsonl>   # writes <results>.md
 
 scripts/install.sh [-rebuild] [-dry-run]   # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
@@ -199,6 +201,17 @@ Each layer depends only on the ones below. Keep it that way.
 - The host's VM limit counts the daemon's machines too. `Runner.create` waits while `Create`
   fails with "host is at its limit" (a string match on `checkHostCapacity`'s error; change
   both together).
+- Low disk (issue #155, `internal/bench/disk.go`): no trial starts under `-min-free-gb` (5)
+  free on tart's volume (`TART_HOME`, else `~/.tart`, via `statfs`). The runner waits up to
+  `-disk-wait` (10 min), then stops like Ctrl-C (running trials finish; `Run` returns
+  `ErrLowDisk`) and records the trial it could not start as `setup_error` with `cause: disk`.
+  A setup step that says the disk is full, a setup error while the disk is low, and a trial
+  whose machine stopped (the daemon's "machine stopped"/"machine failed" event) while it is
+  low are `cause: disk` too: never a wrong verdict. A failed probe is logged and never stops a
+  run. `bench score` counts them in its header and shows the cause in the No answer table.
+  `build-image.sh` runs its clone, `prepare-image` and `check-image` under
+  `scripts/disk-guard.sh`'s `guarded` (stops the step under `GREENROOM_BUILD_MIN_FREE_GB`, 5,
+  exit 75, and the build deletes what it made); `diskguard_test.go` drives it with a fake `df`.
 - Each result records `models` (`machine.Models`: brain, reasoning model, describer and the
   options their requests carry) beside the older `model` (issue #154). `bench score` names
   each brain and describer in its header (`modelsLabel`; a result without `models` says
@@ -232,6 +245,16 @@ Each layer depends only on the ones below. Keep it that way.
 Boot and lifecycle
 
 - `runId` is the one handle: map key, VM name (`greenroom-<runId>`), run directory.
+- Orphaned run clones (issue #103, `machine/sweep.go`): `serve` starts `SweepOrphans` in the
+  background after `loadState`. It deletes only a VM named exactly `greenroom-<runId>`
+  (`runCloneRE`; images never match), local, **stopped** (a live `tart run` makes tart list
+  it running), not a live machine, with no run directory under the root, the default root
+  (`~/.greenroom`, so a scratch-root daemon never takes the real daemon's clones) or a root
+  one level under either (the bench's), and older than `-sweep-orphans-after` (6h) by both
+  its runId time and its directory in `tart.Home()`. One log line per clone. Every test that
+  starts `serve` uses `-tart /usr/bin/false` (the sweep then only warns); never start `serve`
+  on the real tart from a test without `-sweep-orphans-after 0`. `greenroom sweep-orphans`
+  lists the same set and deletes only with `-delete`.
 - `Create` holds `createMu` for its whole length, so the host-capacity check and the clone
   cannot interleave. Default limit 2 (Apple's), `-max-machines` changes it.
 - `machine_create` returns `booting` at once; callers poll `machine_wait` (capped at 50 s,

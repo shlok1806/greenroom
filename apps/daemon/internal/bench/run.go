@@ -50,6 +50,15 @@ type Config struct {
 	CapacityWait time.Duration // how long to wait for a free VM slot; default 30 min
 	CapacityPoll time.Duration // how often to try again; default 60 s
 
+	// Low disk (issue #155, disk.go). No trial starts with less than MinFreeDisk bytes free on
+	// tart's volume (0: no check); the runner waits up to DiskWait (default 10 min), probing
+	// every DiskPoll (default 60 s), then stops with ErrLowDisk. FreeDisk probes it; default
+	// FreeDiskAt(TartStorage()).
+	MinFreeDisk uint64
+	DiskWait    time.Duration
+	DiskPoll    time.Duration
+	FreeDisk    func() (free uint64, path string, err error)
+
 	Log      *slog.Logger
 	Progress io.Writer // one line per finished trial; nil for none
 }
@@ -75,6 +84,9 @@ type Runner struct {
 
 	mu    sync.Mutex
 	turns map[string]*turnCost
+
+	stopOnce sync.Once
+	stopCh   chan struct{} // closed when the runner stops for low disk
 }
 
 type turnCost struct {
@@ -102,10 +114,15 @@ func New(cfg Config, mgr *machine.Manager, reg *session.Registry, brain verifier
 	cfg.TurnTimeout = orDefault(cfg.TurnTimeout, 30*time.Minute)
 	cfg.CapacityWait = orDefault(cfg.CapacityWait, 30*time.Minute)
 	cfg.CapacityPoll = orDefault(cfg.CapacityPoll, 60*time.Second)
+	cfg.DiskWait = orDefault(cfg.DiskWait, 10*time.Minute)
+	cfg.DiskPoll = orDefault(cfg.DiskPoll, 60*time.Second)
+	if cfg.FreeDisk == nil {
+		cfg.FreeDisk = FreeDiskAt(TartStorage())
+	}
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	r := &Runner{cfg: cfg, machines: mgr, reg: reg, turns: map[string]*turnCost{}}
+	r := &Runner{cfg: cfg, machines: mgr, reg: reg, turns: map[string]*turnCost{}, stopCh: make(chan struct{})}
 	for _, opt := range opts {
 		opt(r)
 	}
@@ -156,6 +173,7 @@ type Summary struct {
 // Run runs every case and trial not already in the results file, trial by trial (every case
 // once before any twice), at most Parallel at once, appending each result as it finishes. A
 // cancelled ctx stops scheduling; a trial it cut short is not recorded, so a resume reruns it.
+// Low disk stops scheduling too, without cutting anything short, and Run returns ErrLowDisk.
 func (r *Runner) Run(ctx context.Context) (Summary, error) {
 	var sum Summary
 	var prior []Result
@@ -195,9 +213,25 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 		go func() {
 			defer wg.Done()
 			for j := range queue {
-				res := r.runTrial(ctx, j.c, j.trial)
+				if r.stopping() {
+					continue // never started: not recorded, a resume runs it
+				}
+				free, path, ok := r.waitForDisk(ctx)
 				if ctx.Err() != nil {
-					continue // cut short: not recorded, a resume reruns it
+					continue
+				}
+				var res Result
+				if ok {
+					res = r.runTrial(ctx, j.c, j.trial)
+					if ctx.Err() != nil {
+						continue // cut short: not recorded, a resume reruns it
+					}
+					r.blameDisk(&res)
+				} else {
+					r.stop()
+					res = r.newResult(j.c, j.trial)
+					res.Ending, res.Cause = EndSetupError, CauseDisk
+					res.Error = fmt.Sprintf("not started: %s free on %s, under %s", fmtGB(free), path, fmtGB(r.cfg.MinFreeDisk))
 				}
 				err := out.write(res)
 				mu.Lock()
@@ -223,6 +257,8 @@ feed:
 		case queue <- j:
 		case <-ctx.Done():
 			break feed
+		case <-r.stopCh:
+			break feed
 		}
 	}
 	close(queue)
@@ -230,7 +266,112 @@ feed:
 	if writeErr != nil {
 		return sum, writeErr
 	}
-	return sum, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return sum, err
+	}
+	if r.stopping() {
+		return sum, ErrLowDisk
+	}
+	return sum, nil
+}
+
+func (r *Runner) stop() { r.stopOnce.Do(func() { close(r.stopCh) }) }
+func (r *Runner) stopping() bool {
+	select {
+	case <-r.stopCh:
+		return true
+	default:
+		return false
+	}
+}
+
+// say reports what the runner decided where the run's progress goes and in the log.
+func (r *Runner) say(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	r.cfg.Log.Warn("bench: " + msg)
+	if r.cfg.Progress != nil {
+		_, _ = fmt.Fprintf(r.cfg.Progress, "bench: %s\n", msg)
+	}
+}
+
+// waitForDisk returns ok when a trial may start: MinFreeDisk is off, the probe fails (said,
+// never a reason to stop), or there is enough space, at once or within DiskWait. free and path
+// are the last reading.
+func (r *Runner) waitForDisk(ctx context.Context) (free uint64, path string, ok bool) {
+	least := r.cfg.MinFreeDisk
+	if least == 0 {
+		return 0, "", true
+	}
+	free, path, err := r.cfg.FreeDisk()
+	if err != nil {
+		r.cfg.Log.Warn("bench cannot read the free disk; going on", "path", path, "err", err)
+		return 0, path, true
+	}
+	if free >= least {
+		return free, path, true
+	}
+	r.say("%s free on %s, under %s; waiting up to %s for space", fmtGB(free), path, fmtGB(least), r.cfg.DiskWait)
+	deadline := time.Now().Add(r.cfg.DiskWait)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return free, path, false
+		case <-time.After(r.cfg.DiskPoll):
+		}
+		if f, p, err := r.cfg.FreeDisk(); err == nil {
+			free, path = f, p
+			if free >= least {
+				r.say("%s free again; going on", fmtGB(free))
+				return free, path, true
+			}
+		}
+	}
+	r.say("stopping: no trial starts under %s free. Trials already running finish; free some space and run "+
+		"again with the same -out to finish", fmtGB(least))
+	return free, path, false
+}
+
+// blameDisk makes a trial the disk killed a setup error of cause disk: a setup step that said
+// the disk was full, a setup error while the disk is low, or a machine that stopped during the
+// trial while it is low. What the verifier said about a machine that was gone is not counted.
+func (r *Runner) blameDisk(res *Result) {
+	if res.Ending == EndSetupError && noSpaceRE.MatchString(res.Error) {
+		res.Cause = CauseDisk
+		return
+	}
+	if r.cfg.MinFreeDisk == 0 || (res.Ending != EndSetupError && !r.machineStopped(res.RunID)) {
+		return
+	}
+	free, path, err := r.cfg.FreeDisk()
+	if err != nil || free >= r.cfg.MinFreeDisk {
+		return
+	}
+	low := fmt.Sprintf("%s free on %s, under %s", fmtGB(free), path, fmtGB(r.cfg.MinFreeDisk))
+	if res.Ending == EndSetupError {
+		res.Cause, res.Error = CauseDisk, res.Error+"; "+low
+		return
+	}
+	res.Error = fmt.Sprintf("disk: the machine stopped during the trial with %s; its %s is not counted", low, res.Outcome())
+	res.Ending, res.Cause, res.Verdict = EndSetupError, CauseDisk, ""
+}
+
+// machineStopped reports whether runID's machine stopped or failed on its own: the daemon's
+// events, not the runner's own destroy.
+func (r *Runner) machineStopped(runID string) bool {
+	if runID == "" {
+		return false
+	}
+	store, err := r.reg.Get(runID)
+	if err != nil {
+		return false
+	}
+	for _, m := range store.After(0) {
+		if m.From == session.System && m.Kind == session.Event &&
+			(strings.HasPrefix(m.Text, "machine stopped") || strings.HasPrefix(m.Text, "machine failed")) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) progress(n, total int, res Result) {
@@ -257,9 +398,7 @@ func orElse(s, fallback string) string {
 
 // runTrial runs one case once on a fresh machine and destroys it.
 func (r *Runner) runTrial(ctx context.Context, c Case, trial int) (res Result) {
-	res = Result{Case: c.ID, Trial: trial, App: c.App, Kind: c.Kind, Family: c.Family, Split: c.Split, Tier: c.Tier,
-		Expected: c.Expected, MustCheck: c.MustCheck, Infra: c.InfraType(), Image: r.cfg.Image, Model: r.cfg.Model,
-		Models: r.cfg.Models, StartedAt: time.Now().UTC()}
+	res = r.newResult(c, trial)
 	setupFailed := func(format string, args ...any) Result {
 		res.Ending = EndSetupError
 		res.Error = fmt.Sprintf(format, args...)
@@ -319,6 +458,13 @@ func (r *Runner) runTrial(ctx context.Context, c Case, trial int) (res Result) {
 	r.settle(mc.RunID, &res)
 	readChecks(filepath.Join(res.RunDir, "conversation.jsonl"), task.Seq, &res)
 	return res
+}
+
+// newResult is a trial's result before it runs: the case and run facts.
+func (r *Runner) newResult(c Case, trial int) Result {
+	return Result{Case: c.ID, Trial: trial, App: c.App, Kind: c.Kind, Family: c.Family, Split: c.Split, Tier: c.Tier,
+		Expected: c.Expected, MustCheck: c.MustCheck, Infra: c.InfraType(), Image: r.cfg.Image, Model: r.cfg.Model,
+		Models: r.cfg.Models, StartedAt: time.Now().UTC()}
 }
 
 // create makes a machine, waiting while the host is at its VM limit (another run, or the
