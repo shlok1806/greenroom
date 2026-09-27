@@ -78,7 +78,7 @@ switched `[SYSTEM INSTRUCTION]` text into tool results, which a verifier cannot 
 5. **Waiting and assertions are tools.** `machine_wait_for` (AXObserver plus a 150 ms poll, at
    most 40 s) and `machine_expect`, whose recorded observation is evidence a verdict cites
    under ADR 0024.
-6. **Build in four waves** (docs/21 section 8): (1) agent, channel, snapshot, find, press,
+6. **Build in four waves** (docs/21 section 8; #212, #213, #214, #215): (1) agent, channel, snapshot, find, press,
    type, set value, key, scroll, wait_for, expect, screenshot crops, and a navigation fixture
    app and bench tier; (2) menus, select, dialogs and system prompts, file dialogs, windows,
    apps, open, drag, clipboard; (3) logs, crashes, processes and hangs, OCR, set-of-marks,

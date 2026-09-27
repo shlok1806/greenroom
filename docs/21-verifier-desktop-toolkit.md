@@ -1,8 +1,8 @@
 # 21. Greenroom's own desktop-control toolkit for the verifier
 
 Date: 2026-09-27. Status: design, for review. The decision is ADR 0037
-(`docs/adr/0037-guest-agent-and-desktop-toolkit.md`). Umbrella issue: #206. Build waves: see
-section 8.
+(`docs/adr/0037-guest-agent-and-desktop-toolkit.md`). Umbrella issue: #206. Build waves: #212,
+#213, #214, #215 (section 8).
 
 The verifier's main problem is no longer judging. It is getting around the desktop. It clicks
 controls that something else covers, reads labels that were cut off, scrolls the wrong pane,
@@ -1011,7 +1011,7 @@ Each wave is one GitHub issue with acceptance criteria and tests, and ends in a 
 comparison (section 9). Waves land behind a daemon flag (`-desktop-toolkit`) until wave 4
 makes the new tools the verifier's default.
 
-### Wave 1: the agent, the channel, and acting by reference
+### Wave 1 (#212): the agent, the channel, and acting by reference
 
 Scope:
 - Guest agent (`--agent`, helper 9): channel, protocol, heartbeat, watchdog, exit on EOF,
@@ -1047,7 +1047,7 @@ diff and actionability decisions, driven by recorded AX fixtures (serialized tre
 hit-test maps). A fake agent in Go for daemon tests, as the fake tart does for exec. VM suite
 tests against navlab.
 
-### Wave 2: menus, dialogs, windows, apps
+### Wave 2 (#213): menus, dialogs, windows, apps
 
 Scope: `machine_menu` (bar, context, list with shortcuts), `machine_select`,
 `machine_dialog` (app and system), `machine_file_dialog`, `machine_window`, `machine_app`
@@ -1059,7 +1059,7 @@ splitter drag all done with one tool call each; TextEdit save-as to a path and r
 Preview opened on a file with its window confirmed; the bench `dialog` infra case handled
 without `machine_exec`; the Era A menu-bar popover task done in under 10 calls.
 
-### Wave 3: diagnostics, OCR, marks, evidence crops, one pipe
+### Wave 3 (#214): diagnostics, OCR, marks, evidence crops, one pipe
 
 Scope: `machine_app_logs`, `machine_crashes`, `machine_processes`, `machine_sample`,
 `machine_ocr` and `ocr: auto`, set-of-marks screenshots (for the describer and the Companion,
@@ -1071,7 +1071,7 @@ Acceptance: navlab's canvas button pressed through an OCR ref; a hang (#185 shap
 with `sample` evidence and inputs refused; a crash reported with its `.ips` summary; every
 action step in a run has two crops; one `tart exec` per machine including the live screen.
 
-### Wave 4: the verifier switches over
+### Wave 4 (#215): the verifier switches over
 
 Scope: the verifier's tool list and prompt (7.1, 7.2); the evidence-contract ADR (7.4);
 deletion of the separate effect read and the degraded exec path; `machine_ui` and coordinate
