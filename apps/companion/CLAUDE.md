@@ -630,6 +630,13 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
 - `ScrollViewReader.scrollTo` in a `LazyVStack` finds a row it has not built only by its
   `ForEach` identity (Steps: the `Step`), never by an `.id` set inside the row. Scroll to
   the identity first, then to the inner id once the row exists (`StepsView.reveal`).
+- The transcript is an eager `VStack`, never a `LazyVStack` (issue #146). A lazy stack
+  guesses the height of rows it has not built; while the window settled its width,
+  `defaultScrollAnchor(.bottom, for: .sizeChanges)` chased each guess until the offset
+  moved after the stack had built rows for it, and the transcript drew no row at all (its
+  end marker unbuilt too, so nothing scrolled to rebuild them). A long run is a few
+  hundred rows once tool calls group. `HostedViewTests` fails if the transcript's body holds a
+  `LazyVStack`, and checks it draws after the width settles and a row goes.
 - `ScreenView` claims SwiftUI focus a turn after it appears (`Task`), once the layout has
   placed it: claimed at once it was dropped and the window gave the keyboard to the run
   search. `StepsView` beside the screen does not claim (`claimsFocus`): two claims cancel.
