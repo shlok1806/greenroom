@@ -207,3 +207,24 @@ func TestInstallWithAnUnreadableJobUsesTheDefaults(t *testing.T) {
 		t.Fatalf("verifier %q\n%s", f.arg("-verifier"), out)
 	}
 }
+
+// launchd starts a job with a soft limit of 256 open files, which every `tart run` inherited
+// (issue #186, daemon ADR 0002). The job asks for 65536, or the kernel's cap when lower.
+func TestInstallGivesTheJobAHighOpenFileLimit(t *testing.T) {
+	f := newInstallFixture(t)
+	f.run()
+	want := "65536"
+	if out, err := exec.Command("/usr/sbin/sysctl", "-n", "kern.maxfilesperproc").Output(); err == nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && n < 65536 {
+			want = strconv.Itoa(n)
+		}
+	}
+	for _, key := range []string{"SoftResourceLimits:NumberOfFiles", "HardResourceLimits:NumberOfFiles"} {
+		if got := f.read(key); got != want {
+			t.Errorf("%s = %q, want %s", key, got, want)
+		}
+	}
+	if out, err := exec.Command("/usr/bin/plutil", "-lint", f.plist()).CombinedOutput(); err != nil {
+		t.Errorf("the job is not a valid plist: %v\n%s", err, out)
+	}
+}

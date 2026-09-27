@@ -158,6 +158,11 @@ func TestRebootKeepsTheCloneAndTheRun(t *testing.T) {
 	if mgr.Live(mc.RunID) {
 		t.Fatal("a rebooted machine whose VM then stopped on its own is still listed")
 	}
+	// machineGone leaves the map first and marks the run ended in its directory after; wait for
+	// its "stopped" event, sent last, or that write races t.TempDir's cleanup.
+	for !strings.HasSuffix(strings.Join(events.kinds(), ","), ",stopped") && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func mustLive(t *testing.T, mgr *Manager, runID string) *Machine {

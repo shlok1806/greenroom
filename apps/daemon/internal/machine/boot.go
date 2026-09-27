@@ -182,6 +182,7 @@ func (m *Manager) watchProcess(mc *Machine, gen int) {
 	m.mu.Lock()
 	proc := mc.proc // a reboot replaces it
 	m.mu.Unlock()
+	go m.watchFiles(mc, gen)
 	if proc != nil {
 		go func() {
 			proc.Wait()

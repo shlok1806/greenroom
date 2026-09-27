@@ -86,6 +86,7 @@ func (m *Manager) Reboot(ctx context.Context, runID string) (*Machine, int, erro
 	mc.Status, mc.Error, mc.IP = Rebooting, "", "" // the address may change
 	mc.gen++                                       // every watcher and recorder of the old boot stands down
 	mc.boot = nil                                  // this reboot's phases replace the first boot's
+	mc.files, mc.filesWarned = nil, false          // they describe the old tart run; the new boot's watch counts again
 	mc.ready = make(chan struct{})
 	boot := newBoot(mc)
 	r := rebootRun{started: started, gen: mc.gen, proc: mc.proc, frames: mc.frameDone,
