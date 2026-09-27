@@ -549,7 +549,8 @@ func TestTurnDescribesAScreenshotForABlindModel(t *testing.T) {
 	}
 }
 
-// The vision model once answered with a page of <unk> tokens. That is retried
+// The vision model once answered with a page of <unk> tokens; muse-glimmer-30b and kimi-k3
+// sometimes answer with no text, and kimi-k3 with a line of "!" (ADR 0030). Each is retried
 // once, and a second one reaches the reasoning model as an error, not as noise.
 func TestDescribeRetriesAnUnreadableAnswerOnce(t *testing.T) {
 	for _, tc := range []struct {
@@ -558,7 +559,11 @@ func TestDescribeRetriesAnUnreadableAnswerOnce(t *testing.T) {
 		want    string
 	}{
 		{"then readable", []string{"<unk><unk><unk>", "3. Window text:\nEach pays: $48.00"}, "Each pays: $48.00"},
-		{"twice", []string{"<unk><unk>", "<unk><unk>"}, "unreadable tokens twice"},
+		{"twice", []string{"<unk><unk>", "<unk><unk>"}, "no readable description twice"},
+		{"empty then readable", []string{"", "3. Window text:\nEach pays: $48.00"}, "Each pays: $48.00"},
+		{"empty twice", []string{"", ""}, "no readable description twice"},
+		{"punctuation then readable", []string{"1!!!!!!!!!!!!!!!!!!!!!", "3. Window text:\nEach pays: $48.00"}, "Each pays: $48.00"},
+		{"punctuation twice", []string{"!!!!!!!!!!!!", "!!!!!!!!!!!!"}, "no readable description twice"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mgr, runID, control := ready(t)

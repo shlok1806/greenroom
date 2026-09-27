@@ -400,6 +400,19 @@ Conversation and verifier
   input) to those events. `lastUnanswered` ignores them, so a daemon restart does not resume.
   An actor's start position (`startSeen`) is read in `Start`, not in its goroutine, so an
   event appended right after `Start` returns is never skipped.
+- A describer's model-specific request fields live in `nim.describeFields`, keyed by model id,
+  and only `Describe` sends them (ADR 0030). `meta/muse-glimmer-30b` gets
+  `chat_template_kwargs: {enable_thinking: false}`: with thinking on it spends the 700-token
+  budget reasoning and returns no text. A model not in the table (kimi-k3, nano-omni) gets the
+  plain request. Adding a describer that needs its own fields means a row there plus a
+  request-body test in `nim/client_test.go`, never a new environment variable.
+- To use muse, set `GREENROOM_VISION_MODEL=meta/muse-glimmer-30b` in `.env` (or the launchd
+  plist) and restart the daemon; nothing else. A set value always beats the built-in default
+  (kimi-k3): the maintainer's `.env` pins `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`, so
+  every daemon and bench run so far used omni. Switching means changing that line.
+- `Verifier.describe` retries once any answer `readableDescription` refuses: `<unk>` (omni),
+  empty (all three describers; muse about 1 in 40 even with thinking off) or under 10
+  letters (kimi-k3's "!!!!"). A second one is an error the brain sees, never the noise.
 - Model failures retry: `nim.RetryBackoff` (1, 2, 4, 8 s on 429/5xx/transport, honours
   `Retry-After`; a timeout is never retried), then `verifier.TurnRetryDelays` (30, 60, 120 s). After the last, the
   actor posts that it gave up. Both are package vars so tests can zero them.
@@ -786,7 +799,7 @@ Values already set in the environment win.
 | `NVIDIA_API_KEY` | none | Without it the `nim` verifier is off; machine tools still work. |
 | `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint. |
 | `GREENROOM_VERIFIER_MODEL` | none, required with a key | Model for verifier turns. |
-| `GREENROOM_VISION_MODEL` | `moonshotai/kimi-k3` | Model that describes screenshots for the verifier (ADR 0020). `none`: the verifier works without seeing the screen. |
+| `GREENROOM_VISION_MODEL` | `moonshotai/kimi-k3` | Model that describes screenshots for the verifier (ADR 0020). `none`: the verifier works without seeing the screen. `meta/muse-glimmer-30b` is the faster candidate (ADR 0030): the name is enough, see below. |
 | `GREENROOM_TART` | none | tart binary, see below. `-tart` overrides. |
 | `GREENROOM_PUBLIC_HOST` | none | Tunnel hostname that may reach the daemon with the token (ADR 0021). `-public-host` overrides. |
 | `GREENROOM_TOKEN` | none | Bearer token for the public host, at least 32 characters (`openssl rand -hex 32`). |

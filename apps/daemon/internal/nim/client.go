@@ -133,6 +133,14 @@ func (c *Client) Chat(ctx context.Context, model string, msgs []Message, tools [
 	return msg, usage, nil
 }
 
+// describeFields are extra request fields a describer needs, by model id (ADR 0030). They are
+// part of the model, not a setting: with its default thinking on, muse-glimmer-30b spends the
+// whole 700-token budget reasoning and returns no description, so naming the model is enough to
+// get the request that works. A model not listed gets the plain request.
+var describeFields = map[string]map[string]any{
+	"meta/muse-glimmer-30b": {"chat_template_kwargs": map[string]any{"enable_thinking": false}},
+}
+
 // Describe asks a vision model what is in an image (ADR 0005: the reasoning
 // model cannot take images).
 func (c *Client) Describe(ctx context.Context, model string, jpeg []byte, prompt string) (string, error) {
@@ -149,6 +157,9 @@ func (c *Client) Describe(ctx context.Context, model string, jpeg []byte, prompt
 				}},
 			},
 		}},
+	}
+	for k, v := range describeFields[model] {
+		body[k] = v
 	}
 	wm, _, _, err := c.complete(ctx, model, body)
 	if err != nil {
