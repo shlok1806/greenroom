@@ -22,6 +22,7 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/buildinfo"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/mcpserver"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/openfiles"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/report"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
@@ -163,6 +164,7 @@ func serveUntil(ctx context.Context, args []string) error {
 	}
 	defer func() { _ = ln.Close() }()
 
+	raiseFileLimit(log)
 	opts := []machine.Option{
 		machine.WithMaxMachines(o.maxMachines),
 		machine.WithFrameInterval(o.frameInterval),
@@ -267,6 +269,20 @@ func serveUntil(ctx context.Context, args []string) error {
 	}
 }
 
+// raiseFileLimit raises the open file limit before any `tart run` starts, so each inherits it
+// instead of launchd's 256 (issue #186, daemon ADR 0002), and logs it. A failure is a warning:
+// the daemon still serves, and machines keep the old limit.
+func raiseFileLimit(log *slog.Logger) {
+	l, err := openfiles.Raise()
+	if err != nil {
+		log.Warn("cannot raise the open file limit; tart run may die with Error(24) after enough tart exec calls (issue #186)",
+			"soft", l.Soft, "hard", l.Hard, "err", err)
+		return
+	}
+	// soft is what every `tart run` started from now on inherits (openfiles.Limits).
+	log.Info("open file limit for tart run", "soft", l.Soft, "hard", l.Hard, "maxfilesperproc", l.PerProc)
+}
+
 // nimVerifier is the model-driven verifier as the environment configures it (NVIDIA_API_KEY,
 // NVIDIA_BASE_URL, GREENROOM_VERIFIER_MODEL, GREENROOM_VISION_MODEL). serve and bench share it,
 // so the bench measures the verifier the daemon runs.
@@ -368,10 +384,18 @@ func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnable
 			// reg.Listen only fans out from opened stores, so open this one before its first message.
 			go func() { _, _ = reg.Get(ev.RunID) }()
 			return
+		case "rebooting":
+			text = "machine is rebooting (machine_reboot): its sessions, running commands and apps end; its disk stays"
 		case "ready":
 			text = "machine is ready"
+			if ev.Reboot {
+				text = "machine rebooted and is ready"
+			}
 		case "failed":
 			text = withError("machine failed to boot", ev.Machine)
+			if ev.Reboot {
+				text = withError("machine failed to reboot", ev.Machine)
+			}
 		case "stopped":
 			text = withError("machine stopped", ev.Machine) // a ready machine's VM went away, not a boot failure
 		case "destroyed":

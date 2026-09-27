@@ -162,7 +162,7 @@ func TestServerExposesExactlyItsTools(t *testing.T) {
 	want := map[string]bool{
 		"machine_create": false, "machine_wait": false, "machine_list": false,
 		"machine_sync": false, "machine_pull": false, "machine_exec": false, "machine_exec_wait": false, "machine_screenshot": false,
-		"machine_destroy": false, "machine_approve_capture": false,
+		"machine_destroy": false, "machine_approve_capture": false, "machine_reboot": false,
 		"agent_send": false, "agent_wait": false, "agent_transcript": false, "run_finish": false, "run_report": false,
 		"machine_click": false, "machine_type": false, "machine_key": false,
 		"machine_scroll": false, "machine_input": false, "machine_ui": false,
@@ -201,6 +201,7 @@ func TestRequiredArgumentsAreEnforced(t *testing.T) {
 		"machine_pull":       {"runId": "x"},
 		"machine_screenshot": {},
 		"machine_destroy":    {},
+		"machine_reboot":     {},
 	} {
 		res := h.raw(name, args)
 		if !res.IsError {

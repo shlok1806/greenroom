@@ -14,7 +14,9 @@ are in the root `CONTEXT-MAP.md`.
 - **Run facts**: the one derived state of a run the whole window shows (`RunFacts`).
 - **Phase**: booting, live, idle, ended or failed. **Idle** is a ready machine with no step
   or message for 5 minutes. **Ended** says how: destroyed by you, destroyed by the coding
-  agent, or machine lost (its VM stopped under the run).
+  agent, or machine lost (its VM stopped under the run). A machine the daemon is
+  **rebooting** (`machine_reboot`, daemon ADR 0004) is in the booting phase and says
+  Rebooting: the same machine coming up again on the same disk, never ended.
 - **Done**: a run the coding agent finished with `run_finish` (root ADR 0034), with its
   **outcome**: `Verified` (an accepted pass on this run), `Unverified` or `Abandoned`, a
   summary and a ref (branch, commit, PR). Done outranks the phase; the machine may still
