@@ -105,13 +105,14 @@ func TestALookWhileACaptureIsOutstandingStartsNoSecondCapture(t *testing.T) {
 
 	// The frame recorder does not wait at all.
 	live, _ := mgr.get(mc.RunID)
-	if err := live.input.capture.acquire(context.Background(), false, time.Second); err != nil {
+	epoch, err := live.input.capture.acquire(context.Background(), false, time.Second)
+	if err != nil {
 		t.Fatalf("the slot is still held after the capture ended: %v", err)
 	}
-	if err := live.input.capture.acquire(context.Background(), false, time.Second); !errors.Is(err, errCaptureBusy) {
+	if _, err := live.input.capture.acquire(context.Background(), false, time.Second); !errors.Is(err, errCaptureBusy) {
 		t.Errorf("a recorder capture while one is outstanding gave %v, want errCaptureBusy", err)
 	}
-	live.input.capture.release(false, true)
+	live.input.capture.release(epoch, false, true)
 }
 
 // The recorder backs off while the screen does not answer, logs once when that starts and once
@@ -349,5 +350,90 @@ func TestWatchdogArgs(t *testing.T) {
 	}
 	if got := watchdogArgs(10 * time.Millisecond)[4]; got != "1" {
 		t.Errorf("a limit under a second is %s s in the guest, want 1", got)
+	}
+}
+
+// A reboot starts the capture gate over: the slot a capture of the old boot held is free, the
+// streak is 0, a waiter on that capture takes the slot instead of failing with its timeout, and
+// the old capture's late release changes nothing.
+func TestResetFreesTheCaptureGateForTheNewBoot(t *testing.T) {
+	var g captureGate
+	old, err := g.acquire(context.Background(), false, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.release(old, true, false) // one timeout, streak 1
+	old, err = g.acquire(context.Background(), false, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waited := make(chan error, 1)
+	go func() {
+		epoch, err := g.acquire(context.Background(), true, time.Second)
+		if err == nil {
+			g.release(epoch, false, true)
+		}
+		waited <- err
+	}()
+	time.Sleep(20 * time.Millisecond) // the waiter is blocked on the old capture
+	g.reset()
+	select {
+	case err := <-waited:
+		if err != nil {
+			t.Fatalf("a look waiting across a reboot gave %v, want the slot", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a look waiting on the old boot's capture was not woken by the reboot")
+	}
+	if s := g.timeoutStreak(); s != 0 {
+		t.Errorf("streak after a reboot = %d, want 0", s)
+	}
+
+	// The old capture ends late, timed out: it must not free a new capture's slot or count.
+	now, err := g.acquire(context.Background(), false, time.Second)
+	if err != nil {
+		t.Fatalf("the slot after a reboot: %v", err)
+	}
+	g.release(old, true, false)
+	if _, err := g.acquire(context.Background(), false, time.Second); !errors.Is(err, errCaptureBusy) {
+		t.Errorf("the old boot's release freed the new capture's slot: %v", err)
+	}
+	if s := g.timeoutStreak(); s != 0 {
+		t.Errorf("the old boot's timeout counted: streak %d", s)
+	}
+	g.release(now, false, true)
+}
+
+// End to end: a screenshot abandoned on a wedged screen leaves its capture outstanding; after
+// machine_reboot a screenshot works at once instead of waiting on that capture and failing.
+func TestAScreenshotAfterARebootIsNotBlockedByTheOldBootsCapture(t *testing.T) {
+	mgr, _, control := newTestManager(t, withLookTimes(quickLooks(20*time.Second)))
+	mc := readyMachine(t, mgr)
+	hang(t, control, "shot-hang")
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if _, _, err := mgr.Screenshot(ctx, mc.RunID); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("the abandoned screenshot gave %v", err)
+	}
+
+	if _, _, err := mgr.Reboot(context.Background(), mc.RunID); err != nil {
+		t.Fatalf("Reboot: %v", err)
+	}
+	if got := waitRebooted(t, mgr, mc.RunID); got.Status != Ready {
+		t.Fatalf("the reboot ended %s", got.Status)
+	}
+	if err := os.Remove(filepath.Join(control, "shot-hang")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(control, "shot.b64"), []byte(pngBase64(t)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	if _, _, err := mgr.Screenshot(context.Background(), mc.RunID); err != nil {
+		t.Fatalf("a screenshot after the reboot gave %v, want a picture", err)
+	}
+	if took := time.Since(started); took > 5*time.Second {
+		t.Errorf("a screenshot after the reboot took %s: it waited on the old boot's capture", took)
 	}
 }

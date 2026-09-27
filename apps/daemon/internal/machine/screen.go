@@ -508,6 +508,10 @@ func (m *Manager) screenStream(ctx context.Context, mc *Machine) (*screenStream,
 		s.end(errors.New("the machine is gone"))
 		return nil, fmt.Errorf("%w: machine %s is being destroyed", ErrNotReady, mc.RunID)
 	}
+	if mc.Status != Ready { // a reboot began while it started
+		s.end(errors.New("the machine is " + string(mc.Status)))
+		return nil, fmt.Errorf("%w: machine %s is %s", ErrNotReady, mc.RunID, mc.Status)
+	}
 	mc.screen = s
 	return s, nil
 }

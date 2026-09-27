@@ -186,51 +186,59 @@ var errCaptureBusy = errors.New("a screen capture is already outstanding")
 // starting another capture on a screen that just proved hung. The frame recorder does not
 // wait: it skips the frame. The slot is held until the guest command is over (its tart exec
 // returned), not until the caller gives up, so an abandoned capture still blocks the next.
+// A reboot resets the gate (reset): a capture of the old boot neither holds the slot nor
+// counts toward the new boot's timeouts.
 type captureGate struct {
 	mu       sync.Mutex
 	busy     bool
 	freed    chan struct{} // closed when the outstanding capture ends
 	timeouts uint64        // captures that timed out, ever
 	streak   int           // consecutive timeouts; 0 after a capture that got a picture
+	epoch    uint64        // bumped by reset; a release from an older epoch is ignored
 }
 
-// acquire claims the slot. With wait false a busy slot is errCaptureBusy; with wait true it
-// waits until the slot is free or ctx is done. limit is a capture's own limit, for the error
-// when the capture it waited for timed out.
-func (g *captureGate) acquire(ctx context.Context, wait bool, limit time.Duration) error {
+// acquire claims the slot and returns the epoch to release it with. With wait false a busy
+// slot is errCaptureBusy; with wait true it waits until the slot is free or ctx is done.
+// limit is a capture's own limit, for the error when the capture it waited for timed out.
+func (g *captureGate) acquire(ctx context.Context, wait bool, limit time.Duration) (uint64, error) {
 	for {
 		g.mu.Lock()
 		if !g.busy {
 			g.busy = true
 			g.freed = make(chan struct{})
+			epoch := g.epoch
 			g.mu.Unlock()
-			return nil
+			return epoch, nil
 		}
 		if !wait {
 			g.mu.Unlock()
-			return errCaptureBusy
+			return 0, errCaptureBusy
 		}
 		freed, seen := g.freed, g.timeouts
 		g.mu.Unlock()
 		select {
 		case <-freed:
 		case <-ctx.Done():
-			return ctx.Err()
+			return 0, ctx.Err()
 		}
 		g.mu.Lock()
 		stuck := g.timeouts != seen
 		g.mu.Unlock()
 		if stuck {
-			return &ScreenNotAnsweringError{What: "the screen capture already in flight", After: limit}
+			return 0, &ScreenNotAnsweringError{What: "the screen capture already in flight", After: limit}
 		}
 	}
 }
 
-// release frees the slot and records how the capture ended: timedOut, or got a picture (ok).
-// A capture that failed any other way leaves the streak as it was.
-func (g *captureGate) release(timedOut, ok bool) {
+// release frees the slot acquire gave at epoch and records how the capture ended: timedOut,
+// or got a picture (ok). A capture that failed any other way leaves the streak as it was. A
+// capture from before a reset (a reboot) changes nothing: the slot is no longer its own.
+func (g *captureGate) release(epoch uint64, timedOut, ok bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if epoch != g.epoch {
+		return
+	}
 	switch {
 	case timedOut:
 		g.timeouts++
@@ -240,6 +248,20 @@ func (g *captureGate) release(timedOut, ok bool) {
 	}
 	g.busy = false
 	close(g.freed)
+}
+
+// reset starts a new epoch for a new boot of the guest (machine_reboot): the slot is free,
+// the timeout streak is 0, and a waiter on a capture of the old boot wakes and takes the slot
+// instead of failing with that capture's timeout. The old capture's release is ignored.
+func (g *captureGate) reset() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.epoch++
+	g.streak = 0
+	if g.busy {
+		g.busy = false
+		close(g.freed)
+	}
 }
 
 // timeoutStreak is how many captures in a row have timed out.

@@ -30,8 +30,9 @@ func newTestManager(t *testing.T, extra ...Option) (*Manager, string, string) {
 	t.Helper()
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
-	// Frames are off unless a test passes its own WithFrameInterval, which wins.
-	opts := append([]Option{WithTartBin(bin), WithReadyTimeout(10 * time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0)}, extra...)
+	// Frames and file counts are off unless a test passes its own option, which wins.
+	opts := append([]Option{WithTartBin(bin), WithReadyTimeout(10 * time.Second), WithSSHProbe(sshAnswers), WithFrameInterval(0),
+		WithFileCheck(FileCheck{Interval: 0})}, extra...)
 	mgr, err := NewManager(root, slog.New(slog.NewTextHandler(io.Discard, nil)), opts...)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)

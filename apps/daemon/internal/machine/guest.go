@@ -259,7 +259,8 @@ func (m *Manager) ScreenshotAs(ctx context.Context, runID, reader string) (data 
 func (m *Manager) captureScreen(ctx context.Context, mc *Machine, wait bool) ([]byte, error) {
 	lim := m.looks().captureLimit()
 	g := &mc.input.capture
-	if err := g.acquire(ctx, wait, lim.guest); err != nil {
+	epoch, err := g.acquire(ctx, wait, lim.guest)
+	if err != nil {
 		return nil, err
 	}
 	type result struct {
@@ -269,7 +270,7 @@ func (m *Manager) captureScreen(ctx context.Context, mc *Machine, wait bool) ([]
 	done := make(chan result, 1)
 	go func() {
 		png, timedOut, err := m.captureOnce(context.WithoutCancel(ctx), mc, lim)
-		g.release(timedOut, err == nil)
+		g.release(epoch, timedOut, err == nil)
 		done <- result{png, err}
 	}()
 	select {

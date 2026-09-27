@@ -77,6 +77,26 @@ final class RunFactsTests: XCTestCase {
         let f = facts(detail: detail(machine(.booting)))
         XCTAssertEqual(f.phase, .booting)
         XCTAssertFalse(f.machineReady)
+        XCTAssertNil(f.rebootingSince)
+    }
+
+    /// machine_reboot (daemon ADR 0004): the same machine comes up again. The run stays alive
+    /// and says Rebooting, timed from the reboot's first phase, never "ended".
+    func testARebootingMachineIsComingUpAgain() throws {
+        var rebooting = machine(.rebooting)
+        let stop = now.addingTimeInterval(-20)
+        rebooting.boot = [BootPhase(phase: .unknown("stop"), at: stop, seconds: 3, detail: "m", error: nil)]
+        let f = facts(detail: detail(rebooting), messages: [message(1, .system, .event, "machine is rebooting", ago: 21)])
+        XCTAssertEqual(f.phase, .booting)
+        XCTAssertTrue(f.isAlive)
+        XCTAssertFalse(f.machineReady)
+        XCTAssertEqual(f.rebootingSince, stop)
+        XCTAssertEqual(f.rowStatus(now: now).text, "Rebooting")
+
+        let decoded = try JSONDecoder().decode(MachineStatus.self, from: Data("\"rebooting\"".utf8))
+        XCTAssertEqual(decoded, .rebooting)
+        XCTAssertEqual(RunStatus(text: "rebooting"), .rebooting)
+        XCTAssertEqual(Chrome.lifecycleTitle(.rebooting), "Rebooting")
     }
 
     // MARK: - Times
