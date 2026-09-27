@@ -51,6 +51,9 @@ type fakeDaemon struct {
 type syncRequest struct {
 	runID, dest, name, contentType string
 	hasDest                        bool
+	excludes                       []string
+	mirror                         string
+	hasMirror                      bool
 	entries                        map[string]tarEntry
 }
 
@@ -208,6 +211,9 @@ func (d *fakeDaemon) sync(w http.ResponseWriter, r *http.Request) {
 		entries:     map[string]tarEntry{},
 	}
 	_, req.hasDest = r.URL.Query()["dest"]
+	req.excludes = r.URL.Query()["exclude"]
+	req.mirror = r.URL.Query().Get("mirror")
+	_, req.hasMirror = r.URL.Query()["mirror"]
 	gz, err := gzip.NewReader(r.Body)
 	if err != nil {
 		http.Error(w, `{"error":"not gzip"}`, http.StatusBadRequest)
@@ -505,6 +511,13 @@ func TestRemoteMachineSyncUploadsTheLocalSourceInsteadOfForwarding(t *testing.T)
 	if s.runID != "r1" || s.dest != "~/work/x" || s.name != "myapp" || s.contentType != "application/gzip" {
 		t.Errorf("sync request = %+v", s)
 	}
+	// The daemon gets every pattern too, so a mirror keeps the guest's excluded paths (daemon ADR 0001).
+	if got, want := strings.Join(s.excludes, " "), strings.Join(testExcludes, " "); got != want {
+		t.Errorf("exclude query = %q, want %q", got, want)
+	}
+	if s.hasMirror {
+		t.Errorf("mirror = %q sent although the call did not ask for it", s.mirror)
+	}
 	if d.auths[len(d.auths)-1] != "Bearer "+testToken {
 		t.Errorf("upload Authorization = %q", d.auths[len(d.auths)-1])
 	}
@@ -553,6 +566,21 @@ func TestRemoteMachineSyncOmitsAnUnsetDest(t *testing.T) {
 	}
 	if _, ok := d.syncs[0].entries["node_modules/"]; !ok {
 		t.Errorf("with no excludes node_modules should be sent")
+	}
+}
+
+func TestRemoteMachineSyncSendsMirror(t *testing.T) {
+	d := newFakeDaemon(t)
+	cs, _ := connectClient(t, d)
+	dir, _ := writeProject(t)
+	res := call(t, cs, SyncTool, map[string]any{"runId": "r3", "source": dir, "mirror": true, "exclude": []string{" .build ", ""}})
+	if res.IsError {
+		t.Fatalf("machine_sync: %s", text(res))
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if s := d.syncs[0]; s.mirror != "true" || strings.Join(s.excludes, ",") != ".build" {
+		t.Errorf("sync request = %+v, want mirror=true and the one exclude, trimmed", s)
 	}
 }
 

@@ -23,8 +23,9 @@ var (
 // uploadSync is machine_sync for a client whose project is on another host (ADR 0021): the body
 // is a gzipped tar of the project, unpacked into <root>/uploads/<runId>/<name> and synced into
 // the guest from there with the same Manager.Sync, so dest rules, rsync's incremental copy and
-// the recorded step are the local tool's. The staging directory is emptied before each upload
-// and removed with the machine.
+// the recorded step are the local tool's, and so are mirror and the stray count (mirror=true and
+// every exclude pattern come as query parameters). The staging directory is emptied before
+// each upload and removed with the machine.
 func (a *api) uploadSync(w http.ResponseWriter, r *http.Request, runID string) {
 	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/gzip" {
 		a.fail(w, http.StatusUnsupportedMediaType, errors.New("the body must be a gzipped tar (Content-Type: application/gzip)"))
@@ -42,6 +43,23 @@ func (a *api) uploadSync(w http.ResponseWriter, r *http.Request, runID string) {
 	if err := machine.CheckDest(dest); err != nil {
 		a.fail(w, http.StatusBadRequest, err)
 		return
+	}
+	// connect left excluded paths out of the archive; the same patterns keep a mirror from
+	// deleting the guest's copies of them and a stray count from counting them (daemon ADR 0001).
+	opts := machine.SyncOptions{Dest: dest, Exclude: r.URL.Query()["exclude"]}
+	switch m := r.URL.Query().Get("mirror"); m {
+	case "", "false":
+	case "true":
+		opts.Mirror = true
+	default:
+		a.fail(w, http.StatusBadRequest, fmt.Errorf("mirror %q must be true or false", m))
+		return
+	}
+	if opts.Mirror {
+		if err := machine.CheckMirrorDest(dest); err != nil {
+			a.fail(w, http.StatusBadRequest, err)
+			return
+		}
 	}
 	if !a.mgr.Live(runID) {
 		a.fail(w, http.StatusConflict, fmt.Errorf("run %q has no machine to sync into", runID))
@@ -75,7 +93,7 @@ func (a *api) uploadSync(w http.ResponseWriter, r *http.Request, runID string) {
 		a.fail(w, code, err)
 		return
 	}
-	res, err := a.mgr.Sync(r.Context(), runID, staging, dest, nil)
+	res, err := a.mgr.Sync(r.Context(), runID, staging, opts)
 	if err != nil {
 		a.failMachine(w, runID, err)
 		return

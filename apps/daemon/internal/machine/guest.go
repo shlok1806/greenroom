@@ -296,16 +296,37 @@ func cachedScreen(mc *Machine) (Screen, bool) {
 	return *s, true
 }
 
+// SyncOptions are machine_sync's arguments after source (daemon ADR 0001).
+type SyncOptions struct {
+	// Dest is relative to the guest home; empty means GuestWorkDir/<basename of source>.
+	Dest string
+	// Exclude are rsync exclude patterns. An excluded path is neither copied nor deleted,
+	// and is never a stray.
+	Exclude []string
+	// Mirror deletes what dest has and source does not (rsync --delete), inside dest only.
+	Mirror bool
+}
+
 // SyncResult reports what rsync did.
 type SyncResult struct {
 	Dest    string  `json:"dest"`
 	Summary string  `json:"summary"`
 	Seconds float64 `json:"seconds"`
+	Mirror  bool    `json:"mirror"`
+	// Strays counts the paths in dest that source does not have and no exclude covers:
+	// deleted with Mirror, still there without it. Nil when they could not be counted.
+	Strays *int `json:"strays,omitempty"`
+	// StrayPaths are the first maxStrayPaths of them, relative to dest; a directory ends in /.
+	StrayPaths []string `json:"strayPaths,omitempty"`
 }
 
-// Sync copies a host directory into the guest with rsync over ssh. dest is
-// relative to the guest home and defaults to GuestWorkDir/<basename>.
-func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude []string) (SyncResult, error) {
+// maxStrayPaths caps SyncResult.StrayPaths; Strays is the full count.
+const maxStrayPaths = 20
+
+// Sync copies a host directory into the guest with rsync over ssh. dest is relative to the
+// guest home and defaults to GuestWorkDir/<basename>. It deletes only with opts.Mirror, and
+// then only inside a dest mirrorDest and syncGuardScript allow. Either way it counts strays.
+func (m *Manager) Sync(ctx context.Context, runID, source string, opts SyncOptions) (SyncResult, error) {
 	mc, err := m.get(runID)
 	if err != nil {
 		return SyncResult{}, err
@@ -321,34 +342,143 @@ func (m *Manager) Sync(ctx context.Context, runID, source, dest string, exclude 
 	if st, err := os.Stat(source); err != nil || !st.IsDir() {
 		return SyncResult{}, fmt.Errorf("source %q is not a directory", source)
 	}
+	dest := opts.Dest
 	if dest == "" {
 		dest = GuestWorkDir + "/" + filepath.Base(source)
 	}
 	if dest, err = guestDest(dest); err != nil {
 		return SyncResult{}, err
 	}
-	// Not via --rsync-path: openrsync re-splits it on spaces, so no quoting survives there.
-	if _, err := execChecked(ctx, m.tart, mc.Name, "/bin/sh", "-c", "cd && mkdir -p "+shellQuote(dest)); err != nil {
+	if opts.Mirror {
+		if err := mirrorDest(dest); err != nil {
+			return SyncResult{}, err
+		}
+		if err := m.guardMirrorDest(ctx, mc, dest); err != nil {
+			return SyncResult{}, err
+		}
+	} else if _, err := execChecked(ctx, m.tart, mc.Name, "/bin/sh", "-c", "cd && mkdir -p "+shellQuote(dest)); err != nil {
+		// Not via --rsync-path: openrsync re-splits it on spaces, so no quoting survives there.
 		return SyncResult{}, fmt.Errorf("create %s in the guest: %w", dest, err)
 	}
 	// No -z: compression costs 4x on a local VM (docs/10-build-transport.md).
 	// Revisit only if sync ever crosses a real network.
 	args := []string{"-a", "--stats", "-e", m.rsyncShell()}
+	if opts.Mirror {
+		// -v makes rsync print what the receiver deletes ("deleting <path>"): the strays.
+		args = append(args, "--delete", "-v")
+	}
+	args = appendExcludes(args, opts.Exclude)
+	// Apple's rsync (openrsync, 2.6.9) has no --protect-args, so the remote
+	// shell sees the path: quote it. RSYNC_OLD_ARGS makes rsync 3.2.4+ agree.
+	remote := fmt.Sprintf("%s@%s:%s/", guestUser, m.snapshot(mc).IP, shellQuote(dest))
+	out, err := runRsync(ctx, append(args, source+"/", remote))
+	res := SyncResult{Dest: dest, Summary: rsyncSummary(out), Mirror: opts.Mirror}
+	switch {
+	case err != nil:
+		err = fmt.Errorf("rsync: %w: %s", err, strings.TrimSpace(out))
+	case opts.Mirror:
+		res.setStrays(deletedPaths(out))
+	default:
+		// A dry run with --delete lists what a mirror would delete, by rsync's own exclude rules.
+		dry := appendExcludes([]string{"-a", "--dry-run", "--delete", "-v", "-e", m.rsyncShell()}, opts.Exclude)
+		if dryOut, dryErr := runRsync(ctx, append(dry, source+"/", remote)); dryErr != nil {
+			m.Log.Warn("machine_sync could not count strays", "runId", runID, "dest", dest,
+				"err", dryErr, "output", strings.TrimSpace(dryOut))
+			res.Summary = joinSummary(res.Summary, "strays in dest: unknown (the dry run to count them failed)")
+		} else {
+			res.setStrays(deletedPaths(dryOut))
+		}
+	}
+	res.Seconds = time.Since(started).Seconds()
+	input := map[string]any{"source": source, "dest": dest, "exclude": opts.Exclude, "mirror": opts.Mirror}
+	m.emitStep(runID, mc.rec.step("machine_sync", input, res, err, started))
+	return res, err
+}
+
+// guardMirrorDest makes dest in the guest and refuses it when any component is a symlink:
+// rsync's receiver follows a symlinked destination, so --delete would empty its target.
+func (m *Manager) guardMirrorDest(ctx context.Context, mc *Machine, dest string) error {
+	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", syncGuardScript, "greenroom-sync-guard", dest)
+	switch {
+	case err != nil:
+		return fmt.Errorf("check %s in the guest: %w", dest, err)
+	case res.ExitCode == 4:
+		return fmt.Errorf("mirror: dest %q goes through a symlink in the guest (it is really %s); a mirror deletes "+
+			"only in a real directory, so name that directory itself", dest, strings.TrimSpace(res.Stdout))
+	case res.ExitCode != 0:
+		return fmt.Errorf("create %s in the guest: exit %d: %s", dest, res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	return nil
+}
+
+// syncGuardScript makes the guest dir $1 (relative to the home) and exits 4, printing where
+// it really is, when its physical path is not the home's plus $1: a component is a symlink.
+// The path is an argument, never shell text.
+const syncGuardScript = `cd || exit; mkdir -p -- "$1" || exit; home=$(pwd -P) || exit; ` +
+	`real=$(cd -P -- "$1" && pwd -P) || exit; [ "$real" = "$home/$1" ] || { printf '%s\n' "$real"; exit 4; }`
+
+// mirrorDest refuses a dest (already through guestDest) that a mirror must not empty: a
+// top-level directory of the home, or anything under Library or a hidden top-level directory.
+func mirrorDest(dest string) error {
+	parts := strings.Split(dest, "/")
+	if len(parts) < 2 {
+		return fmt.Errorf("mirror: dest %q is a top-level directory of the guest home, and a mirror deletes what "+
+			"source does not have; name a project directory at least two levels down, like work/<name> (the default)", dest)
+	}
+	if parts[0] == "Library" || strings.HasPrefix(parts[0], ".") {
+		return fmt.Errorf("mirror: dest %q is inside ~/%s, which holds the guest's own state; mirror into a "+
+			"project directory like work/<name> (the default)", dest, parts[0])
+	}
+	return nil
+}
+
+func appendExcludes(args, exclude []string) []string {
 	for _, ex := range exclude {
 		args = append(args, "--exclude", ex)
 	}
-	// Apple's rsync (openrsync, 2.6.9) has no --protect-args, so the remote
-	// shell sees the path: quote it. RSYNC_OLD_ARGS makes rsync 3.2.4+ agree.
-	args = append(args, source+"/", fmt.Sprintf("%s@%s:%s/", guestUser, m.snapshot(mc).IP, shellQuote(dest)))
+	return args
+}
+
+// runRsync runs the host's rsync and returns its combined output.
+func runRsync(ctx context.Context, args []string) (string, error) {
 	cmd := exec.CommandContext(ctx, "rsync", args...)
 	cmd.Env = append(os.Environ(), "RSYNC_OLD_ARGS=1")
 	out, err := cmd.CombinedOutput()
-	res := SyncResult{Dest: dest, Summary: rsyncSummary(string(out)), Seconds: time.Since(started).Seconds()}
-	if err != nil {
-		err = fmt.Errorf("rsync: %w: %s", err, strings.TrimSpace(string(out)))
+	return string(out), err
+}
+
+// setStrays records the strays rsync listed and says them in the summary.
+func (r *SyncResult) setStrays(paths []string) {
+	n := len(paths)
+	r.Strays = &n
+	r.StrayPaths = paths[:min(n, maxStrayPaths)]
+	switch {
+	case n == 0:
+		r.Summary = joinSummary(r.Summary, "strays in dest: 0")
+	case r.Mirror:
+		r.Summary = joinSummary(r.Summary, fmt.Sprintf("mirror deleted %d paths in dest that are not in source (strayPaths)", n))
+	default:
+		r.Summary = joinSummary(r.Summary, fmt.Sprintf("strays in dest: %d paths not in source are still there "+
+			"(strayPaths); sync with mirror true to delete them", n))
 	}
-	m.emitStep(runID, mc.rec.step("machine_sync", map[string]any{"source": source, "dest": dest, "exclude": exclude}, res, err, started))
-	return res, err
+}
+
+// deletedPaths are the paths of rsync -v's "deleting <path>" lines, in its order.
+func deletedPaths(out string) []string {
+	paths := []string{}
+	for _, line := range strings.Split(out, "\n") {
+		if p, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), "deleting "); ok && p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
+func joinSummary(summary, more string) string {
+	if summary == "" {
+		return more
+	}
+	return summary + "; " + more
 }
 
 // rsyncShell is the ssh command rsync reaches the guest with, for Sync and Pull.
@@ -556,6 +686,20 @@ func CheckDest(dest string) error {
 	}
 	_, err := guestDest(dest)
 	return err
+}
+
+// CheckMirrorDest reports whether a mirror into dest would be refused before it reaches the
+// guest (the symlink check needs the guest, so Sync still makes it). An empty dest is the
+// default work/<name>, which a mirror may use.
+func CheckMirrorDest(dest string) error {
+	if dest == "" {
+		return nil
+	}
+	clean, err := guestDest(dest)
+	if err != nil {
+		return err
+	}
+	return mirrorDest(clean)
 }
 
 // guestDest refuses a dest that is absolute or climbs above the guest home.

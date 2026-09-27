@@ -210,7 +210,7 @@ func TestGuestToolsRejectAnUnknownRun(t *testing.T) {
 	if _, _, err := mgr.Screenshot(ctx, "nope"); err == nil {
 		t.Error("Screenshot accepted an unknown runId")
 	}
-	if _, err := mgr.Sync(ctx, "nope", t.TempDir(), "", nil); err == nil {
+	if _, err := mgr.Sync(ctx, "nope", t.TempDir(), SyncOptions{}); err == nil {
 		t.Error("Sync accepted an unknown runId")
 	}
 	if err := mgr.Destroy(ctx, "nope"); err == nil {
@@ -272,7 +272,7 @@ func TestSyncRejectsBadSources(t *testing.T) {
 		"missing directory": filepath.Join(t.TempDir(), "nope"),
 		"a regular file":    file,
 	} {
-		if _, err := mgr.Sync(context.Background(), mc.RunID, source, "", nil); err == nil {
+		if _, err := mgr.Sync(context.Background(), mc.RunID, source, SyncOptions{}); err == nil {
 			t.Errorf("Sync accepted %s", name)
 		}
 	}
@@ -285,7 +285,7 @@ func TestSyncBuildsTheRsyncCommand(t *testing.T) {
 	// A fake rsync earlier on PATH records its arguments and prints stats.
 	dir := t.TempDir()
 	argsFile := filepath.Join(dir, "args")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > " + argsFile + "\n" +
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + argsFile + "\n" +
 		"echo 'Number of files: 3 (reg: 2, dir: 1)'\necho 'Total transferred file size: 9 bytes'\nexit 0\n"
 	if err := os.WriteFile(filepath.Join(dir, "rsync"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func TestSyncBuildsTheRsyncCommand(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	source := t.TempDir()
-	res, err := mgr.Sync(context.Background(), mc.RunID, source, "", []string{"node_modules", ".git"})
+	res, err := mgr.Sync(context.Background(), mc.RunID, source, SyncOptions{Exclude: []string{"node_modules", ".git"}})
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
@@ -307,18 +307,34 @@ func TestSyncBuildsTheRsyncCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the fake rsync never ran: %v", err)
 	}
-	args := string(got)
+	// The copy, then the dry run that counts strays.
+	calls := strings.Split(strings.TrimSpace(string(got)), "\n")
+	if len(calls) != 2 {
+		t.Fatalf("rsync ran %d times, want the copy and the stray count:\n%s", len(calls), got)
+	}
+	copyArgs, dryArgs := calls[0], calls[1]
 	for _, want := range []string{
 		"-a --stats", "--exclude node_modules", "--exclude .git",
 		"StrictHostKeyChecking=no", "admin@192.168.64.9:'work/",
 	} {
-		if !strings.Contains(args, want) {
-			t.Errorf("rsync arguments have no %q\nargs: %s", want, args)
+		if !strings.Contains(copyArgs, want) {
+			t.Errorf("rsync arguments have no %q\nargs: %s", want, copyArgs)
+		}
+	}
+	// A sync without mirror never deletes.
+	if strings.Contains(copyArgs, "--delete") {
+		t.Errorf("a sync without mirror passed --delete\nargs: %s", copyArgs)
+	}
+	for _, want := range []string{"--dry-run --delete", "--exclude node_modules", "--exclude .git", "admin@192.168.64.9:'work/"} {
+		if !strings.Contains(dryArgs, want) {
+			t.Errorf("the stray count's rsync has no %q\nargs: %s", want, dryArgs)
 		}
 	}
 	// -z makes a local sync ~4x slower (docs/10-build-transport.md).
-	if strings.Contains(args, "-az") || strings.Contains(args, "-z") {
-		t.Errorf("rsync must not compress to a local VM\nargs: %s", args)
+	for _, args := range calls {
+		if strings.Contains(args, "-az") || strings.Contains(args, "-z") {
+			t.Errorf("rsync must not compress to a local VM\nargs: %s", args)
+		}
 	}
 }
 
@@ -338,7 +354,7 @@ func TestSyncPutsAProjectAtThePinnedGuestPath(t *testing.T) {
 	if err := os.MkdirAll(source, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	res, err := mgr.Sync(context.Background(), mc.RunID, source, "", nil)
+	res, err := mgr.Sync(context.Background(), mc.RunID, source, SyncOptions{})
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
@@ -404,7 +420,7 @@ func TestSyncUsesAnExplicitDest(t *testing.T) {
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	res, err := mgr.Sync(context.Background(), mc.RunID, t.TempDir(), "elsewhere/app", nil)
+	res, err := mgr.Sync(context.Background(), mc.RunID, t.TempDir(), SyncOptions{Dest: "elsewhere/app"})
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
@@ -423,7 +439,7 @@ func TestSyncReportsAnRsyncFailure(t *testing.T) {
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	_, err := mgr.Sync(context.Background(), mc.RunID, t.TempDir(), "", nil)
+	_, err := mgr.Sync(context.Background(), mc.RunID, t.TempDir(), SyncOptions{})
 	if err == nil {
 		t.Fatal("Sync returned no error although rsync failed")
 	}

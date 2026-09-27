@@ -45,7 +45,7 @@ func TestSyncSurvivesSpacesAndShellSyntax(t *testing.T) {
 		t.Fatal(err)
 	}
 	dest := "my app $(touch pwned)"
-	if _, err := mgr.Sync(context.Background(), mc.RunID, source, dest, nil); err != nil {
+	if _, err := mgr.Sync(context.Background(), mc.RunID, source, SyncOptions{Dest: dest}); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestSyncReadsATildeAsTheGuestHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(source, "f"), []byte("hi"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := mgr.Sync(context.Background(), mc.RunID, source, "~/x", nil)
+	res, err := mgr.Sync(context.Background(), mc.RunID, source, SyncOptions{Dest: "~/x"})
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
@@ -91,6 +91,231 @@ func TestSyncReadsATildeAsTheGuestHome(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "~")); err == nil {
 		t.Error("the sync made a directory named ~ in the guest home")
+	}
+}
+
+// strayTree is issue #188's reused machine: $HOME/work/app holds an earlier branch's tree
+// (stray.go, a whole old/ package, a link out of dest, a node_modules the guest built),
+// next to files outside dest that nothing may touch. It returns the new branch's source.
+func strayTree(t *testing.T, home string) string {
+	t.Helper()
+	write := func(p, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dest := filepath.Join(home, "work", "app")
+	write(filepath.Join(dest, "main.go"), "old main")
+	write(filepath.Join(dest, "stray.go"), "package app")
+	write(filepath.Join(dest, "old", "gone.go"), "package old")
+	write(filepath.Join(dest, "node_modules", "dep", "index.js"), "built in the guest")
+	write(filepath.Join(home, "work", "other", "keep.go"), "another project")
+	write(filepath.Join(home, "outside", "precious"), "not the project")
+	write(filepath.Join(home, "work", "app-sibling"), "a prefix of dest, not inside it")
+	if err := os.Symlink(filepath.Join(home, "outside"), filepath.Join(dest, "outlink")); err != nil {
+		t.Fatal(err)
+	}
+	source := t.TempDir()
+	write(filepath.Join(source, "main.go"), "the new branch main")
+	write(filepath.Join(source, "sub", "b.go"), "package sub")
+	return source
+}
+
+// untouched fails unless every file outside dest that strayTree wrote is still there.
+func untouched(t *testing.T, home string) {
+	t.Helper()
+	for _, p := range []string{"work/other/keep.go", "outside/precious", "work/app-sibling"} {
+		if _, err := os.Stat(filepath.Join(home, p)); err != nil {
+			t.Errorf("%s outside dest was touched: %v", p, err)
+		}
+	}
+}
+
+// Issue #188: mirror deletes what an earlier sync left in dest, keeps excluded paths and
+// never reaches outside dest, not even through a symlink in it.
+func TestSyncMirrorDeletesStraysInsideDestOnly(t *testing.T) {
+	if _, err := exec.LookPath("rsync"); err != nil {
+		t.Skip("no rsync on this host")
+	}
+	mgr, _, _ := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	home := localSSH(t)
+	mgr.sshKey = filepath.Join(t.TempDir(), "id_ed25519")
+	source := strayTree(t, home)
+
+	res, err := mgr.Sync(context.Background(), mc.RunID, source, SyncOptions{Dest: "work/app", Exclude: []string{"node_modules"}, Mirror: true})
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	dest := filepath.Join(home, "work", "app")
+	for _, p := range []string{"stray.go", "old", "outlink"} {
+		if _, err := os.Lstat(filepath.Join(dest, p)); err == nil {
+			t.Errorf("mirror left the stray %s", p)
+		}
+	}
+	for p, want := range map[string]string{"main.go": "the new branch main", "sub/b.go": "package sub", "node_modules/dep/index.js": "built in the guest"} {
+		if got, err := os.ReadFile(filepath.Join(dest, p)); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v; want %q", p, got, err, want)
+		}
+	}
+	untouched(t, home)
+	if !res.Mirror || res.Strays == nil || *res.Strays != 4 {
+		t.Fatalf("result = %+v, want mirror and 4 strays (stray.go, old/, old/gone.go, outlink)", res)
+	}
+	got := strings.Join(slices.Sorted(slices.Values(res.StrayPaths)), " ")
+	if got != "old/ old/gone.go outlink stray.go" {
+		t.Errorf("strayPaths = %q", got)
+	}
+	if !strings.Contains(res.Summary, "mirror deleted 4 paths") {
+		t.Errorf("summary = %q, want the deletions", res.Summary)
+	}
+
+	// Mirrored again, nothing is left to delete.
+	res, err = mgr.Sync(context.Background(), mc.RunID, source, SyncOptions{Dest: "work/app", Exclude: []string{"node_modules"}, Mirror: true})
+	if err != nil || res.Strays == nil || *res.Strays != 0 || len(res.StrayPaths) != 0 {
+		t.Errorf("second mirror = %+v, %v; want no strays", res, err)
+	}
+}
+
+// Without mirror nothing is deleted, but the result counts and names the strays, leaving out
+// excluded paths, so the agent knows what else its build will see.
+func TestSyncWithoutMirrorCountsStraysAndDeletesNothing(t *testing.T) {
+	if _, err := exec.LookPath("rsync"); err != nil {
+		t.Skip("no rsync on this host")
+	}
+	mgr, _, _ := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	home := localSSH(t)
+	mgr.sshKey = filepath.Join(t.TempDir(), "id_ed25519")
+	source := strayTree(t, home)
+
+	res, err := mgr.Sync(context.Background(), mc.RunID, source, SyncOptions{Dest: "work/app", Exclude: []string{"node_modules"}})
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	dest := filepath.Join(home, "work", "app")
+	for _, p := range []string{"stray.go", "old/gone.go", "outlink", "node_modules/dep/index.js"} {
+		if _, err := os.Lstat(filepath.Join(dest, p)); err != nil {
+			t.Errorf("a sync without mirror deleted %s: %v", p, err)
+		}
+	}
+	if got, err := os.ReadFile(filepath.Join(dest, "main.go")); err != nil || string(got) != "the new branch main" {
+		t.Errorf("main.go = %q, %v; want the new content", got, err)
+	}
+	untouched(t, home)
+	if res.Mirror || res.Strays == nil || *res.Strays != 4 {
+		t.Fatalf("result = %+v, want 4 strays and no mirror", res)
+	}
+	if got := strings.Join(slices.Sorted(slices.Values(res.StrayPaths)), " "); got != "old/ old/gone.go outlink stray.go" {
+		t.Errorf("strayPaths = %q, want no node_modules path: it is excluded", got)
+	}
+	if !strings.Contains(res.Summary, "strays in dest: 4") || !strings.Contains(res.Summary, "mirror true") {
+		t.Errorf("summary = %q, want the count and how to delete them", res.Summary)
+	}
+
+	// Without the exclude, the guest's node_modules is a stray too.
+	res, err = mgr.Sync(context.Background(), mc.RunID, source, SyncOptions{Dest: "work/app"})
+	if err != nil || res.Strays == nil || *res.Strays != 7 {
+		t.Errorf("unexcluded = %+v, %v; want 7 strays (node_modules/, dep/ and index.js added)", res, err)
+	}
+}
+
+// StrayPaths is capped; Strays is the full count.
+func TestSyncCapsStrayPaths(t *testing.T) {
+	if _, err := exec.LookPath("rsync"); err != nil {
+		t.Skip("no rsync on this host")
+	}
+	mgr, _, _ := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	home := localSSH(t)
+	mgr.sshKey = filepath.Join(t.TempDir(), "id_ed25519")
+	dest := filepath.Join(home, "work", "app")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := range maxStrayPaths + 5 {
+		if err := os.WriteFile(filepath.Join(dest, "f"+strconv.Itoa(i)), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := mgr.Sync(context.Background(), mc.RunID, t.TempDir(), SyncOptions{Dest: "work/app"})
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if res.Strays == nil || *res.Strays != maxStrayPaths+5 || len(res.StrayPaths) != maxStrayPaths {
+		t.Errorf("strays = %v, %d paths; want %d and %d", res.Strays, len(res.StrayPaths), maxStrayPaths+5, maxStrayPaths)
+	}
+}
+
+// rsync's receiver follows a symlinked destination, so a mirror into one would empty its
+// target: the guest's guard refuses it before rsync runs.
+func TestSyncMirrorRefusesADestThroughASymlink(t *testing.T) {
+	if _, err := exec.LookPath("rsync"); err != nil {
+		t.Skip("no rsync on this host")
+	}
+	for name, link := range map[string]string{"dest itself": "work/app", "a parent": "work"} {
+		t.Run(name, func(t *testing.T) {
+			mgr, _, _ := newTestManager(t)
+			mc := readyMachine(t, mgr)
+			home := localSSH(t)
+			mgr.sshKey = filepath.Join(t.TempDir(), "id_ed25519")
+			target := filepath.Join(home, "outside")
+			if err := os.MkdirAll(filepath.Join(target, "app"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for _, p := range []string{"precious", "app/precious"} {
+				if err := os.WriteFile(filepath.Join(target, p), []byte("x"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(home, link)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, filepath.Join(home, link)); err != nil {
+				t.Fatal(err)
+			}
+			_, err := mgr.Sync(context.Background(), mc.RunID, t.TempDir(), SyncOptions{Dest: "work/app", Mirror: true})
+			if err == nil || !strings.Contains(err.Error(), "symlink") {
+				t.Fatalf("Sync = %v, want a refusal naming the symlink", err)
+			}
+			for _, p := range []string{"precious", "app/precious"} {
+				if _, err := os.Stat(filepath.Join(target, p)); err != nil {
+					t.Errorf("the symlink's target lost %s: %v", p, err)
+				}
+			}
+		})
+	}
+}
+
+// A mirror refuses a dest it must not empty before anything reaches the guest.
+func TestSyncMirrorRefusesADangerousDest(t *testing.T) {
+	mgr, _, _ := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	bin := t.TempDir()
+	ran := filepath.Join(bin, "ran")
+	if err := os.WriteFile(filepath.Join(bin, "rsync"), []byte("#!/bin/sh\ntouch '"+ran+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, dest := range []string{"work", "myapp", "~/work", "~", "Library/Preferences", ".ssh/keys", "~/.config/app", "work/..", "/tmp/app"} {
+		if _, err := mgr.Sync(context.Background(), mc.RunID, t.TempDir(), SyncOptions{Dest: dest, Mirror: true}); err == nil {
+			t.Errorf("mirror into %q was not refused", dest)
+		}
+		if err := CheckMirrorDest(dest); err == nil {
+			t.Errorf("CheckMirrorDest(%q) = nil, want a refusal", dest)
+		}
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Error("rsync ran for a refused mirror")
+	}
+	for _, dest := range []string{"", "work/app", "~/work/app", "projects/a/b"} {
+		if err := CheckMirrorDest(dest); err != nil {
+			t.Errorf("CheckMirrorDest(%q) = %v, want nil", dest, err)
+		}
 	}
 }
 

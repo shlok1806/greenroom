@@ -364,7 +364,7 @@ func (c *countingMachines) Wait(_ context.Context, runID string, _ time.Duration
 	return &machine.Machine{RunID: runID, Status: machine.Ready}, nil
 }
 
-func (c *countingMachines) Sync(context.Context, string, string, string, []string) (machine.SyncResult, error) {
+func (c *countingMachines) Sync(context.Context, string, string, machine.SyncOptions) (machine.SyncResult, error) {
 	time.Sleep(20 * time.Millisecond)
 	return machine.SyncResult{}, nil
 }
