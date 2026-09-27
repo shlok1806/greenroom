@@ -1,7 +1,21 @@
 #!/bin/bash
 # Install the daemon as a launchd user agent, so it runs on 127.0.0.1:7777
 # without a terminal: at login, and again whenever it crashes.
+# It then checks the local default images against this daemon's input helper and image
+# recipe (greenroom image-status, issue #159) and prints the command that rebuilds a stale one.
+#   -rebuild   rebuild each stale image with build-image.sh (about 20 GB free each)
+#   -dry-run   build to a temp path, check the images and say what it would do; installs nothing
 set -euo pipefail
+
+rebuild=""
+dry_run=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -rebuild) rebuild="yes"; shift ;;
+    -dry-run) dry_run="yes"; shift ;;
+    *) echo "usage: $0 [-rebuild] [-dry-run]" >&2; exit 2 ;;
+  esac
+done
 
 cd "$(dirname "$0")/.."     # apps/daemon
 repo="$(cd ../.. && pwd)"
@@ -54,9 +68,37 @@ log="$root/daemon.log"
 plist="$HOME/Library/LaunchAgents/$label.plist"
 addr="127.0.0.1:7777"
 
+if [ -n "$dry_run" ]; then
+  bin="$(mktemp -d -t greenroom-install)/greenroom" # never replace the installed daemon
+fi
 echo "building $bin"
-mkdir -p "$root/bin"
+mkdir -p "$(dirname "$bin")"
 go build -o "$bin" .
+
+# Images built before this daemon's input helper or image recipe (issue #159): each machine
+# from one compiles the helper at boot, or lacks Xcode. The check reads the stopped images'
+# disks on the host, read-only; it only reports, and never stops the install.
+echo "checking the local images against this daemon"
+if ! "$bin" image-status -tart "$tart"; then
+  echo "could not check the local images; the daemon warns when a machine from a stale one boots" >&2
+elif [ -n "$rebuild" ]; then
+  while read -r args; do
+    [ -n "$args" ] || continue
+    if [ -n "$dry_run" ]; then
+      echo "dry run: would rebuild with scripts/build-image.sh $args"
+      continue
+    fi
+    echo "rebuilding: scripts/build-image.sh $args"
+    # shellcheck disable=SC2086 # the arguments are words
+    scripts/build-image.sh $args
+  done < <("$bin" image-status -tart "$tart" -rebuild-args)
+fi
+
+if [ -n "$dry_run" ]; then
+  echo "dry run: would write $plist, (re)load $label and serve on $addr with image $image"
+  rm -rf "$(dirname "$bin")"
+  exit 0
+fi
 
 # tart lives in /opt/homebrew/bin, and a launchd agent inherits almost no PATH.
 mkdir -p "$HOME/Library/LaunchAgents"

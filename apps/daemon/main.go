@@ -42,6 +42,8 @@ func main() {
 		err = prepareImage(os.Args[2:])
 	case "check-image":
 		err = checkImage(os.Args[2:])
+	case "image-status":
+		err = imageStatus(os.Args[2:])
 	case "connect":
 		err = connect(os.Args[2:])
 	case "bench":
@@ -71,6 +73,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "\n       greenroom check-image -image <name> [flags]")
 	check, _ := checkFlags()
 	check.PrintDefaults()
+	fmt.Fprintln(os.Stderr, "\n       greenroom image-status [flags]   (local images against this daemon's helper and recipe, issue #159)")
+	status, _ := imageStatusFlags()
+	status.PrintDefaults()
 	connectUsage()
 	benchUsage()
 	fmt.Fprintln(os.Stderr, "\n       greenroom version")
