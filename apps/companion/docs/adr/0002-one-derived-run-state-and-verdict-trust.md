@@ -1,6 +1,7 @@
 # 0002. One derived run state, colours with one meaning, verdicts headed by who decided
 
 Date: 2026-09-22
+Update 2026-09-27: Amended by 0019: the derived run state is the daemon's summary (root ADR 0036).
 Status: accepted. Refines ADR 0001. Amended by 0004 (colour table) and 0005 (failure
 navigation keys).
 

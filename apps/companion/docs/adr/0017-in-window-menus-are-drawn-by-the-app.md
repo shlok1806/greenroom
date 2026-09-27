@@ -1,6 +1,7 @@
 # 0017. In-window menus are drawn by the app
 
 Date: 2026-09-26
+Update 2026-09-27: Superseded by 0019 (menus are the system's).
 Status: accepted. Builds on 0005 (keys and the one registry), 0008 (type and the olive
 brand) and 0013 (one primary and the More menu); issue #179.
 

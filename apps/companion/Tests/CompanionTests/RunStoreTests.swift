@@ -344,10 +344,10 @@ final class RunStoreTests: XCTestCase {
     }
 
     func testResyncPlanFetchesEverythingForTheSelectedRunOnly() {
-        XCTAssertEqual(RunStore.resyncPlan(selected: nil), [.runs])
+        XCTAssertEqual(RunStore.resyncPlan(selected: nil), [.runs, .board])
         XCTAssertEqual(
             RunStore.resyncPlan(selected: "run-1"),
-            [.runs, .detail("run-1"), .messages("run-1"), .steps("run-1"), .frames("run-1")]
+            [.runs, .board, .detail("run-1"), .messages("run-1"), .steps("run-1"), .frames("run-1")]
         )
     }
 

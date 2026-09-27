@@ -1,6 +1,7 @@
 # 0007. A dependency allowlist instead of no dependencies
 
 Date: 2026-09-23
+Update 2026-09-27: Item 6 is superseded by 0019: code is copied with its notice (ACKNOWLEDGEMENTS.md).
 Status: accepted. Replaces the companion rule "no third-party dependencies" (ADR 0001,
 decision 7, and `CLAUDE.md`).
 

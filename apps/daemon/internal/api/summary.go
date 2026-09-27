@@ -124,7 +124,7 @@ func (a *api) runSummary(runID string, mc *machine.Machine, now time.Time) summa
 
 // summaryInput gathers what the summary is made from. Steps are read only when the summary
 // uses them: for an open run (what it is doing now, a screen that stopped answering) and for
-// a failed check's picture.
+// the pictures of a verdict's checks.
 func (a *api) summaryInput(runID string, mc *machine.Machine, store *session.Store, msgs []session.Message, now time.Time) summary.Input {
 	dir := a.mgr.RunDir(runID)
 	in := summary.Input{RunID: runID, Messages: msgs, Now: now}
@@ -144,6 +144,9 @@ func (a *api) summaryInput(runID string, mc *machine.Machine, store *session.Sto
 	if mc != nil {
 		in.CreatedAt = mc.CreatedAt
 		in.Machine = &summary.LiveMachine{Status: mc.Status, Error: mc.Error, Boot: mc.BootPhases()}
+		// The files watch (issue #186, daemon ADR 0002) warns near the limit; the summary says it
+		// in words.
+		in.Machine.LowOnFiles = mc.Files != nil && mc.Files.Warning != ""
 		if mc.Control != nil {
 			in.Machine.Controller = mc.Control.Holder
 		}
@@ -154,7 +157,7 @@ func (a *api) summaryInput(runID string, mc *machine.Machine, store *session.Sto
 			in.LastFrame = &frames[n-1]
 		}
 	}
-	if mc != nil || hasFailedCheck(in.Verdict) {
+	if mc != nil || citesEvidence(in.Verdict) {
 		steps, err := machine.ReadSteps(dir)
 		if err != nil {
 			a.log.Warn("cannot read a run's steps for its summary", "runId", runID, "err", err)
@@ -230,9 +233,11 @@ type summaryEvent struct {
 	Macs    summary.Macs    `json:"macs"`
 }
 
-func hasFailedCheck(v session.VerdictState) bool {
+// citesEvidence reports whether a verdict's checks cite any step: each check row shows its
+// proof, so the summary reads the steps to find the pictures and marks.
+func citesEvidence(v session.VerdictState) bool {
 	for _, c := range v.Checks {
-		if c.Status == session.CheckFail {
+		if len(c.Evidence) > 0 {
 			return true
 		}
 	}

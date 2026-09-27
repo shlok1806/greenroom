@@ -15,6 +15,8 @@ enum ServerEvent: Hashable, Sendable {
     case frame(runId: String, frame: Frame)
     /// A boot phase started or ended.
     case boot(runId: String, phase: BootPhase)
+    /// A run's summary changed (root ADR 0036).
+    case summary(SummaryEvent)
 }
 
 struct LifecycleEvent: Codable, Hashable, Sendable {
@@ -113,6 +115,8 @@ struct SSEParser {
             case "boot":
                 let event = try decoder.decode(BootEvent.self, from: payload)
                 return .boot(runId: event.runId, phase: event.phase)
+            case "summary":
+                return .summary(try decoder.decode(SummaryEvent.self, from: payload))
             default:
                 return nil
             }

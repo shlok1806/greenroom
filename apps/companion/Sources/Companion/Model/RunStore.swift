@@ -15,6 +15,8 @@ enum Followup: Hashable, Sendable {
 /// One fetch needed to resync with the daemon.
 enum Fetch: Hashable, Sendable {
     case runs
+    /// Every run's summary (root ADR 0036).
+    case board
     case detail(String)
     case messages(String)
     case steps(String)
@@ -125,6 +127,11 @@ final class RunStore: PilotHost {
     var messages: [String: [Message]] = [:]
     var steps: [String: [Step]] = [:]
     var frames: [String: [Frame]] = [:]
+    /// Every run's summary in its group, as the daemon last said (root ADR 0036); nil before
+    /// the first read answers, or from a daemon without summaries.
+    var board: SummaryBoard?
+    /// Whether the daemon answered the board with 404: it is older than summaries.
+    var summariesMissing = false
     var connected = false
     /// Whether the last read of the run list answered; nil before the first one finishes.
     var reachable: Bool?
@@ -276,8 +283,8 @@ final class RunStore: PilotHost {
     /// each reconnect and on foregrounding, since a socket can look alive
     /// across sleep while the daemon restarted.
     nonisolated static func resyncPlan(selected: String?) -> [Fetch] {
-        guard let selected else { return [.runs] }
-        return [.runs, .detail(selected), .messages(selected), .steps(selected), .frames(selected)]
+        guard let selected else { return [.runs, .board] }
+        return [.runs, .board, .detail(selected), .messages(selected), .steps(selected), .frames(selected)]
     }
 
     /// True when the daemon answered the run list.
@@ -359,6 +366,16 @@ final class RunStore: PilotHost {
                         retryTheListIfItFailed()
                     }
                     throw error
+                }
+            case .board:
+                do {
+                    let fresh = try await client.summaryBoard()
+                    if current() { board = fresh }
+                    summariesMissing = false
+                } catch DaemonError.status(404, _) {
+                    // A daemon from before root ADR 0036: not a failure of this read.
+                    summariesMissing = true
+                    board = nil
                 }
             case .detail(let runId):
                 let detail = try await client.run(runId)
@@ -479,6 +496,9 @@ final class RunStore: PilotHost {
             // Only onto a held machine: a run opened later reads every phase from its detail.
             guard let held = details[runId]?.machine?.boot else { return .nothing }
             details[runId]?.machine?.boot = held.merging(phase)
+            return .nothing
+        case .summary(let event):
+            board = (board ?? SummaryBoard(groups: [])).applying(event.summary, macs: event.macs)
             return .nothing
         case .frame(let runId, let frame):
             // Unloaded runs fetch the whole list when opened.

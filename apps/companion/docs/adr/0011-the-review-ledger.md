@@ -1,6 +1,7 @@
 # 0011. The verdict is a ledger: checks lead, evidence is named, the claim sits over its proof
 
 Date: 2026-09-26
+Update 2026-09-27: Amended by 0019: the ledger becomes the page (the checks column).
 Status: accepted. Builds on 0002, 0003 and 0009 and on root ADRs 0024 and 0027. Replaces
 the verdict card's reading order from 0009 and the checklist layout of the ADR 0024 layer
 (`CLAUDE.md`, "A verdict is a checklist"). Amends 0003 decision 5's evidence bar.

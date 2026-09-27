@@ -1,6 +1,7 @@
 # 0009. Transcript cards and the Markdown renderer
 
 Date: 2026-09-25
+Update 2026-09-27: Superseded by 0019 (the transcript is Activity, one key away).
 Status: accepted. Builds on 0003, 0004, 0007 and 0008 and the spec's Components and
 States; settles what they leave open for the transcript layer. Nothing in them changes.
 

@@ -1,6 +1,7 @@
 # 0012. A run's row says its verdict, not its picture
 
 Date: 2026-09-26
+Update 2026-09-27: The row layout is superseded by 0019 (glyph, name, one meta).
 Status: accepted. Supersedes 0010 (run thumbnails from the last frame). Amends 0003
 decision 2 (the row's words for a verdict waiting on a person).
 

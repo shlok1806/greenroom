@@ -165,6 +165,27 @@ type Checks struct {
 	// Current is the check a person looks at first: the first failed, else the first not
 	// checked. Nil when there is none.
 	Current *CheckRef `json:"current"`
+	// Items is every check as a row reads it, in the order a person reads them: an
+	// outcome's failed checks, then those not checked, then those that passed; a plan's
+	// in the order the verifier declared them. Empty with no checks.
+	Items []CheckItem `json:"items"`
+}
+
+// CheckItem is one check as its row and its proof read it.
+type CheckItem struct {
+	ID    string `json:"id"`
+	Text  string `json:"text"`
+	State string `json:"state"` // pass, fail, pending
+	// Expected and Saw are the values a failed check's words disagree on; Saw alone is the
+	// value a passed check read, when its words name one both sides share.
+	Expected string `json:"expected,omitempty"`
+	Saw      string `json:"saw,omitempty"`
+	// Observed is what the evidence showed, in one sentence of plain words.
+	Observed string `json:"observed,omitempty"`
+	// Step, Picture and Mark are the check's proof, as for Failing.
+	Step    int      `json:"step,omitempty"`
+	Picture *Picture `json:"picture,omitempty"`
+	Mark    *Box     `json:"mark,omitempty"`
 }
 
 // CheckRef is one check in a few words.

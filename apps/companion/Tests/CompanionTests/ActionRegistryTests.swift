@@ -134,6 +134,11 @@ final class ActionRegistryTests: XCTestCase {
             "Views/Keyboard.swift": [#"\.keyboardShortcut\((?!for:)"#, #"\.onKeyPress\("#],
             // The one key monitor.
             "Views/KeyRouter.swift": [#"addLocalMonitorForEvents"#],
+            // The redesign (companion ADR 0019): the palette's query field turns arrows and
+            // Escape into its own events (Ghostty's palette), and the window's keys live in
+            // one file.
+            "UI/KeyPalette.swift": [#"onExitCommand"#, #"onMoveCommand"#],
+            "UI/Keys.swift": [#"\.keyboardShortcut\((?!for:)"#, #"\.onKeyPress\("#],
         ]
         for file in try swiftFiles() {
             for pattern in patterns where !(allowed[file.name]?.contains(pattern.pattern) ?? false) {

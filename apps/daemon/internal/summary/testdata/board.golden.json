@@ -23,7 +23,19 @@
             "failed": 0,
             "pending": 2,
             "text": "2 checks planned",
-            "current": null
+            "current": null,
+            "items": [
+              {
+                "id": "c1",
+                "text": "Longest word shows the longest word",
+                "state": "pending"
+              },
+              {
+                "id": "c2",
+                "text": "Longest word updates as you type",
+                "state": "pending"
+              }
+            ]
           },
           "failing": null,
           "primaryAction": {
@@ -63,7 +75,60 @@
             "current": {
               "text": "Each pays becomes $50.00 at 25%",
               "state": "fail"
-            }
+            },
+            "items": [
+              {
+                "id": "each-25",
+                "text": "Each pays becomes $50.00 at 25%",
+                "state": "fail",
+                "expected": "$50.00",
+                "saw": "$10.00",
+                "observed": "After choosing 25%, Each pays reads $10.00.",
+                "step": 5,
+                "picture": {
+                  "kind": "screenshot",
+                  "file": "005-screenshot.png",
+                  "url": "/api/runs/20260923-044138-de31017819a86d84/artifacts/005-screenshot.png",
+                  "at": "2026-09-23T04:44:19Z",
+                  "step": 5
+                },
+                "mark": {
+                  "x": 0.515,
+                  "y": 0.635,
+                  "w": 0.23,
+                  "h": 0.05
+                }
+              },
+              {
+                "id": "each",
+                "text": "Each pays is $48.00 for 3 people",
+                "state": "fail",
+                "expected": "$48.00",
+                "saw": "$8.00",
+                "observed": "With Bill 120 and 3 people, Each pays reads $8.00.",
+                "step": 2,
+                "picture": {
+                  "kind": "screenshot",
+                  "file": "002-screenshot.png",
+                  "url": "/api/runs/20260923-044138-de31017819a86d84/artifacts/002-screenshot.png",
+                  "at": "2026-09-23T04:43:19Z",
+                  "step": 2
+                }
+              },
+              {
+                "id": "window",
+                "text": "Window shows Bill, Tip and People",
+                "state": "pass",
+                "observed": "The window shows Bill, Tip and People."
+              },
+              {
+                "id": "tip",
+                "text": "Tip is $24.00 for $120 at 20%",
+                "state": "pass",
+                "saw": "$24.00",
+                "observed": "Tip reads $24.00."
+              }
+            ]
           },
           "failing": {
             "text": "Each pays becomes $50.00 at 25%",
@@ -125,7 +190,34 @@
             "failed": 0,
             "pending": 0,
             "text": "4 of 4 checks passed",
-            "current": null
+            "current": null,
+            "items": [
+              {
+                "id": "upper",
+                "text": "UPPERCASE turns the text to capitals",
+                "state": "pass",
+                "observed": "The text reads HELLO WORLD."
+              },
+              {
+                "id": "lower",
+                "text": "lowercase turns the text to small letters",
+                "state": "pass",
+                "observed": "The text reads hello world."
+              },
+              {
+                "id": "count",
+                "text": "The word count stays 2",
+                "state": "pass",
+                "saw": "2",
+                "observed": "Words: 2"
+              },
+              {
+                "id": "window",
+                "text": "Window shows the text and both buttons",
+                "state": "pass",
+                "observed": "Both buttons show."
+              }
+            ]
           },
           "failing": null,
           "primaryAction": {
@@ -166,7 +258,8 @@
             "passed": 0,
             "failed": 0,
             "pending": 0,
-            "current": null
+            "current": null,
+            "items": []
           },
           "failing": null,
           "primaryAction": {
@@ -216,7 +309,29 @@
             "failed": 0,
             "pending": 4,
             "text": "4 checks planned",
-            "current": null
+            "current": null,
+            "items": [
+              {
+                "id": "c1",
+                "text": "Celsius 100 shows Fahrenheit 212",
+                "state": "pending"
+              },
+              {
+                "id": "c2",
+                "text": "Celsius 0 shows Fahrenheit 32",
+                "state": "pending"
+              },
+              {
+                "id": "c3",
+                "text": "Clearing the field clears the result",
+                "state": "pending"
+              },
+              {
+                "id": "c4",
+                "text": "Window shows both fields",
+                "state": "pending"
+              }
+            ]
           },
           "failing": null,
           "primaryAction": {
@@ -253,7 +368,8 @@
             "passed": 0,
             "failed": 0,
             "pending": 0,
-            "current": null
+            "current": null,
+            "items": []
           },
           "failing": null,
           "primaryAction": null,
@@ -290,7 +406,15 @@
             "failed": 0,
             "pending": 0,
             "text": "1 of 1 check passed",
-            "current": null
+            "current": null,
+            "items": [
+              {
+                "id": "keeps",
+                "text": "The text is kept after switching case",
+                "state": "pass",
+                "observed": "The text reads the same."
+              }
+            ]
           },
           "failing": null,
           "primaryAction": null,

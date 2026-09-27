@@ -82,6 +82,16 @@ final class DaemonClient: Sendable {
         try await get([RunSummary].self, ["api", "runs"])
     }
 
+    /// Every run's summary in its group, and the host's Macs (root ADR 0036).
+    func summaryBoard() async throws -> SummaryBoard {
+        try await get(SummaryBoard.self, ["api", "summary"])
+    }
+
+    /// One run's summary.
+    func summary(_ runId: String) async throws -> Summary {
+        try await get(Summary.self, runPath(runId, "summary"))
+    }
+
     func run(_ runId: String) async throws -> RunDetail {
         try await get(RunDetail.self, runPath(runId))
     }
@@ -128,6 +138,12 @@ final class DaemonClient: Sendable {
 
     func screenshot(runId: String) async throws {
         try await post(runPath(runId, "screenshot"))
+    }
+
+    /// Restarts the run's Mac on the same disk (daemon ADR 0004): 202 with the machine
+    /// rebooting; 409 when it cannot (no machine, booting, already restarting).
+    func reboot(runId: String) async throws {
+        try await post(runPath(runId, "reboot"))
     }
 
     func destroy(runId: String) async throws {

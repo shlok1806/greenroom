@@ -452,6 +452,44 @@ func TestTheFailingCheckCarriesItsValuesPictureAndMark(t *testing.T) {
 	}
 }
 
+func TestEveryCheckIsARowWithItsValuesAndProof(t *testing.T) {
+	each := machine.UIElement{ID: 9, Role: "StaticText", Value: "Each pays: $10.00", X: 0.5, Y: 0.6, W: 0.2, H: 0.05}
+	b := newRun(t, "r1").live(machine.Ready).task(tipTask, 60).
+		uiRead(100, "TipSplit", each). // step 1
+		screenshot(101).               // step 2
+		verdict("fail", 266,
+			pass("a", "Tip is $24.00 for $120 at 20%", "Tip reads $24.00 (step 2).", 2),
+			session.Check{ID: "c", Criterion: "People stays 3", Status: session.CheckUnchecked},
+			fail("b", "Each pays becomes $50.00 at 25%", "Each pays reads $10.00 with 25% selected (steps 1, 2).", 1, 2))
+	items := b.derive().Checks.Items
+	if len(items) != 3 {
+		t.Fatalf("items = %+v, want three", items)
+	}
+	if items[0].ID != "b" || items[1].ID != "c" || items[2].ID != "a" {
+		t.Fatalf("order = %s %s %s, want failed, not checked, passed", items[0].ID, items[1].ID, items[2].ID)
+	}
+	if f := items[0]; f.State != "fail" || f.Expected != "$50.00" || f.Saw != "$10.00" || f.Step != 2 || f.Picture == nil || f.Mark == nil {
+		t.Errorf("failed row = %+v", f)
+	}
+	if strings.Contains(items[0].Observed, "steps") {
+		t.Errorf("observed keeps the record citation: %q", items[0].Observed)
+	}
+	if c := items[1]; c.State != "pending" || c.Saw != "" || c.Picture != nil {
+		t.Errorf("not checked row = %+v", c)
+	}
+	if p := items[2]; p.State != "pass" || p.Saw != "$24.00" || p.Expected != "" || p.Picture == nil || p.Picture.Step != 2 {
+		t.Errorf("passed row = %+v, want saw $24.00 and the screenshot", p)
+	}
+
+	planned := newRun(t, "r2").live(machine.Ready).task(tipTask, 60).plan(70, "Tip is $24.00", "Each pays is $48.00").derive()
+	if n := len(planned.Checks.Items); n != 2 || planned.Checks.Items[0].Text != "Tip is $24.00" || planned.Checks.Items[1].State != "pending" {
+		t.Errorf("a plan's rows = %+v, want both criteria pending in order", planned.Checks.Items)
+	}
+	if none := newRun(t, "r3").live(machine.Ready).derive(); none.Checks.Items == nil {
+		t.Error("no checks must be an empty list, never null")
+	}
+}
+
 func TestAMarkNeedsTheScreenUntouchedBetweenTheReadAndThePicture(t *testing.T) {
 	each := machine.UIElement{ID: 9, Role: "StaticText", Value: "Each pays: $10.00", X: 0.5, Y: 0.6, W: 0.2, H: 0.05}
 	s := newRun(t, "r1").live(machine.Ready).task(tipTask, 60).

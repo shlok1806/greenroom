@@ -397,7 +397,7 @@ func keyName(key string, mods []string) string {
 // tally counts the checks that apply to the status: the verdict's for an outcome, else the
 // newest plan's, all pending.
 func tally(in Input, f derived, st State) Checks {
-	out := Checks{}
+	out := Checks{Items: []CheckItem{}}
 	switch st {
 	case Passed, Failed, Inconclusive:
 		for _, c := range in.Verdict.Checks {
@@ -420,6 +420,7 @@ func tally(in Input, f derived, st State) Checks {
 			out.Text = fmt.Sprintf("%d of %d %s passed", out.Passed, out.Total, plural(out.Total, "check"))
 		}
 		out.Current = currentCheck(in.Verdict.Checks)
+		out.Items = verdictItems(in)
 		return out
 	}
 	if f.plan == nil {
@@ -427,6 +428,44 @@ func tally(in Input, f derived, st State) Checks {
 	}
 	out.Total, out.Pending = len(f.plan.Checks), len(f.plan.Checks)
 	out.Text = fmt.Sprintf("%d %s planned", out.Total, plural(out.Total, "check"))
+	for _, c := range f.plan.Checks {
+		out.Items = append(out.Items, CheckItem{ID: c.ID, Text: checkText(c, checkWords), State: "pending"})
+	}
+	return out
+}
+
+// verdictItems is every check of the current verdict with its values and proof: failed
+// first, then not checked, then passed, each in the verdict's order.
+func verdictItems(in Input) []CheckItem {
+	out := []CheckItem{}
+	for _, want := range []string{session.CheckFail, session.CheckUnchecked, session.CheckPass} {
+		for _, c := range in.Verdict.Checks {
+			status := c.Status
+			if status != session.CheckPass && status != session.CheckFail {
+				status = session.CheckUnchecked
+			}
+			if status != want {
+				continue
+			}
+			observed := plain(c.Observed)
+			item := CheckItem{ID: c.ID, Text: checkText(c, checkWords), Observed: clipWords(observed, observedWords)}
+			switch status {
+			case session.CheckFail:
+				item.State = "fail"
+				item.Expected, item.Saw = Disagreement(c.Criterion, observed)
+			case session.CheckPass:
+				item.State = "pass"
+				item.Saw = Agreement(c.Criterion, observed)
+			default:
+				item.State = "pending"
+			}
+			item.Step, item.Picture = evidencePicture(in, c.Evidence)
+			if item.Picture != nil && item.Saw != "" {
+				item.Mark = markFor(in.Steps, c.Evidence, item.Step, item.Saw)
+			}
+			out = append(out, item)
+		}
+	}
 	return out
 }
 

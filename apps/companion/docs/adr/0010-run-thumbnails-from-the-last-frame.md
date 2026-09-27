@@ -1,6 +1,7 @@
 # 0010. Run thumbnails from the last frame
 
 Date: 2026-09-25
+Update 2026-09-27: Superseded by 0019.
 Status: accepted. Settles what 0006 left open for the power-down still ("kept as the run's
 thumbnail"; its consequences deferred where the still is kept). Nothing else in 0006
 changes.

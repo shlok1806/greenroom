@@ -19,6 +19,29 @@ Design: `docs/design-spec.md`
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
 
+## The native redesign (companion ADR 0019), being built
+
+The window is being rebuilt in pure native SwiftUI from the approved Figma design (file
+041UmqtdMYVCufxO8g9Ius; `docs/20-companion-ux-research.md` section 12). No web technology,
+no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
+
+- `UI/Tokens.swift` is the Figma Tokens page: `ColorToken` (Light and Dark hex), `Palette`,
+  `TypeStyle` (SF Pro at 22/15/13/11, `.textStyle(_:)`), `Gap`, `Corner`, `Elevation`,
+  `Motion`, `WindowClass`, `Metrics`. No colour, size, gap, radius or duration literal
+  elsewhere in `UI/`. `TokensTests` holds every text token to 4.5:1 on every surface.
+- `Model/Summary.swift` decodes the daemon's run summary (root ADR 0036; `RunStore.board`,
+  the `summary` event, `DaemonClient.summaryBoard`/`summary`/`reboot`). The status word,
+  group, tone, sentence, "now", each check's row (`checks.items`) and the actions are the
+  daemon's; `UI/Presentation.swift` only lays them out (glyphs, times, tallies), with a test
+  per rule (`SummaryTests`, over the daemon's golden board read in place).
+- `UI/Components/` is the Figma Components page with every state; `UI/KeyPalette.swift` is
+  Ghostty's palette adapted (MIT). Copied or ported code is credited in `ACKNOWLEDGEMENTS.md`.
+- `GREENROOM_REDESIGN_SNAPSHOTS=<dir> .build/out/Products/Debug/CompanionSnapshots` renders
+  the redesign's scenarios at 2x and writes what Apple's text recogniser reads beside each
+  (`VisibleWords`, `WordBudget`). Needs no daemon for the component board.
+
+## The window before the redesign
+
 ADR 0004 to 0006, as amended by 0008, describe the new window being built layer by layer.
 Layer 1 (foundation and restyle) has landed: the theme, the two bundled faces, the spacing
 and radii, the window's own chrome, and every view restyled in that language. Layer 2

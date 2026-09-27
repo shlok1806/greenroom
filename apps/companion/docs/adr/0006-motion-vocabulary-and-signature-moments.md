@@ -1,6 +1,7 @@
 # 0006. A motion vocabulary, signature moments, and click marks on the screen
 
 Date: 2026-09-23
+Update 2026-09-27: Superseded by 0019 (motion only on state changes).
 Status: accepted. Builds on ADR 0004. Amends the companion rule "nothing is drawn over the
 Screen stage's picture".
 

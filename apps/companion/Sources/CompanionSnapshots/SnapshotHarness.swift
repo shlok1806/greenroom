@@ -1002,7 +1002,7 @@ enum HarnessDefaults {
 
 /// A window that stays where it is put: AppKit would otherwise pull a titled window back
 /// onto a display when it is ordered in.
-private final class OffscreenWindow: NSWindow {
+final class OffscreenWindow: NSWindow {
     static let origin = NSPoint(x: -30_000, y: -30_000)
 
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }

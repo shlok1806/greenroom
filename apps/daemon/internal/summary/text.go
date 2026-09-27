@@ -211,6 +211,18 @@ func Disagreement(criterion, observed string) (expected, saw string) {
 	return expected, saw
 }
 
+// Agreement is the value a passed check read: the first value its criterion names that its
+// observation names too. Empty when the words share none.
+func Agreement(criterion, observed string) string {
+	got := values(observed)
+	for _, v := range values(criterion) {
+		if slices.Contains(got, v) {
+			return v
+		}
+	}
+	return ""
+}
+
 // values lists the quoted phrases and the numeric values in s, in the order they appear. A
 // number inside a quote is listed too, after its quote.
 func values(s string) []string {
