@@ -46,6 +46,7 @@ import (
 //	                    with the code in session-exit-code (default 0)
 //	tart-version        what `tart --version` prints (default tart.PinnedVersion)
 //	list-empty          `tart list` returns []
+//	list.json           `tart list` prints this file as it is (wins over the two below)
 //	vmnames, vmname     `tart list` reports these VMs running (default: one unrelated VM)
 //
 // The script writes session-stdin ("tty <rows> <cols>" or "pipe"), exec-stdin (every script
@@ -276,7 +277,8 @@ case "$sub" in
     echo "fake stdout"
     exit 0 ;;
   list)
-    if [ -f "$C/list-empty" ]; then echo '[]'
+    if [ -f "$C/list.json" ]; then cat "$C/list.json"
+    elif [ -f "$C/list-empty" ]; then echo '[]'
     elif [ ! -f "$C/vmname" ] && [ ! -f "$C/vmnames" ]; then
       echo '[{"Source":"local","Name":"unrelated-vm","State":"running"}]'
     elif [ -f "$C/vmnames" ]; then

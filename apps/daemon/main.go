@@ -42,6 +42,8 @@ func main() {
 		err = prepareImage(os.Args[2:])
 	case "check-image":
 		err = checkImage(os.Args[2:])
+	case "sweep-orphans":
+		err = sweepOrphans(os.Args[2:])
 	case "connect":
 		err = connect(os.Args[2:])
 	case "bench":
@@ -71,6 +73,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "\n       greenroom check-image -image <name> [flags]")
 	check, _ := checkFlags()
 	check.PrintDefaults()
+	fmt.Fprintln(os.Stderr, "\n       greenroom sweep-orphans [flags]   (run clones with no run record, issue #103; a dry run unless -delete)")
+	sweep, _ := sweepFlags()
+	sweep.PrintDefaults()
 	connectUsage()
 	benchUsage()
 	fmt.Fprintln(os.Stderr, "\n       greenroom version")
@@ -81,7 +86,7 @@ type serveOpts struct {
 	addr, root, image, envFile, tartBin, verifierKind string
 	publicHost, dist                                  string
 	maxDisputes, maxMachines, verifierMaxSteps        int
-	frameInterval, verifierBudget                     time.Duration
+	frameInterval, verifierBudget, sweepAfter         time.Duration
 }
 
 func serveFlags() (*flag.FlagSet, *serveOpts) {
@@ -100,6 +105,7 @@ func serveFlags() (*flag.FlagSet, *serveOpts) {
 	fs.DurationVar(&o.verifierBudget, "verifier-budget", verifier.DefaultBudget, "wall-clock budget for a single verifier turn before it stops and asks to be continued")
 	fs.StringVar(&o.publicHost, "public-host", "", "hostname a tunnel forwards to this daemon; requests for it need GREENROOM_TOKEN (ADR 0021); default GREENROOM_PUBLIC_HOST, empty for local only")
 	fs.StringVar(&o.dist, "dist", "", "directory holding install.sh and the files under /dl/; default <root>/dist")
+	fs.DurationVar(&o.sweepAfter, "sweep-orphans-after", machine.DefaultOrphanAge, "at start, delete greenroom-<runId> clones that are stopped, have no run directory and are older than this (issue #103); 0 keeps them")
 	return fs, o
 }
 
@@ -160,6 +166,16 @@ func serveUntil(ctx context.Context, args []string) error {
 		return err
 	}
 	mgr.CheckTart(context.Background()) // logs a version mismatch, never fatal
+	// After loadState, so every machine this daemon still runs is its own. In the background: tart
+	// deletes a clone in a second or so, and serving need not wait for it.
+	go func() {
+		swept, err := mgr.SweepOrphans(ctx, o.sweepAfter, false, defaultRoot())
+		if err != nil {
+			log.Warn("cannot sweep orphaned run clones", "err", err)
+		} else if len(swept) > 0 {
+			log.Info("swept orphaned run clones", "count", len(swept))
+		}
+	}()
 	// The same choice scripts/install.sh makes, so a bare serve behaves like the installed daemon.
 	if o.image == "" {
 		o.image = strings.TrimSpace(os.Getenv("GREENROOM_IMAGE"))
