@@ -125,6 +125,9 @@ func (c *Client) Start(name, logPath string) (*Process, error) {
 	return &Process{child: ch, name: name, logPath: logPath}, nil
 }
 
+// Pid is the `tart run` process id.
+func (p *Process) Pid() int { return p.cmd.Process.Pid }
+
 // Kill ends the tart process group directly; the normal path is `tart stop`.
 func (p *Process) Kill() error { return p.kill() }
 
@@ -187,7 +190,22 @@ func (c *Client) ExecInputTo(ctx context.Context, stdin io.Reader, stdout, stder
 	return runExec(ctx, cmd, stdout, stderr, name)
 }
 
+// execInterruptWait is how long a cancelled `tart exec` has between SIGINT and SIGKILL.
+var execInterruptWait = 3 * time.Second
+
+// interruptOnCancel makes a cancelled context end cmd with SIGINT, and SIGKILL only
+// execInterruptWait later (daemon ADR 0002, issue #186). tart cancels its exec on SIGINT and
+// cancels the gRPC call, which ends the guest command, and the guest's answer gives tart's
+// control socket a chance to drop its vsock proxy. SIGKILL (exec.CommandContext's default)
+// leaves the guest command running and, most often, that proxy open in `tart run` for the
+// life of the VM: one leaked file each.
+func interruptOnCancel(cmd *exec.Cmd) {
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = execInterruptWait
+}
+
 func runExec(ctx context.Context, cmd *exec.Cmd, stdout, stderr io.Writer, name string) (exitCode int, err error) {
+	interruptOnCancel(cmd)
 	tail := &tailBuffer{}
 	cmd.Stdout = stdout
 	cmd.Stderr = io.MultiWriter(stderr, tail)
