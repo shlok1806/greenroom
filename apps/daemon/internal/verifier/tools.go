@@ -171,8 +171,9 @@ var tools = []nim.Tool{
 		Name: "report_verdict",
 		Description: "End the turn with a verdict that answers every declared check. It is a proposal: the coder " +
 			"or a human may accept or dispute it. greenroom checks the evidence and refuses a verdict that does " +
-			"not hold: a pass needs every check pass; a fail needs a failing check with evidence; inconclusive " +
-			"marks what you could not show unchecked.",
+			"not hold: a pass needs every check pass; a fail needs a failing check with evidence, and its other " +
+			"answers that do not hold are posted unchecked with the reason; inconclusive marks what you could not " +
+			"show unchecked.",
 		Schema: object(map[string]any{
 			"verdict": map[string]any{
 				"type":        "string",
