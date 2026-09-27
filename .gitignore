@@ -23,3 +23,6 @@ coverage/
 # Python bytecode from running the spikes.
 __pycache__/
 *.pyc
+
+# nodeterm canvas state (local tool, not repo content)
+.nodeterm/
