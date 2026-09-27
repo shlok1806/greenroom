@@ -19,6 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/api"
+	"github.com/shlok1806/greenroom/apps/daemon/internal/buildinfo"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/mcpserver"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
@@ -49,7 +50,7 @@ func main() {
 	case "bench":
 		err = benchCmd(os.Args[2:])
 	case "version":
-		fmt.Println("greenroom", mcpserver.Version)
+		fmt.Println("greenroom", mcpserver.Version, buildinfo.Get())
 	default:
 		usage()
 	}
@@ -176,6 +177,9 @@ func serveUntil(ctx context.Context, args []string) error {
 	reg := session.NewRegistry(o.root, o.maxDisputes, session.WithOnVerdict(func(runID string, v session.VerdictState) { _ = mgr.RecordVerdict(runID, v) }))
 	mgr.SetMessageActivity(reg.LastMessageAt) // machine_list and the capacity error report idle time
 
+	// What GET /api/version reports (root ADR 0033); the verifier's part is filled in below.
+	ver := buildVersion()
+
 	kind := strings.ToLower(strings.TrimSpace(o.verifierKind))
 	if kind == "" {
 		kind = strings.ToLower(strings.TrimSpace(os.Getenv("GREENROOM_VERIFIER")))
@@ -184,6 +188,7 @@ func serveUntil(ctx context.Context, args []string) error {
 	case "manual":
 		bridgeLifecycle(mgr, reg, true)
 		_ = verifier.NewActors(verifier.NewManual(mgr, log), mgr, reg, verifier.WithLogger(log))
+		ver.Verifier = "manual"
 		log.Info("verifier enabled", "brain", "manual")
 	case "", "nim":
 		// Without a key the daemon still serves every machine tool; nobody answers the conversation.
@@ -198,7 +203,8 @@ func serveUntil(ctx context.Context, args []string) error {
 			return err
 		}
 		_ = verifier.NewActors(v, mgr, reg, verifier.WithLogger(log))
-		log.Info("verifier enabled", "brain", "nim", "model", v.Model(), "vision", visionModel(os.Getenv("GREENROOM_VISION_MODEL")))
+		ver.Verifier, ver.VerifierModel, ver.VisionModel = "nim", v.Model(), visionModel(os.Getenv("GREENROOM_VISION_MODEL"))
+		log.Info("verifier enabled", "brain", "nim", "model", v.Model(), "vision", ver.VisionModel)
 	default:
 		return fmt.Errorf("unknown -verifier %q: want nim or manual", kind)
 	}
@@ -208,14 +214,14 @@ func serveUntil(ctx context.Context, args []string) error {
 	// the root lock with it (issue #98).
 	baseCtx, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
-	httpServer := &http.Server{Addr: o.addr, Handler: routes(mgr, reg, o.image, o.publicHost, token, o.dist, log), ReadHeaderTimeout: 10 * time.Second,
+	httpServer := &http.Server{Addr: o.addr, Handler: routes(mgr, reg, o.image, o.publicHost, token, o.dist, ver, log), ReadHeaderTimeout: 10 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return baseCtx }}
 	httpServer.RegisterOnShutdown(cancelRequests)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.Serve(ln) }()
 	addr := ln.Addr().String()
-	log.Info("greenroom listening", "mcp", "http://"+addr+"/mcp", "api", "http://"+addr+"/api/", "root", o.root, "image", o.image,
+	log.Info("greenroom listening", "build", ver.String(), "mcp", "http://"+addr+"/mcp", "api", "http://"+addr+"/api/", "root", o.root, "image", o.image,
 		"maxMachines", o.maxMachines, "machines", len(mgr.List()))
 
 	select {
@@ -250,7 +256,7 @@ func nimVerifier(mgr *machine.Manager, maxSteps int, budget time.Duration, log *
 
 // routes is the daemon's whole HTTP surface. Loopback needs no token, so nothing a web page can
 // reach gets through; publicHost (tunnel traffic) needs token on everything but the install files.
-func routes(mgr *machine.Manager, reg *session.Registry, image, publicHost, token, dist string, log *slog.Logger) http.Handler {
+func routes(mgr *machine.Manager, reg *session.Registry, image, publicHost, token, dist string, ver api.Version, log *slog.Logger) http.Handler {
 	// A call through the public host gets its own server, whose tools never write where the
 	// caller names on this host (machine_pull's dest, ADR 0022). Guard marks those requests.
 	local, public := mcpserver.New(mgr, image, reg), mcpserver.New(mgr, image, reg, mcpserver.ForPublicHost())
@@ -270,10 +276,26 @@ func routes(mgr *machine.Manager, reg *session.Registry, image, publicHost, toke
 		_, _ = fmt.Fprintf(w, "ok %d machines\n", len(mgr.List()))
 	})
 	mux.Handle("/api/", api.New(mgr, reg, log))
+	// Read only, and the only build route: nothing here can update the daemon (ADR 0033).
+	mux.Handle("GET /api/version", api.VersionHandler(ver))
 	install := api.Dist(dist)
 	mux.Handle("GET /install.sh", install)
 	mux.Handle("GET /dl/{file}", install)
 	return api.Guard(mux, publicHost, token)
+}
+
+// buildVersion is this build's identity and the image versions it expects, with no verifier
+// (serve fills that in once it knows which one runs). The checkout is the one install.sh
+// recorded in the launchd job; a daemon started any other way has none.
+func buildVersion() api.Version {
+	return api.Version{
+		Version:     mcpserver.Version,
+		Info:        buildinfo.Get(),
+		InputHelper: machine.InputHelperVersion(),
+		ImageRecipe: machine.ImageRecipeVersion(),
+		Verifier:    "none",
+		Checkout:    strings.TrimSpace(os.Getenv("GREENROOM_CHECKOUT")),
+	}
 }
 
 // minTokenLength is the shortest GREENROOM_TOKEN a daemon with a public host accepts.

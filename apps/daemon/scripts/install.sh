@@ -19,32 +19,61 @@ done
 
 cd "$(dirname "$0")/.."     # apps/daemon
 repo="$(cd ../.. && pwd)"
+label="com.greenroom.daemon"
+root="$HOME/.greenroom"
+bin="$root/bin/greenroom"
+log="$root/daemon.log"
+plist="$HOME/Library/LaunchAgents/$label.plist"
+addr="127.0.0.1:7777"
+
 # .env is git-ignored, so a worktree falls back to the main checkout's. GREENROOM_ENV overrides
 # both and is used as given, even when missing: never another file in its place.
-if [ -n "${GREENROOM_ENV:-}" ]; then
-  env_file="$GREENROOM_ENV"
-else
-  env_file="$repo/.env"
-  if [ ! -f "$env_file" ]; then
-    main="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')"
-    [ -n "$main" ] && [ -f "$main/.env" ] && env_file="$main/.env"
-  fi
+auto_env="$repo/.env"
+if [ ! -f "$auto_env" ]; then
+  main="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')"
+  [ -n "$main" ] && [ -f "$main/.env" ] && auto_env="$main/.env"
 fi
-echo "env file: $env_file"
-echo "verifier: ${GREENROOM_VERIFIER:-nim}"
+
+# What this install keeps (scripts/install-settings.sh): GREENROOM_VERIFIER, GREENROOM_IMAGE,
+# GREENROOM_ENV and GREENROOM_TART from the environment, else what the job being replaced was
+# installed with, so an update (scripts/update.sh) keeps how the daemon was installed. The
+# job's other environment variables are written again as they were.
+verifier="" verifier_from="" image="" image_from="" env_file="" env_file_from="" tart="" tart_from=""
+keep=()
+settings="$(scripts/install-settings.sh "$plist" "$auto_env")"
+while IFS= read -r line; do
+  case "$line" in
+    verifier=*) verifier="${line#*=}" ;;
+    verifier_from=*) verifier_from="${line#*=}" ;;
+    image=*) image="${line#*=}" ;;
+    image_from=*) image_from="${line#*=}" ;;
+    env_file=*) env_file="${line#*=}" ;;
+    env_file_from=*) env_file_from="${line#*=}" ;;
+    tart=*) tart="${line#*=}" ;;
+    tart_from=*) tart_from="${line#*=}" ;;
+    keep=*) keep+=("${line#keep=}") ;;
+  esac
+done <<<"$settings"
+chosen_env="$env_file"
+[ -n "$env_file" ] || env_file="$auto_env"
+echo "env file: $env_file${chosen_env:+ ($env_file_from)}"
+echo "verifier: $verifier ($verifier_from)"
 
 # Resolve tart the way the daemon does (internal/tart/version.go): GREENROOM_TART, the pinned install, then PATH.
 pinned="$(sed -n 's/^const PinnedVersion = "\(.*\)"$/\1/p' internal/tart/version.go)"
-tart="${GREENROOM_TART:-$HOME/.local/tart-$pinned/tart.app/Contents/MacOS/tart}"
-if [ -z "${GREENROOM_TART:-}" ] && [ ! -x "$tart" ]; then
-  tart="tart"
+chosen_tart="$tart"
+if [ -z "$tart" ]; then
+  tart="$HOME/.local/tart-$pinned/tart.app/Contents/MacOS/tart"
+  [ -x "$tart" ] || tart="tart"
+else
+  echo "tart: $tart ($tart_from)"
 fi
 
 # Prefer the lean image (docs/image-experiment/decision-log.md, decision 22), then the prepared
 # image (issue #12), then upstream. GREENROOM_IMAGE overrides. A bare `greenroom serve` makes the
-# same choice (machine.PreferredImages); keep the two lists in step.
-image="${GREENROOM_IMAGE:-}"
-image_source="GREENROOM_IMAGE"
+# same choice (machine.PreferredImages); keep the two lists, and install-settings.sh's, in step.
+chosen_image="$image"
+image_source="GREENROOM_IMAGE, $image_from"
 if [ -z "$image" ]; then
   local_vms="$("$tart" list --source local 2>/dev/null || true)"
   for candidate in greenroom-lean-a greenroom-base; do
@@ -61,19 +90,42 @@ if [ -z "$image" ]; then
 fi
 echo "image: $image ($image_source)"
 
-label="com.greenroom.daemon"
-root="$HOME/.greenroom"
-bin="$root/bin/greenroom"
-log="$root/daemon.log"
-plist="$HOME/Library/LaunchAgents/$label.plist"
-addr="127.0.0.1:7777"
+# The job's EnvironmentVariables beyond PATH: the checkout, the settings a person chose (so the
+# next install tells them from its own picks), and whatever else the old job carried.
+xml() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
+extra_env=""
+add_env() { extra_env+="    <key>$(xml "$1")</key>"$'\n'"    <string>$(xml "$2")</string>"$'\n'; }
+add_env GREENROOM_CHECKOUT "$repo"
+[ -z "$chosen_image" ] || add_env GREENROOM_IMAGE "$chosen_image"
+[ -z "$chosen_env" ] || add_env GREENROOM_ENV "$chosen_env"
+[ -z "$chosen_tart" ] || add_env GREENROOM_TART "$chosen_tart"
+for pair in ${keep[@]+"${keep[@]}"}; do
+  echo "keeping ${pair%%=*} from the previous install"
+  add_env "${pair%%=*}" "${pair#*=}"
+done
+
+# The build's identity (root ADR 0033): `greenroom version` and GET /api/version report it, and
+# the Companion compares it with main. Dirty means any change git sees, untracked files included.
+commit="$(git -C "$repo" rev-parse --short HEAD 2>/dev/null || echo "")"
+dirty="false"
+[ -n "$(git -C "$repo" status --porcelain 2>/dev/null)" ] && dirty="true"
+built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+pkg="github.com/shlok1806/greenroom/apps/daemon/internal/buildinfo"
+ldflags="-X $pkg.commit=$commit -X $pkg.dirty=$dirty -X $pkg.builtAt=$built_at"
+echo "commit: ${commit:-unknown}$([ "$dirty" = true ] && echo " (local changes)")"
 
 if [ -n "$dry_run" ]; then
   bin="$(mktemp -d -t greenroom-install)/greenroom" # never replace the installed daemon
+  echo "building $bin"
+  go build -ldflags "$ldflags" -o "$bin" .
+else
+  # Build beside the binary and swap it in only once the build succeeded, so a failed build
+  # leaves the running daemon and its binary as they were.
+  echo "building $bin"
+  mkdir -p "$root/bin"
+  go build -ldflags "$ldflags" -o "$bin.new" .
+  mv -f "$bin.new" "$bin"
 fi
-echo "building $bin"
-mkdir -p "$(dirname "$bin")"
-go build -o "$bin" .
 
 # Images built before this daemon's input helper or image recipe (issue #159): each machine
 # from one compiles the helper at boot, or lacks Xcode. The check reads the stopped images'
@@ -100,7 +152,9 @@ if [ -n "$dry_run" ]; then
   exit 0
 fi
 
-# tart lives in /opt/homebrew/bin, and a launchd agent inherits almost no PATH.
+# tart lives in /opt/homebrew/bin, and a launchd agent inherits almost no PATH. GREENROOM_CHECKOUT is
+# the checkout this build came from: GET /api/version reports it, and the Companion runs
+# scripts/update.sh there (root ADR 0033).
 mkdir -p "$HOME/Library/LaunchAgents"
 cat >"$plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -118,11 +172,11 @@ cat >"$plist" <<PLIST
     <string>-root</string>
     <string>$root</string>
     <string>-env-file</string>
-    <string>$env_file</string>
+    <string>$(xml "$env_file")</string>
     <string>-verifier</string>
-    <string>${GREENROOM_VERIFIER:-nim}</string>
+    <string>$(xml "$verifier")</string>
     <string>-image</string>
-    <string>$image</string>
+    <string>$(xml "$image")</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -136,7 +190,7 @@ cat >"$plist" <<PLIST
   <dict>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-  </dict>
+$extra_env  </dict>
 </dict>
 </plist>
 PLIST

@@ -311,19 +311,18 @@ struct RunView: View {
                     .foregroundStyle(.secondary)
                 }
                 // One primary in the top bar (companion ADR 0013); the occasional actions
-                // are one menu, each also a key, a palette entry and a menu-bar item.
-                if hasMoreActions {
-                    Menu {
-                        moreActions
-                    } label: {
-                        Text("More ▾")
-                    }
-                    .menuStyle(.button)
-                    .menuIndicator(.hidden)
-                    .buttonStyle(.quiet)
-                    .fixedSize()
-                    .help("Screenshot, export, the conversation, destroy")
+                // are one menu, each also a key, a palette entry and a menu-bar item. Always
+                // there: builds and updates apply to every run (root ADR 0033).
+                Menu {
+                    moreActions
+                } label: {
+                    Text("More ▾")
                 }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(.quiet)
+                .fixedSize()
+                .help("Screenshot, export, the conversation, builds and updates, destroy")
                 if facts.machineReady {
                     // The one way to take and give back the screen.
                     ControlButton(driving: driving, busy: pilot.busy, action: toggleControl)
@@ -332,10 +331,6 @@ struct RunView: View {
                 }
             }
         }
-    }
-
-    private var hasMoreActions: Bool {
-        facts.machineReady || !(store.frames[runId] ?? []).isEmpty || canDestroy || layout.widthClass != .narrow
     }
 
     /// What the More menu holds, named as the menu bar names it, with its keys.
@@ -356,11 +351,25 @@ struct RunView: View {
                 conversationToggle.wrappedValue.toggle()
             }
         }
+        if facts.machineReady || !(store.frames[runId] ?? []).isEmpty || layout.widthClass != .narrow {
+            Divider()
+        }
+        // Builds and updates (root ADR 0033), with the news when there is some.
+        Button(greenroomTitle) { keyboard?.perform(.greenroom) }
         if canDestroy {
             Divider()
             Button("Destroy Machine...  \(ActionRegistry.label(.destroy))", role: .destructive) {
                 keyboard?.perform(.destroy, in: .run)
             }
+        }
+    }
+
+    private var greenroomTitle: String {
+        let title = ActionRegistry.spec(.greenroom).menuTitle ?? "Builds and Updates..."
+        switch store.updates.summary.headline {
+        case .updates(let n): return "\(title)  \(n) new"
+        case .rebuild: return "\(title)  rebuild"
+        default: return store.updates.summary.mismatch ? "\(title)  mismatch" : title
         }
     }
 

@@ -66,12 +66,12 @@ func TestLoadEnvFileWithoutAFileIsFine(t *testing.T) {
 	}
 }
 
-// ADR 0020: with GREENROOM_VISION_MODEL unset the verifier sees the screen through kimi-k3, the
+// ADR 0032: with GREENROOM_VISION_MODEL unset the verifier sees the screen through muse-glimmer, the
 // describer both evaluations chose; a set value wins, and "none" turns seeing off.
 func TestVisionModelDefaultsToTheEvaluatedDescriber(t *testing.T) {
 	for raw, want := range map[string]string{
-		"":                  "moonshotai/kimi-k3",
-		"  ":                "moonshotai/kimi-k3",
+		"":                  "meta/muse-glimmer-30b",
+		"  ":                "meta/muse-glimmer-30b",
 		"meta/other-vision": "meta/other-vision",
 		// ADR 0030: the faster describer is chosen by name alone; nim turns its thinking off.
 		" meta/muse-glimmer-30b ": "meta/muse-glimmer-30b",
