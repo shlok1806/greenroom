@@ -275,3 +275,29 @@ func TestRateValueWithNoTrialsIsNaN(t *testing.T) {
 		t.Error("a rate over no trials must read n/a")
 	}
 }
+
+// Issue #155: the report says the run stopped or lost trials for low disk, and names the cause
+// beside each such setup error; none of them is a wrong result.
+func TestTheReportSaysWhatLowDiskCost(t *testing.T) {
+	results := []Result{
+		res("c1", 1, KindCorrect, SplitDev, EndVerdict, "pass"),
+		res("c2", 1, KindCorrect, SplitDev, EndSetupError, ""),
+		res("c3", 1, KindCorrect, SplitDev, EndSetupError, ""),
+	}
+	results[1].Cause, results[1].Error = CauseDisk, "not started: 3.1 GB free on /x/.tart, under 5.0 GB"
+	results[2].Error = "build: exit 1"
+	out := Report("/tmp/r.jsonl", results, time.Now(), ReportOptions{})
+	for _, want := range []string{
+		"- Low disk: 1 trial recorded as `setup_error` of cause `disk` (not started, or its machine stopped while the disk was low). Not wrong results; free some space and rerun with the same `-out` to run them.",
+		"| c2 | 1 | setup_error (disk) | not started: 3.1 GB free on /x/.tart, under 5.0 GB |",
+		"| c3 | 1 | setup_error | build: exit 1 |",
+		"## Wrong results (0)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report lacks %q\n%s", want, out)
+		}
+	}
+	if out := Report("/tmp/r.jsonl", results[:1], time.Now(), ReportOptions{}); strings.Contains(out, "Low disk") {
+		t.Error("a report with no disk setup error mentions low disk")
+	}
+}

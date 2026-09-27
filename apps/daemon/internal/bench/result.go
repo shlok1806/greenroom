@@ -55,6 +55,9 @@ type Result struct {
 	Seconds         float64         `json:"seconds"`         // from posting the task to the ending
 	SetupSeconds    float64         `json:"setupSeconds"`    // boot, sync, build and launch
 	Error           string          `json:"error,omitempty"`
+	// Cause says why a setup error happened when it is not the case's fault: CauseDisk for a
+	// trial low disk kept from starting or killed (issue #155).
+	Cause string `json:"cause,omitempty"`
 }
 
 // Outcome is what the verifier answered: pass, fail, inconclusive, ask, or the ending itself
