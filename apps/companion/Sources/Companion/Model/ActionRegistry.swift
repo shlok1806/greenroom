@@ -192,7 +192,7 @@ enum ActionID: String, CaseIterable, Sendable {
     case themeSystem, themeDark, themeLight, themeDarkContrast, themeLightContrast
     // The run
     case takeControl, giveBack, capture, exportRecording, followLive
-    case nextFailure, previousFailure, destroy, confirmDestroy, cancelDestroy
+    case nextFailure, previousFailure, destroy, confirmDestroy, cancelDestroy, continueVerifier
     // The screen
     case play, previousFrame, nextFrame, speed, backToVerdict, clickMarks
     // The verdict
@@ -315,6 +315,10 @@ enum ActionRegistry {
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Previous Error"),
         ActionSpec(id: .exportRecording, title: "Export the recording", keys: [KeyBinding(.char("e"))],
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Export Recording..."),
+        // The verifier stopped at a limit and waits: your note "Continue." starts its next
+        // turn (companion ADR 0015).
+        ActionSpec(id: .continueVerifier, title: "Continue the verifier", keys: [KeyBinding(.char("C"))],
+                   contexts: [.run], group: .run, hint: 0, hintTitle: "continue", menu: .run, menuTitle: "Continue Verifier"),
         ActionSpec(id: .destroy, title: "Destroy the machine", keys: [KeyBinding(KeyChord(key: .delete, command: true))],
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Destroy Machine...", destructive: true),
         ActionSpec(id: .confirmDestroy, title: "Destroy", keys: [KeyBinding(.enter)],
@@ -555,6 +559,7 @@ enum ActionRules {
         case .destroy: return "This run has no machine"
         case .nextFailure, .previousFailure: return "No step errored"
         case .nextCheck, .previousCheck: return "The verdict has no checks"
+        case .continueVerifier: return "The verifier is not stopped at a limit"
         case .exportRecording: return "No recording yet"
         case .play, .previousFrame, .nextFrame, .speed: return "Show a recording first"
         case .backToVerdict: return "No evidence is open"

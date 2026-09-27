@@ -54,6 +54,9 @@ struct RunFacts: Equatable, Sendable {
     /// The daemon's verifier still reads this run's conversation. It stops only when the
     /// machine is destroyed (`verifier.Actors`); a failed or lost machine keeps it.
     var verifierListens: Bool
+    /// The verifier's last turn stopped at a limit and nothing has followed it (issue
+    /// #127, `LimitStop.waiting`): the limit it stopped at.
+    var stoppedAt: StopReason? = nil
 
     static let idleAfter: TimeInterval = 5 * 60
 
@@ -128,9 +131,10 @@ struct RunFacts: Equatable, Sendable {
         if case .ended(.destroyed) = phase { destroyed = true }
 
         let failures = (steps ?? []).filter { $0.outcome.isFailure }.map(\.seq)
+        let stoppedAt = LimitStop.waiting(messages ?? []).flatMap(LimitStop.reason(of:))
         return RunFacts(
             phase: phase,
-            turn: turn(messages: messages ?? [], verdict: openVerdict, alive: alive),
+            turn: turn(messages: messages ?? [], verdict: openVerdict, alive: alive, listens: !destroyed),
             started: started,
             ended: alive ? nil : (destroyedAt ?? last),
             lastActivity: last,
@@ -140,7 +144,8 @@ struct RunFacts: Equatable, Sendable {
             messageCount: messages?.count ?? summary?.messages ?? 0,
             verdict: openVerdict,
             machineReady: machine?.status == .ready,
-            verifierListens: !destroyed
+            verifierListens: !destroyed,
+            stoppedAt: stoppedAt
         )
     }
 
@@ -166,7 +171,7 @@ struct RunFacts: Equatable, Sendable {
     }
 
     /// The last word decides whose move it is (ADR 0006).
-    static func turn(messages: [Message], verdict: VerdictState?, alive: Bool) -> Turn {
+    static func turn(messages: [Message], verdict: VerdictState?, alive: Bool, listens: Bool) -> Turn {
         if verdict?.status == .contested { return .you("Only you can close the verdict") }
         if let question = messages.last(where: { $0.kind == .question && $0.from == .verifier }),
            !messages.contains(where: { $0.kind == .answer && $0.replyTo == question.seq }),
@@ -175,6 +180,10 @@ struct RunFacts: Equatable, Sendable {
         }
         if verdict?.status == .proposed { return .you("The verdict needs review") }
         guard alive else { return .nobody }
+        // A stopped verifier does nothing until someone sends a message; Continue is yours.
+        if listens, let stop = LimitStop.waiting(messages).flatMap(LimitStop.reason(of:)) {
+            return .you("The verifier stopped, \(LimitStop.short(stop))")
+        }
         if RunStore.awaitingVerifier(messages) { return .verifier }
         guard let last = messages.last(where: { $0.from != .system && $0.kind != .progress }) else { return .nobody }
         return last.from == .verifier ? .coder : .nobody
@@ -195,6 +204,8 @@ extension RunFacts {
                 let state = verdict.status == .proposed ? "needs review" : "contested"
                 return ("\(Chrome.outcomeTitle(verdict.verdict)), \(state)", .attention)
             }
+            // The same words as the card's title (`LimitStop`).
+            if let stoppedAt { return ("Stopped, \(LimitStop.short(stoppedAt))", .attention) }
             return (why.contains("question") ? "Question for you" : "Needs you", .attention)
         }
         switch phase {
@@ -211,6 +222,8 @@ extension RunFacts {
                 return (Chrome.verdictLine(verdict), tone)
             }
             if case .lost = ending { return ("Machine lost", .failure) }
+            // Nothing will continue it now; the row still says why the task has no verdict.
+            if let stoppedAt { return ("No verdict, \(LimitStop.short(stoppedAt))", .quiet) }
             return ("No verdict", .quiet)
         }
     }

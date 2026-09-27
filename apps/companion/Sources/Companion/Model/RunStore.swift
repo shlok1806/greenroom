@@ -147,6 +147,8 @@ final class RunStore: PilotHost {
     /// the verdict land. The cards read it, so a card rebuilt mid-way carries on, not over.
     var verdictMoment: VerdictMoment?
     private(set) var verdictDrafts: [String: VerdictDraft] = [:]
+    /// Runs whose Continue is on its way (`continueVerifier`): the card and the key wait.
+    private(set) var continuing: Set<String> = []
     /// An accept or dispute shown as made but not yet sent: it waits out its undo
     /// (companion ADR 0005), since the daemon cannot take a recorded message back.
     private(set) var verdictUndo = UndoWindow<PendingVerdictChoice>()
@@ -497,6 +499,22 @@ final class RunStore: PilotHost {
         await reloadTranscript(runId)
         await perform(.runs)
         return true
+    }
+
+    /// The verifier's turn stopped at a limit and waits (`LimitStop`): your note
+    /// "Continue." starts its next turn. Only while that stop is the last word, the
+    /// verifier still listens and no other Continue is on its way.
+    @discardableResult
+    func continueVerifier(runId: String) async -> Bool {
+        guard canContinue(runId) else { return false }
+        continuing.insert(runId)
+        defer { continuing.remove(runId) }
+        return await send(runId: runId, kind: .note, text: LimitStop.continueText)
+    }
+
+    func canContinue(_ runId: String) -> Bool {
+        !continuing.contains(runId) && facts(runId).verifierListens
+            && LimitStop.waiting(messages[runId] ?? []) != nil
     }
 
     // MARK: - Verdict actions

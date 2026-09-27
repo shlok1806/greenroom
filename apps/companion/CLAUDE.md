@@ -11,7 +11,8 @@ moments, click marks), `0007` (the dependency allowlist), `0008` (readable type 
 olive brand, amending 0004's type and colour decisions), `0009` (transcript cards and
 the Markdown renderer), `0010` (run thumbnails from the last frame, superseded by
 `0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict), `0013` (one
-primary in the top bar, Give Back on the driving bar) and `0014` (evidence marks on the picture). Design: `docs/design-spec.md`
+primary in the top bar, Give Back on the driving bar), `0014` (evidence marks on the picture) and `0015` (a
+verifier stopped at its limit is a card with Continue). Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -515,6 +516,14 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   `CheckPlanBlock`), one line once the current verdict answers it. A verdict without checks
   reads as before. While one with checks is open, the card may take `verdictReviewShare` of
   its column. Harness scenarios 37 to 45 (41 to 45 real bench verdicts).
+- A verifier reply with `stop` (`steps` or `time`, issue #127) is a card (companion ADR 0015;
+  `LimitStop` in `Model/TranscriptCards.swift`, `LimitStopCard`): which limit, what it means,
+  the verifier's words, and while it waits, Continue (the registry's `continueVerifier`, `C`),
+  which posts the human note `LimitStop.continueText` through `RunStore.continueVerifier`.
+  "Waits" is `LimitStop.waiting`: the newest verifier word is that reply and nothing that
+  starts a turn (`RunStore.startsTurn`) or verifier progress came after it. `RunFacts.stoppedAt`
+  carries it to the row and the turn; a live run so stopped needs you. Harness scenarios 46
+  to 46d (the bench run `20260926-071916-b48b96d157b71fcd`).
 - Prose (`readingStyle`) sits at `tokens.json` `reading.lineHeight` (1.45): the gap is
   worked out from the face's own line (`Typeface.lineSpacing`), never a fraction of the
   size added on top.
