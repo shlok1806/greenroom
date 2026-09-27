@@ -368,10 +368,18 @@ func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnable
 			// reg.Listen only fans out from opened stores, so open this one before its first message.
 			go func() { _, _ = reg.Get(ev.RunID) }()
 			return
+		case "rebooting":
+			text = "machine is rebooting (machine_reboot): its sessions, running commands and apps end; its disk stays"
 		case "ready":
 			text = "machine is ready"
+			if ev.Reboot {
+				text = "machine rebooted and is ready"
+			}
 		case "failed":
 			text = withError("machine failed to boot", ev.Machine)
+			if ev.Reboot {
+				text = withError("machine failed to reboot", ev.Machine)
+			}
 		case "stopped":
 			text = withError("machine stopped", ev.Machine) // a ready machine's VM went away, not a boot failure
 		case "destroyed":

@@ -60,6 +60,9 @@ struct RunFacts: Equatable, Sendable {
     /// The verifier's last turn stopped at a limit and nothing has followed it (issue
     /// #127, `LimitStop.waiting`): the limit it stopped at.
     var stoppedAt: StopReason? = nil
+    /// When machine_reboot began, while the machine is rebooting (daemon ADR 0004). The phase
+    /// is then `booting`: the same machine is coming up again on the same disk.
+    var rebootingSince: Date? = nil
 
     static let idleAfter: TimeInterval = 5 * 60
 
@@ -114,7 +117,8 @@ struct RunFacts: Equatable, Sendable {
 
         let phase: Phase
         switch status {
-        case .booting where machine != nil || detail == nil:
+        case .booting where machine != nil || detail == nil,
+             .rebooting where machine != nil || detail == nil:
             phase = .booting
         case .ready where machine != nil || detail == nil:
             phase = now.timeIntervalSince(last) >= idleAfter ? .idle : .live
@@ -149,7 +153,10 @@ struct RunFacts: Equatable, Sendable {
             machineReady: machine?.status == .ready,
             verifierListens: !destroyed,
             finish: finish(summary: summary, detail: detail, messages: messages),
-            stoppedAt: stoppedAt
+            stoppedAt: stoppedAt,
+            // The reboot's first phase (stop), else the "machine is rebooting" event's time.
+            rebootingSince: status == .rebooting && phase == .booting
+                ? (machine?.boot.first { $0.phase.text == "stop" }?.at ?? last) : nil
         )
     }
 
@@ -222,7 +229,7 @@ extension RunFacts {
         // something waiting on the person (above) says more.
         if let finish { return (Self.doneText(finish), Self.doneTone(finish)) }
         switch phase {
-        case .booting: return ("Booting", .neutral)
+        case .booting: return (rebootingSince == nil ? "Booting" : "Rebooting", .neutral)
         case .live: return ("Live", .live)
         case .idle: return ("Idle \(Chrome.span(idle(now: now)))", .attention)
         case .failed: return ("Failed to boot", .failure)
