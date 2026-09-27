@@ -30,7 +30,8 @@ addr="127.0.0.1:7777"
 # both and is used as given, even when missing: never another file in its place.
 auto_env="$repo/.env"
 if [ ! -f "$auto_env" ]; then
-  main="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||')"
+  # || true: outside a git checkout (a tarball) git fails, and with pipefail that ended the script with no word.
+  main="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null | sed 's|/\.git$||' || true)"
   [ -n "$main" ] && [ -f "$main/.env" ] && auto_env="$main/.env"
 fi
 
