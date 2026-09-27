@@ -79,7 +79,7 @@ func (m *Manager) markRendered(ctx context.Context, mc *Machine, raw rawUITree, 
 		defer wg.Done()
 		desk, deskErr = readDesktop(ctx, m.tart, mc.Name)
 	}()
-	data, err := m.captureScreen(ctx, mc)
+	data, err := m.captureScreen(ctx, mc, true)
 	wg.Wait()
 	if err != nil {
 		tree.Unrendered = "the screen capture failed: " + err.Error()

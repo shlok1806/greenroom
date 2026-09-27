@@ -256,6 +256,7 @@ func TestInputCountsActionsOnTheLease(t *testing.T) {
 func TestInputInstallsTheHelperOnce(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
+	testsupport.Flag(t, control, "input-stale") // the guest has no current helper, so it compiles
 	if _, _, err := mgr.TakeControl(mc.RunID, "human", 0); err != nil {
 		t.Fatalf("TakeControl: %v", err)
 	}
@@ -274,8 +275,9 @@ func TestInputInstallsTheHelperOnce(t *testing.T) {
 
 func TestInputSaysWhenTheMachineCannotBuildTheHelper(t *testing.T) {
 	mgr, _, control := newTestManager(t)
-	testsupport.Flag(t, control, "fail-input-install")
 	mc := readyMachine(t, mgr)
+	testsupport.Flag(t, control, "input-stale")
+	testsupport.Flag(t, control, "fail-input-install")
 
 	_, err := mgr.ScreenOf(context.Background(), mc.RunID)
 	if err == nil || !strings.Contains(err.Error(), "swiftc") {

@@ -136,6 +136,7 @@ type Manager struct {
 	screenInputSlack time.Duration
 	messageActivity  func(runID string) time.Time // guarded by mu; see SetMessageActivity
 	models           *Models                      // guarded by mu; see SetModels
+	lookTimes        lookTimes                    // a look's limits (look.go); zero means defaultLookTimes
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)

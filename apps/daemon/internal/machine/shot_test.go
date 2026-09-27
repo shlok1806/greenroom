@@ -9,7 +9,6 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -103,8 +102,10 @@ func TestAScreenshotDoesNotInstallTheInputHelperToLearnItsScale(t *testing.T) {
 	}
 }
 
-// Screenshot and the frame recorder run at once, so each capture must use its
-// own guest file and remove it, or one could read the other's picture.
+// Screenshot and the frame recorder run at once. Each capture runs under the guest
+// watchdog and writes its picture into the watchdog's private temp dir, which the
+// watchdog removes, so no capture can read another's picture or leave a file behind
+// (daemon ADR 0003). The screenshots all succeed: they wait their turn.
 func TestConcurrentScreenshotsAndFramesUseTheirOwnGuestFile(t *testing.T) {
 	mgr, _, control := newTestManager(t, WithFrameInterval(10*time.Millisecond))
 	if err := os.WriteFile(filepath.Join(control, "shot.b64"), []byte(pngBase64(t)), 0o644); err != nil {
@@ -128,22 +129,18 @@ func TestConcurrentScreenshotsAndFramesUseTheirOwnGuestFile(t *testing.T) {
 		return len(frames) >= 2
 	})
 
-	re := regexp.MustCompile(`/tmp/greenroom-shot-[0-9a-f]+\.png`)
-	seen := map[string]bool{}
 	captures := 0
 	for _, line := range strings.Split(testsupport.Calls(t, control), "\n") {
 		if !strings.Contains(line, "screencapture") {
 			continue
 		}
 		captures++
-		path := re.FindString(line)
-		if path == "" || !strings.Contains(line, "rm -f '"+path+"'") {
-			t.Fatalf("a capture does not use and remove a private file: %s", line)
+		if !strings.Contains(line, `screencapture -x "$f"`) || !strings.Contains(line, `f="$GREENROOM_LOOK_DIR/shot.png"`) {
+			t.Fatalf("a capture does not write into the watchdog's private dir: %s", line)
 		}
-		if seen[path] {
-			t.Fatalf("two captures shared the guest file %s", path)
-		}
-		seen[path] = true
+	}
+	if !strings.Contains(testsupport.Calls(t, control), "greenroom-watchdog") {
+		t.Error("the captures do not run under the guest watchdog")
 	}
 	if captures < 10 {
 		t.Errorf("saw %d captures, want the 8 screenshots and at least 2 frames", captures)

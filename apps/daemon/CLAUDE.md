@@ -317,7 +317,8 @@ Boot and lifecycle
   only reads; a reset or aged record is rewritten. Killing replayd stops every
   ScreenCaptureKit session, so a rewrite, and `machine_approve_capture` (a record for an
   app under test, keyed by its bundle URL), end a running live stream first with a
-  reason; viewers reconnect. Both hold `input.approval.mu`, so writes never overlap. A failure is logged and recorded as
+  reason; viewers reconnect. Both hold `input.approval.run` (taken with the caller's context;
+  the check and write are bounded, 15 s and 30 s), so writes never overlap. A failure is logged and recorded as
   `captureAlertError`, never fatal: the machine works under the alert. In `PrepareGuest`
   it is fatal.
 - Boot also sets desktop preferences (`desktopprefs.go`, step key `desktopPrefsSeconds`,
@@ -826,6 +827,35 @@ UI tree (ADR 0012)
 - The verifier's prompt makes the tree the way to aim and a coder's constraints hard rules
   (`verifier.go`). `TestTheDeliveredSystemPromptBindsConstraintsAndAimsFromTheTree` pins the phrases.
 
+Screen looks (daemon ADR 0003, issue #187)
+
+- A look is any call that needs the guest's WindowServer: `captureScreen` (screenshot, frame,
+  the render check), and the helper's `--ui-base64`, `--desktop` and screen-size reads. Each
+  runs under `lookWatchdogScript` (`look.go`) through `guestLook`/`readHelper`: the guest ends
+  it (TERM, KILL 2 s later, exit 124) at `lookTimes.capture` (15 s) or `.ui` (25 s), and the
+  host gives up `.grace` (5 s) later. A new look goes through them too, never a bare
+  `tart exec`: killing the host's exec never reaches the guest, and a wedged WindowServer then
+  collects orphans. Only `machine_input`'s one-shot post is not a look (a batch may sleep).
+- `ScreenshotAs` and `Manager.ui` cap the whole call at `lookTimes.cap` (45 s) whatever the
+  caller's ctx allows (`lookError`). A timeout is `ErrScreenNotAnswering`
+  (`*ScreenNotAnsweringError`); its text names `machine_exec` and `machine_reboot` and is what
+  the agent reads, so keep both names in it.
+- One guest capture per machine (`inputState.capture`, a `captureGate`). Looks wait for an
+  outstanding one within their cap and then capture themselves (never share its picture);
+  behind one that timed out they fail at once. The recorder passes `wait=false` and skips.
+  The capture runs detached from its caller and holds the slot until its tart exec returns.
+- The recorder backs off after consecutive timeouts (`frameBackoff`: 2 s doubling to 1 min),
+  logs once when the screen stops answering and once when it answers again, and never logs a
+  timeout or a skipped frame as a frame failure.
+- `ensureInput` starts one detached install (`installJob`) per machine; callers wait with their
+  own ctx. The helper check runs under the watchdog; only a missing or stale helper compiles.
+  `inputState.mu` is never held across a guest call.
+- `input.swift` answers `--version` before any top-level code that touches WindowServer. Keep
+  it first: the install and boot checks run `--version` on a guest whose screen may be wedged.
+- Tests shorten the limits with `withLookTimes`; the fake tart hangs a capture with
+  `shot-hang` and a UI read with `ui-hang`, and slows the compile with `input-install-sleep`.
+  `look_test.go` runs the watchdog script itself on the host's `/bin/sh`.
+
 Live screen (ADR 0011)
 
 - Every VM boots `tart run --no-graphics`. Graphics mode (`--vnc-experimental`, the old
@@ -1049,7 +1079,7 @@ mode, each read back with the copy's signature).
   `fail-disk`, `fail-xcode`, `fail-softwareupdate`, `fail-check-<exercise>`, `crash-report` (what
   the effect read's crash report lookup prints, ADR 0028) and
   `softwareupdate` (image build and gate), `tart-version` (fake a version mismatch), `exec-sleep` and `exec-stdout` (a slow or
-  loud machine_exec), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
+  loud machine_exec), `shot-hang`, `ui-hang` and `input-install-sleep` (a wedged screen, daemon ADR 0003), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session reaches tart on a
   pipe. It models a session with the host's real `script` running `cat`, and runs the real
   session read and close scripts, with `TMPDIR` set to the control dir.

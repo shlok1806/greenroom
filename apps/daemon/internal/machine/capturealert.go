@@ -114,9 +114,17 @@ func approveScreenCapture(ctx context.Context, c *tart.Client, vmName string) er
 // reset the approvals. The check is one exec that reads two records.
 const captureApprovalCheck = time.Minute
 
+// Bounds on the approval execs, so no capture waits behind one for long (issue #187). The
+// write waits up to 10 s for replayd to come back.
+const (
+	captureApprovalCheckTimeout = 15 * time.Second
+	captureApprovalWriteTimeout = 30 * time.Second
+)
+
 // captureApproval is when a machine's approvals were last written or checked.
 type captureApproval struct {
-	mu      sync.Mutex // held across the check, so concurrent captures run one
+	mu      sync.Mutex // guards checked and warned; never held across a guest call
+	run     ctxLock    // held across a check or write, so they never overlap; waiters honour their ctx
 	checked time.Time  // wall clock
 	warned  bool
 }
@@ -130,32 +138,55 @@ const captureStale = 3
 // out while the host slept is back before the capture that would alert. The check
 // is read only; only a stale record is rewritten, which ends a running live stream
 // first (see captureApprovalsScript). A failure is logged once per machine and
-// never fails the capture.
+// never fails the capture. The check and the write are bounded, and a capture that
+// cannot get the lock before its ctx ends captures without checking.
 func (m *Manager) ensureCaptureApproval(ctx context.Context, mc *Machine) {
 	a := &mc.input.approval
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	// Wall clock (Round(0) drops the monotonic reading, which stops while the host
-	// sleeps): after a long host sleep the next capture must check.
-	now := time.Now().Round(0)
-	if !a.checked.IsZero() && now.Sub(a.checked) < captureApprovalCheck {
+	if !a.due() {
 		return
 	}
+	if a.run.lock(ctx) != nil {
+		return
+	}
+	defer a.run.unlock()
+	// Wall clock (Round(0) drops the monotonic reading, which stops while the host
+	// sleeps): after a long host sleep the next capture must check.
+	a.mu.Lock()
+	now := time.Now().Round(0)
+	if !a.checked.IsZero() && now.Sub(a.checked) < captureApprovalCheck {
+		a.mu.Unlock()
+		return // another capture checked while this one waited
+	}
 	a.checked = now
-	res, err := m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", captureApprovalsScript, "sh", "check")
+	a.mu.Unlock()
+	checkCtx, cancel := context.WithTimeout(ctx, captureApprovalCheckTimeout)
+	res, err := m.tart.Exec(checkCtx, mc.Name, "/bin/sh", "-c", captureApprovalsScript, "sh", "check")
+	cancel()
 	switch {
 	case err == nil && res.ExitCode == 0:
 		return
 	case err == nil && res.ExitCode == captureStale:
 		m.endLiveScreenFor(mc, "screen capture is being re-approved (replayd reset its record)")
-		err = approveScreenCapture(ctx, m.tart, mc.Name)
+		writeCtx, cancel := context.WithTimeout(ctx, captureApprovalWriteTimeout)
+		err = approveScreenCapture(writeCtx, m.tart, mc.Name)
+		cancel()
 	case err == nil:
 		err = fmt.Errorf("check the approvals: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
-	if err != nil && !a.warned {
-		a.warned = true
+	a.mu.Lock()
+	warn := err != nil && !a.warned
+	a.warned = a.warned || warn
+	a.mu.Unlock()
+	if warn {
 		m.Log.Warn("cannot refresh the screen-capture approvals; the guest may show a capture alert", "runId", mc.RunID, "err", err)
 	}
+}
+
+// due reports whether the approvals were last checked long enough ago to check again.
+func (a *captureApproval) due() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.checked.IsZero() || time.Now().Round(0).Sub(a.checked) >= captureApprovalCheck
 }
 
 // endLiveScreenFor ends a running live stream before replayd is killed, which would
@@ -209,10 +240,14 @@ func (m *Manager) approveApp(ctx context.Context, mc *Machine, app string) (stri
 	// One writer at a time: a concurrent check-and-write would kill replayd while this
 	// writes, and replayd's cached write-back could drop the record despite the read-back.
 	a := &mc.input.approval
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	if err := a.run.lock(ctx); err != nil {
+		return "", err
+	}
+	defer a.run.unlock()
 	m.endLiveScreenFor(mc, "an app under test is being approved for screen capture")
 	// The path is an argument, never part of the script text.
+	ctx, cancel := context.WithTimeout(ctx, captureApprovalWriteTimeout)
+	defer cancel()
 	res, err := execChecked(ctx, m.tart, mc.Name, "/bin/sh", "-c", captureApprovalsScript, "sh", "app", app)
 	if err != nil {
 		return "", fmt.Errorf("pre-approve %s for screen capture: %w", app, err)
