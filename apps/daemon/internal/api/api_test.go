@@ -248,6 +248,23 @@ func TestRunDetailCarriesTheManifestTheMachineAndTheLiveVerdict(t *testing.T) {
 	}
 }
 
+// Issue #154: the run's detail and its row say which models verify it, from its manifest.
+func TestARunSaysWhichModelsVerifyIt(t *testing.T) {
+	h := newHarness(t)
+	h.mgr.SetModels(machine.Models{Brain: machine.BrainNIM, Model: "nvidia/ultra", Vision: "meta/muse-glimmer-30b"})
+	runID := h.ready()
+	var d RunDetail
+	h.get("/api/runs/"+runID, &d)
+	if d.Models == nil || d.Models.Vision != "meta/muse-glimmer-30b" || d.Machine == nil || d.Machine.Models == nil {
+		t.Fatalf("detail models = %+v, machine %+v; want the manager's", d.Models, d.Machine)
+	}
+	var runs []RunSummary
+	h.get("/api/runs", &runs)
+	if r := findRun(t, runs, runID); r.Models == nil || r.Models.Model != "nvidia/ultra" {
+		t.Errorf("run row models = %+v", r.Models)
+	}
+}
+
 func TestStepsAreTheRunsEvidence(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()

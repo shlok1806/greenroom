@@ -49,6 +49,13 @@ final class KeyboardModel {
     var helpOpen = false
     /// The Greenroom section (builds and updates) is open over the window.
     var greenroomOpen = false
+    /// The top bar's More menu is open (companion ADR 0017), with this row selected (none
+    /// until a key or the pointer picks one when a click opened it).
+    private(set) var moreOpen = false
+    var moreSelection: ActionID?
+    /// The More button's frame in window points (top-left origin), where the menu hangs
+    /// from. Nil while no run's top bar shows it.
+    var moreAnchor: CGRect?
     /// The run whose machine "destroy?" is being asked about.
     var confirmingDestroy: String?
     var pendingPrefix: KeyChord?
@@ -103,6 +110,7 @@ final class KeyboardModel {
         s.paletteOpen = paletteOpen
         s.helpOpen = helpOpen
         s.greenroomOpen = greenroomOpen
+        s.moreOpen = moreOpen
         s.confirmingDestroy = confirmingDestroy != nil
         s.pendingPrefix = pendingPrefix
         s.runOpen = runId != nil
@@ -148,6 +156,8 @@ final class KeyboardModel {
     /// (no context: wherever it is enabled).
     func perform(_ id: ActionID, in context: ActionContext? = nil) {
         let runId = store.selectedRunId
+        // Anything else that runs (an item, the palette, a menu-bar item) puts the menu away.
+        if moreOpen, ![.more, .moreDown, .moreUp, .moreRun, .moreClose].contains(id) { closeMore() }
         switch id {
         case .palette:
             if paletteOpen { closePalette() } else { openPalette() }
@@ -229,6 +239,17 @@ final class KeyboardModel {
             runPaletteSelection()
         case .paletteClose:
             closePalette()
+        case .more:
+            if moreOpen { closeMore() } else { openMore(byKey: true) }
+        case .moreDown:
+            moreSelection = MoreMenu.move(moreSelection, by: 1, in: moreItems())
+        case .moreUp:
+            moreSelection = MoreMenu.move(moreSelection, by: -1, in: moreItems())
+        case .moreRun:
+            guard let item = moreItems().first(where: { $0.id == moreSelection }) else { return }
+            runMoreItem(item)
+        case .moreClose:
+            closeMore()
         default:
             guard let perform = handler(id, in: context) else { return }
             perform()
@@ -330,6 +351,8 @@ final class KeyboardModel {
     /// A click lands in a pane: keys follow it. The runs opened over the run are tried
     /// first, since they lie on top of it.
     func focusPane(at point: CGPoint) {
+        // A click outside the open More menu only closes it (`RootView`), as a menu's does.
+        guard !moreOpen else { return }
         let order: [FocusPane] = [.sidebar, .conversation, .stage]
         guard let hit = order.first(where: { paneFrames[$0]?.contains(point) == true }) else { return }
         if hit == .stage, let part = StagePane.allCases.first(where: { stageFrames[$0]?.contains(point) == true }),
@@ -382,11 +405,41 @@ final class KeyboardModel {
         searchRequest += 1
     }
 
+    // MARK: - The More menu
+
+    /// Opens the More menu under its button: by a key with its first row selected, by a
+    /// click with none. A field loses the keyboard, and the palette and help close.
+    func openMore(byKey: Bool) {
+        guard store.selectedRunId != nil else { return }
+        closePalette()
+        helpOpen = false
+        endEditing()
+        moreSelection = byKey ? moreItems().first?.id : nil
+        moreOpen = true
+    }
+
+    func closeMore() {
+        moreOpen = false
+        moreSelection = nil
+    }
+
+    /// The rows, from the registry and the state now; Builds and Updates carries the news.
+    func moreItems() -> [MoreItem] {
+        MoreMenu.items(state(), badge: MoreBadge.of(store.updates.summary))
+    }
+
+    /// Runs a row: the menu closes, then the action runs as its key or the menu bar would.
+    func runMoreItem(_ item: MoreItem) {
+        closeMore()
+        perform(item.id)
+    }
+
     // MARK: - The palette
 
     /// Opens the Greenroom section and checks again: what it says is only as fresh as the
     /// last check (root ADR 0033).
     private func openGreenroom() {
+        closeMore()
         closePalette()
         helpOpen = false
         endEditing()

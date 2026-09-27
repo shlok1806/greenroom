@@ -277,4 +277,28 @@ final class ModelsTests: XCTestCase {
         """)
         XCTAssertEqual(messages.map(\.stop), [.time, .steps, .unknown("tokens"), nil, nil])
     }
+
+    /// Daemon issue #154: a run names who verified it, and Details says it in words.
+    func testARunSaysWhoVerifiedIt() throws {
+        let detail = try decode(RunDetail.self, """
+        {"runId": "r1", "models": {"brain": "nim", "model": "nvidia/ultra", "vision": "meta/muse-glimmer-30b",
+          "modelOptions": {"max_tokens": 8192, "temperature": 0.2},
+          "visionOptions": {"chat_template_kwargs": {"enable_thinking": false}, "max_tokens": 700, "temperature": 0.2}}}
+        """)
+        let models = try XCTUnwrap(detail.models)
+        XCTAssertEqual(models.verifier, "nvidia/ultra")
+        XCTAssertEqual(models.describer, "meta/muse-glimmer-30b, thinking off")
+        XCTAssertEqual(VerifierModels(brain: "nim", model: "m", vision: "moonshotai/kimi-k3").describer, "moonshotai/kimi-k3")
+        XCTAssertEqual(VerifierModels(brain: "nim", model: "m").describer, "None: the verifier saw no screenshots")
+        XCTAssertEqual(VerifierModels(brain: "manual").verifier, "A person, typing its side")
+        XCTAssertNil(VerifierModels(brain: "manual").describer)
+        XCTAssertEqual(VerifierModels(brain: "none").verifier, "None: greenroom had no model key")
+
+        let runs = try decode([RunSummary].self, """
+        [{"runId": "r1", "createdAt": "2026-09-27T00:00:00Z", "models": {"brain": "manual"}},
+         {"runId": "r0", "createdAt": "2026-09-20T00:00:00Z"}]
+        """)
+        XCTAssertEqual(runs[0].models?.brain, "manual")
+        XCTAssertNil(runs[1].models, "a run from before the record has none")
+    }
 }

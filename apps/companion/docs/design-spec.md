@@ -441,7 +441,7 @@ The rest, in our own terms:
 | Typing | The hint bar shows `⏎ send  ⇧⏎ newline  esc leave`; bare keys type |
 | Zoomed | One pane fills the window; the hint bar shows `z restore` |
 | Destroyed | Power-down still on the screen; "Ended: destroyed by you" in words |
-| Long transcript | Tool calls fold into groups; lazy stacks; new messages follow only at the bottom, `G` jumps to latest otherwise |
+| Long transcript | Tool calls fold into groups; the transcript is an eager stack (a lazy one drew nothing, #146), the steps list a lazy one; new messages follow only at the bottom, `G` jumps to latest otherwise |
 | Many runs | Day sections; `/` searches by task, id, state, verdict |
 | Errors | The daemon's own words, inline where the action was |
 
@@ -479,6 +479,7 @@ it.
 | `←` `→` | Previous or next frame | screen |
 | `c` | Capture a screenshot | a ready machine |
 | `e` | Export the recording | a run with frames |
+| `.` | Open or close the More menu (in it: `↑` `↓` move, `⏎` or `space` runs, `esc` closes, an item's own key runs it) | a run open |
 | `n`, `N` | Next or previous step that errored | a run with errors |
 | `g` then `v`, `s`, `t`, `r`, `c` | Go to the screen, the steps, the transcript, the runs, the composer | run open (`g r` anywhere) |
 | `G` | Jump to latest (live on the screen) | screen, steps, transcript |

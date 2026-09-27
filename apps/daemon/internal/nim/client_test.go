@@ -304,3 +304,33 @@ func TestChatSendsNoDescribeFields(t *testing.T) {
 		t.Errorf("Chat sent chat_template_kwargs %v", body["chat_template_kwargs"])
 	}
 }
+
+// Issue #154: a run records the options its requests carry, so the recorded options must be
+// exactly the request's fields besides the model and the messages.
+func TestTheRecordedOptionsAreWhatTheRequestsSend(t *testing.T) {
+	for _, model := range []string{"meta/muse-glimmer-30b", "moonshotai/kimi-k3"} {
+		body := describeBody(t, model)
+		delete(body, "model")
+		delete(body, "messages")
+		want, _ := json.Marshal(DescribeOptions(model))
+		got, _ := json.Marshal(body)
+		if string(got) != string(want) {
+			t.Errorf("%s: describe request options = %s, recorded %s", model, got, want)
+		}
+	}
+	var body map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, _ = io.WriteString(w, okBody)
+	}))
+	t.Cleanup(ts.Close)
+	if _, _, err := New(ts.URL, "k").Chat(context.Background(), "m", []Message{{Role: "user", Content: "hi"}}, nil); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	delete(body, "model")
+	delete(body, "messages")
+	want, _ := json.Marshal(ChatOptions())
+	if got, _ := json.Marshal(body); string(got) != string(want) {
+		t.Errorf("chat request options = %s, recorded %s", got, want)
+	}
+}

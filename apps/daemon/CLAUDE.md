@@ -32,12 +32,14 @@ go run . connect -check                          # prints "ok: <url> (<n> tools)
 go run . bench run -split dev [-case a,b] [-kind mutant] [-tier simple] [-trials 3] [-out f.jsonl]   # ADR 0025; real VMs and the model
 go run . bench score [-tier simple] [-bench dir] <results.jsonl>   # writes <results>.md
 
-scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
+scripts/install.sh [-rebuild] [-dry-run]   # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
                         # image default: local greenroom-lean-a, then greenroom-base, then upstream Cirrus
+                        # then checks those images (image-status) and prints, or with -rebuild runs, the rebuild
                         # stamps the build (ADR 0033) and records the checkout as GREENROOM_CHECKOUT in the plist
                         # unset GREENROOM_* reuse the replaced job's settings (scripts/install-settings.sh)
 ../../scripts/update.sh [--check]   # fast-forward main, install.sh, then the Companion's install.sh (ADR 0033)
 go run . version                # "greenroom 0.0.2 abc1234 (local changes), built <time>", or "unstamped build"
+go run . image-status [-image a,b] [-rebuild-args]   # local images' input helper and recipe against this daemon's (#159)
 scripts/uninstall.sh    # keeps the binary and ~/.greenroom
 scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-lean] [-force] [-xcode <app>] [-disk-size 90]   # ends with check-image
 ```
@@ -91,6 +93,8 @@ send either). The companion and smoke client send a loopback Host and no Origin.
   mtimes (rsync's quick check needs them, or every sync copies everything). Caps: 2 GiB
   body, 4 GiB unpacked, 200000 entries (413). A run's uploads go on its "destroyed" event,
   and `api.New` sweeps those of runs with no machine at start.
+- `GET /api/runs/{id}/report?format=md|json[&embed=true]` (`report.go`, ADR 0034) is the
+  run's proof, the same report `run_report` returns; `text/markdown` or JSON, `no-store`.
 - `GET /api/runs/{id}/pull?src=&exclude=` (`pull.go`, ADR 0022) is `Manager.PullArchive`:
   the guest's `tar czf -` streamed through `tart.ExecTo` as `application/gzip`, never held.
   The step number is the `Greenroom-Step` header; a missing source is 404 before any byte.
@@ -106,7 +110,9 @@ call with its raw arguments, returning the daemon's result as is. A transport fa
 re-dials and retries once only for the tools in `readOnlyTools` (`client.go`); any other
 call is never sent twice (the daemon may have acted before the answer was lost), so its
 error says it may have run. An error the daemon answered is never retried. A new tool that
-only reads belongs in that list.
+only reads belongs in that list (`run_report` is; `run_finish` never is). `run_report` and
+`run_finish` are forwarded unchanged: the daemon already links screenshots through its
+artifact route for a public-host call, which the connect token opens.
 
 - Config: `-url`/`-token`/`-config`, then `GREENROOM_URL`/`GREENROOM_TOKEN`, then
   `~/.greenroom/client.json`, per field.
@@ -161,6 +167,15 @@ Each layer depends only on the ones below. Keep it that way.
 - `internal/tart` - the only package that knows tart's arguments and output.
 - `internal/tarball` - unpacking an untrusted gzipped tar (`Untar`); used by `api` and
   `remote`, imports nothing of the daemon's.
+- `internal/report` - a run's proof (ADR 0034): `Build` reads the run directory (manifest,
+  steps.jsonl) and the conversation, `Report.Markdown` renders it. Below `api` and
+  `mcpserver`, above `machine` and `session`; both surfaces build the report here, so there
+  is one shape.
+- `internal/diskimage` - a stopped VM's raw disk read on the host (`MountReadOnly`): a
+  clonefile copy attached read-only with `hdiutil -nomount`, only its APFS Data volume
+  mounted, read-only and `nobrowse`; `Close` unmounts, detaches and removes it. Shells out to
+  `hdiutil`, `diskutil` and `plutil` only; imports nothing of the daemon's. Its test makes a
+  real raw APFS image with `hdiutil create -format UDTO`.
 - `internal/buildinfo` - the build's identity (ADR 0033): `commit`, `dirty` and `builtAt`, set only
   by `install.sh` through `-ldflags -X .../internal/buildinfo.<name>=`. Unstamped (`go run`, tests)
   is empty, never a guess from `debug.ReadBuildInfo`. Renaming a var breaks the stamp silently:
@@ -186,6 +201,10 @@ Each layer depends only on the ones below. Keep it that way.
 - The host's VM limit counts the daemon's machines too. `Runner.create` waits while `Create`
   fails with "host is at its limit" (a string match on `checkHostCapacity`'s error; change
   both together).
+- Each result records `models` (`machine.Models`: brain, reasoning model, describer and the
+  options their requests carry) beside the older `model` (issue #154). `bench score` names
+  each brain and describer in its header (`modelsLabel`; a result without `models` says
+  "describer not recorded", never a guess) and adds a By models table when a file mixes them.
 - Results are JSON lines, one per case and trial, appended when a trial ends. A rerun with
   the same `-out` skips recorded pairs except `setup_error`. A trial cut short by a signal is
   never recorded. Model errors, timeouts and setup errors are their own endings and never
@@ -292,8 +311,19 @@ Boot and lifecycle
   screen lock off (a sleeping guest display makes every capture black, with no error).
   Also never fatal. `prepare-image`
   bakes both with the same scripts, so build time and boot time cannot disagree.
+- Image drift (issue #159, `machine/drift.go`, `imagestatus.go`): `greenroom image-status` reads
+  each default image's disk while it is stopped (never a running one) and judges it by the
+  helpers under `Users/*/.greenroom/bin` and the manifest at `ToolchainPath` on the Data
+  volume: stale unless it has `greenroom-input-<inputHelperVersion>` and recipe
+  `imageRecipeVersion`. Unlike boot's `staleRecipe`, no manifest counts as stale here: the
+  default images are always greenroom-built. `RebuildArgs` keeps the lean profile for
+  `greenroom-lean*`. It reports and exits 0; `install.sh` acts on `-rebuild-args`.
 - `finishBoot` writes the step before closing `ready`. `manifest.json` is written by
   temp file and rename.
+- A run's `models` (manifest and `Machine`) is what `Manager.SetModels` held when `Create` ran:
+  serve and bench set it once, from `Verifier.Models` (or `manual`/`none`), before any run.
+  The options come from `nim.ChatOptions`/`nim.DescribeOptions`, the same maps the requests
+  are built from, so a new request field is recorded without anyone remembering to.
 - `waitReady` watches `tart run`'s process; if it exits, fail at once with the tail of
   `vm.log`. `watchProcess` does the same after ready; a reattached machine has no process,
   so it polls `tart list` every `WithVMPollInterval` (15 s) instead.
@@ -498,6 +528,10 @@ Conversation and verifier
     rule is a tool error naming each rule and check id (`refusal`), posted as the call's
     progress, never as a verdict. inconclusive is never refused: `settle` posts a missing
     answer and any pass or fail answer that broke a rule as `unchecked`, `observed` saying why.
+    A fail with one fail answer that holds is settled the same way and posted as fail, the
+    summary listing what did not hold (ADR 0031, #153), unless a problem is with the verdict as
+    a whole (`whole`: bad arguments, no id, unknown or repeated id, a step in `evidence`, no
+    checks declared); a new rule that is not one check's answer must go through `general`.
     The top-level `evidence` is artifact paths only; a step there is refused.
   - Check kinds (ADR 0027; `kinds.go`, rules in `evidence.go`). `kinds` is `["value"]`
     (default), or `visual`, `timing` or both (`["visual", "timing"]`, always in that order);
@@ -598,6 +632,42 @@ Conversation and verifier
     checks from before ADR 0027 no `kinds` (read as value); both load as they were. A single
     `"kind"` string, which an early ADR 0027 build wrote, loads as `kinds`
     (`Check.UnmarshalJSON`).
+- Finishing a run (ADR 0034; `session/finish.go`, `mcpserver/finishtools.go`,
+  `internal/report`). `run_finish` appends a system event carrying `finish`
+  (`{outcome, summary, ref?, at}`, text `run finished: <outcome>. <summary>`), then mirrors it
+  into the manifest (`Manager.RecordFinish`), then destroys the machine unless `destroy` is
+  false (a destroy failure is `destroyError` in the result; the finish stands), then returns
+  the report. `session.validate` allows `finish` only on a system event, with a known outcome,
+  a summary (at most `MaxFinishSummary`) and ref fields of at most `MaxRefField`. The rules that
+  need the transcript live in `Store.Append` (`finishRefusalLocked`), so no other write path
+  can skip them: a run finishes once; no turn is owed (`owedTurnLocked`: the last
+  turn-starting message has no verifier reply, question or verdict after it and no system
+  event either, since the no-verifier notice, the destroyed notice and "gave up" are events);
+  `verified` needs `Verdict()` to be a pass with status `accepted` (by the coder or a human).
+  Each refusal says what to do instead. The tool also refuses while
+  `Manager.VerifierTurnOpen` (the actor's `SetVerifierTurn`), which covers a turn the transcript
+  cannot see (a "machine is ready" event lands mid-turn). The conversation is the record:
+  `/api/runs`, `/api/runs/{id}` and the report read `Store.Finished()` first and fall back to
+  the manifest's copy. `RunSummary.finish` is an explicit null while unfinished; the manifest's
+  is omitted, so old runs read as not finished. Nothing refuses messages after a finish.
+- Run reports (`internal/report`). `run_report`, `run_finish` and
+  `GET /api/runs/{id}/report?format=md|json[&embed=true]` all call `report.FromStore`. The
+  task is the newest coder or human task before the verdict. A check's steps are resolved
+  from steps.jsonl (tool, at, by); a `machine_screenshot` step's PNG is linked by its base
+  name in the run directory only, never by the recorded absolute path, and only if the file
+  is there. Links: through the public host, `https://<host>/api/runs/<id>/artifacts/<file>`
+  (the MCP server gets the host from `ForPublicHost(host)`, the route from `r.Host`); locally
+  the file's path; `embed` makes a data URI (GitHub does not render data URI images in PR
+  bodies, so embed is for places that do). Models come from the manifest's `models` (issue
+  #154), `models.source` "recorded with the run"; a run from before that record falls back to
+  the daemon's verifier configuration at report time (`mcpserver.WithModels`,
+  `api.WithModels`, set in `serve` from the same `machine.Models` it records) and says so,
+  "daemon configuration at report time". `report.runModels` picks; `report.FromMachine` names
+  a nim brain by its reasoning model, manual and none by name. The golden fixture predates
+  the record, so it shows the fallback. Goldens:
+  `internal/report/testdata/report.{md,json}` from a real recorded run in `testdata/<runId>`
+  (outputs trimmed, host paths replaced, the evidence PNG shrunk); `go test ./internal/report
+  -update` rewrites them.
 - Machine status snapshots (`snapshot` in `context.go`) ignore the turn context's
   cancellation, so a dead budget never reads as "Machine status: gone" to the closing call.
 - A failing tool call (a result starting `error:`) is counted per turn by tool, canonical
@@ -827,7 +897,7 @@ Values already set in the environment win.
 | `NVIDIA_API_KEY` | none | Without it the `nim` verifier is off; machine tools still work. |
 | `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint. |
 | `GREENROOM_VERIFIER_MODEL` | none, required with a key | Model for verifier turns. |
-| `GREENROOM_VISION_MODEL` | `meta/muse-glimmer-30b` | Model that describes screenshots for the verifier (ADR 0032). `none`: the verifier works without seeing the screen. Other describers (kimi-k3, omni) still work by name; see below. |
+| `GREENROOM_VISION_MODEL` | `meta/muse-glimmer-30b` | Model that describes screenshots for the verifier (ADR 0032). `none`: the verifier works without seeing the screen. Other describers (kimi-k3, omni) still work by name; see below. Any value but the default makes `serve` and `bench run` log a warning at start naming both (`warnDescriberOverride`, issue #154). |
 | `GREENROOM_TART` | none | tart binary, see below. `-tart` overrides. |
 | `GREENROOM_PUBLIC_HOST` | none | Tunnel hostname that may reach the daemon with the token (ADR 0021). `-public-host` overrides. |
 | `GREENROOM_TOKEN` | none | Bearer token for the public host, at least 32 characters (`openssl rand -hex 32`). |
@@ -1003,8 +1073,7 @@ mode, each read back with the copy's signature).
   `Manager.HandoverStep` (the step claimed when the count last moved), which orders the same
   way because steps are monotonic. Like the count, it resets when the daemon restarts.
 - ADR 0024 says inconclusive "must name the unchecked checks": the daemon fills in missing
-  answers as `unchecked` rather than refusing. At a limit it also downgrades a fail whose
-  evidence breaks the rules, not only a pass. An input with no earlier verifier read reports
+  answers as `unchecked` rather than refusing. An input with no earlier verifier read reports
   `effect: unknown (no earlier machine_ui read to compare)`, a fourth effect wording.
 - ADR 0024 puts the effect on "the step record"; steps.jsonl is append-only and the input's
   line is written before its effect is known, so the effect lives on the UI read that found
@@ -1030,6 +1099,11 @@ mode, each read back with the copy's signature).
   frontmost) and the running regular apps the effect read lists. A pass is refused only when
   it cites the quit read as evidence, as the ADR's consequences say; a pass whose actions
   include the quitting input but cites a later read is judged by the other rules.
+- ADR 0034 asks for "the models that verified it"; the report takes them from the manifest
+  (issue #154), but a run recorded before that has none, so its report names the daemon's
+  configured models at report time and says so in `models.source`, which can differ from what
+  verified it. It also refuses a finish while a turn is owed
+  (a turn-starting message nothing has answered yet), not only while one runs.
 - ADR 0025: a case's `patch` is the path of a `.diff` under `bench/cases/` (`patches/<id>.diff`),
   not the diff inline in the JSON, so patches read and review as diffs and lying cases reuse
   their mutant's. v1 has 4 fixture apps, not the 5 to 7 the ADR expects in all. Checklist

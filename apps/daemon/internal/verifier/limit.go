@@ -40,7 +40,8 @@ func closingPrompt(stop string) string {
 	}
 	return "[greenroom] You are out of " + what + " for this turn. Give a verdict now from the evidence you " +
 		"already have: answer each declared check pass, fail or unchecked, citing the steps that show it. A pass " +
-		"or fail whose evidence does not hold is posted as inconclusive. Call report_verdict, or ask if you are " +
+		"whose evidence does not hold, or a fail with no failing check whose evidence holds, is posted as " +
+		"inconclusive; a fail's other answers that do not hold are posted unchecked. Call report_verdict, or ask if you are " +
 		"blocked. No machine tools are available."
 }
 
@@ -73,7 +74,8 @@ func (v *Verifier) endAtLimit(parent context.Context, runID string, store *sessi
 		if err == nil && end.Kind != "" {
 			if end.Kind == session.Verdict {
 				// The same checks as any verdict; one that breaks them is posted as inconclusive
-				// with the reasons, never as a pass or fail the evidence does not hold (ADR 0024).
+				// with the reasons, never as a pass or fail the evidence does not hold (ADR 0024). A
+				// fail with an evidenced failing check stands, its bad answers unchecked (ADR 0031).
 				in := parseVerdict(call.Arguments)
 				records, handover := v.records(runID, &in)
 				end = downgrade(in, store.After(0), records, handover)
