@@ -48,7 +48,8 @@ func benchUsage() {
 type benchRunOpts struct {
 	benchDir, cases, split, kind, tier, out, root, image, envFile, tartBin string
 	trials, parallel, verifierMaxSteps                                     int
-	verifierBudget, turnTimeout                                            time.Duration
+	verifierBudget, turnTimeout, diskWait                                  time.Duration
+	minFreeGB                                                              float64
 }
 
 func benchRunFlags() (*flag.FlagSet, *benchRunOpts) {
@@ -69,6 +70,8 @@ func benchRunFlags() (*flag.FlagSet, *benchRunOpts) {
 	fs.IntVar(&o.verifierMaxSteps, "verifier-max-steps", verifier.DefaultMaxSteps, "tool calls a verifier turn may make")
 	fs.DurationVar(&o.verifierBudget, "verifier-budget", verifier.DefaultBudget, "wall-clock budget for one verifier turn")
 	fs.DurationVar(&o.turnTimeout, "turn-timeout", 30*time.Minute, "how long to wait for the verifier's turn to end, from the task, before recording a timeout")
+	fs.Float64Var(&o.minFreeGB, "min-free-gb", float64(bench.DefaultMinFreeDisk)/(1<<30), "no trial starts with less free space (GB) on tart's volume ($TART_HOME, else ~/.tart); 0 turns the check off")
+	fs.DurationVar(&o.diskWait, "disk-wait", 10*time.Minute, "how long to wait for space under -min-free-gb before stopping; a stopped run resumes with the same -out")
 	return fs, o
 }
 
@@ -153,11 +156,15 @@ func benchRun(args []string) error {
 	runner := bench.New(bench.Config{
 		BenchDir: dir, Cases: cases, Trials: o.trials, Out: o.out, Image: o.image, Model: v.Model(), Models: &models,
 		Parallel: o.parallel, TurnTimeout: o.turnTimeout, Log: log, Progress: os.Stderr,
+		MinFreeDisk: uint64(max(o.minFreeGB, 0) * (1 << 30)), DiskWait: o.diskWait,
 	}, mgr, reg, v)
 	fmt.Fprintf(os.Stderr, "bench: %d cases x %d trials, image %s, models %s, results %s\n", len(cases), o.trials, o.image, models.Label(), o.out)
 	sum, err := runner.Run(ctx)
 	fmt.Fprintf(os.Stderr, "bench: ran %d (%d right, %d setup errors), skipped %d already in %s\n", sum.Ran, sum.Right, sum.SetupErrors, sum.Skipped, o.out)
 	fmt.Fprintf(os.Stderr, "bench: score with: greenroom bench score %s\n", o.out)
+	if errors.Is(err, bench.ErrLowDisk) {
+		return fmt.Errorf("stopped for low disk (under %.1f GB free on %s); free some space and run again with the same -out to finish", o.minFreeGB, bench.TartStorage())
+	}
 	if errors.Is(err, context.Canceled) {
 		return errors.New("interrupted; run again with the same -out to resume")
 	}

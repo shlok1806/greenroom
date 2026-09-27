@@ -29,7 +29,7 @@ go run . check-image -image <local image> [-out dir]   # the dialog gate, on a c
 go run ./internal/testsupport/smokeclient -url http://127.0.0.1:7777/mcp [-live <dir>]
 go run . connect [-url URL] [-token T] [-config F] [-dir D]   # stdio MCP server for a daemon on another host
 go run . connect -check                          # prints "ok: <url> (<n> tools)" or the reason, exit 1
-go run . bench run -split dev [-case a,b] [-kind mutant] [-tier simple] [-trials 3] [-out f.jsonl]   # ADR 0025; real VMs and the model
+go run . bench run -split dev [-case a,b] [-kind mutant] [-tier simple] [-trials 3] [-out f.jsonl] [-min-free-gb 5] [-disk-wait 10m]   # ADR 0025; real VMs and the model
 go run . bench score [-tier simple] [-bench dir] <results.jsonl>   # writes <results>.md
 
 scripts/install.sh [-rebuild] [-dry-run]   # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
@@ -201,6 +201,17 @@ Each layer depends only on the ones below. Keep it that way.
 - The host's VM limit counts the daemon's machines too. `Runner.create` waits while `Create`
   fails with "host is at its limit" (a string match on `checkHostCapacity`'s error; change
   both together).
+- Low disk (issue #155, `internal/bench/disk.go`): no trial starts under `-min-free-gb` (5)
+  free on tart's volume (`TART_HOME`, else `~/.tart`, via `statfs`). The runner waits up to
+  `-disk-wait` (10 min), then stops like Ctrl-C (running trials finish; `Run` returns
+  `ErrLowDisk`) and records the trial it could not start as `setup_error` with `cause: disk`.
+  A setup step that says the disk is full, a setup error while the disk is low, and a trial
+  whose machine stopped (the daemon's "machine stopped"/"machine failed" event) while it is
+  low are `cause: disk` too: never a wrong verdict. A failed probe is logged and never stops a
+  run. `bench score` counts them in its header and shows the cause in the No answer table.
+  `build-image.sh` runs its clone, `prepare-image` and `check-image` under
+  `scripts/disk-guard.sh`'s `guarded` (stops the step under `GREENROOM_BUILD_MIN_FREE_GB`, 5,
+  exit 75, and the build deletes what it made); `diskguard_test.go` drives it with a fake `df`.
 - Each result records `models` (`machine.Models`: brain, reasoning model, describer and the
   options their requests carry) beside the older `model` (issue #154). `bench score` names
   each brain and describer in its header (`modelsLabel`; a result without `models` says

@@ -149,6 +149,11 @@ go run . bench score -tier simple <file>.jsonl -report -        # simple cases o
 - Results are JSON lines, appended as trials finish. Run again with the same `-out` to
   resume: finished case and trial pairs are skipped, setup errors are retried, and a trial
   cut short by Ctrl-C was never recorded.
+- No trial starts with less than `-min-free-gb` (default 5) free on tart's volume. The runner
+  waits up to `-disk-wait` (default 10 min) for space, then stops as Ctrl-C does and says so.
+  The trial it could not start, and any trial whose machine died while the disk was low, is a
+  `setup_error` with `cause: disk`: rerun with the same `-out` once there is space. The report
+  counts them in its header.
 - The bench has its own root (`-root`, default `~/.greenroom/bench`), locked like the
   daemon's, so it never touches the daemon's machines or runs.
 
