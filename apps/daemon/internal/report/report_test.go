@@ -236,6 +236,47 @@ func TestAFinishIsReadFromTheManifestWhenTheConversationLacksIt(t *testing.T) {
 	}
 }
 
+func TestTheModelsAreTheOnesTheRunRecorded(t *testing.T) {
+	daemon := Models{Brain: "configured-now", Vision: "eyes-now"}
+	for _, tc := range []struct {
+		name, models string // the manifest's models field, "" for a run from before it
+		want         Models
+		line         string
+	}{
+		{"nim", `{"brain":"nim","model":"nvidia/reasoner","vision":"meta/muse-glimmer-30b","visionOptions":{"chat_template_kwargs":{"enable_thinking":false}}}`,
+			Models{Brain: "nvidia/reasoner", Vision: "meta/muse-glimmer-30b", Source: SourceRun},
+			"- **Models:** brain `nvidia/reasoner`, describer `meta/muse-glimmer-30b` (recorded with the run)"},
+		{"nim without a describer", `{"brain":"nim","model":"nvidia/reasoner"}`,
+			Models{Brain: "nvidia/reasoner", Source: SourceRun},
+			"- **Models:** brain `nvidia/reasoner`, no describer (recorded with the run)"},
+		{"manual", `{"brain":"manual"}`, Models{Brain: "manual", Source: SourceRun},
+			"- **Models:** brain `manual`, no describer (recorded with the run)"},
+		{"from before the record", "", Models{Brain: "configured-now", Vision: "eyes-now", Source: SourceDaemon},
+			"- **Models:** brain `configured-now`, describer `eyes-now` (daemon configuration at report time)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := writeRun(t)
+			man := `{"runId":"r","createdAt":"2026-09-27T10:00:00Z","steps":0`
+			if tc.models != "" {
+				man += `,"models":` + tc.models
+			}
+			if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(man+"}"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			rep, err := Build(Input{Dir: dir, Verdict: session.VerdictState{Status: session.None}, Models: daemon})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rep.Models != tc.want {
+				t.Errorf("models = %+v, want %+v", rep.Models, tc.want)
+			}
+			if md := rep.Markdown(); !strings.Contains(md, tc.line) {
+				t.Errorf("markdown lacks %q:\n%s", tc.line, md)
+			}
+		})
+	}
+}
+
 func TestMarkdownKeepsFieldsOnTheirLines(t *testing.T) {
 	if got := code("a `b` c"); got != "``a `b` c``" {
 		t.Errorf("code = %q", got)

@@ -60,6 +60,9 @@ type Machine struct {
 	// Desktop is what the screen showed at ready: any window or app a fresh machine should
 	// not have (ADR 0018). Reported, never closed. Set at ready.
 	Desktop *DesktopReport `json:"desktop,omitempty"`
+	// Models is who verifies this run (issue #154), as its manifest records it. Never edited
+	// after Create, so copies share it.
+	Models *Models `json:"models,omitempty"`
 
 	// boot is each boot phase as it started and ended (bootphase.go), guarded by
 	// Manager.mu. Unexported, so neither MCP results nor state.json carry it; the
@@ -132,6 +135,7 @@ type Manager struct {
 	screenBuffer     int
 	screenInputSlack time.Duration
 	messageActivity  func(runID string) time.Time // guarded by mu; see SetMessageActivity
+	models           *Models                      // guarded by mu; see SetModels
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)
@@ -388,7 +392,10 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 	dir := m.RunDir(runID)
 	input := map[string]any{"image": image}
 
-	rec, err := newRecorder(dir, Manifest{RunID: runID, Image: image, MachineName: name, CreatedAt: started.UTC()}, m.Log)
+	m.mu.Lock()
+	models := m.models
+	m.mu.Unlock()
+	rec, err := newRecorder(dir, Manifest{RunID: runID, Image: image, MachineName: name, CreatedAt: started.UTC(), Models: models}, m.Log)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +405,7 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 		return nil, err
 	}
 	mc := &Machine{RunID: runID, Name: name, Image: image, Status: Booting, CreatedAt: started.UTC(), Dir: dir,
-		rec: rec, ready: make(chan struct{}), input: &inputState{}}
+		Models: models, rec: rec, ready: make(chan struct{}), input: &inputState{}}
 
 	endClone := m.beginPhase(mc, PhaseClone)
 	err = m.tart.Clone(ctx, image, name)

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/api"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/report"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
@@ -33,7 +34,7 @@ func TestRoutesServeARunReportLocallyAndToThePublicHostWithTheToken(t *testing.T
 	copyDir(t, filepath.Join("internal", "report", "testdata", reportFixture), mgr.RunDir(reportFixture))
 	const public, token = "gr.example.com", "0123456789abcdef0123456789abcdef"
 	models := report.Models{Brain: "reasoner", Vision: "eyes"}
-	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, t.TempDir(), models, log))
+	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, t.TempDir(), api.Version{}, models, log))
 	t.Cleanup(ts.Close)
 
 	get := func(path, host, auth string) (int, string, string) {

@@ -235,6 +235,24 @@ func TestRunReportReadsTheProofInEitherFormat(t *testing.T) {
 	}
 }
 
+// Issue #154: a run records who verifies it when it is created, and its report names those,
+// not whatever the daemon is configured with when the report is asked for.
+func TestRunReportNamesTheModelsTheRunRecorded(t *testing.T) {
+	h := newHarnessWith(t, WithModels(report.Models{Brain: "configured-now", Vision: "eyes-now", Source: report.SourceDaemon}))
+	h.mgr.SetModels(machine.Models{Brain: machine.BrainNIM, Model: "nvidia/recorded", Vision: "meta/recorded-eyes"})
+	runID := h.ready()
+
+	var rep report.Report
+	md := text(h.call("run_report", map[string]any{"runId": runID}, &rep))
+	want := report.Models{Brain: "nvidia/recorded", Vision: "meta/recorded-eyes", Source: report.SourceRun}
+	if rep.Models != want {
+		t.Errorf("models = %+v, want %+v", rep.Models, want)
+	}
+	if line := "brain `nvidia/recorded`, describer `meta/recorded-eyes` (recorded with the run)"; !strings.Contains(md, line) {
+		t.Errorf("markdown lacks %q:\n%s", line, md)
+	}
+}
+
 func TestThroughThePublicHostTheReportLinksTheArtifactRoute(t *testing.T) {
 	h := newHarnessWith(t, ForPublicHost("gr.example.com"))
 	runID := h.ready()

@@ -18,18 +18,33 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
-// Models names the models that verify runs on this daemon: the brain (the verifier's reasoning
-// model, or "manual") and the vision model that describes screenshots.
+// Models names the models that verified a run: the brain (the verifier's reasoning model, or
+// "manual" or "none") and the vision model that describes screenshots.
 type Models struct {
 	Brain  string `json:"brain,omitempty"`
 	Vision string `json:"vision,omitempty"`
-	// Source says where the names came from. SourceDaemon: the daemon's verifier configuration
-	// when the report was made, which may differ from what verified an older run.
+	// Source says where the names came from. SourceRun: the run's manifest, which records who
+	// verified it when it was created (issue #154). SourceDaemon: the daemon's verifier
+	// configuration when the report was made, for a run from before that record; it may
+	// differ from what verified the run.
 	Source string `json:"source,omitempty"`
 }
 
-// SourceDaemon marks Models read from the daemon's configuration at report time.
-const SourceDaemon = "daemon configuration at report time"
+// Where a report's Models came from.
+const (
+	SourceRun    = "recorded with the run"
+	SourceDaemon = "daemon configuration at report time"
+)
+
+// FromMachine is m as a report names it, marked with source: a model verifier by its reasoning
+// model and describer, any other brain (manual, none) by its name.
+func FromMachine(m machine.Models, source string) Models {
+	r := Models{Brain: m.Brain, Source: source}
+	if m.Brain == machine.BrainNIM {
+		r.Brain, r.Vision = m.Model, m.Vision
+	}
+	return r
+}
 
 // Links says how the report points at a screenshot.
 type Links struct {
@@ -46,7 +61,7 @@ type Input struct {
 	Dir      string // the run directory
 	Messages []session.Message
 	Verdict  session.VerdictState // the conversation's current verdict (Store.Verdict)
-	Models   Models               // the daemon's verifier models (see runModels)
+	Models   Models               // the daemon's verifier models now, for a run that recorded none (see runModels)
 	Links    Links
 }
 
@@ -139,11 +154,13 @@ func Build(in Input) (Report, error) {
 	return r, nil
 }
 
-// runModels is the models to report. The manifest does not record which models verified a run
-// yet (issue #154, in progress), so this takes the daemon's verifier configuration at report
-// time and says so in Source. Once the manifest carries them, return the manifest's models here
-// when present and keep fallback for older runs.
-func runModels(_ machine.Manifest, fallback Models) Models {
+// runModels is the models to report: the ones the run's manifest recorded (issue #154), else,
+// for a run from before that record, fallback (the daemon's configuration at report time),
+// with Source saying which.
+func runModels(man machine.Manifest, fallback Models) Models {
+	if man.Models != nil {
+		return FromMachine(*man.Models, SourceRun)
+	}
 	if fallback.Source == "" && (fallback.Brain != "" || fallback.Vision != "") {
 		fallback.Source = SourceDaemon
 	}

@@ -13,7 +13,8 @@ import (
 // Option configures New beyond its required arguments.
 type Option func(*api)
 
-// WithModels names the verifier's models for run reports (ADR 0034).
+// WithModels names the verifier's models now, which a run report names for a run whose
+// manifest recorded none (ADR 0034, runs from before issue #154).
 func WithModels(m report.Models) Option { return func(a *api) { a.models = m } }
 
 // runReport is GET /api/runs/{id}/report?format=md|json[&embed=true] (ADR 0034): the run's proof,

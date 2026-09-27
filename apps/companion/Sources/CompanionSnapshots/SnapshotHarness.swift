@@ -57,6 +57,9 @@ final class SnapshotHarness {
         var showSidebar = false
         /// The width the person dragged the sidebar to.
         var sidebarWidth = RunLayout.sidebarIdeal
+        /// Opens the Greenroom section on this state (root ADR 0033). Staged by hand: the
+        /// harness never runs update.sh or reads a build.
+        var builds: (@MainActor (Updates) -> Void)?
     }
 
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
@@ -206,7 +209,83 @@ final class SnapshotHarness {
             Scenario(name: "26-guest-no-conversation", sizes: [Self.guest], runId: Self.citedRun, conversation: false),
             // A run with no task and only system events: the header and a short transcript.
             Scenario(name: "27-no-task-few-events", sizes: [Self.guest, Self.medium], runId: Self.noTaskRun),
-        ] + momentScenarios()
+        ] + momentScenarios() + buildsScenarios()
+    }
+
+    // MARK: - Builds and updates (root ADR 0033)
+
+    private static let buildMain = "9f8e7d6"
+    private static let buildCheckout = "/Users/maintainer/projects/greenroom"
+    private static let built = Date().addingTimeInterval(-26 * 3600)
+
+    private static func stampedApp(_ commit: String) -> AppBuild {
+        AppBuild(stamp: BuildStamp(commit: commit, builtAt: built), checkout: buildCheckout)
+    }
+
+    private static func stampedDaemon(_ commit: String, dirty: Bool = false) -> DaemonVersion {
+        DaemonVersion(version: "0.0.2", commit: commit, dirty: dirty, builtAt: built.formatted(DaemonDate.plain),
+                      inputHelper: 7, imageRecipe: 2, verifier: "nim", verifierModel: "nvidia/nemotron-3-super-120b-a12b",
+                      visionModel: "meta/muse-glimmer-30b", checkout: buildCheckout)
+    }
+
+    private static let incoming: [UpdateCheck.Commit] = [
+        .init(sha: "9f8e7d6", subject: "companion: builds and updates from the app (ADR 0033)"),
+        .init(sha: "4c3b2a1", subject: "verifier: describer options per model, muse-glimmer ready (ADR 0030)"),
+        .init(sha: "0d9e8f7", subject: "daemon: close the Login Items alert at image build time"),
+    ]
+
+    private static func checked(ahead: [UpdateCheck.Commit], ago: TimeInterval = 240) -> BuildsSummary.Check {
+        .checked(UpdateCheck(main: buildMain, ahead: ahead.count, commits: ahead, refusal: nil), at: Date().addingTimeInterval(-ago))
+    }
+
+    private static func updateRun(_ lines: [String], status: Int32? = nil) -> UpdateRun {
+        var run = UpdateRun()
+        for line in lines { run.take(line) }
+        if let status { run.finish(status: status) }
+        return run
+    }
+
+    private static let updatingLines = [
+        "step: check the checkout", "step: fetch origin", "step: fast-forward main (3 new commits)",
+        "step: install the daemon", "env file: \(buildCheckout)/.env", "verifier: nim",
+        "image: greenroom-lean-a (local image)", "commit: 9f8e7d6", "building /Users/maintainer/.greenroom/bin/greenroom",
+    ]
+
+    private func buildsScenarios() -> [Scenario] {
+        let sizes = [Self.medium, Self.guest]
+        let old = "4c3b2a1"
+        return [
+            Scenario(name: "47-builds-up-to-date", sizes: sizes, runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp(Self.buildMain), daemon: Self.stampedDaemon(Self.buildMain),
+                              check: Self.checked(ahead: []))
+            }),
+            Scenario(name: "48-builds-updates-available", sizes: sizes, runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp("1a2b3c4"), daemon: Self.stampedDaemon("1a2b3c4"),
+                              check: Self.checked(ahead: Self.incoming))
+            }),
+            // The stale daemon of 2026-09-26: the app is on main, the daemon a build behind.
+            Scenario(name: "49-builds-mismatch", sizes: sizes, runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp(Self.buildMain), daemon: Self.stampedDaemon(old),
+                              check: Self.checked(ahead: []))
+            }),
+            Scenario(name: "49b-builds-verifier-working", sizes: [Self.medium], runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp("1a2b3c4"), daemon: Self.stampedDaemon("1a2b3c4"),
+                              check: Self.checked(ahead: Self.incoming), confirming: ["Check TipSplit splits the bill"])
+            }),
+            Scenario(name: "50-builds-updating", sizes: sizes, runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp("1a2b3c4"), daemon: Self.stampedDaemon("1a2b3c4"),
+                              check: Self.checked(ahead: Self.incoming), run: Self.updateRun(Self.updatingLines))
+            }),
+            Scenario(name: "51-builds-failed", sizes: sizes, runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp("1a2b3c4"), daemon: Self.stampedDaemon("1a2b3c4"),
+                              check: Self.checked(ahead: Self.incoming),
+                              run: Self.updateRun(Self.updatingLines + [
+                                  "# github.com/shlok1806/greenroom/apps/daemon/internal/verifier",
+                                  "internal/verifier/describe.go:88:2: undefined: retryDescribe",
+                                  "failed: install the daemon",
+                              ], status: 1))
+            }),
+        ]
     }
 
     /// The signature moments (ADR 0006), each held part way through with `momentFreeze`.
@@ -263,13 +342,13 @@ final class SnapshotHarness {
             summary: "Stopped: the bill field needs a design decision before it can take decimals.")
         let seeds = [(Self.passRun, verified), (failRun, unverified), (Self.inputRun, abandoned)]
         return [
-            Scenario(name: "47-finished-verified", sizes: [Self.large, Self.guest], runId: Self.passRun) { store in
+            Scenario(name: "52-finished-verified", sizes: [Self.large, Self.guest], runId: Self.passRun) { store in
                 for (runId, finish) in seeds { Self.makeFinished(store, runId: runId, finish) }
             },
-            Scenario(name: "48-finished-unverified", sizes: [Self.medium, Self.guest], runId: failRun) { store in
+            Scenario(name: "53-finished-unverified", sizes: [Self.medium, Self.guest], runId: failRun) { store in
                 for (runId, finish) in seeds { Self.makeFinished(store, runId: runId, finish) }
             },
-            Scenario(name: "49-finished-abandoned", sizes: [Self.medium, Self.small], runId: Self.inputRun) { store in
+            Scenario(name: "54-finished-abandoned", sizes: [Self.medium, Self.small], runId: Self.inputRun) { store in
                 for (runId, finish) in seeds { Self.makeFinished(store, runId: runId, finish) }
             },
         ]
@@ -766,6 +845,11 @@ final class SnapshotHarness {
         try await Task.sleep(for: .seconds(1.5))
         await scenario.prepare(store)
         if scenario.drivingFocused { keyboard.responder = .guest }
+        if let builds = scenario.builds {
+            builds(store.updates)
+            // Opened by hand: `perform(.greenroom)` would read the build and check again.
+            keyboard.greenroomOpen = true
+        }
         if scenario.verdictExpanded, let runId = scenario.runId {
             store.updateVerdictDraft(runId) { $0.expanded = true }
         }

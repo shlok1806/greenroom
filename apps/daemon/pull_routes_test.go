@@ -17,6 +17,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/api"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/report"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
@@ -53,7 +54,7 @@ func TestRoutesKeepAPublicHostPullInsideTheRunDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	const public, token = "gr.example.com", "0123456789abcdef0123456789abcdef"
-	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, t.TempDir(), report.Models{}, log))
+	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, t.TempDir(), api.Version{}, report.Models{}, log))
 	t.Cleanup(ts.Close)
 	ctx := context.Background()
 	mc, err := mgr.Create(ctx, "img")

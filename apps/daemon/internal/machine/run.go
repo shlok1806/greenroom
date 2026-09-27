@@ -35,6 +35,54 @@ type Manifest struct {
 	// Finish is how the coding agent ended the run (ADR 0034), mirrored from the conversation's
 	// finish event. Absent on a run that has not finished, and on every run from before it.
 	Finish *session.Finish `json:"finish,omitempty"`
+
+	// Models is who verified the run, as the daemon was configured when the run was created
+	// (issue #154). Absent in runs from before it.
+	Models *Models `json:"models,omitempty"`
+}
+
+// Models names what answers a run's conversation: the verifier's brain, its reasoning model,
+// its screenshot describer, and the request options each model's calls carry (nim.ChatOptions,
+// nim.DescribeOptions). A verdict is only as good as its describer, and an env line can swap
+// one in silently, so every run and bench result records these (issue #154).
+type Models struct {
+	Brain         string         `json:"brain"`                   // BrainNIM, BrainManual or BrainNone
+	Model         string         `json:"model,omitempty"`         // the reasoning model, with BrainNIM
+	Vision        string         `json:"vision,omitempty"`        // the describer; empty when the verifier reads no screenshots
+	ModelOptions  map[string]any `json:"modelOptions,omitempty"`  // the reasoning requests' options
+	VisionOptions map[string]any `json:"visionOptions,omitempty"` // the describe requests' options
+}
+
+// Brains a run can have.
+const (
+	BrainNIM    = "nim"    // a model verifier
+	BrainManual = "manual" // a person types the verifier's side (-verifier manual)
+	BrainNone   = "none"   // no verifier: nim without a key
+)
+
+// Label is one line naming the models and the options that set them apart, for logs and
+// reports: "nim nvidia/x, describer moonshotai/kimi-k3".
+func (m Models) Label() string {
+	if m.Brain != BrainNIM {
+		return m.Brain
+	}
+	vision := "none"
+	if m.Vision != "" {
+		vision = m.Vision
+		if k, ok := m.VisionOptions["chat_template_kwargs"].(map[string]any); ok && len(k) > 0 {
+			vision += " " + compactJSON(k)
+		}
+	}
+	return "nim " + m.Model + ", describer " + vision
+}
+
+// compactJSON is v as JSON with sorted keys, or its Go form if it does not marshal.
+func compactJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(b)
 }
 
 // ReadManifest loads a run's manifest from its directory.
