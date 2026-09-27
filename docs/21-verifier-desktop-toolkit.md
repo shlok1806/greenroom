@@ -2,7 +2,7 @@
 
 Date: 2026-09-27. Status: design, for review. The decision is ADR 0037
 (`docs/adr/0037-guest-agent-and-desktop-toolkit.md`). Umbrella issue: #206. Build waves: #212,
-#213, #214, #215 (section 8).
+#213, #214, #215 (section 8). Every other way to control a Mac (Spaces, settings, prompts, files, input, testing aids), with VM feasibility and waves 5 to 9, is catalogued in `docs/21a-macos-control-catalog.md`.
 
 The verifier's main problem is no longer judging. It is getting around the desktop. It clicks
 controls that something else covers, reads labels that were cut off, scrolls the wrong pane,
