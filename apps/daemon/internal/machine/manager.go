@@ -156,6 +156,7 @@ type Manager struct {
 	messageActivity  func(runID string) time.Time // guarded by mu; see SetMessageActivity
 	models           *Models                      // guarded by mu; see SetModels
 	fileCheck        FileCheck
+	lookTimes        lookTimes // a look's limits (look.go); zero means defaultLookTimes
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)

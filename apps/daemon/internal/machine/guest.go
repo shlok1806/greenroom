@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	imagepng "image/png"
@@ -232,8 +231,13 @@ func (m *Manager) ScreenshotAs(ctx context.Context, runID, reader string) (data 
 		m.emitStep(mc.RunID, seq)
 	}()
 	at := mc.input.handovers.Load()
-	data, err = m.captureScreen(ctx, mc)
-	if err != nil {
+	// A cap of its own, whatever the caller's ctx allows: an MCP client stops waiting at 60 s
+	// but its request's ctx lives on (daemon ADR 0003).
+	limit := m.looks().cap
+	look, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	data, err = m.captureScreen(look, mc, true)
+	if err = lookError(ctx, look, err, "the screenshot", limit); err != nil {
 		return nil, Shot{Step: seq}, err
 	}
 	mc.noteLook(reader, at)
@@ -246,29 +250,59 @@ func (m *Manager) ScreenshotAs(ctx context.Context, runID, reader string) (data 
 	return data, shot, nil
 }
 
-// captureScreen returns the guest screen as PNG bytes. Screenshot and the
-// frame recorder both use it.
-func (m *Manager) captureScreen(ctx context.Context, mc *Machine) ([]byte, error) {
+// captureScreen returns the guest screen as PNG bytes. Screenshot, the UI read's render
+// check and the frame recorder use it. One capture runs per machine (captureGate): with wait
+// a caller waits for an outstanding one, within ctx, then captures itself; without it (the
+// recorder) it gets errCaptureBusy at once. The capture runs detached from ctx under its own
+// limits, so a caller that gives up returns at once while the slot stays held until the guest
+// command is over. A capture that times out is a *ScreenNotAnsweringError.
+func (m *Manager) captureScreen(ctx context.Context, mc *Machine, wait bool) ([]byte, error) {
+	lim := m.looks().captureLimit()
+	g := &mc.input.capture
+	epoch, err := g.acquire(ctx, wait, lim.guest)
+	if err != nil {
+		return nil, err
+	}
+	type result struct {
+		png []byte
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		png, timedOut, err := m.captureOnce(context.WithoutCancel(ctx), mc, lim)
+		g.release(epoch, timedOut, err == nil)
+		done <- result{png, err}
+	}()
+	select {
+	case r := <-done:
+		return r.png, r.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// captureShellScript takes the screenshot into the look watchdog's private dir and prints it
+// as base64. The watchdog removes the dir, so a capture it stops leaves no file behind.
+const captureShellScript = `f="$GREENROOM_LOOK_DIR/shot.png"; screencapture -x "$f" && base64 -i "$f"`
+
+// captureOnce checks the capture approvals, then runs one guest screencapture under the look
+// watchdog. ctx carries no cancel from the caller: only lim ends it.
+func (m *Manager) captureOnce(ctx context.Context, mc *Machine, lim lookLimit) (png []byte, timedOut bool, err error) {
 	m.ensureCaptureApproval(ctx, mc)
-	// A path per call: Screenshot and the frame recorder capture concurrently.
-	var tag [8]byte
-	if _, err := rand.Read(tag[:]); err != nil {
-		return nil, err
+	res, timedOut, err := guestLook(ctx, m.tart, mc.Name, lim, "/bin/sh", "-c", captureShellScript)
+	switch {
+	case timedOut:
+		return nil, true, &ScreenNotAnsweringError{What: "the screen capture", After: lim.guest}
+	case err != nil:
+		return nil, false, err
+	case res.ExitCode != 0:
+		return nil, false, fmt.Errorf("screencapture failed: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
-	f := shellQuote("/tmp/greenroom-shot-" + hex.EncodeToString(tag[:]) + ".png")
-	res, err := m.tart.Exec(ctx, mc.Name, "sh", "-c",
-		"screencapture -x "+f+" && base64 -i "+f+"; s=$?; rm -f "+f+"; exit $s")
+	png, err = base64.StdEncoding.DecodeString(strings.TrimSpace(res.Stdout))
 	if err != nil {
-		return nil, err
+		return nil, false, fmt.Errorf("decode screenshot: %w", err)
 	}
-	if res.ExitCode != 0 {
-		return nil, fmt.Errorf("screencapture failed: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
-	}
-	png, err := base64.StdEncoding.DecodeString(strings.TrimSpace(res.Stdout))
-	if err != nil {
-		return nil, fmt.Errorf("decode screenshot: %w", err)
-	}
-	return png, nil
+	return png, false, nil
 }
 
 // geometryOf measures a PNG from its header and relates it to the guest's

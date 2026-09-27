@@ -118,9 +118,9 @@ func (r DesktopReport) Findings() []string {
 	return out
 }
 
-// readDesktop asks the installed input helper what is on the screen.
+// readDesktop asks the installed input helper what is on the screen, under the look watchdog.
 func readDesktop(ctx context.Context, c *tart.Client, vm string) (Desktop, error) {
-	res, err := runHelper(ctx, c, vm, "--desktop")
+	res, err := readHelper(ctx, c, vm, defaultLookTimes.captureLimit(), "the desktop read", "--desktop")
 	if err != nil {
 		return Desktop{}, fmt.Errorf("read the desktop: %w", err)
 	}
