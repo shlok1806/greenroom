@@ -65,7 +65,7 @@ func (a *api) events(w http.ResponseWriter, r *http.Request) {
 			changed.mark(ev.RunID)
 		}
 		switch ev.Kind {
-		case "created", "ready", "failed", "stopped", "destroyed", "control":
+		case "created", "ready", "failed", "stopped", "destroyed", "rebooting", "control":
 			c.send(sseEvent{name: "run", data: runEvent{LifecycleEvent: ev, Machine: liveMachine(ev.Machine)}})
 		case "boot":
 			if ev.Boot != nil {

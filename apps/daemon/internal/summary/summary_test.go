@@ -43,7 +43,7 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 		{
 			"a machine machine_reboot is restarting is Restarting, with no button",
 			func(b *builder) *builder {
-				return b.live("rebooting").boot("stop").task(tipTask, 30).event("machine is rebooting", 300)
+				return b.live(machine.Rebooting).boot(machine.PhaseStop).task(tipTask, 30).event("machine is rebooting", 300)
 			},
 			want{Restarting, Running, ToneLive, "", nil, "Your files are kept", "Shutting down the Mac", ""},
 		},
@@ -148,6 +148,24 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 					step("machine_screenshot", 200, nil, nil, notAnswering).event("machine is ready", 300)
 			},
 			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Reading the task", ""},
+		},
+		{
+			"a machine_reboot's ready ends Not answering",
+			func(b *builder) *builder {
+				return b.live(machine.Ready).event("machine is ready", 40).task(tipTask, 60).
+					step("machine_screenshot", 200, nil, nil, notAnswering).
+					event("machine is rebooting (machine_reboot): its sessions, running commands and apps end; its disk stays", 250).
+					event("machine rebooted and is ready", 300)
+			},
+			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Reading the task", ""},
+		},
+		{
+			"a reboot that failed is Stopped and keeps the files",
+			func(b *builder) *builder {
+				return b.live(machine.Failed).task(tipTask, 60).
+					event("machine failed to reboot: tart run exited", 300)
+			},
+			want{Stopped, Done, ToneQuiet, "", nil, "The Mac did not restart. Its files are kept.", "-", ""},
 		},
 		{
 			"a machine low on files needs you while it keeps checking, and offers a plain restart",
@@ -523,7 +541,7 @@ func TestTheMachineIsWorded(t *testing.T) {
 	cases := []struct {
 		st   machine.Status
 		want string
-	}{{machine.Booting, "starting"}, {machine.Ready, "on"}, {"rebooting", "restarting"}, {machine.Failed, "not running"}}
+	}{{machine.Booting, "starting"}, {machine.Ready, "on"}, {machine.Rebooting, "restarting"}, {machine.Failed, "not running"}}
 	for _, c := range cases {
 		if got := newRun(t, "r1").live(c.st).derive().Machine.Status; got != c.want {
 			t.Errorf("%s: machine status %q, want %q", c.st, got, c.want)

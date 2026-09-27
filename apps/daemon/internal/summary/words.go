@@ -123,6 +123,8 @@ func stoppedSentence(in Input) string {
 		switch {
 		case strings.HasPrefix(m.Text, "human destroyed"):
 			return "You shut down the Mac."
+		case strings.HasPrefix(m.Text, "machine failed to reboot"):
+			return "The Mac did not restart. Its files are kept."
 		case strings.HasPrefix(m.Text, "machine failed"):
 			return "The Mac did not start."
 		case strings.HasPrefix(m.Text, "machine stopped"):
@@ -182,14 +184,14 @@ func now(in Input, f derived, st State) string {
 	return capitalise(stepWords(*step, in.Steps))
 }
 
-// bootWords names the boot phase in progress (machine.Phase*; "stop" is machine_reboot's).
+// bootWords names the boot phase in progress (machine.Phase*; PhaseStop is machine_reboot's).
 func bootWords(phases []machine.BootPhase) string {
 	if len(phases) == 0 {
 		return "Starting the Mac"
 	}
 	p := phases[len(phases)-1]
 	switch p.Phase {
-	case "stop":
+	case machine.PhaseStop:
 		return "Shutting down the Mac"
 	case machine.PhaseClone:
 		return "Copying the Mac"

@@ -125,6 +125,23 @@ func (a *api) failControl(w http.ResponseWriter, runID string, err error) {
 	}
 }
 
+// reboot starts machine_reboot for a person (daemon ADR 0004) and answers 202 with the machine
+// rebooting; the run's events say when it is ready again. Every refusal (no machine, booting,
+// already rebooting, being destroyed) is 409.
+func (a *api) reboot(w http.ResponseWriter, r *http.Request, id string) {
+	mc, step, err := a.mgr.Reboot(r.Context(), id)
+	if err != nil {
+		a.fail(w, http.StatusConflict, err)
+		return
+	}
+	// The lifecycle bridge in main.go posts "machine is rebooting" and how it ended.
+	a.event(id, fmt.Sprintf("human rebooted the machine (step %d)", step))
+	writeJSON(w, http.StatusAccepted, struct {
+		Machine *machine.Machine `json:"machine"`
+		Step    int              `json:"step"`
+	}{mc, step})
+}
+
 func (a *api) destroy(w http.ResponseWriter, r *http.Request, id string) {
 	if err := a.mgr.Destroy(r.Context(), id); err != nil {
 		a.failMachine(w, id, err)

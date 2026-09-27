@@ -195,6 +195,7 @@ func TestAFailedWarmUpKeepsALeaseTheHumanAlreadyHeld(t *testing.T) {
 	if _, _, err := h.mgr.TakeControl(runID, humanSeat, 0); err != nil {
 		t.Fatalf("TakeControl: %v", err)
 	}
+	testsupport.Flag(t, h.control, "input-stale") // no current helper, so the warm-up compiles
 	testsupport.Flag(t, h.control, "fail-input-install")
 	if code, body := h.status(http.MethodPost, "/api/runs/"+runID+"/control", nil); code != http.StatusConflict {
 		t.Fatalf("a failed warm-up answered %d: %s", code, body)
@@ -207,6 +208,7 @@ func TestAFailedWarmUpKeepsALeaseTheHumanAlreadyHeld(t *testing.T) {
 func TestAFailedWarmUpReleasesAFreshLease(t *testing.T) {
 	h := newHarness(t)
 	runID := h.ready()
+	testsupport.Flag(t, h.control, "input-stale") // no current helper, so the warm-up compiles
 	testsupport.Flag(t, h.control, "fail-input-install")
 	if code, body := h.status(http.MethodPost, "/api/runs/"+runID+"/control", nil); code != http.StatusConflict {
 		t.Fatalf("a failed warm-up answered %d: %s", code, body)

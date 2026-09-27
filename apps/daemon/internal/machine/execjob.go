@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -57,6 +58,9 @@ type execJob struct {
 	done    chan struct{}
 	res     ExecResult
 	err     error
+
+	// abort ends a running command with cause as its error, as machine_reboot does (reboot.go).
+	abort context.CancelCauseFunc
 }
 
 func (j *execJob) finished() bool {
@@ -138,7 +142,7 @@ func (m *Manager) startExec(ctx context.Context, runID, by, command, cwd string,
 		return nil, err
 	}
 	// Detached from the caller: the command must survive the call that started it.
-	base := context.WithoutCancel(ctx)
+	base, abort := context.WithCancelCause(context.WithoutCancel(ctx))
 	jobCtx, cancel := context.WithCancel(base)
 	guestSeconds := 0
 	if timeout > 0 {
@@ -147,9 +151,10 @@ func (m *Manager) startExec(ctx context.Context, runID, by, command, cwd string,
 		cancel()
 		jobCtx, cancel = context.WithTimeout(base, timeout+execHostGrace)
 	}
-	j := &execJob{id: id, started: time.Now(), cancel: cancel, done: make(chan struct{})}
+	j := &execJob{id: id, started: time.Now(), cancel: cancel, abort: abort, done: make(chan struct{})}
 	if err := m.addExec(mc, j); err != nil {
 		cancel()
+		abort(nil)
 		return nil, err
 	}
 	j.step = mc.rec.begin() // claimed first, so output.step matches seq (issue #47)
@@ -159,11 +164,15 @@ func (m *Manager) startExec(ctx context.Context, runID, by, command, cwd string,
 		script = cd + " && " + command
 	}
 	go func() {
+		defer abort(nil)
 		defer cancel()
 		var stdout, stderr headTail
 		// The wrapper and the command go on stdin, never in a guest argv (issue #128).
 		code, err := m.tart.ExecInputTo(jobCtx, strings.NewReader(execScript(script)), &stdout, &stderr, mc.Name,
 			append(slices.Clone(execShell), strconv.Itoa(guestSeconds))...)
+		if cause := context.Cause(base); err != nil && cause != nil && !errors.Is(cause, context.Canceled) {
+			err = cause // aborted, as by a reboot: say why rather than "context canceled"
+		}
 		out := ExecResult{ExecID: id, ExitCode: code, Seconds: time.Since(j.started).Seconds(), Step: j.step}
 		out.Stdout, out.StdoutBytes, out.StdoutTruncated = stdout.result()
 		out.Stderr, out.StderrBytes, out.StderrTruncated = stderr.result()

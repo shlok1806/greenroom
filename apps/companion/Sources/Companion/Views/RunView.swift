@@ -751,7 +751,7 @@ struct RunStatusLine: View {
         case .booting:
             HStack(spacing: Space.xs) {
                 Spinner(size: TypeScale.monoSmall)
-                Text("Booting")
+                Text(facts.rebootingSince == nil ? "Booting" : "Rebooting")
             }
         case .live:
             HStack(spacing: Space.xs) {

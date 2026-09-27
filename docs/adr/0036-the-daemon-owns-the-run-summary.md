@@ -134,9 +134,10 @@ end inside one app.
   treats an unknown `state` as data and shows its `status` word.
 - Summaries of runs with no live machine are cached until their conversation grows or their
   manifest is rewritten, so the board does not reread every old run's steps.
-- `summary.LiveMachine.LowOnFiles` is set from the machine's files count once issue #186's
-  `Machine.Files` lands; until then no machine warns. The Not answering rule reads the
-  not-answering text daemon ADR 0003's looks return, and Restarting the `rebooting` status of
-  daemon ADR 0004; both are inert until those land, and neither needs code from them.
+- The machine warning comes from issue #186's files count (`Machine.Files.Warning`), Not
+  answering from the text daemon ADR 0003's looks return ("the guest screen is not
+  answering"), and Restarting from daemon ADR 0004's `rebooting` status, whose "machine
+  rebooted and is ready" event ends a not-answering streak. The summary reads the bridge's
+  event texts, so a change to one of them is a change here too.
 - A derived name can still be poor for a task with no app-like subject. Coding agents that
   pass `name` avoid that; the tool description asks for it.

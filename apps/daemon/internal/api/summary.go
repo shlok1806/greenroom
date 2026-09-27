@@ -143,7 +143,8 @@ func (a *api) summaryInput(runID string, mc *machine.Machine, store *session.Sto
 	}
 	if mc != nil {
 		in.CreatedAt = mc.CreatedAt
-		in.Machine = &summary.LiveMachine{Status: mc.Status, Error: mc.Error, Boot: mc.BootPhases()}
+		in.Machine = &summary.LiveMachine{Status: mc.Status, Error: mc.Error, Boot: mc.BootPhases(),
+			LowOnFiles: mc.Files != nil && mc.Files.Warning != ""}
 		if mc.Control != nil {
 			in.Machine.Controller = mc.Control.Holder
 		}

@@ -253,13 +253,13 @@ type LiveMachine struct {
 	// Controller is the seat holding the screen's lease, "" when nobody does.
 	Controller string
 	// LowOnFiles is set when the machine's tart run is near its open file limit (issue
-	// #186's files warning). The machine may die, so the person saves what they need.
+	// #186's files warning, machine.FileUse.Warning). The machine may die, so the person
+	// saves what they need.
 	LowOnFiles bool
 }
 
-// Machine statuses the summary knows by name beyond the machine package's own: machine_reboot's
-// (daemon ADR 0004) is compared as a string, so a daemon without it still builds.
-const statusRebooting machine.Status = "rebooting"
+// statusRebooting is machine_reboot's status (daemon ADR 0004).
+const statusRebooting = machine.Rebooting
 
 // open reports whether the run can still go on: its machine is up or coming up, and the coding
 // agent has not finished it.
@@ -336,7 +336,7 @@ func facts(in Input) derived {
 			f.verdict = m
 		case m.Kind == session.Accept && in.Verdict.Seq > 0 && m.ReplyTo == in.Verdict.Seq:
 			f.accept = m
-		case m.From == session.System && m.Kind == session.Event && strings.HasPrefix(m.Text, readyEvent):
+		case m.From == session.System && m.Kind == session.Event && readyText(m.Text):
 			f.readyAt = m.At
 		}
 	}
@@ -358,8 +358,11 @@ func facts(in Input) derived {
 	return f
 }
 
-// readyEvent is the lifecycle bridge's text when a machine becomes ready (main.go).
-const readyEvent = "machine is ready"
+// readyText reports whether an event is the lifecycle bridge's (main.go) for a machine that
+// became ready, after its boot or after machine_reboot.
+func readyText(text string) bool {
+	return strings.HasPrefix(text, "machine is ready") || strings.HasPrefix(text, "machine rebooted and is ready")
+}
 
 // owedTurn is the newest human or coder message that starts a verifier turn with no verifier
 // word after it, as the Companion's awaitingVerifier reads it: a system event saying nobody or

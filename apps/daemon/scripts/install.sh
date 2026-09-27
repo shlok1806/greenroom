@@ -26,6 +26,16 @@ log="$root/daemon.log"
 plist="$HOME/Library/LaunchAgents/$label.plist"
 addr="127.0.0.1:7777"
 
+# The job's open file limit (daemon ADR 0002, issue #186): launchd's default soft limit is 256,
+# every `tart run` the daemon starts inherits it, and a leak in tart's control socket runs a
+# long-lived machine out. 65536, or the kernel's per-process cap when that is lower (setrlimit
+# refuses more). The daemon raises its own limit again at start, so this is the first line.
+open_files=65536
+per_proc="$(sysctl -n kern.maxfilesperproc 2>/dev/null || true)"
+if [[ "$per_proc" =~ ^[0-9]+$ ]] && [ "$per_proc" -lt "$open_files" ]; then
+  open_files="$per_proc"
+fi
+
 # .env is git-ignored, so a worktree falls back to the main checkout's. GREENROOM_ENV overrides
 # both and is used as given, even when missing: never another file in its place.
 auto_env="$repo/.env"
@@ -183,6 +193,16 @@ cat >"$plist" <<PLIST
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>$open_files</integer>
+  </dict>
+  <key>HardResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>$open_files</integer>
+  </dict>
   <key>StandardOutPath</key>
   <string>$log</string>
   <key>StandardErrorPath</key>

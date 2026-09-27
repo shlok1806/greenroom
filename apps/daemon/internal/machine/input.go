@@ -26,7 +26,7 @@ var inputHelper string
 // inputHelperVersion names the compiled helper. Bump it whenever
 // guest/input.swift changes, or running machines and prepared images keep
 // the old binary.
-const inputHelperVersion = 7
+const inputHelperVersion = 8
 
 // ControlTTL is how long an unused screen-control lease lives unless the taker
 // asks otherwise. Every input renews it by its own ttl, so a crashed holder
@@ -90,11 +90,12 @@ type InputResult struct {
 // inputState is a machine's installed helper. It has its own lock because the
 // install is a Swift compile that must not hold Manager.mu.
 type inputState struct {
-	mu     sync.Mutex             // held across the install
-	screen atomic.Pointer[Screen] // set once installed; screenshots read it without mu
-	uiMu   sync.Mutex
-	ui     map[string]*UITree // each reader's last machine_ui read, which its clicks aim at (issue #35)
-	looks  map[string]uint64  // each reader's handovers count as of its latest look (issue #124)
+	mu      sync.Mutex             // guards install; never held across a guest call
+	install *installJob            // the install running now, if any (ensureInput)
+	screen  atomic.Pointer[Screen] // set once installed; screenshots read it without mu
+	uiMu    sync.Mutex
+	ui      map[string]*UITree // each reader's last machine_ui read, which its clicks aim at (issue #35)
+	looks   map[string]uint64  // each reader's handovers count as of its latest look (issue #124)
 	// handovers counts the times the screen changed hands under anyone but the verifier: a fresh
 	// take, a release or a lapse. A verifier input aimed before the latest one is refused (issue #124).
 	handovers atomic.Uint64
@@ -109,6 +110,15 @@ type inputState struct {
 	screenMu sync.Mutex // serializes starting the live screen
 
 	approval captureApproval // when replayd's approvals were last written or checked
+	capture  captureGate     // one guest screencapture at a time (daemon ADR 0003)
+}
+
+// installJob is one run of the helper install and screen read, shared by every caller that
+// needs it while it runs.
+type installJob struct {
+	done   chan struct{} // closed when it ends; screen and err are set by then
+	screen Screen
+	err    error
 }
 
 // helperName is the compiled helper's path relative to the guest home.
@@ -607,26 +617,74 @@ func helperError(stderr string) string {
 	return trimmed
 }
 
-// ensureInput installs the helper once per machine and caches the screen size.
+// helperCheck bounds asking the guest whether its helper is current, the part of an install
+// that needs no compile, in the guest and on the host. The compile has helperCompileTimeout.
+var helperCheck = lookLimit{guest: 20 * time.Second, grace: 10 * time.Second}
+
+// ensureInput installs the helper once per machine and caches the screen size. The install
+// runs detached from the caller: a caller that gives up (its ctx, a look's cap) returns at
+// once, the install goes on, and the next caller waits for the same one rather than
+// starting another. Nothing is held across the install that blocks another caller beyond
+// its own ctx (issue #187, where a 3 minute install lock queued every UI read).
 func (m *Manager) ensureInput(ctx context.Context, mc *Machine) (Screen, error) {
 	st := mc.input
-	st.mu.Lock()
-	defer st.mu.Unlock()
 	if s := st.screen.Load(); s != nil {
 		return *s, nil
 	}
-	installCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-	_, err := execChecked(installCtx, m.tart, mc.Name, "/bin/sh", "-c", installHelperScript())
-	cancel()
-	if err != nil {
-		return Screen{}, fmt.Errorf("install the input helper: %w", err)
+	st.mu.Lock()
+	if s := st.screen.Load(); s != nil {
+		st.mu.Unlock()
+		return *s, nil
 	}
-	screen, err := readScreen(ctx, m.tart, mc.Name)
-	if err != nil {
-		return Screen{}, err
+	job := st.install
+	if job == nil {
+		job = &installJob{done: make(chan struct{})}
+		st.install = job
+		go m.runInstall(context.WithoutCancel(ctx), mc, job)
 	}
-	st.screen.Store(&screen)
-	return screen, nil
+	st.mu.Unlock()
+	select {
+	case <-job.done:
+		return job.screen, job.err
+	case <-ctx.Done():
+		// Not wrapping ctx.Err(): a look's cap must not read this as a screen that did not answer.
+		return Screen{}, fmt.Errorf("the input helper is still being installed in the guest (%v); try again in a minute", ctx.Err())
+	}
+}
+
+// runInstall is one installJob: on success the screen is cached before the job is cleared,
+// so no later caller starts another; on failure the job is cleared and the next caller retries.
+func (m *Manager) runInstall(ctx context.Context, mc *Machine, job *installJob) {
+	defer close(job.done)
+	job.screen, job.err = m.installInput(ctx, mc)
+	st := mc.input
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if job.err == nil {
+		st.screen.Store(&job.screen)
+	}
+	st.install = nil
+}
+
+// installInput makes sure this version of the helper is in the guest and reads the screen
+// size with it. Only a helper that is missing or stale pays the compile's deadline; asking is
+// bounded by helperCheck, and the screen read by the look watchdog.
+func (m *Manager) installInput(ctx context.Context, mc *Machine) (Screen, error) {
+	res, timedOut, err := guestLook(ctx, m.tart, mc.Name, helperCheck, "/bin/sh", "-c", helperCheckScript())
+	if timedOut {
+		// The helper's --version touches nothing but its own binary (input.swift), so a check
+		// that hangs is a guest that hangs, and the install script's own check would too.
+		return Screen{}, &ScreenNotAnsweringError{What: "the input helper's version check", After: helperCheck.guest}
+	}
+	if err != nil || res.ExitCode != 0 || strings.TrimSpace(res.Stdout) != "current" {
+		installCtx, cancel := context.WithTimeout(ctx, helperCompileTimeout)
+		_, err := execChecked(installCtx, m.tart, mc.Name, "/bin/sh", "-c", installHelperScript())
+		cancel()
+		if err != nil {
+			return Screen{}, fmt.Errorf("install the input helper: %w", err)
+		}
+	}
+	return readScreenWithin(ctx, m.tart, mc.Name, m.looks().captureLimit())
 }
 
 // installHelperScript writes the embedded source into the guest and compiles
@@ -649,7 +707,13 @@ swiftc -O -swift-version 5 "$src/main.swift" -o "$bin"
 
 // readScreen asks the helper for the display size by posting no actions.
 func readScreen(ctx context.Context, c *tart.Client, vm string) (Screen, error) {
-	res, err := runHelper(ctx, c, vm, "--json-base64", base64.StdEncoding.EncodeToString([]byte(`{"actions":[]}`)))
+	return readScreenWithin(ctx, c, vm, defaultLookTimes.captureLimit())
+}
+
+// readScreenWithin is readScreen under the look watchdog lim.
+func readScreenWithin(ctx context.Context, c *tart.Client, vm string, lim lookLimit) (Screen, error) {
+	res, err := readHelper(ctx, c, vm, lim, "the screen size read",
+		"--json-base64", base64.StdEncoding.EncodeToString([]byte(`{"actions":[]}`)))
 	if err != nil {
 		return Screen{}, fmt.Errorf("read the screen size: %w", err)
 	}

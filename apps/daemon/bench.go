@@ -129,6 +129,7 @@ func benchRun(args []string) error {
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	raiseFileLimit(log)
 	mgr, err := machine.NewManager(o.root, log, machine.WithMaxMachines(2), machine.WithTartBin(o.tartBin))
 	if err != nil {
 		return err

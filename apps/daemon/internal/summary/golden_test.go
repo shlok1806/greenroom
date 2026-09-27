@@ -289,7 +289,7 @@ func statusRuns(t *testing.T) []Input {
 	t.Helper()
 	stop := func(m *session.Message) { m.Stop = session.StopSteps }
 	return []Input{
-		newRun(t, "a").live("rebooting").boot("stop").build(),
+		newRun(t, "a").live(machine.Rebooting).boot(machine.PhaseStop).build(),
 		newRun(t, "b").live(machine.Ready).lowOnFiles().task(tipTask, 10).build(),
 		newRun(t, "c").live(machine.Ready).task(tipTask, 10).msg(session.Verifier, session.Reply, "I used 40 tool calls (steps 1-40).", 20, stop).build(),
 		newRun(t, "d").live(machine.Ready).task(tipTask, 10).msg(session.Verifier, session.Question, "Should I use machine_exec to read ~/TipSplit (step 4)?", 20).build(),
