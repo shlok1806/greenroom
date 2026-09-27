@@ -108,6 +108,14 @@ extension RedesignHarness {
         return nil
     }
 
+    /// The daemon's golden board (root ADR 0036), the runs the Figma screens show.
+    static func goldenBoard() -> SummaryBoard? {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("daemon/internal/summary/testdata/board.golden.json")
+        return (try? Data(contentsOf: url)).flatMap { try? JSONDecoder.daemon().decode(SummaryBoard.self, from: $0) }
+    }
+
     /// The scenarios of this phase.
     static func scenarios() -> [Scenario] {
         let frame = guestFrame()
@@ -115,6 +123,34 @@ extension RedesignHarness {
             Scenario(name: "c01-component-states", sizes: [RedesignHarness.Size(name: "board", width: 2000, height: 1320)], dark: true) { _ in
                 AnyView(ComponentGallery(frame: frame))
             },
+            Scenario(name: "s01-runs-sidebar", sizes: [.regular, .compact, .wide], dark: true) { size in
+                AnyView(SidebarStage(board: goldenBoard(), selected: "20260923-044138-de31017819a86d84", size: size))
+            },
+            Scenario(name: "s02-runs-sidebar-2000", sizes: [.regular], dark: true) { size in
+                AnyView(SidebarStage(board: SyntheticBoard.board(runs: 2000), selected: nil, size: size))
+            },
+            Scenario(name: "s03-runs-sidebar-offline", sizes: [.regular]) { size in
+                AnyView(SidebarStage(board: nil, selected: nil, size: size, connection: .offline(hasData: false)))
+            },
         ]
+    }
+}
+
+/// The sidebar beside an empty run pane, at a window size.
+struct SidebarStage: View {
+    var board: SummaryBoard?
+    var selected: String?
+    var size: RedesignHarness.Size
+    var connection: ConnectionState = .online
+
+    var body: some View {
+        HStack(spacing: 0) {
+            RunsSidebar(board: board, connection: connection, selected: selected,
+                        width: WindowClass.of(width: size.width).sidebar, select: { _ in }, openSettings: {})
+            Palette.bg
+        }
+        .frame(width: size.width, height: size.height)
+        .ignoresSafeArea()
+        .environment(\.frozenNow, board?.updatedAt ?? Date())
     }
 }

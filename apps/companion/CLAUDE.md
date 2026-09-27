@@ -34,6 +34,11 @@ no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
   group, tone, sentence, "now", each check's row (`checks.items`) and the actions are the
   daemon's; `UI/Presentation.swift` only lays them out (glyphs, times, tallies), with a test
   per rule (`SummaryTests`, over the daemon's golden board read in place).
+- `UI/Sidebar.swift` (`RunsSidebar`) is the runs list; its rows are `UI/RunsTable.swift`, an
+  `NSTableView` with fixed row heights and reused `NSHostingView` cells. Never a SwiftUI
+  `List` there: it measured all 2,000 rows (2.8 s first layout, 578 ms scroll stalls).
+  `SidebarPerformanceTests` holds the table to its numbers (129 ms, 3.7 ms per step).
+  `SidebarLayout` (pure) says which rows show; `\.frozenNow` holds the clock for snapshots.
 - `UI/Components/` is the Figma Components page with every state; `UI/KeyPalette.swift` is
   Ghostty's palette adapted (MIT). Copied or ported code is credited in `ACKNOWLEDGEMENTS.md`.
 - `GREENROOM_REDESIGN_SNAPSHOTS=<dir> .build/out/Products/Debug/CompanionSnapshots` renders
