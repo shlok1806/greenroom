@@ -44,6 +44,8 @@ pnpm typecheck
 - After adding a module, dependency or convention, update the CLAUDE.md nearest to it.
   Write what the code does not tell you: rules, boundaries, gotchas.
 - No em dashes in docs.
+- Every PR body ends with the footer in `.github/pull_request_template.md`: "Made with Greenroom", plus
+  "verified in run `<runId>`" when a Greenroom run verified the change (drop that part otherwise).
 
 ## Issues
 
