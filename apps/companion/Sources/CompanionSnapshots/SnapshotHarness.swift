@@ -241,10 +241,10 @@ final class SnapshotHarness {
             Scenario(name: "32-moment-power-down-still", sizes: [Self.medium], runId: runId, momentFreeze: 1.0) { store in
                 await Self.destroyWhileWatched(store, runId: runId)
             },
-        ] + verdictLandsScenarios() + checklistScenarios() + finishScenarios()
+        ] + verdictLandsScenarios() + checklistScenarios() + limitStopScenarios() + finishScenarios()
     }
 
-    /// A run the coding agent finished with `run_finish` (root ADR 0031, companion ADR 0015):
+    /// A run the coding agent finished with `run_finish` (root ADR 0031, companion ADR 0016):
     /// Done with its outcome in the header and the row, the summary and the ref under the
     /// status line. Each seeds the other two runs' rows too, so the list shows every word.
     private func finishScenarios() -> [Scenario] {
@@ -263,14 +263,37 @@ final class SnapshotHarness {
             summary: "Stopped: the bill field needs a design decision before it can take decimals.")
         let seeds = [(Self.passRun, verified), (failRun, unverified), (Self.inputRun, abandoned)]
         return [
-            Scenario(name: "46-finished-verified", sizes: [Self.large, Self.guest], runId: Self.passRun) { store in
+            Scenario(name: "47-finished-verified", sizes: [Self.large, Self.guest], runId: Self.passRun) { store in
                 for (runId, finish) in seeds { Self.makeFinished(store, runId: runId, finish) }
             },
-            Scenario(name: "47-finished-unverified", sizes: [Self.medium, Self.guest], runId: failRun) { store in
+            Scenario(name: "48-finished-unverified", sizes: [Self.medium, Self.guest], runId: failRun) { store in
                 for (runId, finish) in seeds { Self.makeFinished(store, runId: runId, finish) }
             },
-            Scenario(name: "48-finished-abandoned", sizes: [Self.medium, Self.small], runId: Self.inputRun) { store in
+            Scenario(name: "49-finished-abandoned", sizes: [Self.medium, Self.small], runId: Self.inputRun) { store in
                 for (runId, finish) in seeds { Self.makeFinished(store, runId: runId, finish) }
+            },
+        ]
+    }
+
+    /// A verifier turn that stopped at its time budget before a verdict (issue #127,
+    /// companion ADR 0015), from a bench run exactly as recorded, whose machine is gone;
+    /// then the same run made live, so the card offers Continue; after a Continue; and the
+    /// same stop at the step cap. Copy `~/.greenroom/bench/runs` into the daemon's root.
+    private func limitStopScenarios() -> [Scenario] {
+        let runId = Self.stoppedRun
+        return [
+            Scenario(name: "46-real-stopped-out-of-time", sizes: [Self.large, Self.guest], runId: runId),
+            Scenario(name: "46b-stopped-waiting", sizes: [Self.large, Self.medium, Self.guest], runId: runId) { store in
+                Self.makeLive(store, runId: runId, lastActivityAgo: 40)
+            },
+            Scenario(name: "46c-stopped-continued", sizes: [Self.large], runId: runId) { store in
+                Self.makeLive(store, runId: runId, lastActivityAgo: 4)
+                Self.continueAfterStop(store, runId: runId)
+            },
+            Scenario(name: "46d-stopped-out-of-tool-calls", sizes: [Self.medium, Self.guest], runId: runId) { store in
+                Self.makeLive(store, runId: runId, lastActivityAgo: 40)
+                Self.restop(store, runId: runId, .steps,
+                            "I used all 40 tool calls for this turn and did not finish. Send a message and I will continue.")
             },
         ]
     }
@@ -292,6 +315,28 @@ final class SnapshotHarness {
         messages.insert(Message(seq: seq, at: finish.at ?? end, from: .system, kind: .event,
                                 text: "run finished: \(finish.outcome.text). \(finish.summary)", finish: finish), at: insertAt)
         store.messages[runId] = messages
+    }
+
+    /// WordCount's "Longest word" task, whose verifier ran out of time (10 minutes).
+    private static let stoppedRun = "20260926-071916-b48b96d157b71fcd"
+
+    /// Your Continue, sent after the stop: the verifier then works again.
+    private static func continueAfterStop(_ store: RunStore, runId: String) {
+        guard var messages = store.messages[runId], let last = messages.last else { return }
+        messages.append(Message(seq: last.seq + 1, at: last.at.addingTimeInterval(3), from: .human, kind: .note,
+                                text: LimitStop.continueText))
+        store.messages[runId] = messages
+    }
+
+    /// The run's stopped reply, as if it had stopped at another limit.
+    private static func restop(_ store: RunStore, runId: String, _ reason: StopReason, _ text: String) {
+        store.messages[runId] = store.messages[runId]?.map { message in
+            guard message.stop != nil else { return message }
+            var message = message
+            message.stop = reason
+            message.text = text
+            return message
+        }
     }
 
     /// A verdict as a checklist and the verifier's declared plan (root ADR 0024), seeded

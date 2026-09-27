@@ -223,3 +223,100 @@ struct VerdictLine: Equatable, Sendable {
                            outcomeInColour: personAccepted, latest: true)
     }
 }
+
+/// A verifier turn that ended at its tool-call cap or its time budget before it finished
+/// (issue #127, companion ADR 0015), as a card: which limit, what that means, and while it
+/// waits, Continue, which posts `continueText` as your note and so starts a new turn.
+struct LimitStop: Equatable, Sendable {
+    enum State: Equatable, Sendable {
+        /// Nothing has followed it: the verifier waits for a message to go on.
+        case waiting
+        /// A new turn began after it: who began it, and when ("You continued it at 07:31").
+        case continued(String)
+        /// Nothing followed it, and the verifier stopped with the machine.
+        case over
+    }
+
+    var reason: StopReason
+    /// "Stopped, out of time": the same words as the run's row.
+    var title: String
+    /// What the limit means, in a sentence.
+    var meaning: String
+    var state: State
+
+    /// What Continue posts: a human note, which the verifier answers with a new turn.
+    static let continueText = "Continue."
+
+    var canContinue: Bool { state == .waiting }
+
+    /// The card for a verifier reply that stopped at a limit; nil for any other message.
+    static func of(_ message: Message, in messages: [Message], verifierListens: Bool,
+                   timeOfDay: (Date) -> String = Chrome.shortTime) -> LimitStop? {
+        guard let reason = reason(of: message) else { return nil }
+        let state: State
+        if let next = messages.first(where: { $0.seq > message.seq && beginsTurn($0) }) {
+            state = .continued(continued(by: next, timeOfDay: timeOfDay))
+        } else {
+            state = verifierListens ? .waiting : .over
+        }
+        return LimitStop(reason: reason, title: "Stopped, \(short(reason))", meaning: meaning(reason), state: state)
+    }
+
+    /// The limit a message stopped at: only a verifier reply carries one.
+    static func reason(of message: Message) -> StopReason? {
+        guard message.from == .verifier, message.kind == .reply else { return nil }
+        return message.stop
+    }
+
+    /// The stop the run waits on: the newest verifier word is a reply that stopped at a
+    /// limit, and nothing that begins a turn came after it. Whether anything will still
+    /// answer is the caller's (`RunFacts.verifierListens`).
+    static func waiting(_ messages: [Message]) -> Message? {
+        for message in messages.reversed() {
+            if beginsTurn(message) { return nil }
+            guard message.from == .verifier else { continue }
+            return reason(of: message) == nil ? nil : message
+        }
+        return nil
+    }
+
+    /// "out of time", for the row and the card's title.
+    static func short(_ reason: StopReason) -> String {
+        switch reason {
+        case .steps: "out of tool calls"
+        case .time: "out of time"
+        case .unknown: "at a limit"
+        }
+    }
+
+    static func meaning(_ reason: StopReason) -> String {
+        switch reason {
+        case .steps: "The verifier used all its tool calls for this turn before it finished."
+        case .time: "The verifier ran out of time for this turn before it finished."
+        case .unknown(let raw): "The verifier's turn ended at its \(raw) limit before it finished."
+        }
+    }
+
+    /// What a waiting card says under its meaning, and what one that nothing will answer says.
+    static let waitingNote = "It waits for a message. Continue asks it to go on."
+    static let overNote = "The verifier stopped with the machine. Nothing will continue it."
+
+    /// A message that starts a verifier turn, or the verifier at work again (a turn a
+    /// Give Back resumed has progress and no message before it).
+    private static func beginsTurn(_ message: Message) -> Bool {
+        switch message.from {
+        case .human, .coder: RunStore.startsTurn(message)
+        case .verifier: message.kind == .progress
+        default: false
+        }
+    }
+
+    private static func continued(by message: Message, timeOfDay: (Date) -> String) -> String {
+        let at = timeOfDay(message.at)
+        switch message.from {
+        case .human: return "You continued it at \(at)"
+        case .coder: return "The coding agent continued it at \(at)"
+        default: return "The verifier went on at \(at)"
+        }
+    }
+}

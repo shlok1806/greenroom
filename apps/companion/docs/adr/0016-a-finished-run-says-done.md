@@ -1,4 +1,4 @@
-# 0015. A finished run says Done, and only Verified is green
+# 0016. A finished run says Done, and only Verified is green
 
 Date: 2026-09-27
 Status: accepted. Implements root ADR 0031 point 3. Amends 0002 (the colour of a pass

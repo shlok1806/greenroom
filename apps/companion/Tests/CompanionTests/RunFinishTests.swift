@@ -2,7 +2,7 @@ import XCTest
 
 @testable import Companion
 
-/// A finished run (root ADR 0031, companion ADR 0015): the wire decodes leniently, the store
+/// A finished run (root ADR 0031, companion ADR 0016): the wire decodes leniently, the store
 /// picks the finish up from the event stream, and every indicator says Done with the outcome.
 @MainActor
 final class RunFinishTests: XCTestCase {
@@ -173,7 +173,7 @@ final class RunFinishTests: XCTestCase {
         XCTAssertEqual(f.rowStatus(now: now).tone, .done)
     }
 
-    /// Something waiting on the person still leads the row (companion ADR 0012, 0015).
+    /// Something waiting on the person still leads the row (companion ADR 0012, 0016).
     func testAVerdictWaitingOnYouOutranksDone() {
         let proposed = VerdictState(seq: 3, verdict: "fail", status: .proposed)
         let f = facts(finish: finish(.unverified), verdict: proposed)

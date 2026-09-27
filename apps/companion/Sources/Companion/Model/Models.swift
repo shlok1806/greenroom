@@ -232,6 +232,8 @@ struct Message: Codable, Hashable, Sendable, Identifiable {
     var checks: [AcceptanceCheck] = []
     /// On the system event that recorded `run_finish` (root ADR 0031).
     var finish: RunFinish?
+    /// On a verifier reply: the limit its turn stopped at before a verdict (issue #127).
+    var stop: StopReason?
 
     var id: Int { seq }
 }
@@ -251,6 +253,8 @@ extension Message {
         // One malformed check drops the list, never the message.
         checks = (try? c.decodeIfPresent([AcceptanceCheck].self, forKey: .checks)) ?? []
         finish = try? c.decodeIfPresent(RunFinish.self, forKey: .finish)
+        // Only a verifier reply may carry it (`session.validate`); `LimitStop` reads it only there.
+        stop = (try? c.decodeIfPresent(StopReason.self, forKey: .stop)).flatMap { $0 }
     }
 }
 

@@ -57,6 +57,9 @@ struct RunFacts: Equatable, Sendable {
     /// How the coding agent ended the run (root ADR 0031): Done, whatever the machine does
     /// next. nil for a run it has not finished, and for every run from before `run_finish`.
     var finish: RunFinish? = nil
+    /// The verifier's last turn stopped at a limit and nothing has followed it (issue
+    /// #127, `LimitStop.waiting`): the limit it stopped at.
+    var stoppedAt: StopReason? = nil
 
     static let idleAfter: TimeInterval = 5 * 60
 
@@ -131,9 +134,10 @@ struct RunFacts: Equatable, Sendable {
         if case .ended(.destroyed) = phase { destroyed = true }
 
         let failures = (steps ?? []).filter { $0.outcome.isFailure }.map(\.seq)
+        let stoppedAt = LimitStop.waiting(messages ?? []).flatMap(LimitStop.reason(of:))
         return RunFacts(
             phase: phase,
-            turn: turn(messages: messages ?? [], verdict: openVerdict, alive: alive),
+            turn: turn(messages: messages ?? [], verdict: openVerdict, alive: alive, listens: !destroyed),
             started: started,
             ended: alive ? nil : (destroyedAt ?? last),
             lastActivity: last,
@@ -144,7 +148,8 @@ struct RunFacts: Equatable, Sendable {
             verdict: openVerdict,
             machineReady: machine?.status == .ready,
             verifierListens: !destroyed,
-            finish: finish(summary: summary, detail: detail, messages: messages)
+            finish: finish(summary: summary, detail: detail, messages: messages),
+            stoppedAt: stoppedAt
         )
     }
 
@@ -176,7 +181,7 @@ struct RunFacts: Equatable, Sendable {
     }
 
     /// The last word decides whose move it is (ADR 0006).
-    static func turn(messages: [Message], verdict: VerdictState?, alive: Bool) -> Turn {
+    static func turn(messages: [Message], verdict: VerdictState?, alive: Bool, listens: Bool) -> Turn {
         if verdict?.status == .contested { return .you("Only you can close the verdict") }
         if let question = messages.last(where: { $0.kind == .question && $0.from == .verifier }),
            !messages.contains(where: { $0.kind == .answer && $0.replyTo == question.seq }),
@@ -185,6 +190,10 @@ struct RunFacts: Equatable, Sendable {
         }
         if verdict?.status == .proposed { return .you("The verdict needs review") }
         guard alive else { return .nobody }
+        // A stopped verifier does nothing until someone sends a message; Continue is yours.
+        if listens, let stop = LimitStop.waiting(messages).flatMap(LimitStop.reason(of:)) {
+            return .you("The verifier stopped, \(LimitStop.short(stop))")
+        }
         if RunStore.awaitingVerifier(messages) { return .verifier }
         guard let last = messages.last(where: { $0.from != .system && $0.kind != .progress }) else { return .nobody }
         return last.from == .verifier ? .coder : .nobody
@@ -205,6 +214,8 @@ extension RunFacts {
                 let state = verdict.status == .proposed ? "needs review" : "contested"
                 return ("\(Chrome.outcomeTitle(verdict.verdict)), \(state)", .attention)
             }
+            // The same words as the card's title (`LimitStop`).
+            if let stoppedAt { return ("Stopped, \(LimitStop.short(stoppedAt))", .attention) }
             return (why.contains("question") ? "Question for you" : "Needs you", .attention)
         }
         // A finished run is Done, whether its machine is gone or kept (root ADR 0031). Only
@@ -224,6 +235,8 @@ extension RunFacts {
                 return (Chrome.verdictLine(verdict), tone)
             }
             if case .lost = ending { return ("Machine lost", .failure) }
+            // Nothing will continue it now; the row still says why the task has no verdict.
+            if let stoppedAt { return ("No verdict, \(LimitStop.short(stoppedAt))", .quiet) }
             return ("No verdict", .quiet)
         }
     }
@@ -245,7 +258,7 @@ extension RunFacts {
     }
 
     /// Only a verified finish (an accepted pass on this run) earns the pass colour; the rest
-    /// are neutral (root ADR 0031, companion ADR 0015).
+    /// are neutral (root ADR 0031, companion ADR 0016).
     static func doneTone(_ finish: RunFinish) -> Tone {
         finish.outcome == .verified ? .pass : .done
     }

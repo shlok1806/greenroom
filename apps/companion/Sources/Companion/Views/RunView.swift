@@ -186,6 +186,7 @@ struct RunView: View {
         if facts.machineReady, !pilot.busy, !driving { ids.insert(.takeControl) }
         if !facts.failures.isEmpty { ids.formUnion([.nextFailure, .previousFailure]) }
         if !store.checklist(runId).checks.isEmpty { ids.formUnion([.nextCheck, .previousCheck]) }
+        if store.canContinue(runId) { ids.insert(.continueVerifier) }
         return ids
     }
 
@@ -209,6 +210,7 @@ struct RunView: View {
         case .previousFailure: showFailure(-1)
         case .nextCheck: showCheck(1)
         case .previousCheck: showCheck(-1)
+        case .continueVerifier: Task { await store.continueVerifier(runId: runId) }
         default: break
         }
     }

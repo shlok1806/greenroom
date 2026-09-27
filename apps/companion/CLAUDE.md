@@ -11,7 +11,9 @@ moments, click marks), `0007` (the dependency allowlist), `0008` (readable type 
 olive brand, amending 0004's type and colour decisions), `0009` (transcript cards and
 the Markdown renderer), `0010` (run thumbnails from the last frame, superseded by
 `0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict), `0013` (one
-primary in the top bar, Give Back on the driving bar), `0014` (evidence marks on the picture) and `0015` (a finished run says Done, only Verified is green). Design: `docs/design-spec.md`
+primary in the top bar, Give Back on the driving bar), `0014` (evidence marks on the picture), `0015` (a
+verifier stopped at its limit is a card with Continue) and `0016` (a finished run says Done, only Verified is
+green). Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
@@ -356,7 +358,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   0012): a waiting verdict leads with its outcome, `Fail, needs review`. Rows have no
   thumbnail (0012 supersedes 0010). `RunTitle.distinct` (the time appended to twins) is for
   places without the row's time, never the row.
-- A finished run (root ADR 0031, companion ADR 0015) is Done: `RunFacts.finish`, taken from
+- A finished run (root ADR 0031, companion ADR 0016) is Done: `RunFacts.finish`, taken from
   the transcript's system event carrying `finish` first (it arrives over the event stream;
   `apply` also copies it onto the row and the held detail and asks for the run), then the
   detail's manifest, then the list. Only a `system` message's finish counts. `rowStatus`
@@ -376,7 +378,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   reviewed it. The transcript shows the live verdict as one line, never a second card.
 - Each colour means one thing: the roles above, through `Theme.color(_:on:)`,
   `tone(_:on:)` and `outcome(_:on:)`. Booting and offline carry none. Every state is also
-  a glyph and a word (`StatusText`: `●` live, `!` needs you, `✓` pass, `✗` failure, `■` done (ADR 0015), the
+  a glyph and a word (`StatusText`: `●` live, `!` needs you, `✓` pass, `✗` failure, `■` done (ADR 0016), the
   tick while working), and the words are one vocabulary (ADR 0003): the sidebar's
   `rowStatus` and the card's `VerdictReview.state` must say the same thing.
 - A verdict's actions are only the ones the daemon's session rules accept. When it
@@ -528,6 +530,14 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   `CheckPlanBlock`), one line once the current verdict answers it. A verdict without checks
   reads as before. While one with checks is open, the card may take `verdictReviewShare` of
   its column. Harness scenarios 37 to 45 (41 to 45 real bench verdicts).
+- A verifier reply with `stop` (`steps` or `time`, issue #127) is a card (companion ADR 0015;
+  `LimitStop` in `Model/TranscriptCards.swift`, `LimitStopCard`): which limit, what it means,
+  the verifier's words, and while it waits, Continue (the registry's `continueVerifier`, `C`),
+  which posts the human note `LimitStop.continueText` through `RunStore.continueVerifier`.
+  "Waits" is `LimitStop.waiting`: the newest verifier word is that reply and nothing that
+  starts a turn (`RunStore.startsTurn`) or verifier progress came after it. `RunFacts.stoppedAt`
+  carries it to the row and the turn; a live run so stopped needs you. Harness scenarios 46
+  to 46d (the bench run `20260926-071916-b48b96d157b71fcd`).
 - Prose (`readingStyle`) sits at `tokens.json` `reading.lineHeight` (1.45): the gap is
   worked out from the face's own line (`Typeface.lineSpacing`), never a fraction of the
   size added on top.
