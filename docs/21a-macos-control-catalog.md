@@ -2,7 +2,7 @@
 
 Date: 2026-09-27. Status: research, for review. Companion to `docs/21-verifier-desktop-toolkit.md`
 (the toolkit design) and ADR 0037. Umbrella issue #206; existing waves #212 to #215; new waves
-proposed in section 14.
+proposed in section 15 (#229 to #233).
 
 docs/21 designs the toolkit around what the verifier wasted time on in real runs: acting by
 reference, actionability, waits, menus, dialogs, windows, apps and diagnostics. This document asks
@@ -480,7 +480,7 @@ in most UI tasks, so they can be pulled into whichever wave runs first. Each wav
 version, and ends with a bench comparison on the navigation tier. Every new tool follows the
 docs/21 contract: effect with read-back, a recorded step, a deadline, setup tools labelled.
 
-### Wave 5: Spaces, Mission Control, windows and the Dock
+### Wave 5 (#229): Spaces, Mission Control, windows and the Dock
 
 - Tools: `machine_space` (list, switch, create, remove, move_window, assign, overview,
   app_expose, show_desktop, stage, app_switcher), `machine_window` additions (tile, tabs, split,
@@ -491,7 +491,7 @@ docs/21 contract: effect with read-back, a recorded step, a deadline, setup tool
 - SkyLight reads behind `dlsym` with an `unsupported` result when a symbol is missing.
 - Catalog items: S1 to S11, S13 to S16, W7, W9, W12, W17, M4, M10, M17, Y24, T13.
 
-### Wave 6: system settings and state control
+### Wave 6 (#230): system settings and state control
 
 - Tools: `machine_settings` (appearance, accent, reduce motion, transparency, contrast, language,
   region, time zone, 24-hour clock, stage manager, hot corners, dock, pointer, keyboard,
@@ -502,7 +502,7 @@ docs/21 contract: effect with read-back, a recorded step, a deadline, setup tool
 - Catalog items: S12, S14 (tool), D14, Y1 to Y4, Y7 to Y13, Y15 (spike), Y17 to Y19, Y21 to
   Y23, Y27, M6, O13.
 
-### Wave 7: prompts, permissions and system dialogs
+### Wave 7 (#231): prompts, permissions and system dialogs
 
 - Attention classifier by owning process (UserNotificationCenter, universalAccessAuthWarn,
   SecurityAgent, CoreServicesUIAgent, NotificationCenter, replayd) with a per-prompt table
@@ -515,7 +515,7 @@ docs/21 contract: effect with read-back, a recorded step, a deadline, setup tool
   how each is recorded.
 - Catalog items: A13, A15 (policy), D5 to D11, D17, D18, M7, M8, O15.
 
-### Wave 8: files, installs, handlers, scripting and the web
+### Wave 8 (#232): files, installs, handlers, scripting and the web
 
 - Tools: `machine_finder`, `machine_files` (stat, xattr, metadata, tags, zip, unzip, mount, eject,
   trace), `machine_install` (DMG drag, PKG CLI and UI, zip), `machine_quicklook`, `machine_print`,
@@ -525,7 +525,7 @@ docs/21 contract: effect with read-back, a recorded step, a deadline, setup tool
   `machine_services`.
 - Catalog items: A10, A11, A14, A16, A20, M12, M13, D3, F1 to F13, F15, X2 to X4, X7 to X9, Y28.
 
-### Wave 9: advanced input, text, and test instruments
+### Wave 9 (#233): advanced input, text, and test instruments
 
 - Input: `machine_hover`, `hold_ms` on press and key, drag modifiers and dwell, trackpad-style
   scrolling, `via` on `machine_type`, fn and system keys, `machine_input_source` and IME typing,
