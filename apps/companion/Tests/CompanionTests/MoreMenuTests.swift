@@ -3,7 +3,7 @@ import XCTest
 
 @testable import Companion
 
-/// The top bar's More menu (companion ADR 0016): drawn by the app, its rows from the one
+/// The top bar's More menu (companion ADR 0017): drawn by the app, its rows from the one
 /// registry (ADR 0005), Builds and Updates with its news, Destroy set apart, and its own
 /// keyboard while open.
 @MainActor
@@ -249,7 +249,7 @@ final class MoreMenuTests: XCTestCase {
 
     // MARK: - No native menu in the window
 
-    /// ADR 0016: a menu inside the window is drawn by the app. Only the menu bar
+    /// ADR 0017: a menu inside the window is drawn by the app. Only the menu bar
     /// (`CompanionApp.swift`) is AppKit's.
     func testNoViewDrawsANativeMenu() throws {
         let views = URL(fileURLWithPath: #filePath)

@@ -142,7 +142,7 @@ enum ActionContext: String, CaseIterable, Sendable {
     case confirm
     /// The Greenroom section (builds and updates, root ADR 0033) is open over the window.
     case greenroom
-    /// The top bar's More menu is open (companion ADR 0016).
+    /// The top bar's More menu is open (companion ADR 0017).
     case more
 
     /// The pane's name, as the hint bar leads with it.
@@ -189,7 +189,7 @@ enum MenuPlacement: Sendable {
     case view, run
 }
 
-/// Where an action sits in the top bar's More menu (companion ADR 0016), sections in this
+/// Where an action sits in the top bar's More menu (companion ADR 0017), sections in this
 /// order with a line between them.
 enum MoreSection: Int, Comparable, Sendable {
     case run, view, app, destructive
@@ -219,7 +219,7 @@ enum ActionID: String, CaseIterable, Sendable {
     case send, newline, leave
     // The palette
     case paletteDown, paletteUp, paletteRun, paletteClose
-    // The More menu (companion ADR 0016)
+    // The More menu (companion ADR 0017)
     case more, moreDown, moreUp, moreRun, moreClose
 }
 
@@ -350,7 +350,7 @@ enum ActionRegistry {
         ActionSpec(id: .destroy, title: "Destroy the machine", keys: [KeyBinding(KeyChord(key: .delete, command: true))],
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Destroy Machine...", more: .destructive,
                    destructive: true),
-        // The top bar's More menu, drawn by the app (companion ADR 0016): `.` for "...".
+        // The top bar's More menu, drawn by the app (companion ADR 0017): `.` for "...".
         ActionSpec(id: .more, title: "More actions", keys: [KeyBinding(.char("."))],
                    contexts: [.run], group: .run, inPalette: false),
         ActionSpec(id: .confirmDestroy, title: "Destroy", keys: [KeyBinding(.enter)],
@@ -411,7 +411,7 @@ enum ActionRegistry {
                    contexts: [.palette], group: .window, hint: 2, hintTitle: "close", inPalette: false),
     ]
 
-    /// The More menu's own keys while it is open (companion ADR 0016). An item's key (`c`,
+    /// The More menu's own keys while it is open (companion ADR 0017). An item's key (`c`,
     /// `e`, Cmd-Backspace) also runs it there: `KeyResolver` asks `MoreMenu`.
     static let moreKeys: [ActionSpec] = [
         ActionSpec(id: .moreDown, title: "Next item", keys: [KeyBinding(.down), KeyBinding(KeyChord(key: .character("n"), control: true))],

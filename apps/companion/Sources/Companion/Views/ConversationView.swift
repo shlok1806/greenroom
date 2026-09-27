@@ -109,7 +109,12 @@ struct ConversationView: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: Space.l) {
+                // Eager, never lazy (issue #146): a lazy stack guesses the height of rows it
+                // has not built, and while the window settled its width the bottom anchor
+                // chased each guess until the offset moved after the stack had built rows
+                // for it. The transcript then drew no row at all, and nothing scrolled to
+                // build them. A long run is a few hundred rows (tool calls are grouped).
+                VStack(alignment: .leading, spacing: Space.l) {
                     ForEach(items) { item in
                         row(item)
                             .background {
@@ -124,8 +129,7 @@ struct ConversationView: View {
                     if awaitingVerifier {
                         WorkingRow().id(Self.workingRowId)
                     }
-                    // A lazy stack guesses the height of rows it has not drawn, so "at the
-                    // end" is whether this last line is on screen, not a scroll offset.
+                    // "At the end" is whether this last line is on screen, not a scroll offset.
                     Color.clear
                         .frame(height: 1)
                         .onScrollVisibilityChange(threshold: 0.01) { atBottom = $0 }

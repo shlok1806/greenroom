@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The top bar's More menu (companion ADR 0016), drawn by the app rather than as a native
+/// The top bar's More menu (companion ADR 0017), drawn by the app rather than as a native
 /// `NSMenu`: the theme's background with a hairline, titles in Mona Sans, keys as the hint
 /// bar draws them, the selection filled with the brand. Its rows are `MoreMenu.items`, from
 /// the registry; its keys come through `KeyRouter` like the palette's. `RootView` hangs it

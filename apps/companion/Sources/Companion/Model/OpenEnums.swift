@@ -164,6 +164,24 @@ enum LifecycleKind: OpenEnum {
     }
 }
 
+/// How the coding agent ended a run (root ADR 0034, `run_finish`). `verified` needs an
+/// accepted pass on the run; the daemon refuses it otherwise.
+enum FinishOutcome: OpenEnum {
+    case verified, unverified, abandoned
+    case unknown(String)
+
+    static let known: [Self] = [.verified, .unverified, .abandoned]
+
+    var text: String {
+        switch self {
+        case .verified: "verified"
+        case .unverified: "unverified"
+        case .abandoned: "abandoned"
+        case .unknown(let raw): raw
+        }
+    }
+}
+
 /// The limit that ended a verifier turn with no verdict (`session.StopSteps`, `StopTime`;
 /// issue #127). Only a verifier reply carries one.
 enum StopReason: OpenEnum {

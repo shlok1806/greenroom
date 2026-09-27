@@ -203,7 +203,7 @@ struct RootView: View {
         .transition(.opacity)
     }
 
-    /// The More menu (companion ADR 0016), hung under its button with their right edges
+    /// The More menu (companion ADR 0017), hung under its button with their right edges
     /// together, kept inside the window. A click anywhere else only closes it, as a menu's
     /// does: the layer under it takes that click and nothing beneath sees it.
     private func more(under anchor: CGRect) -> some View {

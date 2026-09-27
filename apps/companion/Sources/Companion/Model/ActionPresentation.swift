@@ -353,7 +353,7 @@ struct MoreItem: Equatable, Sendable {
     var badge: MoreBadge?
 }
 
-/// What the top bar's More menu holds (companion ADR 0016): the registry's `more` entries
+/// What the top bar's More menu holds (companion ADR 0017): the registry's `more` entries
 /// that work now, by section, titled as the menu bar titles them.
 enum MoreMenu {
     static func items(_ s: ActionState, badge: MoreBadge? = nil) -> [MoreItem] {

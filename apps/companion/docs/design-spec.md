@@ -441,7 +441,7 @@ The rest, in our own terms:
 | Typing | The hint bar shows `⏎ send  ⇧⏎ newline  esc leave`; bare keys type |
 | Zoomed | One pane fills the window; the hint bar shows `z restore` |
 | Destroyed | Power-down still on the screen; "Ended: destroyed by you" in words |
-| Long transcript | Tool calls fold into groups; lazy stacks; new messages follow only at the bottom, `G` jumps to latest otherwise |
+| Long transcript | Tool calls fold into groups; the transcript is an eager stack (a lazy one drew nothing, #146), the steps list a lazy one; new messages follow only at the bottom, `G` jumps to latest otherwise |
 | Many runs | Day sections; `/` searches by task, id, state, verdict |
 | Errors | The daemon's own words, inline where the action was |
 

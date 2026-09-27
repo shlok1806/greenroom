@@ -1,4 +1,4 @@
-# 0016. In-window menus are drawn by the app
+# 0017. In-window menus are drawn by the app
 
 Date: 2026-09-26
 Status: accepted. Builds on 0005 (keys and the one registry), 0008 (type and the olive
@@ -59,7 +59,7 @@ person looks for every command. It is already built from the registry (ADR 0005)
 - One list: adding an action to the menu is one field on its registry entry, and it shows
   in the menu, the palette, the help and the menu bar with the same title and key.
 - The menu looks right in all four themes and is checked by the snapshot harness
-  (scenarios 52 to 52f), which could never draw a native menu.
+  (scenarios 55 to 55f), which could never draw a native menu.
 - We own what AppKit gave for free: outside clicks, type-ahead, VoiceOver's menu role. The
   dropdown does outside clicks and keys; it reads to VoiceOver as a group of buttons rather
   than a menu.

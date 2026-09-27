@@ -273,6 +273,7 @@ struct StatusText: View {
             case .neutral: Spinner(size: size)
             case .unsure: Text("?")
             case .quiet: EmptyView()
+            case .done: Text("■")
             }
             Text(text)
         }

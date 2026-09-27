@@ -326,19 +326,29 @@ type verdictReview struct {
 // reviewVerdict checks call against the checks declared in msgs and the run's step records,
 // where the screen last changed hands at handoverStep (0 for never). A pass or fail that breaks a rule
 // has problems and must not be posted as it is. An inconclusive is always allowed: its answers
-// are made honest instead (settle).
+// are made honest instead (settle). So is a fail with at least one failing check whose evidence
+// holds (ADR 0031, issue #153): the answers that broke a rule, and the checks not answered, are
+// posted unchecked with the reasons. Only a problem with the verdict as a whole (arguments that
+// do not parse, an unknown or repeated id, a step in the free evidence list) still refuses it.
 func reviewVerdict(call verdictCall, msgs []session.Message, records []machine.Step, handoverStep int) verdictReview {
 	declared := declaredChecks(msgs)
 	steps := ledger(records)
 	var problems []string
 	bad := map[string][]string{} // by check id, the rules its answer broke
+	whole := false               // a problem with the verdict as a whole, not one declared check's answer
 	add := func(id, rule string) {
 		bad[id] = append(bad[id], rule)
 		problems = append(problems, fmt.Sprintf("check %q (%s", id, rule))
 	}
-	problems = append(problems, call.general...)
+	general := func(p string) {
+		whole = true
+		problems = append(problems, p)
+	}
+	for _, p := range call.general {
+		general(p)
+	}
 	if len(declared) == 0 && call.verdict != "inconclusive" {
-		problems = append(problems, "checks: no checks are declared for this task; call declare_checks, observe "+
+		general("checks: no checks are declared for this task; call declare_checks, observe " +
 			"each check, then report_verdict answering them")
 	}
 
@@ -346,14 +356,14 @@ func reviewVerdict(call verdictCall, msgs []session.Message, records []machine.S
 	for _, c := range call.checks {
 		switch {
 		case c.ID == "":
-			problems = append(problems, "checks: a check has no id; answer each declared check by its id")
+			general("checks: a check has no id; answer each declared check by its id")
 			continue
 		case !slices.ContainsFunc(declared, func(d session.Check) bool { return d.ID == c.ID }):
-			problems = append(problems, fmt.Sprintf("check %q (unknown id): it was not declared; the declared ids are %s",
+			general(fmt.Sprintf("check %q (unknown id): it was not declared; the declared ids are %s",
 				c.ID, idList(declared)))
 			continue
 		case answered[c.ID].ID != "":
-			problems = append(problems, fmt.Sprintf("check %q (answered twice): answer each check once", c.ID))
+			general(fmt.Sprintf("check %q (answered twice): answer each check once", c.ID))
 			continue
 		}
 		d := declared[slices.IndexFunc(declared, func(d session.Check) bool { return d.ID == c.ID })]
@@ -394,17 +404,29 @@ func reviewVerdict(call verdictCall, msgs []session.Message, records []machine.S
 			}
 		}
 	case "fail":
-		if !slices.ContainsFunc(checks, func(c session.Check) bool {
+		grounded := slices.ContainsFunc(checks, func(c session.Check) bool {
 			return c.Status == session.CheckFail && len(bad[c.ID]) == 0
-		}) {
-			problems = append(problems, "fail: no check is fail with valid evidence; a fail needs at least one")
+		})
+		if !grounded {
+			general("fail: no check is fail with valid evidence; a fail needs at least one")
 		}
 	}
 
 	msg := session.Message{From: session.Verifier, Kind: session.Verdict, Verdict: call.verdict,
 		Text: call.summary, Evidence: call.paths, Checks: checks}
-	if call.verdict == "inconclusive" {
+	switch {
+	case call.verdict == "inconclusive":
 		msg.Checks = settle(checks, bad)
+		problems = nil
+	case call.verdict == "fail" && !whole && len(problems) > 0:
+		// A grounded fail stands (ADR 0031); what did not hold is shown, not hidden behind it.
+		msg.Checks = settle(checks, bad)
+		verb := "are"
+		if len(problems) == 1 {
+			verb = "is"
+		}
+		msg.Text = fmt.Sprintf("%s\n\n[greenroom] Posted as fail on its evidenced failing checks. %d %s did not hold "+
+			"and %s shown as unchecked: %s.", call.summary, len(problems), plural(len(problems), "answer"), verb, strings.Join(problems, "; "))
 		problems = nil
 	}
 	return verdictReview{msg: msg, problems: problems}
@@ -753,6 +775,7 @@ func settle(checks []session.Check, bad map[string][]string) []session.Check {
 
 // downgrade turns a pass or fail whose evidence broke the rules into the inconclusive the closing
 // call posts at a limit (issue #127): never a pass the evidence does not hold, with the reasons.
+// A fail with an evidenced failing check has no problems left to downgrade for (ADR 0031).
 func downgrade(call verdictCall, msgs []session.Message, records []machine.Step, handoverStep int) session.Message {
 	r := reviewVerdict(call, msgs, records, handoverStep)
 	if len(r.problems) == 0 {

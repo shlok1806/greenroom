@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"log/slog"
 	"os"
 	"strings"
 )
@@ -65,6 +66,29 @@ func envValue(raw string) string {
 // no invented value and a p50 of 4.2 s, against 0.72 and 20 to 62 s for kimi-k3 and omni
 // (ADR 0030). It needs thinking off, which nim.describeFields sends for it.
 const defaultVisionModel = "meta/muse-glimmer-30b"
+
+// describerOverride says which describer GREENROOM_VISION_MODEL (raw) selects instead of the
+// default, or "" when it selects the default. "none" is an override too: no describer at all.
+func describerOverride(raw string) string {
+	switch v := visionModel(raw); v {
+	case defaultVisionModel:
+		return ""
+	case "":
+		return "none"
+	default:
+		return v
+	}
+}
+
+// warnDescriberOverride logs a warning at start when the environment (or envFile, which fills
+// it) picks a describer other than the default. A stale .env line swapped in a weaker describer
+// for every run and nobody saw it until a log was read by hand (issue #154).
+func warnDescriberOverride(log *slog.Logger, raw, envFile string) {
+	if got := describerOverride(raw); got != "" {
+		log.Warn("GREENROOM_VISION_MODEL overrides the default screenshot describer", "vision", got,
+			"default", defaultVisionModel, "from", "the environment or "+envFile)
+	}
+}
 
 // visionModel is the describer to use for a GREENROOM_VISION_MODEL value: the default when it is
 // unset or blank, nothing (the verifier works without seeing the screen) for "none".

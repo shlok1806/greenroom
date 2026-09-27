@@ -419,6 +419,12 @@ final class RunStore: PilotHost {
     func apply(_ event: ServerEvent) -> Followup {
         switch event {
         case .message(let runId, let message):
+            // A finish (root ADR 0034) marks the run Done at once, open or not; the re-read
+            // that follows brings the manifest's copy.
+            if let finish = message.finish, message.from == .system {
+                if let index = runs.firstIndex(where: { $0.runId == runId }) { runs[index].finish = finish }
+                details[runId]?.finish = finish
+            }
             guard var held = messages[runId] else {
                 // Not open: the row still counts it, and a verdict changes its badge now.
                 if let index = runs.firstIndex(where: { $0.runId == runId }) {
@@ -426,6 +432,7 @@ final class RunStore: PilotHost {
                     runs[index].lastActivity = max(runs[index].lastActivity, message.at)
                 }
                 if message.kind == .task { learn(task: message.text, for: runId) }
+                if message.finish != nil { return .run(runId) }
                 switch message.kind {
                 case .verdict, .accept, .dispute: return .run(runId)
                 default: return .nothing
@@ -443,7 +450,8 @@ final class RunStore: PilotHost {
                 runs[index].messages += 1
                 runs[index].lastActivity = max(runs[index].lastActivity, message.at)
             }
-            // A verdict or its closing changes the badge.
+            // A verdict or its closing changes the badge, and a finish the run's state.
+            if message.finish != nil { return .run(runId) }
             switch message.kind {
             case .verdict, .accept, .dispute: return .run(runId)
             default: return .nothing

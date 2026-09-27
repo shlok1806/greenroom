@@ -89,6 +89,30 @@ Then ask: "Boot a machine, sync this repo into it, and ask greenroom to build it
 show me the window." The agent uses `machine_*` tools for the VM and `agent_send` /
 `agent_wait` to talk to the verifier. You, the agent and the verifier share one transcript.
 
+### How a coding agent ends a job
+
+A job ends with a verdict and a finish (ADR 0034):
+
+1. `agent_send` kind `task`: what to check. `agent_wait` until the verdict arrives. It lists
+   each acceptance check the verifier declared, with its status and evidence steps.
+2. Fix and ask again on a fail. On a pass, `agent_send` kind `accept` with `replyTo` set to
+   the verdict's seq. A person can accept or dispute it in the companion too.
+3. `run_finish` with `outcome` (`verified`, `unverified` or `abandoned`), a one or two
+   sentence `summary` and an optional `ref` (`branch`, `commit`, `pr`). It records how the
+   run ended, destroys the machine (`destroy: false` keeps it) and returns the run's report.
+
+`verified` needs the run's current verdict to be a pass that was accepted; the daemon checks
+and refuses it otherwise, so an agent that skipped the verifier finishes as `unverified`. A
+run finishes once, and not while the verifier is still in a turn.
+
+The report is Markdown shaped for a PR body: the outcome, summary and ref, the models that
+verified it, and every check with what was observed and links to its evidence screenshots.
+It certifies that every listed check was observed on this build, not that the PR works.
+Read it at any time with `run_report` or `GET /api/runs/<runId>/report?format=md|json`;
+`embed=true` puts the screenshots in as data. Through `greenroom connect` the links point
+at the daemon's artifact route, which the connect token opens; locally they are file paths.
+The companion shows a finished run as Done, with its outcome.
+
 ## Develop
 
 ```sh

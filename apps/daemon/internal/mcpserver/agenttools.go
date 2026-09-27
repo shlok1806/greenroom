@@ -38,7 +38,9 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 			"its next turn; your note never starts a turn, so send a task when you want an answer. Answer a question with kind answer and replyTo set to the question's seq. A verdict " +
 			"is a proposal: accept it, or dispute it with replyTo and the reason, and the verifier takes another " +
 			"turn. After two disputes the verdict is contested and only a human can close it. A reply is a plain " +
-			"answer, not a verdict, so keep waiting if your task is not done. Returns your message's seq.",
+			"answer, not a verdict, so keep waiting if your task is not done. When the work is done: get a verdict, " +
+			"accept its pass, then call run_finish, which records the outcome and returns the run's report; only an " +
+			"accepted pass finishes as verified. Returns your message's seq.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, sendOut, error) {
 		store, err := reg.Get(in.RunID)
 		if err != nil {

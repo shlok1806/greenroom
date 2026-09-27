@@ -49,7 +49,7 @@ final class KeyboardModel {
     var helpOpen = false
     /// The Greenroom section (builds and updates) is open over the window.
     var greenroomOpen = false
-    /// The top bar's More menu is open (companion ADR 0016), with this row selected (none
+    /// The top bar's More menu is open (companion ADR 0017), with this row selected (none
     /// until a key or the pointer picks one when a click opened it).
     private(set) var moreOpen = false
     var moreSelection: ActionID?

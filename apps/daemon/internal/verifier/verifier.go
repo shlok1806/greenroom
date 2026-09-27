@@ -134,6 +134,16 @@ func New(mgr *machine.Manager, cfg Config, log *slog.Logger) (*Verifier, error) 
 // Model names the reasoning model, for reports.
 func (v *Verifier) Model() string { return v.cfg.Model }
 
+// Models is what this verifier's requests name and carry, for each run's record (issue #154).
+func (v *Verifier) Models() machine.Models {
+	m := machine.Models{Brain: machine.BrainNIM, Model: v.cfg.Model, Vision: v.cfg.VisionModel,
+		ModelOptions: nim.ChatOptions()}
+	if m.Vision != "" {
+		m.VisionOptions = nim.DescribeOptions(m.Vision)
+	}
+	return m
+}
+
 // TurnResult says how a turn ended.
 type TurnResult struct {
 	Ended   session.Kind // reply, question or verdict
