@@ -34,6 +34,8 @@ struct SidebarView: View {
         // One shared clock keeps idle times fresh.
         TimelineView(.periodic(from: .now, by: 30)) { tick in
             let sections = sections(now: tick.date)
+            // From every run held, not the search's matches: a mark stays put while typing.
+            let twins = RunTitle.twinMarks(store.runs)
             VStack(spacing: 0) {
                 if !store.runs.isEmpty {
                     searchField
@@ -51,9 +53,10 @@ struct SidebarView: View {
                                 ForEach(shown(section)) { run in
                                     RunRow(
                                         run: run,
-                                        // Twins are told apart by the time under the title, never
-                                        // by a time appended to it (audit R4).
+                                        // Twins are told apart by a mark under the title, never
+                                        // by a time appended to it (audit R4, ADR 0016).
                                         title: RunTitle.short(task: run.task, runId: run.runId),
+                                        twin: twins[run.runId],
                                         facts: store.facts(run.runId, now: tick.date),
                                         now: tick.date,
                                         selected: store.selectedRunId == run.runId
@@ -252,6 +255,9 @@ struct SidebarView: View {
 struct RunRow: View {
     let run: RunSummary
     let title: String
+    /// What tells it apart from runs with the same title (companion ADR 0016); nil when
+    /// its title is its own.
+    var twin: TwinMark?
     let facts: RunFacts
     let now: Date
     let selected: Bool
@@ -305,19 +311,16 @@ struct RunRow: View {
     /// One time format everywhere in the list: when the run started, and for a running
     /// one how long it has run. Errors are counted once, in the run's header. Longest
     /// first; the last is empty, so in a narrow column a long state ("Inconclusive, you
-    /// accepted") keeps its words and the time gives way, never a clipped time.
+    /// accepted") keeps its words and the time gives way, never a clipped time. A twin's
+    /// mark leads instead and never gives way (companion ADR 0016): it is what tells the
+    /// row from another with the same title.
     private var meta: [String] {
-        var parts = [Chrome.shortTime(run.createdAt)]
-        if facts.isAlive { parts.append("running \(Chrome.span(facts.duration(now: now)))") }
-        // A verdict's checks say more about a run than its size, and outlast the time when
-        // the row is narrow (companion ADR 0012).
-        if let tally = Checklist(checks: run.verdict?.checks ?? []).rowTally {
-            parts.insert(tally, at: 0)
-        } else if facts.stepCount > 0 {
-            parts.append(Chrome.plural(facts.stepCount, "step"))
-        }
-        return (1...parts.count).reversed().map { parts.prefix($0).joined(separator: " · ") } + [""]
+        RowMeta.lines(time: Chrome.shortTime(run.createdAt), twin: twin,
+                    running: facts.isAlive ? "running \(Chrome.span(facts.duration(now: now)))" : nil,
+                    tally: Checklist(checks: run.verdict?.checks ?? []).rowTally,
+                    steps: facts.stepCount > 0 ? Chrome.plural(facts.stepCount, "step") : nil)
     }
+
 
     private func help(status: String) -> String {
         var lines = [RunTitle.text(task: run.task, runId: run.runId), "", "\(status). Started \(Chrome.stamp(run.createdAt))."]

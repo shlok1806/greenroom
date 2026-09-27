@@ -320,7 +320,7 @@ final class SnapshotHarness {
             Scenario(name: "32-moment-power-down-still", sizes: [Self.medium], runId: runId, momentFreeze: 1.0) { store in
                 await Self.destroyWhileWatched(store, runId: runId)
             },
-        ] + verdictLandsScenarios() + checklistScenarios() + limitStopScenarios()
+        ] + verdictLandsScenarios() + checklistScenarios() + limitStopScenarios() + twinScenarios()
     }
 
     /// A verifier turn that stopped at its time budget before a verdict (issue #127,
@@ -343,6 +343,20 @@ final class SnapshotHarness {
                 Self.restop(store, runId: runId, .steps,
                             "I used all 40 tool calls for this turn and did not finish. Send a message and I will continue.")
             },
+        ]
+    }
+
+    /// Runs that share a title (issue #157): five bench trials of one WordCount task, two
+    /// started in the same minute, and three copies of one run started in the same second,
+    /// two of them sharing the id's first six hex digits. Serve the bench runs and the
+    /// copies (the PR says how they were made).
+    private func twinScenarios() -> [Scenario] {
+        let runId = "20260926-040010-37e61663c2b10bbb"
+        return [
+            Scenario(name: "47-twin-runs", sizes: [Self.large], runId: runId),
+            // The narrowest runs column: a lone run's time gives way there, a twin's mark never.
+            Scenario(name: "47b-twin-runs-narrow-column", sizes: [Self.large], runId: runId,
+                     sidebarWidth: RunLayout.sidebarMinimum),
         ]
     }
 

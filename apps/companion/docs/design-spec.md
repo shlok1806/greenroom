@@ -443,6 +443,7 @@ The rest, in our own terms:
 | Destroyed | Power-down still on the screen; "Ended: destroyed by you" in words |
 | Long transcript | Tool calls fold into groups; lazy stacks; new messages follow only at the bottom, `G` jumps to latest otherwise |
 | Many runs | Day sections; `/` searches by task, id, state, verdict |
+| Runs with one title | Each twin's row leads its second line with what tells it apart: its start time (to the second if needed), else `#` and its id's digits; that mark never gives way (ADR 0016) |
 | Errors | The daemon's own words, inline where the action was |
 
 ## Keyboard

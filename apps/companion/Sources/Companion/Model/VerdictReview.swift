@@ -310,28 +310,70 @@ extension RunTitle {
         return word.trimmingCharacters(in: CharacterSet(charactersIn: " ,;:.-")) + "…"
     }
 
-    /// Short titles made distinct: runs with the same one each say when they started,
-    /// which does not change as more runs arrive.
-    /// Minutes first; seconds only when two such runs started in the same minute.
+    /// Short titles made distinct: runs with the same one each carry their `twinMarks`
+    /// (for the strip's tooltips and anywhere without the row's own line).
     static func distinct(_ runs: [RunSummary]) -> [String: String] {
-        func counted(_ label: (RunSummary) -> String) -> [String: Int] {
-            runs.reduce(into: [:]) { $0[label($1), default: 0] += 1 }
-        }
-        let title: (RunSummary) -> String = { short(task: $0.task, runId: $0.runId) }
-        let titles = counted(title)
-        let minute: (RunSummary) -> String = { "\(title($0)), \(Chrome.shortTime($0.createdAt))" }
-        let minutes = counted(minute)
+        let marks = twinMarks(runs)
         var out: [String: String] = [:]
         for run in runs {
-            if titles[title(run), default: 0] < 2 {
-                out[run.runId] = title(run)
-            } else if minutes[minute(run), default: 0] < 2 {
-                out[run.runId] = minute(run)
-            } else {
-                out[run.runId] = "\(title(run)), \(Chrome.timeOfDay(run.createdAt))"
+            let title = short(task: run.task, runId: run.runId)
+            out[run.runId] = marks[run.runId].map { "\(title), \($0.text)" } ?? title
+        }
+        return out
+    }
+
+    /// What tells apart runs that share a short title (issue #157, companion ADR 0016): for
+    /// each such run, when it started, to the minute when no twin started in the same
+    /// minute, else to the second; failing both (copies of one run), its id tag. A run whose
+    /// title is its own has none. It does not change as more runs arrive, unless a new twin
+    /// shares the minute.
+    static func twinMarks(_ runs: [RunSummary]) -> [String: TwinMark] {
+        let title: (RunSummary) -> String = { short(task: $0.task, runId: $0.runId) }
+        let groups = Dictionary(grouping: runs, by: title).values.filter { $0.count > 1 }
+        var out: [String: TwinMark] = [:]
+        for twins in groups {
+            let minutes = counted(twins) { Chrome.shortTime($0.createdAt) }
+            let seconds = counted(twins) { Chrome.timeOfDay($0.createdAt) }
+            let tags = idTags(twins.map(\.runId))
+            for run in twins {
+                let minute = Chrome.shortTime(run.createdAt)
+                let second = Chrome.timeOfDay(run.createdAt)
+                if minutes[minute, default: 0] < 2 {
+                    out[run.runId] = .time(minute)
+                } else if seconds[second, default: 0] < 2 {
+                    out[run.runId] = .time(second)
+                } else {
+                    out[run.runId] = .tag(tags[run.runId] ?? run.runId)
+                }
             }
         }
         return out
+    }
+
+    /// Each id's hex part cut to the fewest digits (at least the six `Chrome.runHash`
+    /// shows) that no other id in `ids` starts with, after "#": the same digits a person
+    /// already calls the run by, only longer when they are shared.
+    static func idTags(_ ids: [String]) -> [String: String] {
+        let hex = Dictionary(ids.map { ($0, hexPart($0)) }, uniquingKeysWith: { first, _ in first })
+        var out: [String: String] = [:]
+        for (id, digits) in hex {
+            let others = hex.filter { $0.key != id }.map(\.value)
+            var length = min(6, digits.count)
+            while length < digits.count, others.contains(where: { $0.hasPrefix(digits.prefix(length)) }) {
+                length += 1
+            }
+            out[id] = "#" + digits.prefix(length)
+        }
+        return out
+    }
+
+    private static func hexPart(_ runId: String) -> String {
+        let parts = runId.split(separator: "-", maxSplits: 2, omittingEmptySubsequences: false)
+        return parts.count > 2 ? String(parts[2]) : runId
+    }
+
+    private static func counted(_ runs: [RunSummary], _ label: (RunSummary) -> String) -> [String: Int] {
+        runs.reduce(into: [:]) { $0[label($1), default: 0] += 1 }
     }
 
     /// A brief that opens by describing the screen ("X is running on screen", "X is on
@@ -399,5 +441,19 @@ extension RunTitle {
             index = next
         }
         return nil
+    }
+}
+
+/// What tells a run apart from others with the same title (companion ADR 0016).
+enum TwinMark: Equatable, Sendable {
+    /// When it started: "04:00", or "04:00:17" when a twin started in the same minute.
+    case time(String)
+    /// Its id's leading hex digits, as many as tell the twins apart: "#b48b96d157b71fce".
+    case tag(String)
+
+    var text: String {
+        switch self {
+        case .time(let text), .tag(let text): text
+        }
     }
 }

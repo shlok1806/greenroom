@@ -349,6 +349,68 @@ final class TitleAndWordsTests: XCTestCase {
         XCTAssertNotEqual(RunTitle.distinct([old, twin])["a"], RunTitle.distinct([old, twin])["d"])
     }
 
+    // MARK: - Twins (issue #157, companion ADR 0016)
+
+    /// Five trials of one task, two in one minute, and copies of one run in one second:
+    /// every twin gets a mark no other twin has; a run with its own title gets none.
+    func testEveryTwinGetsAMarkNoOtherTwinHas() {
+        let at = { (seconds: TimeInterval) in Date(timeIntervalSince1970: 1_000_000 + seconds) }
+        let task = "WordCount has UPPERCASE and lowercase buttons"
+        let trials = [
+            RunSummary(runId: "20260926-035636-1262b62890da6847", createdAt: at(0), task: task),
+            RunSummary(runId: "20260926-040010-37e61663c2b10bbb", createdAt: at(214), task: task),
+            RunSummary(runId: "20260926-040017-c8bd11ccf06c1e2a", createdAt: at(221), task: task),
+        ]
+        let copies = [
+            RunSummary(runId: "20260926-071916-b48b96d157b71fcd", createdAt: at(9000), task: "Longest word"),
+            RunSummary(runId: "20260926-071916-b48b96d157b71fce", createdAt: at(9000), task: "Longest word"),
+            RunSummary(runId: "20260926-071917-c0471f00d157b7aa", createdAt: at(9000), task: "Longest word"),
+        ]
+        let alone = RunSummary(runId: "20260926-080000-aaaaaa0000000000", createdAt: at(12000), task: "Something else")
+        let marks = RunTitle.twinMarks(trials + copies + [alone])
+
+        XCTAssertNil(marks[alone.runId])
+        XCTAssertEqual(marks[trials[0].runId], .time(Chrome.shortTime(trials[0].createdAt)))
+        // Same minute: to the second.
+        XCTAssertEqual(marks[trials[1].runId], .time(Chrome.timeOfDay(trials[1].createdAt)))
+        XCTAssertEqual(marks[trials[2].runId], .time(Chrome.timeOfDay(trials[2].createdAt)))
+        // Same second: the id's digits, as many as tell them apart.
+        XCTAssertEqual(marks[copies[0].runId], .tag("#b48b96d157b71fcd"))
+        XCTAssertEqual(marks[copies[1].runId], .tag("#b48b96d157b71fce"))
+        XCTAssertEqual(marks[copies[2].runId], .tag("#c0471f"))
+        let all = (trials + copies).compactMap { marks[$0.runId]?.text }
+        XCTAssertEqual(Set(all).count, all.count, "two twins share a mark: \(all)")
+    }
+
+    func testAnIdTagIsTheRunHashUnlessItIsShared() {
+        let tags = RunTitle.idTags(["20260927-000233-acbc2b008dfc6a8f", "20260927-003333-7b483488f7e62556"])
+        XCTAssertEqual(tags["20260927-000233-acbc2b008dfc6a8f"], "#acbc2b")
+        XCTAssertEqual(tags["20260927-000233-acbc2b008dfc6a8f"], "#" + Chrome.runHash("20260927-000233-acbc2b008dfc6a8f"))
+        XCTAssertEqual(RunTitle.idTags(["a-b-abcdef12", "a-b-abcdef13"])["a-b-abcdef12"], "#abcdef12")
+    }
+
+    /// The strip's tooltips say the same mark as the row.
+    func testDistinctTitlesCarryTheTwinMark() {
+        let one = RunSummary(runId: "x-y-b48b96d157b71fcd", createdAt: Date(timeIntervalSince1970: 60), task: "Check it")
+        let two = RunSummary(runId: "x-y-b48b96d157b71fce", createdAt: Date(timeIntervalSince1970: 60), task: "Check it")
+        let titles = RunTitle.distinct([one, two])
+        XCTAssertEqual(titles[one.runId], "Check it, #b48b96d157b71fcd")
+        XCTAssertEqual(titles[two.runId], "Check it, #b48b96d157b71fce")
+    }
+
+    /// A twin's mark leads its row's second line and never gives way; a lone run's time
+    /// gives way first, after its tally (companion ADR 0012).
+    func testATwinsMarkNeverGivesWayInItsRow() {
+        XCTAssertEqual(RowMeta.lines(time: "23:00", twin: nil, running: nil, tally: "1/2 failed", steps: nil),
+                       ["1/2 failed · 23:00", "1/2 failed", ""])
+        XCTAssertEqual(RowMeta.lines(time: "23:00", twin: .time("23:00:10"), running: nil, tally: "1/2 failed", steps: nil),
+                       ["23:00:10 · 1/2 failed", "23:00:10"])
+        XCTAssertEqual(RowMeta.lines(time: "02:19", twin: .tag("#c0471f"), running: nil, tally: nil, steps: "39 steps"),
+                       ["#c0471f · 02:19 · 39 steps", "#c0471f · 02:19", "#c0471f"])
+        XCTAssertEqual(RowMeta.lines(time: "02:19", twin: nil, running: "running 4m", tally: nil, steps: "3 steps"),
+                       ["02:19 · running 4m · 3 steps", "02:19 · running 4m", "02:19", ""])
+    }
+
     func testAStateDescribingBriefBecomesNeutral() {
         XCTAssertEqual(RunTitle.neutral("TipSplit is on screen with Bill 120"), "TipSplit with Bill 120")
         XCTAssertEqual(RunTitle.neutral("TipSplit is running on screen. Verify it works"), "TipSplit: verify it works")
