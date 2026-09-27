@@ -45,13 +45,17 @@ func closingPrompt(stop string) string {
 		"blocked. No machine tools are available."
 }
 
+// continueHint says what starts the next turn after a limit: a coding agent that sent a note
+// instead of a task waited forever (issue #196), since only a human's note starts a turn.
+const continueHint = "Send a task, or a note from a person, and I will continue from here. " +
+	"A coding agent's note does not start a turn."
+
 // limitReply is what the turn posts at a limit when it has no verdict to give.
 func (v *Verifier) limitReply(stop string) string {
 	if stop == session.StopTime {
-		return fmt.Sprintf("I ran out of time after %s. Send a message and I will continue.", v.cfg.Budget)
+		return fmt.Sprintf("I ran out of time after %s. %s", v.cfg.Budget, continueHint)
 	}
-	return fmt.Sprintf("I used all %d tool calls for this turn and did not finish. Send a message and I will "+
-		"continue from here.", v.cfg.MaxSteps)
+	return fmt.Sprintf("I used all %d tool calls for this turn and did not finish. %s", v.cfg.MaxSteps, continueHint)
 }
 
 // endAtLimit ends a turn that hit its step cap or budget (stop). A limit is not a verdict, but a

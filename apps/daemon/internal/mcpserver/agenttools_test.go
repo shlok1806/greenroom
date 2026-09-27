@@ -156,8 +156,18 @@ func TestAgentWaitShowsWhenTheVerifierStoppedAtItsLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tool := range tools.Tools {
-		if tool.Name == "agent_wait" && !strings.Contains(tool.Description, "stop set (steps or time)") {
+		if tool.Name != "agent_wait" {
+			continue
+		}
+		if !strings.Contains(tool.Description, "stop set (steps or time)") {
 			t.Errorf("agent_wait's description does not explain stop: %s", tool.Description)
+		}
+		// Issue #196: a coder's note never starts a turn, so the description must not offer one as a
+		// way to continue, and must name what does.
+		if strings.Contains(tool.Description, "task or note") ||
+			!strings.Contains(tool.Description, "send a task (or a dispute of its standing verdict) to let it continue") ||
+			!strings.Contains(tool.Description, "your note does not start a turn") {
+			t.Errorf("agent_wait's description misstates what continues a stopped verifier: %s", tool.Description)
 		}
 	}
 }

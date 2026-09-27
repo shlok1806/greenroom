@@ -928,7 +928,8 @@ func TestTurnStopsWhenTheBudgetRunsOut(t *testing.T) {
 	if last.Kind != session.Reply {
 		t.Fatalf("last message = %+v, want a reply", last)
 	}
-	if !strings.Contains(last.Text, "ran out of time after") || !strings.Contains(last.Text, "Send a message and I will continue") {
+	if !strings.Contains(last.Text, "ran out of time after") || !strings.Contains(last.Text, "Send a task, or a note from a person, and I will continue") ||
+		!strings.Contains(last.Text, "A coding agent's note does not start a turn") {
 		t.Errorf("reply = %q", last.Text)
 	}
 }

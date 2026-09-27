@@ -71,8 +71,9 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 			"agent_send of kind answer before the verifier continues; a reply is the verifier answering in words " +
 			"with no verdict, so it does not end your task. A reply with stop set (steps or time) means the " +
 			"verifier's turn hit its tool-call or time limit before it gave a verdict and it is waiting: send a " +
-			"task or note to let it continue, or check the result yourself. A watching human's actions show up " +
-			"here too, and the verifier answers a human's note.",
+			"task (or a dispute of its standing verdict) to let it continue, or check the result yourself; your " +
+			"note does not start a turn. A watching human's actions show up here too, and the verifier answers " +
+			"a human's note, so a human's note or Continue in the companion app also continues it.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitIn) (*mcp.CallToolResult, transcriptOut, error) {
 		store, err := reg.Get(in.RunID)
 		if err != nil {
