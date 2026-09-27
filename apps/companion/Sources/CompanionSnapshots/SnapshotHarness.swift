@@ -412,7 +412,8 @@ final class SnapshotHarness {
             Scenario(name: "46d-stopped-out-of-tool-calls", sizes: [Self.medium, Self.guest], runId: runId) { store in
                 Self.makeLive(store, runId: runId, lastActivityAgo: 40)
                 Self.restop(store, runId: runId, .steps,
-                            "I used all 40 tool calls for this turn and did not finish. Send a message and I will continue.")
+                            "I used all 40 tool calls for this turn and did not finish. Send a task, or a note "
+                                + "from a person, and I will continue from here. A coding agent's note does not start a turn.")
             },
         ]
     }

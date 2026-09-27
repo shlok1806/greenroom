@@ -234,7 +234,8 @@ final class TranscriptCardsTests: XCTestCase {
     // MARK: - A turn that stopped at a limit (issue #127, companion ADR 0015)
 
     private func stopped(_ seq: Int, _ stop: StopReason) -> Message {
-        var reply = message(seq, .verifier, .reply, "I ran out of time after 10m0s. Send a message and I will continue.")
+        var reply = message(seq, .verifier, .reply, "I ran out of time after 10m0s. Send a task, or a note from a "
+                            + "person, and I will continue from here. A coding agent's note does not start a turn.")
         reply.stop = stop
         return reply
     }
