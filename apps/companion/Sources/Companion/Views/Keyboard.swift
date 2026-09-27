@@ -47,6 +47,8 @@ final class KeyboardModel {
     }
     var paletteIndex = 0
     var helpOpen = false
+    /// The Greenroom section (builds and updates) is open over the window.
+    var greenroomOpen = false
     /// The run whose machine "destroy?" is being asked about.
     var confirmingDestroy: String?
     var pendingPrefix: KeyChord?
@@ -100,6 +102,7 @@ final class KeyboardModel {
         s.driving = runId.flatMap { store.existingPilot($0)?.active } ?? false
         s.paletteOpen = paletteOpen
         s.helpOpen = helpOpen
+        s.greenroomOpen = greenroomOpen
         s.confirmingDestroy = confirmingDestroy != nil
         s.pendingPrefix = pendingPrefix
         s.runOpen = runId != nil
@@ -150,6 +153,10 @@ final class KeyboardModel {
             if paletteOpen { closePalette() } else { openPalette() }
         case .help:
             helpOpen.toggle()
+        case .greenroom:
+            openGreenroom()
+        case .closeGreenroom:
+            greenroomOpen = false
         case .back:
             back()
         case .nextPane:
@@ -376,6 +383,17 @@ final class KeyboardModel {
     }
 
     // MARK: - The palette
+
+    /// Opens the Greenroom section and checks again: what it says is only as fresh as the
+    /// last check (root ADR 0033).
+    private func openGreenroom() {
+        closePalette()
+        helpOpen = false
+        endEditing()
+        greenroomOpen = true
+        let updates = store.updates
+        Task { await updates.refresh() }
+    }
 
     private func openPalette() {
         helpOpen = false

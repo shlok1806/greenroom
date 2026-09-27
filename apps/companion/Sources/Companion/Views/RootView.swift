@@ -79,6 +79,9 @@ struct RootView: View {
                 if keyboard.paletteOpen {
                     palette
                 }
+                if keyboard.greenroomOpen {
+                    greenroom
+                }
             }
             .ignoresSafeArea()
         }
@@ -170,6 +173,22 @@ struct RootView: View {
                 .onTapGesture { keyboard.closePalette() }
                 .accessibilityHidden(true)
             CommandPalette(keyboard: keyboard)
+                .padding(.top, TopBar.height + Space.xxl)
+                .padding(.horizontal, Space.l)
+        }
+        .transition(.opacity)
+    }
+
+    /// Builds and updates (root ADR 0033): over everything, like the palette; a click on the
+    /// scrim or esc closes it. An update keeps running with it closed.
+    private var greenroom: some View {
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.28)
+                .contentShape(Rectangle())
+                .onTapGesture { keyboard.perform(.closeGreenroom, in: .greenroom) }
+                .accessibilityHidden(true)
+            GreenroomPanel(store: store, keyboard: keyboard,
+                           maximumHeight: max(windowHeight - TopBar.height - Space.xxl * 2 - 160, 200))
                 .padding(.top, TopBar.height + Space.xxl)
                 .padding(.horizontal, Space.l)
         }

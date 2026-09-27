@@ -156,6 +156,8 @@ final class RunStore: PilotHost {
     @ObservationIgnored private var undoTimer: Task<Void, Never>?
 
     let client: DaemonClient
+    /// The builds and updates (root ADR 0033), beside the runs rather than in them.
+    let updates: Updates
     /// The lease routes; the daemon client unless a test lends the screen without one.
     private let controlClient: any ControlClient
     /// The live screen route; the daemon client unless a test stands in for it.
@@ -187,6 +189,7 @@ final class RunStore: PilotHost {
         screenSource: (any ScreenSource)? = nil
     ) {
         self.client = client
+        updates = Updates(client: client)
         self.controlClient = controlClient ?? client
         self.screenSource = screenSource ?? client
     }
