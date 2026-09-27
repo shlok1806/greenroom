@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/api"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
@@ -25,7 +27,7 @@ func TestRoutesRefuseWhatAWebPageCanSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", "", "", t.TempDir(), log))
+	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", "", "", t.TempDir(), api.Version{}, log))
 	t.Cleanup(ts.Close)
 
 	const initialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
@@ -75,7 +77,7 @@ func TestRoutesServeMCPToThePublicHostWithTheToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	const public, token = "gr.example.com", "0123456789abcdef0123456789abcdef"
-	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, t.TempDir(), log))
+	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, t.TempDir(), api.Version{}, log))
 	t.Cleanup(ts.Close)
 
 	const initialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
@@ -131,7 +133,7 @@ func TestRoutesServeTheInstallFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	const public, token = "gr.example.com", "0123456789abcdef0123456789abcdef"
-	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, dist, log))
+	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, dist, api.Version{}, log))
 	t.Cleanup(ts.Close)
 
 	for _, tc := range []struct {
@@ -237,4 +239,81 @@ func TestNoVerifierAnswersEveryTurnWithANotice(t *testing.T) {
 	verdict := appendMsg(session.Message{From: session.Verifier, Kind: session.Verdict, Verdict: "fail", Text: "wrong scheme"})
 	appendMsg(session.Message{From: session.Coder, Kind: session.Dispute, ReplyTo: verdict.Seq, Text: "you used Debug"})
 	waitFor([]string{"task", "note", "dispute"})
+}
+
+// ADR 0033: the daemon says which build it is, behind Guard like every route (the public host
+// needs the token), and offers no way to update it: only GET answers.
+func TestRoutesServeTheVersionReadOnly(t *testing.T) {
+	bin, _ := testsupport.FakeTart(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mgr, err := machine.NewManager(t.TempDir(), log, machine.WithTartBin(bin), machine.WithFrameInterval(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const public, token = "gr.example.com", "0123456789abcdef0123456789abcdef"
+	ver := buildVersion()
+	ver.Checkout = "/src/greenroom"
+	ts := httptest.NewServer(routes(mgr, session.NewRegistry(mgr.Root, 2), "img", public, token, t.TempDir(), ver, log))
+	t.Cleanup(ts.Close)
+
+	for _, tc := range []struct {
+		method, host, auth, origin string
+		want                       int
+	}{
+		{"GET", "", "", "", http.StatusOK},
+		{"GET", public, "Bearer " + token, "", http.StatusOK},
+		{"GET", public, "", "", http.StatusUnauthorized},
+		{"GET", public, "Bearer wrong-token-wrong-token-wrong-token", "", http.StatusUnauthorized},
+		{"GET", "", "", "https://evil.example", http.StatusForbidden},
+		{"GET", "evil.example", "", "", http.StatusForbidden},
+		{"POST", "", "", "", http.StatusNotFound}, // no route: /api/ answers it
+		{"POST", public, "Bearer " + token, "", http.StatusNotFound},
+	} {
+		req, err := http.NewRequest(tc.method, ts.URL+"/api/version", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.host != "" {
+			req.Host = tc.host
+		}
+		if tc.auth != "" {
+			req.Header.Set("Authorization", tc.auth)
+		}
+		if tc.origin != "" {
+			req.Header.Set("Origin", tc.origin)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		if res.StatusCode != tc.want {
+			t.Errorf("%s /api/version Host=%q auth=%t Origin=%q: %d, want %d (%s)", tc.method, tc.host, tc.auth != "", tc.origin, res.StatusCode, tc.want, body)
+			continue
+		}
+		if res.StatusCode != http.StatusOK {
+			continue
+		}
+		var got api.Version
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Checkout != "/src/greenroom" || got.Verifier != "none" || got.InputHelper != machine.InputHelperVersion() ||
+			got.ImageRecipe != machine.ImageRecipeVersion() || got.Version == "" {
+			t.Errorf("version = %+v", got)
+		}
+	}
+}
+
+// The checkout comes from the environment install.sh writes into the launchd job.
+func TestTheVersionNamesTheRecordedCheckout(t *testing.T) {
+	t.Setenv("GREENROOM_CHECKOUT", " /src/greenroom \n")
+	if got := buildVersion().Checkout; got != "/src/greenroom" {
+		t.Fatalf("checkout %q", got)
+	}
+	t.Setenv("GREENROOM_CHECKOUT", "")
+	if got := buildVersion().Checkout; got != "" {
+		t.Fatalf("checkout %q with none recorded", got)
+	}
 }

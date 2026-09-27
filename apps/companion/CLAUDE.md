@@ -114,6 +114,9 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   token. A token only goes with the address it came with. `DaemonClient.request` is the one
   request factory and adds `Authorization: Bearer <token>` to every request.
 - The app never starts the daemon.
+- `scripts/bundle.sh` stamps Info.plist with `GreenroomCommit`, `GreenroomDirty`,
+  `GreenroomBuiltAt` and `GreenroomCheckout` (root ADR 0033; `AppBuild.from(info:)` reads them).
+  A `swift run` build has none and reads "not stamped"; it is never compared with main.
 - The icon is drawn at build time by `scripts/make-icon.swift`; no artwork is checked in.
 
 ## Rules
@@ -195,7 +198,11 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
     `KeyChord` and asks `KeyboardModel.handle`. The menu bar (`RunMenuCommands`) is built
     from `ActionRegistry.menu(_:)` and performs through the model.
 - The app only calls the API: no tart, no ssh, no run directory on disk. Missing
-  capability means a new daemon route.
+  capability means a new daemon route. The one exception is updating (root ADR 0033): the
+  daemon has no update route by design, so `Model/UpdateScript.swift` (`ScriptRunner`) is the
+  only code that starts a process, and it only ever runs `<checkout>/scripts/update.sh`
+  through `/bin/bash`. Never add another process, and never let a daemon answer choose what
+  runs: the checkout is only a directory holding that script.
 - Never add a way to take the lease without a matching way to give it back (Give Back,
   run change, machine not ready, quit). Layout never gives it back and never strands it:
   a zoom, a width class change or a narrow window's pane switch keeps `ScreenView` in the
@@ -531,6 +538,34 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
 - Prose (`readingStyle`) sits at `tokens.json` `reading.lineHeight` (1.45): the gap is
   worked out from the face's own line (`Typeface.lineSpacing`), never a fraction of the
   size added on top.
+
+- Builds and updates (root ADR 0033): `Model/Builds.swift` (pure: `BuildStamp`, `AppBuild`,
+  `DaemonVersion`, `UpdateCheck` and `UpdateRun` parse what `/api/version` and
+  `scripts/update.sh` say, `BuildsSummary` words it), `Model/Updates.swift` (the
+  `@Observable` state, `RunStore.updates`), `Views/GreenroomPanel.swift`.
+  - Opened by the registry's `greenroom` action: Cmd-K, the More menu (always there now, with
+    "3 new", "rebuild" or "mismatch" after its title) and the app menu's "Builds and
+    Updates..." (`MenuPlacement.app`). While open it owns the keyboard (`ActionContext.greenroom`):
+    esc closes it, other bare keys are swallowed so nothing under it acts, chords reach the
+    menu bar. It is drawn over the window like the palette, not as a system sheet (the ADR's
+    "sheet"): a sheet whose presenter goes away leaves the window unable to take a click.
+  - `Updates.start` checks at launch and every 3 h (`Updates.interval`); opening the section
+    checks again. Nothing ever updates on its own, and a snapshot never checks or updates.
+  - The checkout is the daemon's `/api/version` `checkout`, else the app's own. Only for a
+    loopback daemon (`DaemonClient.isLocal`): a daemon on another Mac is never updated from
+    here. A loopback port forward to another Mac would still count as local.
+  - Update first asks `RunStore.runsWithVerifierTurn` (live runs whose transcript
+    `awaitingVerifier`, reading transcripts the window does not hold) and names them, since a
+    restart cuts that turn off (#163). The ask is inline in the section's footer.
+  - An update's output goes to `~/Library/Logs/Greenroom/update.log`, which the app reads
+    back every 200 ms. Never a pipe: the Companion's install quits this app part way through,
+    and a pipe would kill `update.sh` with SIGPIPE; with a file it carries on and opens the new
+    app. `UpdateRun` reads `step:`, `done:`, `refused:` and `failed:` lines, the words
+    `scripts/update.sh` prints; change both (`apps/daemon/updatescript_test.go` pins the script).
+  - Harness scenarios 47 to 51 (`builds`): up to date, updates available, the app and daemon
+    from different commits, the verifier-working ask (49b), updating, failed. They stage
+    `Updates` by hand and open the section with `greenroomOpen`, never `perform(.greenroom)`,
+    which would read and check for real.
 
 ## Copy
 

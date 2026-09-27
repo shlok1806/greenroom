@@ -32,6 +32,10 @@ go run . bench score [-tier simple] [-bench dir] <results.jsonl>   # writes <res
 
 scripts/install.sh      # launchd agent com.greenroom.daemon; honours GREENROOM_VERIFIER, GREENROOM_IMAGE, GREENROOM_ENV
                         # image default: local greenroom-lean-a, then greenroom-base, then upstream Cirrus
+                        # stamps the build (ADR 0033) and records the checkout as GREENROOM_CHECKOUT in the plist
+                        # unset GREENROOM_* reuse the replaced job's settings (scripts/install-settings.sh)
+../../scripts/update.sh [--check]   # fast-forward main, install.sh, then the Companion's install.sh (ADR 0033)
+go run . version                # "greenroom 0.0.2 abc1234 (local changes), built <time>", or "unstamped build"
 scripts/uninstall.sh    # keeps the binary and ~/.greenroom
 scripts/build-image.sh [-base <oci>] [-name greenroom-base] [-lean] [-force] [-xcode <app>] [-disk-size 90]   # ends with check-image
 ```
@@ -66,6 +70,14 @@ send either). The companion and smoke client send a loopback Host and no Origin.
   `TestRoutesServeMCPToThePublicHostWithTheToken` pins it.
 - `serve` refuses to start with a public host and a token under 32 characters (after
   trimming), before it locks the root. The token is never logged.
+- `GET /api/version` (`api.VersionHandler`, root ADR 0033) is the build (`internal/buildinfo`: commit,
+  dirty, builtAt), `inputHelper`, `imageRecipe`, the verifier (`nim`, `manual`, `none`) and its
+  models, and `checkout` (`GREENROOM_CHECKOUT`). `main.go`'s `buildVersion` fills it once at
+  start; every key is always present (empty when unknown). It is behind Guard like every
+  route: the public host needs the token. There is no route that updates, rebuilds or
+  restarts the daemon, and there must never be one: anything reachable through the tunnel
+  that makes the host build or run code is host code execution. Updating is
+  `scripts/update.sh`, run on the host by a person or the Companion.
 - `GET`/`HEAD /install.sh` and `/dl/<bare name>` (`api.Dist`, files in `-dist`, default
   `<root>/dist`) are the only public routes without a token (`installPath` in `guard.go`).
   Anything put in `dist` is world-readable through the tunnel. `Cache-Control: no-store`.
@@ -147,6 +159,10 @@ Each layer depends only on the ones below. Keep it that way.
 - `internal/tart` - the only package that knows tart's arguments and output.
 - `internal/tarball` - unpacking an untrusted gzipped tar (`Untar`); used by `api` and
   `remote`, imports nothing of the daemon's.
+- `internal/buildinfo` - the build's identity (ADR 0033): `commit`, `dirty` and `builtAt`, set only
+  by `install.sh` through `-ldflags -X .../internal/buildinfo.<name>=`. Unstamped (`go run`, tests)
+  is empty, never a guess from `debug.ReadBuildInfo`. Renaming a var breaks the stamp silently:
+  change `install.sh` with it. A leaf; imports nothing of the daemon's.
 - `internal/bench` - the verifier bench (ADR 0025): cases, patches, the runner and the
   scorer. Sits beside `api` and `mcpserver`: it drives `machine`, `session` and `verifier`,
   and nothing imports it but `bench.go`.
@@ -414,10 +430,10 @@ Conversation and verifier
   budget reasoning and returns no text. A model not in the table (kimi-k3, nano-omni) gets the
   plain request. Adding a describer that needs its own fields means a row there plus a
   request-body test in `nim/client_test.go`, never a new environment variable.
-- To use muse, set `GREENROOM_VISION_MODEL=meta/muse-glimmer-30b` in `.env` (or the launchd
-  plist) and restart the daemon; nothing else. A set value always beats the built-in default
-  (kimi-k3): the maintainer's `.env` pins `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`, so
-  every daemon and bench run so far used omni. Switching means changing that line.
+- muse-glimmer (thinking off) is the built-in default describer (ADR 0032). A set
+  `GREENROOM_VISION_MODEL` always beats it: an old `.env` line pinning omni or kimi-k3 silently
+  keeps the slower describer, as the maintainer's did until 2026-09-26 (#154). Check the
+  "verifier enabled" log line for `vision=` after a restart.
 - `Verifier.describe` retries once any answer `readableDescription` refuses: `<unk>` (omni),
   empty (all three describers; muse about 1 in 40 even with thinking off) or under 10
   letters (kimi-k3's "!!!!"). A second one is an error the brain sees, never the noise.
@@ -807,10 +823,11 @@ Values already set in the environment win.
 | `NVIDIA_API_KEY` | none | Without it the `nim` verifier is off; machine tools still work. |
 | `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` | OpenAI-compatible endpoint. |
 | `GREENROOM_VERIFIER_MODEL` | none, required with a key | Model for verifier turns. |
-| `GREENROOM_VISION_MODEL` | `moonshotai/kimi-k3` | Model that describes screenshots for the verifier (ADR 0020). `none`: the verifier works without seeing the screen. `meta/muse-glimmer-30b` is the faster candidate (ADR 0030): the name is enough, see below. Any value but the default makes `serve` and `bench run` log a warning at start naming both (`warnDescriberOverride`, issue #154). |
+| `GREENROOM_VISION_MODEL` | `meta/muse-glimmer-30b` | Model that describes screenshots for the verifier (ADR 0032). `none`: the verifier works without seeing the screen. Other describers (kimi-k3, omni) still work by name; see below. Any value but the default makes `serve` and `bench run` log a warning at start naming both (`warnDescriberOverride`, issue #154). |
 | `GREENROOM_TART` | none | tart binary, see below. `-tart` overrides. |
 | `GREENROOM_PUBLIC_HOST` | none | Tunnel hostname that may reach the daemon with the token (ADR 0021). `-public-host` overrides. |
 | `GREENROOM_TOKEN` | none | Bearer token for the public host, at least 32 characters (`openssl rand -hex 32`). |
+| `GREENROOM_CHECKOUT` | none | The checkout the daemon was built from. `install.sh` writes it into the launchd plist; `/api/version` reports it and the Companion runs `scripts/update.sh` there (ADR 0033). |
 
 ## Tart
 
@@ -947,6 +964,25 @@ mode, each read back with the copy's signature).
   copies its source (so the patched app is visible) and a scripted `verifier.Brain`. The fake
   tart stops every VM on one `stopped` file, so they run one trial at a time with
   `fakeTartMachines` clearing it; the machine limit is tested on `countingMachines`.
+- `updatescript_test.go` runs the repo's `scripts/update.sh` (ADR 0033) the way `base_test.go`
+  runs guest scripts: the real script copied into a scratch repository with a bare origin
+  beside it and fake `install.sh`es at the real paths, under `GIT_CONFIG_GLOBAL=/dev/null`.
+  The copy finds its repository from its own path, so the test can never reach the real
+  checkout, `/Applications` or launchd. Every refusal, a failing install at each step, a failed
+  fetch and the fast-forward that rewrites `update.sh` itself are covered. `update.sh`'s
+  output lines (`main`, `ahead`, `commit`, `refused:`, `step:`, `done:`, `failed:`) are parsed
+  by the Companion (`Builds.swift`); change both.
+- `install.sh` keeps how the daemon was installed, so an update (ADR 0033), which sets no
+  `GREENROOM_*`, changes nothing but the build: `scripts/install-settings.sh` takes
+  `GREENROOM_VERIFIER`, `_IMAGE`, `_ENV` and `_TART` from the environment, else from the plist it
+  replaces, and every other variable of that plist's `EnvironmentVariables` is written again.
+  A chosen image, env file or tart is recorded in the plist's `EnvironmentVariables`, so the
+  next install can tell it from install.sh's own pick (an image it picked stays its pick, so a
+  newer `greenroom-lean-a` is still found). A plist from before that is read from its arguments:
+  `-verifier` always, `-image` only when it is none of install.sh's own picks, `-env-file` only
+  when it differs from the one install.sh would pick now. `installscript_test.go` runs the real
+  install.sh with `HOME` in a temp dir and fake `launchctl`, `lsof`, `curl`, `go` and `tart`,
+  and refuses to start unless each resolves to its fake: never point it at the real plist.
 - Test at the highest seam that sees the behaviour: `internal/mcpserver/*_test.go` runs a
   real MCP client over HTTP against every tool; `internal/api/api_test.go` drives the real
   routes and SSE over `httptest`.

@@ -69,12 +69,12 @@ func TestLoadEnvFileWithoutAFileIsFine(t *testing.T) {
 	}
 }
 
-// ADR 0020: with GREENROOM_VISION_MODEL unset the verifier sees the screen through kimi-k3, the
+// ADR 0032: with GREENROOM_VISION_MODEL unset the verifier sees the screen through muse-glimmer, the
 // describer both evaluations chose; a set value wins, and "none" turns seeing off.
 func TestVisionModelDefaultsToTheEvaluatedDescriber(t *testing.T) {
 	for raw, want := range map[string]string{
-		"":                  "moonshotai/kimi-k3",
-		"  ":                "moonshotai/kimi-k3",
+		"":                  "meta/muse-glimmer-30b",
+		"  ":                "meta/muse-glimmer-30b",
 		"meta/other-vision": "meta/other-vision",
 		// ADR 0030: the faster describer is chosen by name alone; nim turns its thinking off.
 		" meta/muse-glimmer-30b ": "meta/muse-glimmer-30b",
@@ -91,9 +91,10 @@ func TestVisionModelDefaultsToTheEvaluatedDescriber(t *testing.T) {
 // default, naming both; the default, set or unset, says nothing.
 func TestServeWarnsWhenTheEnvironmentOverridesTheDescriber(t *testing.T) {
 	for raw, want := range map[string]string{
-		"": "", "moonshotai/kimi-k3": "",
+		"": "", defaultVisionModel: "",
 		"nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-		"none": "none",
+		"moonshotai/kimi-k3":                            "moonshotai/kimi-k3",
+		"none":                                          "none",
 	} {
 		var buf bytes.Buffer
 		warnDescriberOverride(slog.New(slog.NewTextHandler(&buf, nil)), raw, ".env")
@@ -105,7 +106,7 @@ func TestServeWarnsWhenTheEnvironmentOverridesTheDescriber(t *testing.T) {
 			continue
 		}
 		for _, part := range []string{"level=WARN", "overrides the default screenshot describer", "vision=" + want,
-			"default=moonshotai/kimi-k3", `from="the environment or .env"`} {
+			"default=" + defaultVisionModel, `from="the environment or .env"`} {
 			if !strings.Contains(got, part) {
 				t.Errorf("%q: log %q lacks %q", raw, got, part)
 			}

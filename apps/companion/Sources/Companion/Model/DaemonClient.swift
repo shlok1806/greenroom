@@ -66,6 +66,18 @@ final class DaemonClient: Sendable {
 
     // MARK: - Reads
 
+    /// Which build the daemon is and what it runs with (root ADR 0033). 404 from a daemon
+    /// older than the route.
+    func version() async throws -> DaemonVersion {
+        try await get(DaemonVersion.self, ["api", "version"])
+    }
+
+    /// Whether the daemon is on this Mac, so a checkout it names is one this app can run.
+    var isLocal: Bool {
+        guard let host = baseURL.host()?.lowercased() else { return false }
+        return host == "localhost" || host == "::1" || host == "[::1]" || host.hasPrefix("127.")
+    }
+
     func runs() async throws -> [RunSummary] {
         try await get([RunSummary].self, ["api", "runs"])
     }

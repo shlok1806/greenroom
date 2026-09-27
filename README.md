@@ -45,6 +45,13 @@ Decisions: [docs/adr/](docs/adr/).
 
    It talks to `127.0.0.1:7777`; set `GREENROOM_URL` to change that.
 
+   Both installs stamp the commit they were built from. To update later, run
+   `scripts/update.sh` from the repo root (or `pnpm update:greenroom`): it fast-forwards `main`
+   and reinstalls the daemon, then the companion. It refuses a checkout with local changes or
+   off `main`; `scripts/update.sh --check` only says what is new. In the companion, **Builds
+   and Updates...** (the More menu, Cmd-K or the app menu) shows both builds, checks every few
+   hours and runs the same script (ADR 0033).
+
 3. Boot a machine with your project in it. The companion only watches, so use the smoke
    client, which speaks MCP like a coding agent would:
 
