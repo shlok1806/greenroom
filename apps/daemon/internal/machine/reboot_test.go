@@ -113,6 +113,11 @@ func TestRebootKeepsTheCloneAndTheRun(t *testing.T) {
 	if !strings.Contains(calls, "stop "+mc.Name+" --timeout 20") {
 		t.Errorf("the reboot did not stop the VM with a grace\ncalls:\n%s", calls)
 	}
+	// tart stop powers the VM off at once: the guest's disk is flushed first, or what it
+	// wrote in its last seconds is lost.
+	if sync, stop := strings.Index(calls, "exec "+mc.Name+" /bin/sync"), strings.Index(calls, "stop "+mc.Name); sync < 0 || sync > stop {
+		t.Errorf("the reboot did not sync the guest before stopping it\ncalls:\n%s", calls)
+	}
 	if n := countLines(calls, "run "+mc.Name); n != 2 {
 		t.Errorf("tart run %s ran %d times, want 2 (boot and reboot)", mc.Name, n)
 	}
@@ -131,7 +136,7 @@ func TestRebootKeepsTheCloneAndTheRun(t *testing.T) {
 	dir := filepath.Join(root, "runs", mc.RunID)
 	step := rebootStep(t, dir, seq)
 	out, _ := step.Output.(map[string]any)
-	if step.Error != "" || out["status"] != string(Ready) || out["stopSeconds"] == nil || out["agentSeconds"] == nil || out["sshSeconds"] == nil {
+	if step.Error != "" || out["status"] != string(Ready) || out["stopSeconds"] == nil || out["syncSeconds"] == nil || out["agentSeconds"] == nil || out["sshSeconds"] == nil {
 		t.Errorf("the reboot step is %+v, want status ready with its phases timed", step)
 	}
 	if man := readManifest(t, dir); man.DestroyedAt != nil {

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
@@ -19,9 +20,12 @@ const (
 	// defaultRebootTimeout bounds a whole reboot: stop, start and every boot phase. A guest
 	// that is not back by then leaves the machine failed with its disk kept.
 	defaultRebootTimeout = 5 * time.Minute
-	// rebootStopGrace is how long `tart stop` lets the guest shut down cleanly before it
-	// forces the VM off. A wedged WindowServer can stall a clean shutdown for good.
+	// rebootStopGrace is how long `tart stop` lets `tart run` end on its own before it
+	// kills it.
 	rebootStopGrace = 20 * time.Second
+	// rebootSyncWait bounds the guest `sync` before the stop. The guest agent answers even
+	// with WindowServer wedged; a wedged agent costs the reboot this long at most.
+	rebootSyncWait = 15 * time.Second
 	// rebootExitWait is how long the VM may take to be gone after the stop, and again
 	// after the daemon kills its `tart run`.
 	rebootExitWait = 30 * time.Second
@@ -195,10 +199,30 @@ func (m *Manager) reboot(boot context.Context, mc *Machine, r rebootRun) {
 func (m *Manager) stopForReboot(ctx context.Context, mc *Machine, proc *tart.Process, timings map[string]any) error {
 	end := m.beginPhase(mc, PhaseStop)
 	at := time.Now()
+	m.syncGuest(ctx, mc)
+	timings["syncSeconds"] = round1(time.Since(at))
+	at = time.Now()
 	err := m.stopVM(ctx, mc.Name, proc)
 	timings["stopSeconds"] = round1(time.Since(at))
 	end(mc.Name, err)
 	return err
+}
+
+// syncGuest flushes the guest's disk before the stop. `tart stop` is no guest shutdown: it
+// ends `tart run`, which powers the VM off at once, so a file written seconds before the
+// reboot was lost (stress test of #187). The agent's `sync` makes the disk hold what the guest
+// wrote. A failure is logged and the reboot goes on: a guest whose agent is wedged needs it most.
+func (m *Manager) syncGuest(ctx context.Context, mc *Machine) {
+	syncCtx, cancel := context.WithTimeout(ctx, rebootSyncWait)
+	defer cancel()
+	res, err := m.tart.Exec(syncCtx, mc.Name, "/bin/sync")
+	if err == nil && res.ExitCode != 0 {
+		err = fmt.Errorf("sync exited %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	if err != nil {
+		m.Log.Warn("cannot flush the guest's disk before the reboot; what it wrote in its last seconds may be lost",
+			"runId", mc.RunID, "err", err)
+	}
 }
 
 func (m *Manager) stopVM(ctx context.Context, name string, proc *tart.Process) error {

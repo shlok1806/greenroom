@@ -17,14 +17,16 @@ Restarting only the GUI session (`killall WindowServer`, `launchctl kickstart -k
 reliable: a process in uninterruptible wait (`U`) takes no signal, and a logout kills the
 user-level guest agent and the app under test with it. `sudo shutdown -r` from inside the guest
 can stall on the same hung WindowServer. A reboot from the host is the one recovery that always
-ends: `tart stop` (a clean shutdown with a grace, then forced), then `tart run` on the same
-clone, whose disk persists. Only `cleanupVM` (destroy, a failed boot, a VM that stopped on its
+ends: `tart stop`, then `tart run` on the same clone, whose disk persists. `tart stop` is no
+guest shutdown: it ends `tart run`, which powers the VM off at once (0.2 s live), so the guest's
+unwritten data is lost unless it was flushed first. Only `cleanupVM` (destroy, a failed boot, a VM that stopped on its
 own) deletes a clone.
 
 ## Decision
 
 1. **`machine_reboot {runId, waitSeconds?}`** (`Manager.Reboot`, `machine/reboot.go`) stops the
-   VM with `tart stop --timeout 20`, waits for it to be gone (this daemon's `tart run` exits; if
+   VM with `tart stop --timeout 20` after a guest `sync` through the agent (at most 15 s; a
+   file written seconds before a reboot was lost without it), waits for it to be gone (this daemon's `tart run` exits; if
    it does not within 30 s the daemon kills it, which ends the VM it hosts; a reattached
    machine's is polled in `tart list` instead), starts the same clone with a new `tart run`,
    and runs every boot phase again (`bootGuest`: agent, ip, key, settings with the capture
