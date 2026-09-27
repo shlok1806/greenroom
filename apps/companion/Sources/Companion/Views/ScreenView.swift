@@ -500,7 +500,8 @@ struct ScreenView: View {
         Group {
             switch WellState.of(facts: facts, frames: store.frames[runId], connecting: sourceState == .connecting) {
             case .booting:
-                wellWords(loader: Loader(label: "Booting the machine", since: facts.started,
+                wellWords(loader: Loader(label: facts.rebootingSince == nil ? "Booting the machine" : "Rebooting the machine",
+                                         since: facts.rebootingSince ?? facts.started,
                                          ink: theme.wellInk, dim: theme.wellDim),
                           lines: bootLines,
                           message: "Its screen shows here once it is up.")

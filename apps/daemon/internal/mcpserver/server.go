@@ -103,7 +103,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_wait",
-		Description: "Wait for a machine to finish booting. Returns its status: booting (call again), ready (ip and " +
+		Description: "Wait for a machine to finish booting, or rebooting after machine_reboot. Returns its status: booting or rebooting (call again), ready (ip and " +
 			"bootSeconds are set), or failed (error is set). A ready machine also reports toolchain, what its image " +
 			"measured when it was built (Xcode present or not and its version, whether XCTest and swift-testing packages run with " +
 			"swift test and whether xcodebuild builds, swift and Command Line Tools versions; known false when the image says nothing), and " +
@@ -297,6 +297,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		return nil, destroyOut{OK: true}, nil
 	})
 
+	addRebootTool(s, mgr)
 	addAgentTools(s, reg)
 	addFinishTools(s, mgr, reg, o)
 	addInputTools(s, mgr)

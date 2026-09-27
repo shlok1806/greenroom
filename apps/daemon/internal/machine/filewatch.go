@@ -73,8 +73,9 @@ func WithFileCheck(fc FileCheck) Option {
 }
 
 // watchFiles counts the machine's `tart run` files every interval until the machine leaves
-// the map or its process exits. A count that fails is logged at debug and skipped.
-func (m *Manager) watchFiles(mc *Machine) {
+// the map, is rebooted (boot gen is no longer current: the reboot starts a new watch for the
+// new `tart run`) or its process exits. A count that fails is logged at debug and skipped.
+func (m *Manager) watchFiles(mc *Machine, gen int) {
 	fc := m.fileCheck
 	if fc.Interval <= 0 {
 		return
@@ -83,23 +84,26 @@ func (m *Manager) watchFiles(mc *Machine) {
 	defer tick.Stop()
 	for range tick.C {
 		m.mu.Lock()
-		alive := m.liveLocked(mc)
+		current := m.liveLocked(mc) && mc.gen == gen
+		proc := mc.proc
 		m.mu.Unlock()
-		if !alive || (mc.proc != nil && mc.proc.Exited()) {
+		if !current || (proc != nil && proc.Exited()) {
 			return
 		}
-		m.countFiles(mc)
+		m.countFiles(mc, gen, proc)
 	}
 }
 
-// countFiles takes one count and stores it on the machine, logging a warning the first time
-// the machine is near its limit.
-func (m *Manager) countFiles(mc *Machine) {
+// countFiles takes one count of proc (boot gen's `tart run`; nil for a reattached machine,
+// found by its VM lock instead) and stores it on the machine, logging a warning the first
+// time the machine is near its limit. A count that finishes after a reboot is dropped: it
+// describes the old process.
+func (m *Manager) countFiles(mc *Machine, gen int, proc *tart.Process) {
 	fc := m.fileCheck
 	var pid int
 	var limit uint64
-	if mc.proc != nil {
-		pid = mc.proc.Pid()
+	if proc != nil {
+		pid = proc.Pid()
 		if l, ok := fc.Limit(); ok {
 			limit = l
 		}
@@ -117,7 +121,7 @@ func (m *Manager) countFiles(mc *Machine) {
 	}
 	use := newFileUse(pid, open, limit, time.Now().UTC())
 	m.mu.Lock()
-	if !m.liveLocked(mc) {
+	if !m.liveLocked(mc) || mc.gen != gen {
 		m.mu.Unlock()
 		return
 	}

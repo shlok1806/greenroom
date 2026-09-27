@@ -101,6 +101,7 @@ extension Chrome {
     static func lifecycleTitle(_ status: RunStatus) -> String {
         switch status {
         case .booting: "Booting"
+        case .rebooting: "Rebooting"
         case .ready: "Live"
         case .failed: "Failed"
         case .finished: "Finished"

@@ -3,6 +3,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -71,6 +72,7 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger, opts ...
 		"DELETE /api/runs/{id}/control":          a.releaseControl,
 		"POST /api/runs/{id}/input":              a.input,
 		"POST /api/runs/{id}/destroy":            a.destroy,
+		"POST /api/runs/{id}/reboot":             a.reboot,
 	} {
 		mux.HandleFunc(pattern, a.withRun(h))
 	}
@@ -113,10 +115,10 @@ func (a *api) decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-// failMachine reports a machine operation's error: 409 when the machine is gone, 500 otherwise.
+// failMachine reports a machine operation's error: 409 when the machine is gone or rebooting, 500 otherwise.
 func (a *api) failMachine(w http.ResponseWriter, runID string, err error) {
 	code := http.StatusInternalServerError
-	if !a.mgr.Live(runID) {
+	if !a.mgr.Live(runID) || errors.Is(err, machine.ErrRebooting) {
 		code = http.StatusConflict
 	}
 	a.fail(w, code, err)

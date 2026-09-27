@@ -106,6 +106,14 @@ type Machine struct {
 	bootCancel context.CancelFunc
 	bootDone   chan struct{}
 	destroying bool // guarded by Manager.mu
+
+	// gen counts the machine's boots of its clone: machine_reboot starts the next (reboot.go,
+	// daemon ADR 0004). A process watcher or frame recorder of an earlier one stands down.
+	// Guarded by Manager.mu.
+	gen int
+	// vmDeleted is set once the VM is gone: a failed boot or a VM that stopped on its own
+	// deletes its clone, a failed reboot never does. Guarded by Manager.mu.
+	vmDeleted bool
 }
 
 // Status is a machine's lifecycle state.
@@ -116,6 +124,9 @@ const (
 	Booting Status = "booting"
 	Ready   Status = "ready"
 	Failed  Status = "failed"
+	// Rebooting is a ready (or failed-reboot) machine whose clone machine_reboot is
+	// restarting; it returns to Ready, or to Failed with its disk kept (daemon ADR 0004).
+	Rebooting Status = "rebooting"
 )
 
 // Manager creates, drives and destroys machines. State lives under Root.
@@ -141,9 +152,11 @@ type Manager struct {
 	hostTimeZone     func() string   // the zone boot puts the guest in; "" skips it
 	screenBuffer     int
 	screenInputSlack time.Duration
+	rebootTimeout    time.Duration
 	messageActivity  func(runID string) time.Time // guarded by mu; see SetMessageActivity
 	models           *Models                      // guarded by mu; see SetModels
 	fileCheck        FileCheck
+	lookTimes        lookTimes // a look's limits (look.go); zero means defaultLookTimes
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)
@@ -152,7 +165,7 @@ type Manager struct {
 
 // LifecycleEvent is one change a listener may care about.
 type LifecycleEvent struct {
-	Kind    string   `json:"kind"` // created, ready, failed, stopped, destroyed, step, frame, control, boot
+	Kind    string   `json:"kind"` // created, ready, failed, stopped, destroyed, rebooting, step, frame, control, boot
 	RunID   string   `json:"runId"`
 	Machine *Machine `json:"machine,omitempty"`
 	Step    int      `json:"step,omitempty"`
@@ -161,6 +174,8 @@ type LifecycleEvent struct {
 	Lapsed *Control `json:"lapsed,omitempty"`
 	// Boot is the phase that started or ended, on a "boot" event.
 	Boot *BootPhase `json:"boot,omitempty"`
+	// Reboot marks the "ready" or "failed" that ends a machine_reboot (daemon ADR 0004).
+	Reboot bool `json:"reboot,omitempty"`
 }
 
 // Option adjusts a Manager before it touches the disk or the host.
@@ -223,7 +238,7 @@ func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error)
 		Root: root, Log: log, tart: tart.New(), machines: map[string]*Machine{},
 		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout, frameInterval: defaultFrameInterval,
 		vmPoll: defaultVMPollInterval, screenIdle: defaultScreenIdle, hostTimeZone: HostTimeZone, screenBuffer: defaultScreenBuffer,
-		screenInputSlack: screenInputSlack, fileCheck: defaultFileCheck(),
+		screenInputSlack: screenInputSlack, fileCheck: defaultFileCheck(), rebootTimeout: defaultRebootTimeout,
 	}
 	m.sshProbe = m.probeSSHInGuest
 	for _, opt := range opts {
@@ -483,7 +498,7 @@ func (m *Manager) checkHostCapacity(ctx context.Context) error {
 	}
 	m.mu.Lock()
 	for _, mc := range m.machines {
-		if mc.Status != Failed {
+		if _, running := held[mc.Name]; mc.Status != Failed || running { // a failed reboot's VM may still run
 			held[mc.Name] = mc.RunID
 		}
 	}
@@ -543,17 +558,18 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 	}
 	mc.destroying = true
 	live := m.detachLocked(mc)
+	bootCancel, bootDone := mc.bootCancel, mc.bootDone // a reboot replaces them under m.mu
 	m.mu.Unlock()
 	closeSessions(live)
-	if mc.bootCancel != nil {
-		mc.bootCancel()
-		<-mc.bootDone
+	if bootCancel != nil {
+		bootCancel()
+		<-bootDone
 	}
 
 	m.mu.Lock()
-	failed := mc.Status == Failed // a failed boot has already deleted its VM
+	gone := mc.vmDeleted // a failed boot has already deleted its VM; a failed reboot kept it
 	m.mu.Unlock()
-	if !failed {
+	if !gone {
 		// Detached so a caller that gives up cannot leave the VM running.
 		if err = m.stopAndDelete(context.WithoutCancel(ctx), mc.Name); err != nil {
 			m.Log.Error("cannot delete the VM; it is left behind", "runId", runID, "name", mc.Name, "err", err)
@@ -596,6 +612,19 @@ func (m *Manager) forgetLocked(mc *Machine) []*PTYSession {
 // sessions. It is safe to repeat. The lease goes too: a machine that is going away is driven by
 // nobody, and a lease left on it would be announced as a lapse after it was destroyed.
 func (m *Manager) detachLocked(mc *Machine) []*PTYSession {
+	live := m.releaseLocked(mc, errors.New("the live screen ended: the machine is gone"))
+	// Kills each running command's host tart exec, so none outlives the machine.
+	for _, j := range mc.execs {
+		j.cancel()
+	}
+	mc.execs = nil
+	return live
+}
+
+// releaseLocked drops the lease and stops the frame recorder and the live screen (ending its
+// viewers with screenEnd), and detaches the sessions, which the caller passes to closeSessions
+// after releasing m.mu. Destroy and machine_reboot both start with it.
+func (m *Manager) releaseLocked(mc *Machine, screenEnd error) []*PTYSession {
 	if mc.lapse != nil {
 		mc.lapse.Stop()
 	}
@@ -604,7 +633,7 @@ func (m *Manager) detachLocked(mc *Machine) []*PTYSession {
 		mc.frameCancel()
 	}
 	if mc.screen != nil {
-		mc.screen.end(errors.New("the live screen ended: the machine is gone"))
+		mc.screen.end(screenEnd)
 		mc.screen = nil
 	}
 	live := make([]*PTYSession, 0, len(mc.sessions))
@@ -614,11 +643,6 @@ func (m *Manager) detachLocked(mc *Machine) []*PTYSession {
 		}
 	}
 	mc.sessions = nil
-	// Kills each running command's host tart exec, so none outlives the machine.
-	for _, j := range mc.execs {
-		j.cancel()
-	}
-	mc.execs = nil
 	return live
 }
 
