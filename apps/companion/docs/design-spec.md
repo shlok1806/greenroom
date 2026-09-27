@@ -479,6 +479,7 @@ it.
 | `←` `→` | Previous or next frame | screen |
 | `c` | Capture a screenshot | a ready machine |
 | `e` | Export the recording | a run with frames |
+| `.` | Open or close the More menu (in it: `↑` `↓` move, `⏎` or `space` runs, `esc` closes, an item's own key runs it) | a run open |
 | `n`, `N` | Next or previous step that errored | a run with errors |
 | `g` then `v`, `s`, `t`, `r`, `c` | Go to the screen, the steps, the transcript, the runs, the composer | run open (`g r` anywhere) |
 | `G` | Jump to latest (live on the screen) | screen, steps, transcript |

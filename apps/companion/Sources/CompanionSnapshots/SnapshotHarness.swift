@@ -60,6 +60,10 @@ final class SnapshotHarness {
         /// Opens the Greenroom section on this state (root ADR 0033). Staged by hand: the
         /// harness never runs update.sh or reads a build.
         var builds: (@MainActor (Updates) -> Void)?
+        /// Opens the top bar's More menu (companion ADR 0016) as its key does, with this row
+        /// selected; Builds and Updates carries whatever `moreBuilds` stages.
+        var more: ActionID?
+        var moreBuilds: (@MainActor (Updates) -> Void)?
     }
 
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
@@ -209,7 +213,42 @@ final class SnapshotHarness {
             Scenario(name: "26-guest-no-conversation", sizes: [Self.guest], runId: Self.citedRun, conversation: false),
             // A run with no task and only system events: the header and a short transcript.
             Scenario(name: "27-no-task-few-events", sizes: [Self.guest, Self.medium], runId: Self.noTaskRun),
-        ] + momentScenarios() + buildsScenarios()
+        ] + momentScenarios() + buildsScenarios() + moreScenarios()
+    }
+
+    // MARK: - The More menu (companion ADR 0016)
+
+    private func moreScenarios() -> [Scenario] {
+        let live: @MainActor (RunStore) async -> Void = { store in
+            Self.makeLive(store, runId: Self.passRun, lastActivityAgo: 8)
+        }
+        let old = "4c3b2a1"
+        return [
+            // Opened by its key on a live run: the first row selected, every section.
+            Scenario(name: "52-more-live", sizes: [Self.large, Self.medium, Self.guest], runId: Self.passRun,
+                     prepare: live, more: .capture),
+            Scenario(name: "52b-more-updates", sizes: [Self.medium, Self.guest], runId: Self.passRun,
+                     prepare: live, more: .greenroom, moreBuilds: { updates in
+                         updates.stage(app: Self.stampedApp("1a2b3c4"), daemon: Self.stampedDaemon("1a2b3c4"),
+                                       check: Self.checked(ahead: Self.incoming))
+                     }),
+            Scenario(name: "52c-more-rebuild", sizes: [Self.guest], runId: Self.passRun,
+                     prepare: live, more: .exportRecording, moreBuilds: { updates in
+                         updates.stage(app: Self.stampedApp(old), daemon: Self.stampedDaemon(old),
+                                       check: Self.checked(ahead: []))
+                     }),
+            // Builds from different commits, and no check to say which is behind.
+            Scenario(name: "52d-more-mismatch", sizes: [Self.guest], runId: Self.passRun,
+                     prepare: live, more: .toggleConversation, moreBuilds: { updates in
+                         updates.stage(app: Self.stampedApp(Self.buildMain), daemon: Self.stampedDaemon(old),
+                                       check: .failed("could not reach origin"))
+                     }),
+            // Destroy's selection is the failure colour, never the brand.
+            Scenario(name: "52e-more-destroy-selected", sizes: [Self.large, Self.guest], runId: Self.passRun,
+                     prepare: live, more: .destroy),
+            // A finished run: only what still applies. Narrow: the pane switch has the conversation.
+            Scenario(name: "52f-more-finished", sizes: [Self.medium, Self.small], runId: Self.passRun, more: .greenroom),
+        ]
     }
 
     // MARK: - Builds and updates (root ADR 0033)
@@ -799,6 +838,11 @@ final class SnapshotHarness {
             builds(store.updates)
             // Opened by hand: `perform(.greenroom)` would read the build and check again.
             keyboard.greenroomOpen = true
+        }
+        if let row = scenario.more {
+            scenario.moreBuilds?(store.updates)
+            keyboard.perform(.more)
+            keyboard.moreSelection = row
         }
         if scenario.verdictExpanded, let runId = scenario.runId {
             store.updateVerdictDraft(runId) { $0.expanded = true }

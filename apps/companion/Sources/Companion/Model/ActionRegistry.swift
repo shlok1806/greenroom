@@ -142,6 +142,8 @@ enum ActionContext: String, CaseIterable, Sendable {
     case confirm
     /// The Greenroom section (builds and updates, root ADR 0033) is open over the window.
     case greenroom
+    /// The top bar's More menu is open (companion ADR 0016).
+    case more
 
     /// The pane's name, as the hint bar leads with it.
     var title: String {
@@ -158,6 +160,7 @@ enum ActionContext: String, CaseIterable, Sendable {
         case .palette: "commands"
         case .confirm: "destroy"
         case .greenroom: "greenroom"
+        case .more: "more"
         }
     }
 }
@@ -186,6 +189,14 @@ enum MenuPlacement: Sendable {
     case view, run
 }
 
+/// Where an action sits in the top bar's More menu (companion ADR 0016), sections in this
+/// order with a line between them.
+enum MoreSection: Int, Comparable, Sendable {
+    case run, view, app, destructive
+
+    static func < (a: MoreSection, b: MoreSection) -> Bool { a.rawValue < b.rawValue }
+}
+
 // MARK: - Actions
 
 enum ActionID: String, CaseIterable, Sendable {
@@ -208,6 +219,8 @@ enum ActionID: String, CaseIterable, Sendable {
     case send, newline, leave
     // The palette
     case paletteDown, paletteUp, paletteRun, paletteClose
+    // The More menu (companion ADR 0016)
+    case more, moreDown, moreUp, moreRun, moreClose
 }
 
 struct ActionSpec: Sendable {
@@ -230,6 +243,8 @@ struct ActionSpec: Sendable {
     var menu: MenuPlacement?
     /// Its menu item's title, when it differs from `title`.
     var menuTitle: String?
+    /// Its section in the top bar's More menu, if it is there.
+    var more: MoreSection?
     /// Destroys something that cannot be brought back. Never on a bare key (ADR 0005).
     var destructive = false
     /// Listed in the Cmd-K palette. Keys that only make sense inside a mode (the palette's
@@ -247,7 +262,7 @@ struct ActionSpec: Sendable {
 }
 
 enum ActionRegistry {
-    static let all: [ActionSpec] = moving + window + running + screen + verdict + writing + paletteKeys
+    static let all: [ActionSpec] = moving + window + running + screen + verdict + writing + paletteKeys + moreKeys
 
     private static let panes: [ActionContext] = [.sidebar, .steps, .conversation]
 
@@ -294,7 +309,7 @@ enum ActionRegistry {
         ActionSpec(id: .toggleSidebar, title: "Show or hide the runs", keys: [KeyBinding(KeyChord(key: .character("s"), command: true, control: true))],
                    contexts: [.global], group: .window, menu: .view),
         ActionSpec(id: .toggleConversation, title: "Show or hide the conversation", keys: [],
-                   contexts: [.run], group: .window, menu: .view),
+                   contexts: [.run], group: .window, menu: .view, more: .view),
         // The pane with the keys fills the window; `z` again (or esc) puts it back.
         ActionSpec(id: .zoom, title: "Zoom pane", keys: [KeyBinding(.char("z"))],
                    contexts: [.sidebar, .screen, .steps, .conversation], group: .window, hint: 9,
@@ -306,7 +321,7 @@ enum ActionRegistry {
         ActionSpec(id: .themeLightContrast, title: "Theme: light, high contrast", keys: [], contexts: [.global], group: .window),
         // The Greenroom section: which builds run, whether main is ahead, and Update.
         ActionSpec(id: .greenroom, title: "Greenroom: builds and updates", keys: [],
-                   contexts: [.global], group: .window, menu: .app, menuTitle: "Builds and Updates..."),
+                   contexts: [.global], group: .window, menu: .app, menuTitle: "Builds and Updates...", more: .app),
         ActionSpec(id: .closeGreenroom, title: "Close builds and updates", keys: [KeyBinding(.escape)],
                    contexts: [.greenroom], group: .window, hint: 0, hintTitle: "close", inPalette: false),
     ]
@@ -318,7 +333,8 @@ enum ActionRegistry {
                    contexts: [.driving], group: .run, hint: 0, hintTitle: "return", hintLabel: "click switch",
                    inPalette: false),
         ActionSpec(id: .capture, title: "Capture a screenshot", keys: [KeyBinding(.char("c"))],
-                   contexts: [.run], group: .run, hint: 6, hintTitle: "capture", menu: .run, menuTitle: "Capture Screenshot"),
+                   contexts: [.run], group: .run, hint: 6, hintTitle: "capture", menu: .run, menuTitle: "Capture Screenshot",
+                   more: .run),
         ActionSpec(id: .followLive, title: "Follow live", keys: [KeyBinding(.cmd("l"))],
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Follow Live"),
         ActionSpec(id: .nextFailure, title: "Next error", keys: [KeyBinding(.char("n"))],
@@ -326,13 +342,17 @@ enum ActionRegistry {
         ActionSpec(id: .previousFailure, title: "Previous error", keys: [KeyBinding(.char("N"))],
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Previous Error"),
         ActionSpec(id: .exportRecording, title: "Export the recording", keys: [KeyBinding(.char("e"))],
-                   contexts: [.run], group: .run, menu: .run, menuTitle: "Export Recording..."),
+                   contexts: [.run], group: .run, menu: .run, menuTitle: "Export Recording...", more: .run),
         // The verifier stopped at a limit and waits: your note "Continue." starts its next
         // turn (companion ADR 0015).
         ActionSpec(id: .continueVerifier, title: "Continue the verifier", keys: [KeyBinding(.char("C"))],
                    contexts: [.run], group: .run, hint: 0, hintTitle: "continue", menu: .run, menuTitle: "Continue Verifier"),
         ActionSpec(id: .destroy, title: "Destroy the machine", keys: [KeyBinding(KeyChord(key: .delete, command: true))],
-                   contexts: [.run], group: .run, menu: .run, menuTitle: "Destroy Machine...", destructive: true),
+                   contexts: [.run], group: .run, menu: .run, menuTitle: "Destroy Machine...", more: .destructive,
+                   destructive: true),
+        // The top bar's More menu, drawn by the app (companion ADR 0016): `.` for "...".
+        ActionSpec(id: .more, title: "More actions", keys: [KeyBinding(.char("."))],
+                   contexts: [.run], group: .run, inPalette: false),
         ActionSpec(id: .confirmDestroy, title: "Destroy", keys: [KeyBinding(.enter)],
                    contexts: [.confirm], group: .run, hint: 0, hintTitle: "destroy", destructive: true, inPalette: false),
         ActionSpec(id: .cancelDestroy, title: "Keep the machine", keys: [KeyBinding(.escape)],
@@ -390,6 +410,26 @@ enum ActionRegistry {
         ActionSpec(id: .paletteClose, title: "Close the palette", keys: [KeyBinding(.escape), KeyBinding(.cmd("k"))],
                    contexts: [.palette], group: .window, hint: 2, hintTitle: "close", inPalette: false),
     ]
+
+    /// The More menu's own keys while it is open (companion ADR 0016). An item's key (`c`,
+    /// `e`, Cmd-Backspace) also runs it there: `KeyResolver` asks `MoreMenu`.
+    static let moreKeys: [ActionSpec] = [
+        ActionSpec(id: .moreDown, title: "Next item", keys: [KeyBinding(.down), KeyBinding(KeyChord(key: .character("n"), control: true))],
+                   contexts: [.more], group: .window, hint: 0, hintTitle: "move", hintLabel: "↑↓", inPalette: false),
+        ActionSpec(id: .moreUp, title: "Previous item", keys: [KeyBinding(.up), KeyBinding(KeyChord(key: .character("p"), control: true))],
+                   contexts: [.more], group: .window, inPalette: false),
+        ActionSpec(id: .moreRun, title: "Run the item", keys: [KeyBinding(.enter), KeyBinding(.space)],
+                   contexts: [.more], group: .window, hint: 1, hintTitle: "run", inPalette: false),
+        ActionSpec(id: .moreClose, title: "Close the menu", keys: [KeyBinding(.escape), KeyBinding(.char("."))],
+                   contexts: [.more], group: .window, hint: 2, hintTitle: "close", inPalette: false),
+    ]
+
+    /// The entries in the More menu, by section, in registry order within one.
+    static var moreEntries: [ActionSpec] {
+        all.enumerated().filter { $0.element.more != nil }
+            .sorted { ($0.element.more!, $0.offset) < ($1.element.more!, $1.offset) }
+            .map(\.element)
+    }
 
     private static let byID: [ActionID: ActionSpec] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
 
@@ -449,6 +489,8 @@ struct ActionState: Equatable, Sendable {
     var helpOpen = false
     /// The Greenroom section is open.
     var greenroomOpen = false
+    /// The top bar's More menu is open.
+    var moreOpen = false
     var confirmingDestroy = false
     /// `g` was pressed and waits for its second key.
     var pendingPrefix: KeyChord?
@@ -509,6 +551,7 @@ enum ActionRules {
     /// the palette, the destroy question, driving and a text field each shut out the rest.
     static func contexts(_ s: ActionState) -> [ActionContext] {
         if s.paletteOpen { return [.palette] }
+        if s.moreOpen { return [.more] }
         if s.greenroomOpen { return [.greenroom] }
         if s.confirmingDestroy { return [.confirm] }
         if s.drivingFocused { return [.driving] }
@@ -545,6 +588,8 @@ enum ActionRules {
         case .send, .newline: return s.typing && s.typingSends
         case .leave: return s.typing
         case .paletteDown, .paletteUp, .paletteRun, .paletteClose: return s.paletteOpen
+        case .more: return s.runOpen
+        case .moreDown, .moreUp, .moreRun, .moreClose: return s.moreOpen
         default:
             return s.offers(id, in: context)
         }
@@ -612,6 +657,15 @@ enum KeyResolver {
         // The destroy question: Return destroys, any other key keeps the machine.
         if live == [.confirm] {
             return chord == .enter ? .perform(.confirmDestroy, .confirm) : .perform(.cancelDestroy, .confirm)
+        }
+        // The More menu: its own keys, then an item's key, as a native menu's key
+        // equivalents; other bare keys must not act on what is under it.
+        if live == [.more] {
+            if let hit = match([chord], in: live, s) { return hit }
+            if let item = MoreMenu.item(for: chord, in: MoreMenu.items(s)) {
+                return .perform(item.id, ActionRegistry.spec(item.id).contexts.first ?? .global)
+            }
+            return chord.isBare ? .swallow : .pass
         }
         if let prefix = s.pendingPrefix {
             let sequence = [prefix, chord]
