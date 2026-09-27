@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -80,6 +83,32 @@ func TestVisionModelDefaultsToTheEvaluatedDescriber(t *testing.T) {
 	} {
 		if got := visionModel(raw); got != want {
 			t.Errorf("visionModel(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+// Issue #154: serve warns at start when the environment picks a describer other than the
+// default, naming both; the default, set or unset, says nothing.
+func TestServeWarnsWhenTheEnvironmentOverridesTheDescriber(t *testing.T) {
+	for raw, want := range map[string]string{
+		"": "", "moonshotai/kimi-k3": "",
+		"nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+		"none": "none",
+	} {
+		var buf bytes.Buffer
+		warnDescriberOverride(slog.New(slog.NewTextHandler(&buf, nil)), raw, ".env")
+		got := buf.String()
+		if want == "" {
+			if got != "" {
+				t.Errorf("%q: logged %q, want nothing", raw, got)
+			}
+			continue
+		}
+		for _, part := range []string{"level=WARN", "overrides the default screenshot describer", "vision=" + want,
+			"default=moonshotai/kimi-k3", `from="the environment or .env"`} {
+			if !strings.Contains(got, part) {
+				t.Errorf("%q: log %q lacks %q", raw, got, part)
+			}
 		}
 	}
 }

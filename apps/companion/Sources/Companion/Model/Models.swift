@@ -273,6 +273,8 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
     /// The newest recorded frame, what the row's thumbnail is drawn from. nil for a run
     /// with none, and from a daemon before it (the row then shows the empty mark).
     var lastFrame: Frame?
+    /// Who verified the run. nil for a run from before the daemon recorded it.
+    var models: VerifierModels?
 
     var id: String { runId }
 
@@ -289,7 +291,8 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         messages: Int = 0,
         frames: Int? = nil,
         task: String? = nil,
-        lastFrame: Frame? = nil
+        lastFrame: Frame? = nil,
+        models: VerifierModels? = nil
     ) {
         self.runId = runId
         self.createdAt = createdAt
@@ -304,6 +307,7 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         self.frames = frames
         self.task = task
         self.lastFrame = lastFrame
+        self.models = models
     }
 
     init(from decoder: any Decoder) throws {
@@ -321,6 +325,64 @@ struct RunSummary: Codable, Hashable, Sendable, Identifiable {
         frames = try c.decodeIfPresent(Int.self, forKey: .frames)
         task = try c.decodeIfPresent(String.self, forKey: .task)
         lastFrame = try c.decodeIfPresent(Frame.self, forKey: .lastFrame)
+        models = try c.decodeIfPresent(VerifierModels.self, forKey: .models)
+    }
+}
+
+/// Who verified a run (daemon issue #154): the verifier's brain, its reasoning model, its
+/// screenshot describer and the options their requests carried. The describer decides what
+/// the verifier can see, so a verdict is read with it in mind.
+struct VerifierModels: Codable, Hashable, Sendable {
+    /// `nim` (a model), `manual` (a person types the verifier's side) or `none`.
+    var brain: String
+    var model: String?
+    var vision: String?
+    var modelOptions: [String: JSONValue]?
+    var visionOptions: [String: JSONValue]?
+
+    init(brain: String, model: String? = nil, vision: String? = nil,
+         modelOptions: [String: JSONValue]? = nil, visionOptions: [String: JSONValue]? = nil) {
+        self.brain = brain
+        self.model = model
+        self.vision = vision
+        self.modelOptions = modelOptions
+        self.visionOptions = visionOptions
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        brain = try c.decode(.brain, or: "")
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        vision = try c.decodeIfPresent(String.self, forKey: .vision)
+        modelOptions = try? c.decodeIfPresent([String: JSONValue].self, forKey: .modelOptions)
+        visionOptions = try? c.decodeIfPresent([String: JSONValue].self, forKey: .visionOptions)
+    }
+
+    /// The Details row for who answered: the reasoning model, or what stood in for one.
+    var verifier: String {
+        switch brain {
+        case "nim": return model.flatMap { $0.isEmpty ? nil : $0 } ?? "A model greenroom did not name"
+        case "manual": return "A person, typing its side"
+        case "none": return "None: greenroom had no model key"
+        default: return brain
+        }
+    }
+
+    /// The Details row for the describer; nil when nothing reads screenshots on a model's behalf.
+    var describer: String? {
+        guard brain == "nim" else { return nil }
+        guard let vision, !vision.isEmpty else { return "None: the verifier saw no screenshots" }
+        guard let thinking else { return vision }
+        return vision + (thinking ? ", thinking on" : ", thinking off")
+    }
+
+    /// Thinking as the describe request set it; nil when the request left it to the model.
+    var thinking: Bool? {
+        guard case .object(let kwargs)? = visionOptions?["chat_template_kwargs"] else { return nil }
+        for key in ["enable_thinking", "thinking"] {
+            if case .bool(let on)? = kwargs[key] { return on }
+        }
+        return nil
     }
 }
 
@@ -334,6 +396,8 @@ struct RunDetail: Codable, Hashable, Sendable, Identifiable {
     var steps = 0
     var machine: Machine?
     var verdict = VerdictState()
+    /// Who verified the run, from its manifest; nil for a run from before it was recorded.
+    var models: VerifierModels?
 
     var id: String { runId }
 
@@ -359,6 +423,7 @@ extension RunDetail {
         steps = try c.decode(.steps, or: 0)
         machine = try c.decodeIfPresent(Machine.self, forKey: .machine)
         verdict = try c.decode(.verdict, or: VerdictState())
+        models = try c.decodeIfPresent(VerifierModels.self, forKey: .models)
     }
 }
 

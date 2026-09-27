@@ -89,7 +89,9 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 			"measured when it was built (Xcode present or not and its version, whether XCTest and swift-testing packages run with " +
 			"swift test and whether xcodebuild builds, swift and Command Line Tools versions; known false when the image says nothing), and " +
 			"desktop, whether the screen showed anything besides the desktop and Finder at ready (clean false lists " +
-			"unexpectedWindows and unexpectedApps, such as a permission prompt; greenroom never closes them).",
+			"unexpectedWindows and unexpectedApps, such as a permission prompt; greenroom never closes them). models " +
+			"names who verifies the run: the brain (nim, manual or none), its reasoning model and its screenshot " +
+			"describer, with the options their requests carry.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitIn) (*mcp.CallToolResult, *machine.Machine, error) {
 		return wrap(mgr.Wait(ctx, in.RunID, waitTimeout(in.TimeoutSeconds)))
 	})

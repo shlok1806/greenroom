@@ -116,6 +116,7 @@ struct RunView: View {
                 RunHeader(
                     store: store,
                     runId: runId,
+                    column: detailSize.height,
                     facts: facts,
                     failureCursor: failureCursor,
                     showFailure: showFailure
@@ -531,6 +532,21 @@ enum RunLayout {
         let room = max(card - chrome, verdictBodyMinimum)
         return min(natural ?? verdictBodyMinimum, room)
     }
+
+    /// The header's unfolded details (the run's facts, then its whole task) take at most this
+    /// share of the column, and scroll past it, so the stage under them keeps its picture,
+    /// player and steps. Unbounded, a long task pushed the facts out of a 768-point window and
+    /// squeezed the stage until its player and steps track drew over each other.
+    static let unfoldedShare: Double = 1.0 / 3
+    /// The least the details get in a short column: a few facts' lines.
+    static let unfoldedLeast: Double = 120
+
+    /// How tall the unfolded details are: all of their `natural` height up to the column's
+    /// cap, the cap until they are measured.
+    static func unfoldedDetails(natural: Double?, column: Double) -> Double {
+        let cap = column > 0 ? max(column * unfoldedShare, unfoldedLeast) : unfoldedLeast
+        return min(natural ?? cap, cap).rounded(.down)
+    }
 }
 
 /// The line between the stage and the conversation. Dragging it resizes the
@@ -574,11 +590,15 @@ private struct ColumnDivider: View {
 private struct RunHeader: View {
     let store: RunStore
     let runId: String
+    /// The run column's height, which bounds the unfolded details.
+    let column: Double
     let facts: RunFacts
     let failureCursor: Int?
     let showFailure: (Int) -> Void
 
     @State private var expanded = false
+    @State private var detailsHeight: CGFloat?
+    @Environment(\.theme) private var theme
 
     private var summary: RunSummary? { store.run(runId) }
 
@@ -589,6 +609,13 @@ private struct RunHeader: View {
 
     private var title: String { RunTitle.short(task: task, runId: runId) }
     private var fullTask: String { RunTitle.subtitle(task: task, alive: facts.isAlive) }
+
+    private var taskText: some View {
+        Text(fullTask)
+            .readingStyle(size: TypeScale.readingSmall)
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {
@@ -604,13 +631,9 @@ private struct RunHeader: View {
                 }
             }
             HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-                Text(fullTask)
-                    .readingStyle(size: TypeScale.readingSmall)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(expanded ? nil : 1)
+                taskText
+                    .lineLimit(1)
                     .truncationMode(.tail)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: expanded)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button(expanded ? "Less" : "Details") {
                     withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
@@ -620,8 +643,27 @@ private struct RunHeader: View {
                 .help("Full task and machine details")
             }
             if expanded {
-                RunInfo(store: store, runId: runId, facts: facts)
-                    .transition(.opacity)
+                // The facts lead and the whole task follows; past a share of the column they
+                // scroll, so a long task never pushes the facts or the stage out of the window.
+                ScrollView(.vertical) {
+                    RunInfo(store: store, runId: runId, facts: facts, task: fullTask)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { detailsHeight = $0 }
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .overlayScrollers()
+                .frame(height: RunLayout.unfoldedDetails(natural: detailsHeight.map(Double.init), column: column))
+                // Capped: the last line fades into the pane, so a cut line reads as "more
+                // below", as the verdict card's body does.
+                .overlay(alignment: .bottom) {
+                    if let detailsHeight,
+                       Double(detailsHeight) > RunLayout.unfoldedDetails(natural: Double(detailsHeight), column: column) + 1 {
+                        LinearGradient(colors: [theme.background.opacity(0), theme.background], startPoint: .top, endPoint: .bottom)
+                            .frame(height: Space.l)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .transition(.opacity)
             }
             RunStatusLine(store: store, runId: runId, facts: facts)
         }
@@ -820,6 +862,8 @@ private struct RunInfo: View {
     let store: RunStore
     let runId: String
     let facts: RunFacts
+    /// The whole task, last: the header's own line shows only its start.
+    var task: String?
 
     var body: some View {
         let detail = store.details[runId]
@@ -829,6 +873,9 @@ private struct RunInfo: View {
             if let ended = facts.ended { row("Ended", "\(Chrome.stamp(ended)) (\(Chrome.zone))") }
             row("Duration", Chrome.clock(facts.duration(now: Date())))
             row("Image", detail?.image ?? summary?.image ?? "-")
+            let models = detail?.models ?? summary?.models
+            row("Verifier", models?.verifier ?? "Not recorded for this run")
+            if let describer = models?.describer { row("Describer", describer) }
             if let name = detail?.machineName, !name.isEmpty { row("Machine", name) }
             if let ip = detail?.address { row("Address", ip) }
             if let boot = detail?.machine?.bootSeconds { row("Boot", String(format: "%.1f s", boot)) }
@@ -839,6 +886,16 @@ private struct RunInfo: View {
                 HStack(spacing: Space.s) {
                     Text(runId).textSelection(.enabled)
                     CopyButton(text: runId, label: "Copy")
+                }
+            }
+            if let task, !task.isEmpty {
+                GridRow(alignment: .firstTextBaseline) {
+                    label("Task")
+                    Text(task)
+                        .readingStyle(size: TypeScale.readingSmall)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }

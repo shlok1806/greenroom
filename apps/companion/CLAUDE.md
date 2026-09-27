@@ -128,6 +128,10 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   licence, Swift 6 mode, exit plan) before it goes into `Package.swift`. `Package.resolved`
   is checked in, and packages are pinned `exact:`. Rejected:
   Textual and MarkdownUI (they break the grid), animation libraries, Highlightr.
+- The run header's Details (`RunInfo`) names who verified the run from the daemon's `models`
+  (`VerifierModels`, daemon issue #154): a Verifier row always (an older run says "Not
+  recorded for this run", never a guess) and a Describer row for a model brain, with
+  "thinking on/off" only when the describe request set it.
 - Beautiful UI's components are ported as behaviour, credited under MIT in the app's
   acknowledgements; no code from it is copied into the Mac app (ADR 0007).
 - `design/` is the source of colours, faces, cell metrics, spacing, radii, motion timings
