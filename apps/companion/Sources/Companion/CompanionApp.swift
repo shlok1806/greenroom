@@ -129,7 +129,10 @@ struct CompanionApp: App {
         Window("Greenroom Companion", id: "main") {
             RootView(store: store, keyboard: delegate.keyboard)
                 .frame(minWidth: RunLayout.windowMinimum.width, minHeight: RunLayout.windowMinimum.height)
-                .task { store.start() }
+                .task {
+                    store.start()
+                    store.updates.start()
+                }
         }
         // Own chrome (ADR 0004, 0008): the content fills the window under a transparent
         // title bar; `RootView` draws the top bar.
@@ -157,6 +160,9 @@ struct RunMenuCommands: Commands {
     @AppStorage(ClickMarks.storageKey, store: AppDefaults.shared) private var showsClickMarks = true
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            items(ActionRegistry.menu(.app))
+        }
         CommandGroup(before: .toolbar) {
             Picker("Theme", selection: $theme) {
                 ForEach(ActionRegistry.themes, id: \.0) { _, choice in

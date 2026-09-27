@@ -230,4 +230,84 @@ final class TranscriptCardsTests: XCTestCase {
         XCTAssertFalse(line.latest)
         XCTAssertFalse(line.outcomeInColour)
     }
+
+    // MARK: - A turn that stopped at a limit (issue #127, companion ADR 0015)
+
+    private func stopped(_ seq: Int, _ stop: StopReason) -> Message {
+        var reply = message(seq, .verifier, .reply, "I ran out of time after 10m0s. Send a message and I will continue.")
+        reply.stop = stop
+        return reply
+    }
+
+    func testAStoppedReplySaysWhichLimitAndWhatItMeans() {
+        let time = stopped(5, .time)
+        let card = LimitStop.of(time, in: [time], verifierListens: true)
+        XCTAssertEqual(card?.title, "Stopped, out of time")
+        XCTAssertEqual(card?.meaning, "The verifier ran out of time for this turn before it finished.")
+        XCTAssertEqual(card?.state, .waiting)
+        XCTAssertEqual(card?.canContinue, true)
+
+        let steps = stopped(5, .steps)
+        let stepsCard = LimitStop.of(steps, in: [steps], verifierListens: true)
+        XCTAssertEqual(stepsCard?.title, "Stopped, out of tool calls")
+        XCTAssertEqual(stepsCard?.meaning, "The verifier used all its tool calls for this turn before it finished.")
+    }
+
+    /// A limit the app does not know yet still reads as a stop, in its own word.
+    func testAnUnknownLimitStillReadsAsAStop() {
+        let odd = stopped(5, .unknown("tokens"))
+        let card = LimitStop.of(odd, in: [odd], verifierListens: true)
+        XCTAssertEqual(card?.title, "Stopped, at a limit")
+        XCTAssertEqual(card?.meaning, "The verifier's turn ended at its tokens limit before it finished.")
+    }
+
+    /// Only a verifier reply carries a stop (`session.validate`); a plain reply is no card.
+    func testOnlyAVerifierReplyWithAStopIsACard() {
+        XCTAssertNil(LimitStop.of(message(5, .verifier, .reply, "Done"), in: [], verifierListens: true))
+        var note = message(5, .human, .note, "x")
+        note.stop = .time
+        XCTAssertNil(LimitStop.of(note, in: [note], verifierListens: true))
+        var question = message(5, .verifier, .question, "x")
+        question.stop = .steps
+        XCTAssertNil(LimitStop.of(question, in: [question], verifierListens: true))
+    }
+
+    func testAContinuedStopSaysWhoContinuedIt() {
+        let stop = stopped(5, .steps)
+        let byYou = [stop, message(6, .human, .note, LimitStop.continueText)]
+        XCTAssertEqual(LimitStop.of(stop, in: byYou, verifierListens: true, timeOfDay: time)?.state,
+                       .continued("You continued it at 20:12"))
+        let byCoder = [stop, message(6, .coder, .task, "Go on")]
+        XCTAssertEqual(LimitStop.of(stop, in: byCoder, verifierListens: true, timeOfDay: time)?.state,
+                       .continued("The coding agent continued it at 20:12"))
+        // A Give Back can resume the turn with no message: the verifier at work again.
+        let resumed = [stop, message(6, .system, .event, "human gave the screen back"), message(7, .verifier, .progress, "machine_ui {}")]
+        XCTAssertEqual(LimitStop.of(stop, in: resumed, verifierListens: true, timeOfDay: time)?.state,
+                       .continued("The verifier went on at 20:12"))
+    }
+
+    /// A coder note starts no turn, so the verifier still waits after one.
+    func testACoderNoteDoesNotContinueIt() {
+        let stop = stopped(5, .time)
+        let messages = [stop, message(6, .coder, .note, "FYI")]
+        XCTAssertEqual(LimitStop.of(stop, in: messages, verifierListens: true)?.state, .waiting)
+        XCTAssertEqual(LimitStop.waiting(messages)?.seq, 5)
+    }
+
+    func testAStopNothingWillAnswerOffersNoContinue() {
+        let stop = stopped(5, .time)
+        let card = LimitStop.of(stop, in: [stop, message(6, .system, .event, "machine destroyed")], verifierListens: false)
+        XCTAssertEqual(card?.state, .over)
+        XCTAssertEqual(card?.canContinue, false)
+    }
+
+    /// The run waits only on the newest verifier word, and only while nothing followed it.
+    func testTheRunWaitsOnlyOnTheLastStop() {
+        let stop = stopped(5, .steps)
+        XCTAssertEqual(LimitStop.waiting([message(1, .coder, .task, "Check it"), stop])?.seq, 5)
+        XCTAssertNil(LimitStop.waiting([stop, message(6, .human, .note, "Continue.")]))
+        XCTAssertNil(LimitStop.waiting([stop, message(6, .human, .note, "Continue."), message(7, .verifier, .reply, "Done")]))
+        XCTAssertNil(LimitStop.waiting([message(1, .verifier, .reply, "Hi")]))
+        XCTAssertNil(LimitStop.waiting([]))
+    }
 }

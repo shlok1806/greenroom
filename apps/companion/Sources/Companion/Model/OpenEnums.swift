@@ -163,3 +163,23 @@ enum LifecycleKind: OpenEnum {
         }
     }
 }
+
+/// The limit that ended a verifier turn with no verdict (`session.StopSteps`, `StopTime`;
+/// issue #127). Only a verifier reply carries one.
+enum StopReason: OpenEnum {
+    /// It used every tool call a turn allows.
+    case steps
+    /// It ran out of the turn's time budget.
+    case time
+    case unknown(String)
+
+    static let known: [Self] = [.steps, .time]
+
+    var text: String {
+        switch self {
+        case .steps: "steps"
+        case .time: "time"
+        case .unknown(let raw): raw
+        }
+    }
+}

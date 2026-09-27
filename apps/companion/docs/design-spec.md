@@ -432,6 +432,7 @@ The rest, in our own terms:
 | No frames | "No recording" with why (not ready yet, or none captured) |
 | Agent working | The loader under the transcript ("verifier is working", elapsed); a tick on the running step; the agent's cursor blinks |
 | Needs you | The run pins under "Needs you" (the newest five, then "Show all N"); its state in yellow leads with the proposed outcome ("Fail, needs review") beside the checks' tally ("2/4 failed"); the hint bar offers the action |
+| Verifier stopped at its limit | The reply is a card: `! Stopped, out of time` (or `out of tool calls`), what that means, the verifier's words; its edge yellow while it waits, with Continue (`C`); then who continued it; the run pins under "Needs you" (ADR 0015) |
 | Verdict proposed | Card border dim, outcome in the foreground with the tally, "Needs review" in yellow; the checks lead; `a`, `d`, `[` and `]` active |
 | Evidence shown | The bar over the picture is the check that step answers: its mark, claim, kind, observation, what is not drawn, and which evidence it is; paused, the picture outlines where unseen text sits, dashed, labelled "not drawn" (ADR 0014) |
 | Verdict closed | Outcome in its colour (unless agent-accepted), who decided in words; `a` and `d` absent |
@@ -473,6 +474,7 @@ it.
 | `d` | Dispute the verdict (opens the reason) | verdict open for review |
 | `u` | Undo the last accept or dispute | within 5 s |
 | `]`, `[` | Next or previous check, with its evidence on the screen | a verdict with checks |
+| `C` | Continue a verifier that stopped at its limit (posts "Continue.") | the verifier waits at a limit |
 | `space` | Play or pause | screen |
 | `←` `→` | Previous or next frame | screen |
 | `c` | Capture a screenshot | a ready machine |
