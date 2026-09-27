@@ -343,8 +343,10 @@ Boot and lifecycle
   serve and bench set it once, from `Verifier.Models` (or `manual`/`none`), before any run.
   The options come from `nim.ChatOptions`/`nim.DescribeOptions`, the same maps the requests
   are built from, so a new request field is recorded without anyone remembering to.
-- File limit (daemon ADR 0002, issue #186): tart leaks a vsock fd in `tart run` for some
-  `tart exec` calls, and `tart run` dies with "Error(24)" in `vm.log` when it runs out.
+- File limit (daemon ADR 0002, issue #186): tart 2.37 leaks one vsock fd in `tart run` on
+  every `tart exec`, however it ends (about 27 a minute from frame recording at 2 s; measured
+  in run `20260927-210125-687fa19deff41e76`), and `tart run` dies with "Error(24)" in
+  `vm.log` when it runs out. 65536 lasts about 40 hours, 138240 about 85.
   `raiseFileLimit` must run before the first `tart.Client.Start`: Go gives children the soft
   limit the daemon started with (launchd's 256) until the program calls `syscall.Setrlimit`
   (never `unix.Setrlimit`, which the runtime does not see). `install.sh` also sets the job's
@@ -437,9 +439,10 @@ Exec
   that is zsh, not us.
 - A cancelled `tart.Exec`/`ExecTo`/`ExecInputTo` gets SIGINT, and SIGKILL only
   `execInterruptWait` (3 s) later (`interruptOnCancel`, daemon ADR 0002): tart cancels the
-  gRPC call on SIGINT, which ends the guest command; SIGKILL left it running and the control
-  socket's proxy open. Never build an exec `exec.Cmd` without it. Sessions and pipes are
-  exempt (a session's guest command must outlive its host exec).
+  gRPC call on SIGINT, which ends the guest command and lets tart exit cleanly; SIGKILL left
+  the guest command running. It does not reduce the fd leak (every exec leaks one either
+  way). Never build an exec `exec.Cmd` without it. Sessions and pipes are exempt (a
+  session's guest command must outlive its host exec).
 - The timeout is enforced in the guest (ADR 0014, issue #28): the wrapper puts zsh in its
   own process group (`set -m`) and a watchdog TERMs it at the timeout, KILLs it 5 s later.
   The result keeps the output so far, exit 124, `timedOut`. The host waits the timeout

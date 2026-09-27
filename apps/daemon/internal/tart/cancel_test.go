@@ -11,7 +11,7 @@ import (
 )
 
 // A cancelled exec gets SIGINT first, which tart turns into a clean close of its gRPC call
-// and of the control socket's vsock proxy (issue #186, daemon ADR 0002).
+// (issue #186, daemon ADR 0002). It does not stop the control socket's fd leak.
 func TestACancelledExecIsInterruptedBeforeItIsKilled(t *testing.T) {
 	marks := filepath.Join(t.TempDir(), "marks")
 	c, _ := argsBin(t, `trap 'echo interrupted >> '`+marks+`'; exit 130' INT

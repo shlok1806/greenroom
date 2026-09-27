@@ -279,7 +279,8 @@ func raiseFileLimit(log *slog.Logger) {
 			"soft", l.Soft, "hard", l.Hard, "err", err)
 		return
 	}
-	log.Info("open file limit for tart run", "soft", l.Soft, "was", l.Before, "hard", l.Hard, "maxfilesperproc", l.PerProc)
+	// soft is what every `tart run` started from now on inherits (openfiles.Limits).
+	log.Info("open file limit for tart run", "soft", l.Soft, "hard", l.Hard, "maxfilesperproc", l.PerProc)
 }
 
 // nimVerifier is the model-driven verifier as the environment configures it (NVIDIA_API_KEY,

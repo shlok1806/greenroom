@@ -17,10 +17,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Limits is the daemon's RLIMIT_NOFILE before and after Raise.
+// Limits is the daemon's RLIMIT_NOFILE after Raise. Soft is what every child started from
+// then on inherits. There is no "before": Go raises its own soft limit at startup, so
+// getrlimit already reports Go's raised value, never the one (launchd's 256) that children
+// were given until Raise ran, and that one cannot be read back.
 type Limits struct {
-	Before, Soft, Hard uint64
-	PerProc            uint64 // kern.maxfilesperproc; 0 when unreadable
+	Soft, Hard uint64
+	PerProc    uint64 // kern.maxfilesperproc; 0 when unreadable
 }
 
 var (
@@ -53,7 +56,7 @@ func Raise() (Limits, error) {
 	if gerr := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &now); gerr != nil {
 		now = cur
 	}
-	l := Limits{Before: cur.Cur, Soft: now.Cur, Hard: now.Max, PerProc: uint64(perProc)}
+	l := Limits{Soft: now.Cur, Hard: now.Max, PerProc: uint64(perProc)}
 	mu.Lock()
 	raised = &l
 	mu.Unlock()

@@ -36,13 +36,17 @@ func TestMain(m *testing.M) {
 }
 
 // limitHelper runs in a process started with a soft limit of 256, as launchd starts the daemon.
-// It raises the limit or not, then prints what a child sees and what Inherited says.
+// It raises the limit or not, then prints what a child sees, what Inherited says and the soft
+// limit Raise reported (the value the daemon logs).
 func limitHelper(mode string) {
+	var reported uint64
 	if mode == "raise" {
-		if _, err := Raise(); err != nil {
+		l, err := Raise()
+		if err != nil {
 			fmt.Println("raise:", err)
 			os.Exit(1)
 		}
+		reported = l.Soft
 	}
 	out, err := exec.Command("/bin/sh", "-c", "ulimit -n").Output()
 	if err != nil {
@@ -50,7 +54,7 @@ func limitHelper(mode string) {
 		os.Exit(1)
 	}
 	inherited, ok := Inherited()
-	fmt.Printf("child=%s inherited=%d known=%v\n", strings.TrimSpace(string(out)), inherited, ok)
+	fmt.Printf("child=%s inherited=%d known=%v reported=%d\n", strings.TrimSpace(string(out)), inherited, ok, reported)
 }
 
 // runHelper starts this test binary with a soft open file limit of 256 (the hard one untouched,
@@ -69,17 +73,21 @@ func runHelper(t *testing.T, mode string) string {
 // Why Raise exists (issue #186): Go raises its own soft limit but gives every child the one the
 // process started with, so `tart run` got 256. After Raise a child gets the raised limit.
 func TestAChildStartedAfterRaiseInheritsTheRaisedLimit(t *testing.T) {
-	if got := runHelper(t, "none"); got != "child=256 inherited=0 known=false" {
+	if got := runHelper(t, "none"); got != "child=256 inherited=0 known=false reported=0" {
 		t.Fatalf("without Raise: %q, want a child at 256 (if Go stopped restoring the limit, Raise may be unneeded)", got)
 	}
 	got := runHelper(t, "raise")
-	var child, inherited uint64
+	var child, inherited, reported uint64
 	var known bool
-	if _, err := fmt.Sscanf(got, "child=%d inherited=%d known=%t", &child, &inherited, &known); err != nil {
+	if _, err := fmt.Sscanf(got, "child=%d inherited=%d known=%t reported=%d", &child, &inherited, &known, &reported); err != nil {
 		t.Fatalf("helper printed %q: %v", got, err)
 	}
 	if !known || child <= 256 || child != inherited {
 		t.Fatalf("after Raise: %q, want a child above 256 at the limit Inherited reports", got)
+	}
+	// The startup log prints Limits.Soft: it must be what a child really gets.
+	if reported != child {
+		t.Errorf("Raise reported soft=%d, a child got %d", reported, child)
 	}
 	if perProc, err := unix.SysctlUint32("kern.maxfilesperproc"); err == nil && child > uint64(perProc) {
 		t.Errorf("child limit %d is over kern.maxfilesperproc %d", child, perProc)

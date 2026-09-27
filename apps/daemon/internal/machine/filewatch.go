@@ -1,7 +1,7 @@
 package machine
 
-// A `tart run` leaks a file for some `tart exec` calls (a vsock proxy in tart's control
-// socket that never closes, issue #186), and dies with Virtualization.framework's "FIXME:
+// A `tart run` leaks one file on every `tart exec` (a vsock proxy in tart's control socket
+// that never closes, issue #186; measured in run 20260927-210125-687fa19deff41e76), and dies with Virtualization.framework's "FIXME:
 // Handle this: Error(24)" when it runs out. The daemon raises the limit its children inherit
 // (internal/openfiles, daemon ADR 0002); this watch counts what each machine's `tart run`
 // has open, so machine_list shows how close it is and the log says when it gets near.

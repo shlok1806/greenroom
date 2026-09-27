@@ -195,10 +195,10 @@ var execInterruptWait = 3 * time.Second
 
 // interruptOnCancel makes a cancelled context end cmd with SIGINT, and SIGKILL only
 // execInterruptWait later (daemon ADR 0002, issue #186). tart cancels its exec on SIGINT and
-// cancels the gRPC call, which ends the guest command, and the guest's answer gives tart's
-// control socket a chance to drop its vsock proxy. SIGKILL (exec.CommandContext's default)
-// leaves the guest command running and, most often, that proxy open in `tart run` for the
-// life of the VM: one leaked file each.
+// cancels the gRPC call, which ends the guest command and lets tart exit cleanly. SIGKILL
+// (exec.CommandContext's default) leaves the guest command running. Neither stops tart's fd
+// leak: `tart run` keeps one vsock proxy per exec however the exec ends (measured in run
+// 20260927-210125-687fa19deff41e76).
 func interruptOnCancel(cmd *exec.Cmd) {
 	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
 	cmd.WaitDelay = execInterruptWait
