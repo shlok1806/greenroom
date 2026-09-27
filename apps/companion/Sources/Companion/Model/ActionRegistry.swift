@@ -140,6 +140,8 @@ enum ActionContext: String, CaseIterable, Sendable {
     case palette
     /// The inline "destroy the machine?" question is asked.
     case confirm
+    /// The Greenroom section (builds and updates, root ADR 0033) is open over the window.
+    case greenroom
 
     /// The pane's name, as the hint bar leads with it.
     var title: String {
@@ -155,6 +157,7 @@ enum ActionContext: String, CaseIterable, Sendable {
         case .driving: "driving"
         case .palette: "commands"
         case .confirm: "destroy"
+        case .greenroom: "greenroom"
         }
     }
 }
@@ -178,6 +181,8 @@ enum ActionGroup: String, CaseIterable, Sendable {
 
 /// Which menu of the menu bar an action sits in, if any.
 enum MenuPlacement: Sendable {
+    /// The app menu, after About: where a Mac app keeps its updates.
+    case app
     case view, run
 }
 
@@ -190,9 +195,11 @@ enum ActionID: String, CaseIterable, Sendable {
     // The window
     case palette, help, refresh, toggleSidebar, toggleConversation, zoom
     case themeSystem, themeDark, themeLight, themeDarkContrast, themeLightContrast
+    // Builds and updates (root ADR 0033)
+    case greenroom, closeGreenroom
     // The run
     case takeControl, giveBack, capture, exportRecording, followLive
-    case nextFailure, previousFailure, destroy, confirmDestroy, cancelDestroy
+    case nextFailure, previousFailure, destroy, confirmDestroy, cancelDestroy, continueVerifier
     // The screen
     case play, previousFrame, nextFrame, speed, backToVerdict, clickMarks
     // The verdict
@@ -297,6 +304,11 @@ enum ActionRegistry {
         ActionSpec(id: .themeLight, title: "Theme: light", keys: [], contexts: [.global], group: .window),
         ActionSpec(id: .themeDarkContrast, title: "Theme: dark, high contrast", keys: [], contexts: [.global], group: .window),
         ActionSpec(id: .themeLightContrast, title: "Theme: light, high contrast", keys: [], contexts: [.global], group: .window),
+        // The Greenroom section: which builds run, whether main is ahead, and Update.
+        ActionSpec(id: .greenroom, title: "Greenroom: builds and updates", keys: [],
+                   contexts: [.global], group: .window, menu: .app, menuTitle: "Builds and Updates..."),
+        ActionSpec(id: .closeGreenroom, title: "Close builds and updates", keys: [KeyBinding(.escape)],
+                   contexts: [.greenroom], group: .window, hint: 0, hintTitle: "close", inPalette: false),
     ]
 
     static let running: [ActionSpec] = [
@@ -315,6 +327,10 @@ enum ActionRegistry {
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Previous Error"),
         ActionSpec(id: .exportRecording, title: "Export the recording", keys: [KeyBinding(.char("e"))],
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Export Recording..."),
+        // The verifier stopped at a limit and waits: your note "Continue." starts its next
+        // turn (companion ADR 0015).
+        ActionSpec(id: .continueVerifier, title: "Continue the verifier", keys: [KeyBinding(.char("C"))],
+                   contexts: [.run], group: .run, hint: 0, hintTitle: "continue", menu: .run, menuTitle: "Continue Verifier"),
         ActionSpec(id: .destroy, title: "Destroy the machine", keys: [KeyBinding(KeyChord(key: .delete, command: true))],
                    contexts: [.run], group: .run, menu: .run, menuTitle: "Destroy Machine...", destructive: true),
         ActionSpec(id: .confirmDestroy, title: "Destroy", keys: [KeyBinding(.enter)],
@@ -431,6 +447,8 @@ struct ActionState: Equatable, Sendable {
     var driving = false
     var paletteOpen = false
     var helpOpen = false
+    /// The Greenroom section is open.
+    var greenroomOpen = false
     var confirmingDestroy = false
     /// `g` was pressed and waits for its second key.
     var pendingPrefix: KeyChord?
@@ -491,6 +509,7 @@ enum ActionRules {
     /// the palette, the destroy question, driving and a text field each shut out the rest.
     static func contexts(_ s: ActionState) -> [ActionContext] {
         if s.paletteOpen { return [.palette] }
+        if s.greenroomOpen { return [.greenroom] }
         if s.confirmingDestroy { return [.confirm] }
         if s.drivingFocused { return [.driving] }
         if s.typing { return [.composer] }
@@ -506,6 +525,8 @@ enum ActionRules {
     static func isEnabled(_ id: ActionID, in context: ActionContext, _ s: ActionState) -> Bool {
         switch id {
         case .palette: return !s.drivingFocused
+        case .greenroom: return !s.drivingFocused
+        case .closeGreenroom: return s.greenroomOpen
         case .help, .refresh, .toggleSidebar, .goRuns,
              .themeSystem, .themeDark, .themeLight, .themeDarkContrast, .themeLightContrast:
             return true
@@ -555,6 +576,7 @@ enum ActionRules {
         case .destroy: return "This run has no machine"
         case .nextFailure, .previousFailure: return "No step errored"
         case .nextCheck, .previousCheck: return "The verdict has no checks"
+        case .continueVerifier: return "The verifier is not stopped at a limit"
         case .exportRecording: return "No recording yet"
         case .play, .previousFrame, .nextFrame, .speed: return "Show a recording first"
         case .backToVerdict: return "No evidence is open"
@@ -602,6 +624,9 @@ enum KeyResolver {
         // In a mode that types (a text field, the palette's query), everything else is the
         // field's: bare keys type.
         if live == [.composer] || live == [.palette] { return .pass }
+        // The Greenroom section is over the window: a bare key must not act on what is
+        // under it (a focused button's space). Chords still reach the menu bar (Cmd-Q).
+        if live == [.greenroom] { return chord.isBare ? .swallow : .pass }
         if startsSequence(chord, in: live) { return .prefix(chord) }
         return .pass
     }

@@ -262,4 +262,19 @@ final class ModelsTests: XCTestCase {
         XCTAssertFalse(VerdictStatus.rejected.isOpen)
         XCTAssertFalse(VerdictStatus.none.isOpen)
     }
+
+    /// A verifier reply at a limit carries `stop` (issue #127); an unknown value is data,
+    /// and a message without it decodes with none.
+    func testMessageDecodesItsStop() throws {
+        let messages = try decode([Message].self, """
+        [
+          {"seq": 35, "at": "2026-09-26T07:30:01.5588Z", "from": "verifier", "kind": "reply", "text": "I ran out of time after 10m0s.", "stop": "time"},
+          {"seq": 36, "at": "2026-09-26T07:30:02Z", "from": "verifier", "kind": "reply", "text": "x", "stop": "steps"},
+          {"seq": 37, "at": "2026-09-26T07:30:03Z", "from": "verifier", "kind": "reply", "text": "x", "stop": "tokens"},
+          {"seq": 38, "at": "2026-09-26T07:30:04Z", "from": "verifier", "kind": "reply", "text": "x"},
+          {"seq": 39, "at": "2026-09-26T07:30:05Z", "from": "verifier", "kind": "reply", "text": "x", "stop": 4}
+        ]
+        """)
+        XCTAssertEqual(messages.map(\.stop), [.time, .steps, .unknown("tokens"), nil, nil])
+    }
 }

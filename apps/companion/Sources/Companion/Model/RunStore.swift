@@ -147,6 +147,8 @@ final class RunStore: PilotHost {
     /// the verdict land. The cards read it, so a card rebuilt mid-way carries on, not over.
     var verdictMoment: VerdictMoment?
     private(set) var verdictDrafts: [String: VerdictDraft] = [:]
+    /// Runs whose Continue is on its way (`continueVerifier`): the card and the key wait.
+    private(set) var continuing: Set<String> = []
     /// An accept or dispute shown as made but not yet sent: it waits out its undo
     /// (companion ADR 0005), since the daemon cannot take a recorded message back.
     private(set) var verdictUndo = UndoWindow<PendingVerdictChoice>()
@@ -154,6 +156,8 @@ final class RunStore: PilotHost {
     @ObservationIgnored private var undoTimer: Task<Void, Never>?
 
     let client: DaemonClient
+    /// The builds and updates (root ADR 0033), beside the runs rather than in them.
+    let updates: Updates
     /// The lease routes; the daemon client unless a test lends the screen without one.
     private let controlClient: any ControlClient
     /// The live screen route; the daemon client unless a test stands in for it.
@@ -185,6 +189,7 @@ final class RunStore: PilotHost {
         screenSource: (any ScreenSource)? = nil
     ) {
         self.client = client
+        updates = Updates(client: client)
         self.controlClient = controlClient ?? client
         self.screenSource = screenSource ?? client
     }
@@ -497,6 +502,22 @@ final class RunStore: PilotHost {
         await reloadTranscript(runId)
         await perform(.runs)
         return true
+    }
+
+    /// The verifier's turn stopped at a limit and waits (`LimitStop`): your note
+    /// "Continue." starts its next turn. Only while that stop is the last word, the
+    /// verifier still listens and no other Continue is on its way.
+    @discardableResult
+    func continueVerifier(runId: String) async -> Bool {
+        guard canContinue(runId) else { return false }
+        continuing.insert(runId)
+        defer { continuing.remove(runId) }
+        return await send(runId: runId, kind: .note, text: LimitStop.continueText)
+    }
+
+    func canContinue(_ runId: String) -> Bool {
+        !continuing.contains(runId) && facts(runId).verifierListens
+            && LimitStop.waiting(messages[runId] ?? []) != nil
     }
 
     // MARK: - Verdict actions

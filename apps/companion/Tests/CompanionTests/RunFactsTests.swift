@@ -175,6 +175,49 @@ final class RunFactsTests: XCTestCase {
         XCTAssertFalse(StepRisk.isRisky("ls -la ~/work"))
         XCTAssertFalse(StepRisk.isRisky("rmdir build"))
     }
+    // MARK: - A turn stopped at a limit (issue #127, companion ADR 0015)
+
+    private func stopped(_ seq: Int, _ stop: StopReason, ago: TimeInterval = 30) -> Message {
+        var reply = message(seq, .verifier, .reply, "I used all 40 tool calls for this turn", ago: ago)
+        reply.stop = stop
+        return reply
+    }
+
+    /// Nothing happens until someone sends a message, so a live run waits on you.
+    func testALiveRunStoppedAtALimitNeedsYou() {
+        let messages = [message(1, .coder, .task, ago: 700), stopped(2, .steps)]
+        let f = facts(detail: detail(machine(.ready)), messages: messages)
+        XCTAssertEqual(f.stoppedAt, .steps)
+        XCTAssertTrue(f.needsYou)
+        XCTAssertEqual(f.rowStatus(now: now).text, "Stopped, out of tool calls")
+        XCTAssertEqual(f.rowStatus(now: now).tone, .attention)
+    }
+
+    func testContinuingEndsTheWait() {
+        let messages = [message(1, .coder, .task, ago: 700), stopped(2, .time, ago: 60), message(3, .human, .note, "Continue.", ago: 5)]
+        let f = facts(detail: detail(machine(.ready)), messages: messages)
+        XCTAssertNil(f.stoppedAt)
+        XCTAssertEqual(f.turn, .verifier)
+    }
+
+    /// Once the machine is gone nothing will continue it; the row still says why there
+    /// is no verdict.
+    func testAnEndedRunStoppedAtALimitSaysSoWithoutNeedingYou() {
+        let messages = [message(1, .coder, .task, ago: 700), stopped(2, .time), message(3, .system, .event, "machine destroyed", ago: 20)]
+        let f = facts(detail: detail(nil, destroyedAt: now.addingTimeInterval(-20)), messages: messages)
+        XCTAssertFalse(f.needsYou)
+        XCTAssertFalse(f.verifierListens)
+        XCTAssertEqual(f.rowStatus(now: now).text, "No verdict, out of time")
+        XCTAssertEqual(f.rowStatus(now: now).tone, .quiet)
+    }
+
+    /// A question or a verdict waiting on you still leads the row.
+    func testAQuestionOutranksAStop() {
+        let messages = [message(1, .coder, .task, ago: 700), message(2, .verifier, .question, "Which?", ago: 60)]
+        let f = facts(detail: detail(machine(.ready)), messages: messages)
+        XCTAssertEqual(f.rowStatus(now: now).text, "Question for you")
+        XCTAssertNil(f.stoppedAt)
+    }
 }
 
 final class VerdictReviewTests: XCTestCase {
@@ -443,4 +486,5 @@ final class TitleAndWordsTests: XCTestCase {
         let fine = [1, 2, 5].map { Step(seq: $0, at: at, tool: "machine_exec") }
         XCTAssertEqual(StepLog.normalized(fine).map(\.seq), [1, 2, 5])
     }
+
 }

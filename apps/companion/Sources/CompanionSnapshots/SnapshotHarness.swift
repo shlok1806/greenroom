@@ -57,6 +57,9 @@ final class SnapshotHarness {
         var showSidebar = false
         /// The width the person dragged the sidebar to.
         var sidebarWidth = RunLayout.sidebarIdeal
+        /// Opens the Greenroom section on this state (root ADR 0033). Staged by hand: the
+        /// harness never runs update.sh or reads a build.
+        var builds: (@MainActor (Updates) -> Void)?
     }
 
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
@@ -206,7 +209,83 @@ final class SnapshotHarness {
             Scenario(name: "26-guest-no-conversation", sizes: [Self.guest], runId: Self.citedRun, conversation: false),
             // A run with no task and only system events: the header and a short transcript.
             Scenario(name: "27-no-task-few-events", sizes: [Self.guest, Self.medium], runId: Self.noTaskRun),
-        ] + momentScenarios()
+        ] + momentScenarios() + buildsScenarios()
+    }
+
+    // MARK: - Builds and updates (root ADR 0033)
+
+    private static let buildMain = "9f8e7d6"
+    private static let buildCheckout = "/Users/maintainer/projects/greenroom"
+    private static let built = Date().addingTimeInterval(-26 * 3600)
+
+    private static func stampedApp(_ commit: String) -> AppBuild {
+        AppBuild(stamp: BuildStamp(commit: commit, builtAt: built), checkout: buildCheckout)
+    }
+
+    private static func stampedDaemon(_ commit: String, dirty: Bool = false) -> DaemonVersion {
+        DaemonVersion(version: "0.0.2", commit: commit, dirty: dirty, builtAt: built.formatted(DaemonDate.plain),
+                      inputHelper: 7, imageRecipe: 2, verifier: "nim", verifierModel: "nvidia/nemotron-3-super-120b-a12b",
+                      visionModel: "meta/muse-glimmer-30b", checkout: buildCheckout)
+    }
+
+    private static let incoming: [UpdateCheck.Commit] = [
+        .init(sha: "9f8e7d6", subject: "companion: builds and updates from the app (ADR 0033)"),
+        .init(sha: "4c3b2a1", subject: "verifier: describer options per model, muse-glimmer ready (ADR 0030)"),
+        .init(sha: "0d9e8f7", subject: "daemon: close the Login Items alert at image build time"),
+    ]
+
+    private static func checked(ahead: [UpdateCheck.Commit], ago: TimeInterval = 240) -> BuildsSummary.Check {
+        .checked(UpdateCheck(main: buildMain, ahead: ahead.count, commits: ahead, refusal: nil), at: Date().addingTimeInterval(-ago))
+    }
+
+    private static func updateRun(_ lines: [String], status: Int32? = nil) -> UpdateRun {
+        var run = UpdateRun()
+        for line in lines { run.take(line) }
+        if let status { run.finish(status: status) }
+        return run
+    }
+
+    private static let updatingLines = [
+        "step: check the checkout", "step: fetch origin", "step: fast-forward main (3 new commits)",
+        "step: install the daemon", "env file: \(buildCheckout)/.env", "verifier: nim",
+        "image: greenroom-lean-a (local image)", "commit: 9f8e7d6", "building /Users/maintainer/.greenroom/bin/greenroom",
+    ]
+
+    private func buildsScenarios() -> [Scenario] {
+        let sizes = [Self.medium, Self.guest]
+        let old = "4c3b2a1"
+        return [
+            Scenario(name: "47-builds-up-to-date", sizes: sizes, runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp(Self.buildMain), daemon: Self.stampedDaemon(Self.buildMain),
+                              check: Self.checked(ahead: []))
+            }),
+            Scenario(name: "48-builds-updates-available", sizes: sizes, runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp("1a2b3c4"), daemon: Self.stampedDaemon("1a2b3c4"),
+                              check: Self.checked(ahead: Self.incoming))
+            }),
+            // The stale daemon of 2026-09-26: the app is on main, the daemon a build behind.
+            Scenario(name: "49-builds-mismatch", sizes: sizes, runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp(Self.buildMain), daemon: Self.stampedDaemon(old),
+                              check: Self.checked(ahead: []))
+            }),
+            Scenario(name: "49b-builds-verifier-working", sizes: [Self.medium], runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp("1a2b3c4"), daemon: Self.stampedDaemon("1a2b3c4"),
+                              check: Self.checked(ahead: Self.incoming), confirming: ["Check TipSplit splits the bill"])
+            }),
+            Scenario(name: "50-builds-updating", sizes: sizes, runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp("1a2b3c4"), daemon: Self.stampedDaemon("1a2b3c4"),
+                              check: Self.checked(ahead: Self.incoming), run: Self.updateRun(Self.updatingLines))
+            }),
+            Scenario(name: "51-builds-failed", sizes: sizes, runId: Self.passRun, builds: { updates in
+                updates.stage(app: Self.stampedApp("1a2b3c4"), daemon: Self.stampedDaemon("1a2b3c4"),
+                              check: Self.checked(ahead: Self.incoming),
+                              run: Self.updateRun(Self.updatingLines + [
+                                  "# github.com/shlok1806/greenroom/apps/daemon/internal/verifier",
+                                  "internal/verifier/describe.go:88:2: undefined: retryDescribe",
+                                  "failed: install the daemon",
+                              ], status: 1))
+            }),
+        ]
     }
 
     /// The signature moments (ADR 0006), each held part way through with `momentFreeze`.
@@ -241,7 +320,52 @@ final class SnapshotHarness {
             Scenario(name: "32-moment-power-down-still", sizes: [Self.medium], runId: runId, momentFreeze: 1.0) { store in
                 await Self.destroyWhileWatched(store, runId: runId)
             },
-        ] + verdictLandsScenarios() + checklistScenarios()
+        ] + verdictLandsScenarios() + checklistScenarios() + limitStopScenarios()
+    }
+
+    /// A verifier turn that stopped at its time budget before a verdict (issue #127,
+    /// companion ADR 0015), from a bench run exactly as recorded, whose machine is gone;
+    /// then the same run made live, so the card offers Continue; after a Continue; and the
+    /// same stop at the step cap. Copy `~/.greenroom/bench/runs` into the daemon's root.
+    private func limitStopScenarios() -> [Scenario] {
+        let runId = Self.stoppedRun
+        return [
+            Scenario(name: "46-real-stopped-out-of-time", sizes: [Self.large, Self.guest], runId: runId),
+            Scenario(name: "46b-stopped-waiting", sizes: [Self.large, Self.medium, Self.guest], runId: runId) { store in
+                Self.makeLive(store, runId: runId, lastActivityAgo: 40)
+            },
+            Scenario(name: "46c-stopped-continued", sizes: [Self.large], runId: runId) { store in
+                Self.makeLive(store, runId: runId, lastActivityAgo: 4)
+                Self.continueAfterStop(store, runId: runId)
+            },
+            Scenario(name: "46d-stopped-out-of-tool-calls", sizes: [Self.medium, Self.guest], runId: runId) { store in
+                Self.makeLive(store, runId: runId, lastActivityAgo: 40)
+                Self.restop(store, runId: runId, .steps,
+                            "I used all 40 tool calls for this turn and did not finish. Send a message and I will continue.")
+            },
+        ]
+    }
+
+    /// WordCount's "Longest word" task, whose verifier ran out of time (10 minutes).
+    private static let stoppedRun = "20260926-071916-b48b96d157b71fcd"
+
+    /// Your Continue, sent after the stop: the verifier then works again.
+    private static func continueAfterStop(_ store: RunStore, runId: String) {
+        guard var messages = store.messages[runId], let last = messages.last else { return }
+        messages.append(Message(seq: last.seq + 1, at: last.at.addingTimeInterval(3), from: .human, kind: .note,
+                                text: LimitStop.continueText))
+        store.messages[runId] = messages
+    }
+
+    /// The run's stopped reply, as if it had stopped at another limit.
+    private static func restop(_ store: RunStore, runId: String, _ reason: StopReason, _ text: String) {
+        store.messages[runId] = store.messages[runId]?.map { message in
+            guard message.stop != nil else { return message }
+            var message = message
+            message.stop = reason
+            message.text = text
+            return message
+        }
     }
 
     /// A verdict as a checklist and the verifier's declared plan (root ADR 0024), seeded
@@ -671,6 +795,11 @@ final class SnapshotHarness {
         try await Task.sleep(for: .seconds(1.5))
         await scenario.prepare(store)
         if scenario.drivingFocused { keyboard.responder = .guest }
+        if let builds = scenario.builds {
+            builds(store.updates)
+            // Opened by hand: `perform(.greenroom)` would read the build and check again.
+            keyboard.greenroomOpen = true
+        }
         if scenario.verdictExpanded, let runId = scenario.runId {
             store.updateVerdictDraft(runId) { $0.expanded = true }
         }

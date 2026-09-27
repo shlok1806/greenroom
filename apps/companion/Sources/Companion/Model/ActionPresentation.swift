@@ -59,6 +59,8 @@ enum HintBar {
             return HintBarContent(mode: .confirm, context: nil, hints: hints(in: [.confirm], s), undo: nil)
         case [.palette]:
             return HintBarContent(mode: .palette, context: ActionContext.palette.title, hints: hints(in: [.palette], s), undo: nil)
+        case [.greenroom]:
+            return HintBarContent(mode: .normal, context: ActionContext.greenroom.title, hints: hints(in: [.greenroom], s), undo: undo)
         case [.composer]:
             return HintBarContent(mode: .typing, context: ActionContext.composer.title, hints: hints(in: [.composer], s), undo: undo)
         default:
@@ -107,7 +109,7 @@ enum HintBar {
 
     /// The trailing hint: the palette, everywhere it opens.
     static func trailing(_ s: ActionState) -> KeyHint? {
-        guard !s.paletteOpen, !s.drivingFocused, !s.confirmingDestroy else { return nil }
+        guard !s.paletteOpen, !s.greenroomOpen, !s.drivingFocused, !s.confirmingDestroy else { return nil }
         return KeyHint(id: .palette, key: ActionRegistry.label(.palette), title: "commands")
     }
 
