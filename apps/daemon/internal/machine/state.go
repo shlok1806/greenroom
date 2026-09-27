@@ -96,6 +96,7 @@ func (m *Manager) reattachManifest(mc *Machine) Manifest {
 		man.Steps = saved.Steps
 		man.Verdict = saved.Verdict
 		man.Models = saved.Models
+		man.Name, man.Source = saved.Name, saved.Source
 		if !saved.CreatedAt.IsZero() {
 			man.CreatedAt = saved.CreatedAt
 		}

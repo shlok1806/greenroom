@@ -741,7 +741,7 @@ func TestEventStreamDeliversMessagesAndStepsThenEndsWithTheRequest(t *testing.T)
 		t.Errorf("cache control = %q, want no-cache", cc)
 	}
 
-	names := make(chan string, 16)
+	names := make(chan string, 64) // summary events arrive too
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

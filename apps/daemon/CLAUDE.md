@@ -98,6 +98,32 @@ send either). The companion and smoke client send a loopback Host and no Origin.
   and `api.New` sweeps those of runs with no machine at start.
 - `GET /api/runs/{id}/report?format=md|json[&embed=true]` (`report.go`, ADR 0034) is the
   run's proof, the same report `run_report` returns; `text/markdown` or JSON, `no-store`.
+- Run summaries (ADR 0036, `internal/summary`, `api/summary.go`). `GET /api/summary` is the
+  board: `{groups: [{id, title, count, runs}], macs: {free, total, text}, updatedAt}`, all
+  three groups (`needs-you`, `running`, `done`) always present, newest status first.
+  `GET /api/runs/{id}/summary` is one run's `summary.Summary`. The event stream sends
+  `event: summary` `{runId, summary, macs}` when a run's summary changes: listeners only mark
+  the run (they run under the store's and manager's locks, and a summary reads both), and the
+  stream derives marked runs every `SummaryEvery` (250 ms), dropping one equal to the last it
+  sent but for `elapsedSeconds` and `updatedAt`. Steps are read only for an open run or a
+  failed check's picture; a run with no live machine is cached (`summaries`) until its
+  conversation length or manifest mtime changes. `macs` counts the manager's machines only,
+  never other VMs on the host (that needs `tart list`).
+  Example, the failed TipSplit run of the golden fixture:
+
+  ```json
+  {"runId": "20260923-044138-de31017819a86d84", "name": "TipSplit: split the bill", "source": "Claude Code",
+   "state": "failed", "status": "Failed", "tone": "fail", "group": "needs-you",
+   "detail": "Proposed by the verifier after 3:26.",
+   "checks": {"total": 4, "passed": 2, "failed": 2, "pending": 0, "text": "2 of 4 checks failed",
+              "current": {"text": "Each pays becomes $50.00 at 25%", "state": "fail"}},
+   "failing": {"text": "Each pays becomes $50.00 at 25%", "expected": "$50.00", "saw": "$10.00",
+               "observed": "After choosing 25%, Each pays reads $10.00.", "step": 5,
+               "picture": {"kind": "screenshot", "file": "005-screenshot.png", "url": "/api/runs/<id>/artifacts/005-screenshot.png"},
+               "mark": {"x": 0.515, "y": 0.635, "w": 0.23, "h": 0.05}},
+   "primaryAction": {"id": "accept", "label": "Accept fail"}, "secondaryActions": [{"id": "reject", "label": "Reject"}],
+   "machine": {"status": "on"}, "since": "...", "startedAt": "...", "elapsedSeconds": 986, "lastFrame": {...}, "updatedAt": "..."}
+  ```
 - `GET /api/runs/{id}/pull?src=&exclude=` (`pull.go`, ADR 0022) is `Manager.PullArchive`:
   the guest's `tar czf -` streamed through `tart.ExecTo` as `application/gzip`, never held.
   The step number is the `Greenroom-Step` header; a missing source is 404 before any byte.
@@ -176,6 +202,18 @@ Each layer depends only on the ones below. Keep it that way.
   steps.jsonl) and the conversation, `Report.Markdown` renders it. Below `api` and
   `mcpserver`, above `machine` and `session`; both surfaces build the report here, so there
   is one shape.
+- `internal/summary` - a run in the few plain words a person reads first (ADR 0036): `Derive`
+  is pure over an `Input` the caller gathers (manifest, live machine, messages, verdict,
+  steps, frames); `NewBoard` groups. Below `api` and `mcpserver` (which uses `Name` to cut
+  `machine_create`'s name), above `machine` and `session`. The status vocabulary, the groups
+  and the action ids are the ADR's table: a new state is a row there and a case in
+  `TestEveryStatusHasItsGroupActionAndWords`. Every string must stay plain words:
+  `TestNoSummaryUsesAToolNameTimingOrInternalTerm` lists what is forbidden, and verifier prose
+  it quotes goes through `plain`. The rules it reads by text: the bridge's "machine is ready",
+  "machine failed", "machine stopped", "machine destroyed" and "human destroyed" events, the
+  "nobody will answer"/"nothing will answer" notices, and `machine.ScreenNotAnsweringError`'s
+  "screen is not answering"; change them together. Golden: `testdata/board.golden.json`, the
+  runs docs/20's Figma screens show; `go test ./internal/summary -update` rewrites it.
 - `internal/diskimage` - a stopped VM's raw disk read on the host (`MountReadOnly`): a
   clonefile copy attached read-only with `hdiutil -nomount`, only its APFS Data volume
   mounted, read-only and `nobrowse`; `Close` unmounts, detaches and removes it. Shells out to
@@ -262,6 +300,12 @@ Boot and lifecycle
   lists the same set and deletes only with `-delete`.
 - `Create` holds `createMu` for its whole length, so the host-capacity check and the clone
   cannot interleave. Default limit 2 (Apple's), `-max-machines` changes it.
+- `machine_create` takes an optional `name` (cut to five words by `summary.Name`) and records
+  it with the calling client's name as the manifest's `name` and `source`
+  (`Manager.RecordLabel`, ADR 0036). The server is stateless, so an older-protocol client's
+  `clientInfo` never reaches a tool call: `clientName` falls back to the User-Agent's first
+  product, skipping HTTP libraries' (`genericAgents`). A label that cannot be written is
+  logged; the create stands.
 - `machine_create` returns `booting` at once; callers poll `machine_wait` (capped at 50 s,
   under Claude Code's 60 s first-byte timeout). `agent_wait`, `machine_exec` and
   `machine_exec_wait` have the same cap. No tool may block longer.

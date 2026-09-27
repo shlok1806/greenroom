@@ -55,9 +55,14 @@ func (a *api) events(w http.ResponseWriter, r *http.Request) {
 	wants := func(runID string) bool { return only == "" || only == runID }
 	c := &sseClient{ch: make(chan sseEvent, clientBuffer), dropped: make(chan struct{})}
 
+	changed := &dirtyRuns{}
+
 	stopMachines := a.mgr.Listen(func(ev machine.LifecycleEvent) {
 		if !wants(ev.RunID) {
 			return
+		}
+		if ev.Kind != "frame" { // a frame changes no word of the summary
+			changed.mark(ev.RunID)
 		}
 		switch ev.Kind {
 		case "created", "ready", "failed", "stopped", "destroyed", "control":
@@ -80,9 +85,11 @@ func (a *api) events(w http.ResponseWriter, r *http.Request) {
 	stopMessages := a.reg.Listen(func(runID string, m session.Message) {
 		if wants(runID) {
 			c.send(sseEvent{name: "message", data: map[string]any{"runId": runID, "message": m}})
+			changed.mark(runID)
 		}
 	})
 	defer stopMessages()
+	sent := map[string][]byte{} // each run's last summary on this stream, for sending only changes
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -94,6 +101,8 @@ func (a *api) events(w http.ResponseWriter, r *http.Request) {
 
 	ticker := time.NewTicker(Heartbeat)
 	defer ticker.Stop()
+	summaries := time.NewTicker(SummaryEvery)
+	defer summaries.Stop()
 	for {
 		var err error
 		select {
@@ -102,6 +111,13 @@ func (a *api) events(w http.ResponseWriter, r *http.Request) {
 		case <-c.dropped:
 			a.log.Warn("dropping an event stream that fell behind", "runId", only)
 			return
+		case <-summaries.C:
+			// Computed here, not in the listeners: they run under the store's and manager's
+			// locks, and a summary reads both.
+			for _, ev := range a.summaryEvents(changed.take(), sent) {
+				c.send(ev)
+			}
+			continue
 		case ev := <-c.ch:
 			data, merr := json.Marshal(ev.data)
 			if merr != nil {
