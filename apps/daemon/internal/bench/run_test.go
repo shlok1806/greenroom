@@ -58,6 +58,15 @@ func (scriptedBrain) Turn(ctx context.Context, _ string, store *session.Store) (
 		}
 		post(session.Message{Kind: session.Question, Text: "A person has the screen. Press Give Back in the Companion and I will continue from here."})
 		return verifier.TurnResult{Ended: session.Question, Steps: 1, Tokens: 300}, nil
+	case strings.Contains(task, "DISKFULL"):
+		// The disk filled mid-trial: the daemon says the machine stopped, and the verifier,
+		// finding it gone, reports a fail that says nothing about the app.
+		if _, err := store.Append(session.Message{From: session.System, Kind: session.Event,
+			Text: "machine stopped: tart no longer lists the VM as running"}); err != nil {
+			panic(err)
+		}
+		post(session.Message{Kind: session.Verdict, Verdict: "fail", Text: "The app is gone."})
+		return verifier.TurnResult{Ended: session.Verdict, Steps: 1, Tokens: 10}, nil
 	case strings.Contains(task, "BOOT"):
 		post(session.Message{Kind: session.Question, Text: "The machine is still booting; can you wait and resend?"})
 		return verifier.TurnResult{Ended: session.Question, Tokens: 100}, nil
@@ -90,6 +99,7 @@ type fakeTartMachines struct {
 	*machine.Manager
 	control   string
 	failBuild atomic.Bool
+	noSpace   atomic.Bool // build.sh fails as a full disk makes it fail
 }
 
 func (f *fakeTartMachines) Create(ctx context.Context, image string) (*machine.Machine, error) {
@@ -98,6 +108,9 @@ func (f *fakeTartMachines) Create(ctx context.Context, image string) (*machine.M
 }
 
 func (f *fakeTartMachines) Exec(ctx context.Context, runID, command, cwd string, timeout time.Duration) (machine.ExecResult, error) {
+	if command == "./build.sh" && f.noSpace.Load() {
+		return machine.ExecResult{ExitCode: 1, Stderr: "error: unable to write build/Demo.app: No space left on device"}, nil
+	}
 	if command == "./build.sh" && f.failBuild.Load() {
 		return machine.ExecResult{ExitCode: 1, Stderr: "main.swift:3: error: cannot find 'x' in scope"}, nil
 	}
@@ -451,5 +464,130 @@ func TestReadChecksCopiesTheVerdictsAndTheDeclaredChecks(t *testing.T) {
 	readChecks(path+".missing", 0, &res)
 	if res.Checks != nil || res.DeclaredChecks != nil {
 		t.Error("checks from a missing conversation")
+	}
+}
+
+// freeDisk is a scripted free-space probe: each call returns the next value (bytes), and the
+// last one forever after.
+type freeDisk struct {
+	mu     sync.Mutex
+	values []uint64
+	calls  int
+}
+
+func (f *freeDisk) probe() (uint64, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	v := f.values[min(f.calls, len(f.values))-1]
+	return v, "/fake/.tart", nil
+}
+
+const gb = 1 << 30
+
+// Issue #155: under the free-disk threshold the runner waits, then stops cleanly. Nothing is
+// cut short, the trial that could not start is recorded as a setup error of cause disk, it
+// says so where the run's progress goes, and a rerun with the same results file finishes.
+func TestRunnerStopsCleanlyOnLowDisk(t *testing.T) {
+	r := newRig(t)
+	cases := []Case{
+		r.addCase(t, `{"id":"demo-a","app":"demo","kind":"correct","split":"dev","patch":null,"task":"A","expected":"pass","must_check":["x"]}`),
+		r.addCase(t, `{"id":"demo-b","app":"demo","kind":"correct","split":"dev","patch":null,"task":"B","expected":"pass","must_check":["x"]}`),
+		r.addCase(t, `{"id":"demo-c","app":"demo","kind":"correct","split":"dev","patch":null,"task":"C","expected":"pass","must_check":["x"]}`),
+	}
+	counting := &countingMachines{root: r.root}
+	out := filepath.Join(t.TempDir(), "r.jsonl")
+	disk := &freeDisk{values: []uint64{10 * gb, 1 * gb}} // enough for demo-a, then low
+	var progress strings.Builder
+	cfg := Config{BenchDir: r.bench, Cases: cases, Trials: 1, Out: out, Parallel: 1, TurnTimeout: 200 * time.Millisecond,
+		MinFreeDisk: 5 * gb, DiskWait: 50 * time.Millisecond, DiskPoll: 10 * time.Millisecond, FreeDisk: disk.probe,
+		Progress: &progress}
+	sum, err := New(cfg, r.mgr, r.reg, scriptedBrain{}, WithMachines(counting)).Run(context.Background())
+	if !errors.Is(err, ErrLowDisk) {
+		t.Fatalf("err = %v, want ErrLowDisk", err)
+	}
+	if counting.total != 1 || sum.Ran != 2 || sum.SetupErrors != 1 {
+		t.Errorf("summary %+v on %d machines, want demo-a run and demo-b refused before a machine", sum, counting.total)
+	}
+	got := byKey(t, out)
+	if got["demo-a#1"].Ending == EndSetupError {
+		t.Errorf("demo-a = %+v, want it run", got["demo-a#1"])
+	}
+	b := got["demo-b#1"]
+	if b.Ending != EndSetupError || b.Cause != CauseDisk || !strings.Contains(b.Error, "1.0 GB free on /fake/.tart, under 5.0 GB") {
+		t.Errorf("demo-b = %+v, want a setup error of cause disk saying how much was free", b)
+	}
+	if _, ok := got["demo-c#1"]; ok {
+		t.Error("demo-c was recorded after the stop")
+	}
+	for _, want := range []string{"1.0 GB free on /fake/.tart, under 5.0 GB; waiting up to", "stopping: no trial starts under 5.0 GB free"} {
+		if !strings.Contains(progress.String(), want) {
+			t.Errorf("progress lacks %q:\n%s", want, progress.String())
+		}
+	}
+
+	// Space is back: the rerun retries demo-b and runs demo-c.
+	r2 := newRig(t)
+	r2.bench = r.bench
+	cfg.FreeDisk = (&freeDisk{values: []uint64{10 * gb}}).probe
+	sum, err = New(cfg, r2.mgr, r2.reg, scriptedBrain{}, WithMachines(&countingMachines{root: r2.root})).Run(context.Background())
+	if err != nil || sum.Ran != 2 || sum.Skipped != 1 {
+		t.Errorf("resume = %+v, %v; want demo-b and demo-c run", sum, err)
+	}
+}
+
+// A low disk that recovers while the runner waits costs a wait, not the run.
+func TestRunnerWaitsForDiskToComeBack(t *testing.T) {
+	r := newRig(t)
+	c := r.addCase(t, `{"id":"demo-a","app":"demo","kind":"correct","split":"dev","patch":null,"task":"A","expected":"pass","must_check":["x"]}`)
+	out := filepath.Join(t.TempDir(), "r.jsonl")
+	disk := &freeDisk{values: []uint64{2 * gb, 3 * gb, 8 * gb}}
+	var progress strings.Builder
+	sum, err := New(Config{BenchDir: r.bench, Cases: []Case{c}, Trials: 1, Out: out, Parallel: 1, TurnTimeout: 200 * time.Millisecond,
+		MinFreeDisk: 5 * gb, DiskWait: 10 * time.Second, DiskPoll: 10 * time.Millisecond, FreeDisk: disk.probe, Progress: &progress},
+		r.mgr, r.reg, scriptedBrain{}, WithMachines(&countingMachines{root: r.root})).Run(context.Background())
+	if err != nil || sum.Ran != 1 || sum.SetupErrors != 0 {
+		t.Fatalf("summary = %+v, %v; want the trial run after the wait", sum, err)
+	}
+	if !strings.Contains(progress.String(), "8.0 GB free again; going on") {
+		t.Errorf("progress = %q, want the recovery said", progress.String())
+	}
+}
+
+// A trial whose machine stopped while the disk was low is a setup error of cause disk, not
+// the wrong verdict the verifier gave about a machine that was gone; so is a build that ran
+// out of space.
+func TestATrialTheDiskKilledIsASetupError(t *testing.T) {
+	r := newRig(t)
+	full := r.addCase(t, `{"id":"demo-full","app":"demo","kind":"correct","split":"dev","patch":null,"task":"Check it. DISKFULL","expected":"pass","must_check":["x"]}`)
+	good := r.addCase(t, `{"id":"demo-good","app":"demo","kind":"correct","split":"dev","patch":null,"task":"Check it. PASS","expected":"pass","must_check":["x"]}`)
+	out := filepath.Join(t.TempDir(), "r.jsonl")
+	// Enough to start each trial; low when demo-full ends. demo-good ends with space.
+	disk := &freeDisk{values: []uint64{6 * gb, 2 * gb, 6 * gb}}
+	cfg := Config{BenchDir: r.bench, Cases: []Case{full, good}, Trials: 1, Out: out, Image: "img", Parallel: 1,
+		TurnTimeout: 20 * time.Second, MinFreeDisk: 5 * gb, DiskWait: time.Second, DiskPoll: 10 * time.Millisecond, FreeDisk: disk.probe}
+	if _, err := New(cfg, r.mgr, r.reg, scriptedBrain{}, WithMachines(r.machines)).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := byKey(t, out)
+	f := got["demo-full#1"]
+	if f.Ending != EndSetupError || f.Cause != CauseDisk || f.Verdict != "" ||
+		!strings.Contains(f.Error, "machine stopped during the trial with 2.0 GB free") || !strings.Contains(f.Error, "its fail is not counted") {
+		t.Errorf("demo-full = %+v, want a setup error of cause disk", f)
+	}
+	if g := got["demo-good#1"]; g.Ending != EndVerdict || g.Cause != "" {
+		t.Errorf("demo-good = %+v, want its verdict", g)
+	}
+
+	// Out of space in the build, whatever the probe says.
+	r2 := newRig(t)
+	r2.bench = r.bench
+	r2.machines.noSpace.Store(true)
+	cfg.Cases, cfg.Out, cfg.FreeDisk = []Case{good}, filepath.Join(t.TempDir(), "r2.jsonl"), (&freeDisk{values: []uint64{50 * gb}}).probe
+	if _, err := New(cfg, r2.mgr, r2.reg, scriptedBrain{}, WithMachines(r2.machines)).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if b := byKey(t, cfg.Out)["demo-good#1"]; b.Ending != EndSetupError || b.Cause != CauseDisk {
+		t.Errorf("a build out of space = %+v, want cause disk", b)
 	}
 }

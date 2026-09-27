@@ -288,6 +288,14 @@ func Report(source string, all []Result, now time.Time, opts ReportOptions) stri
 	labels := distinct(results, modelsLabel)
 	p("- Models (brain and describer): %s. Images: %s.\n", joinOrNone(labels),
 		joinOrNone(distinct(results, func(r Result) string { return r.Image })))
+	if disk := len(filterResults(results, func(r Result) bool { return r.Cause == CauseDisk })); disk > 0 {
+		trials := "trials"
+		if disk == 1 {
+			trials = "trial"
+		}
+		p("- Low disk: %d %s recorded as `setup_error` of cause `disk` (not started, or its machine stopped while the "+
+			"disk was low). Not wrong results; free some space and rerun with the same `-out` to run them.\n", disk, trials)
+	}
 	if first, last, ok := span(results); ok {
 		p("- Trials started %s to %s. Scored %s.\n", first.Format(time.RFC3339), last.Format(time.RFC3339), now.UTC().Format(time.RFC3339))
 	}
@@ -419,7 +427,11 @@ func Report(source string, all []Result, now time.Time, opts ReportOptions) stri
 	} else {
 		p("| Case | Trial | Ending | Detail | Run directory |\n| --- | --- | --- | --- | --- |\n")
 		for _, r := range sortedResults(unanswered) {
-			p("| %s | %d | %s | %s | `%s` |\n", r.Case, r.Trial, r.Ending, cell(orElse(r.Error, r.Text), 200), orElse(r.RunDir, "none"))
+			ending := r.Ending
+			if r.Cause != "" {
+				ending += " (" + r.Cause + ")"
+			}
+			p("| %s | %d | %s | %s | `%s` |\n", r.Case, r.Trial, ending, cell(orElse(r.Error, r.Text), 200), orElse(r.RunDir, "none"))
 		}
 	}
 	return b.String()

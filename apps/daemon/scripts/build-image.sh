@@ -14,9 +14,13 @@
 # -disk-size <GB> grows the guest disk (default 90) for Xcode, builds and DerivedData; the
 # disk is sparse, so the host pays only for what the guest writes.
 # The gate's screenshots and report go to $GREENROOM_CHECK_OUT, else a new temp directory.
+# It needs 20 GB free to start, and stops (deleting what it built) if free space on / falls
+# under $GREENROOM_BUILD_MIN_FREE_GB (default 5) while it clones, prepares or checks (#155).
 set -euo pipefail
 
 cd "$(dirname "$0")/.." # apps/daemon
+. scripts/disk-guard.sh
+min_gb="${GREENROOM_BUILD_MIN_FREE_GB:-5}"
 
 base="ghcr.io/cirruslabs/macos-tahoe-base:latest" # matches defaultImage in main.go
 name="greenroom-base"
@@ -65,8 +69,7 @@ echo "xcode:       $xcode ($(plutil -extract CFBundleShortVersionString raw -o -
 echo "guest disk:  $disk_gb GB"
 
 # tart images live under ~/.tart on /; refuse early rather than fail mid-clone.
-free_kb="$(df -k / | awk 'NR==2 {print $4}')"
-free_gb="$((free_kb / 1024 / 1024))"
+free_gb="$(free_gb)"
 need_gb=20 # Xcode is about 4 GB compressed in the guest, plus first launch, the probes and the gate's clones
 if [ "$free_gb" -lt "$need_gb" ]; then
   echo "only ${free_gb} GB free on /, need at least ${need_gb} GB. Free some disk (tart images live under ~/.tart) and try again." >&2
@@ -97,7 +100,10 @@ if "$tart" list --source local --format json 2>/dev/null | jq -e --arg n "$name"
 fi
 
 echo "cloning $base -> $name"
-"$tart" clone "$base" "$name"
+if ! guarded "$min_gb" "$tart" clone "$base" "$name"; then
+  "$tart" delete "$name" 2>/dev/null || true
+  exit 1
+fi
 # The guest grows its APFS container to fit at boot (tart-guest-agent --resize-disk, in the
 # Cirrus base); prepare-image waits for that and reads it back (guest/disk.sh).
 if ! "$tart" set "$name" --disk-size "$disk_gb"; then
@@ -140,7 +146,7 @@ echo "guest agent is up"
 echo "preparing the guest (Xcode, input helper, ssh key, screen capture, desktop preferences, base profile, toolchain manifest${lean:+, lean profile}, Software Update off)"
 greenroom="$log.greenroom"
 go build -o "$greenroom" .
-if ! "$greenroom" prepare-image -tart "$tart" -vm "$name" -xcode "$xcode" $lean; then
+if ! guarded "$min_gb" "$greenroom" prepare-image -tart "$tart" -vm "$name" -xcode "$xcode" $lean; then
   cleanup
   "$tart" delete "$name" || true
   exit 1
@@ -164,8 +170,14 @@ echo "$name is stopped"
 # The dialog gate needs a VM slot of its own; the build VM has stopped.
 out="${GREENROOM_CHECK_OUT:-$(mktemp -d -t greenroom-check)}"
 echo "dialog check (clone of a clone, before and after a reboot); screenshots in $out"
-if ! "$greenroom" check-image -tart "$tart" -image "$name" -out "$out"; then
-  echo "$name failed the dialog check; deleting it. $final is unchanged. Screenshots and report: $out" >&2
+check=0
+guarded "$min_gb" "$greenroom" check-image -tart "$tart" -image "$name" -out "$out" || check=$?
+if [ "$check" -ne 0 ]; then
+  if [ "$check" -eq 75 ]; then
+    echo "the dialog check stopped for low disk; deleting $name. $final is unchanged." >&2
+  else
+    echo "$name failed the dialog check; deleting it. $final is unchanged. Screenshots and report: $out" >&2
+  fi
   "$tart" delete "$name" || true
   rm -f "$greenroom"
   exit 1
