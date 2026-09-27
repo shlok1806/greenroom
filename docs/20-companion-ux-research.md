@@ -24,6 +24,7 @@ Contents:
 9. The technology: a web UI in a thin native shell, or native SwiftUI
 10. Phased implementation plan
 11. Sources
+12. Wireframes and mockups (Figma)
 
 ## 1. How the audit was done
 
@@ -264,9 +265,9 @@ mockups, not renders of the app. They are drawn in shadcn/ui's default vocabular
 word), which is what stack (A) in section 9 would start from before our own tokens
 replace its defaults.
 
-A Figma file was requested for these. The Figma connector in this session needs a person
-to finish its sign-in, so the mockups were drawn as HTML and captured as PNG instead; they
-can be moved into Figma once the connector is authorised.
+These first mockups were drawn as HTML because the Figma connector was not signed in at the
+time. Direction 2 has since been designed in full in Figma: every screen and state as
+wireframes, the key screens as hi-fi mockups, components and tokens. See section 12.
 
 ### Direction 1: timeline first
 
@@ -540,3 +541,129 @@ design-taste-frontend, minimalist-ui, high-end-visual-design.
 **In this repo.** Companion ADRs 0001 to 0018 (`apps/companion/docs/adr/`), root ADRs
 0007, 0011, 0024, 0027, 0034, `apps/companion/docs/design-spec.md`,
 `design-research.md`, `design-research-2.md`, `ux-audit.md`, `design/tokens.json`.
+
+## 12. Wireframes and mockups (Figma)
+
+Direction 2, designed in full. Figma file: **Greenroom Companion redesign**,
+<https://www.figma.com/design/041UmqtdMYVCufxO8g9Ius>. Exports are in
+[`20-companion-ux-research/figma/`](20-companion-ux-research/figma/). The glyph, terminal and
+olive look of companion ADRs 0004 to 0008 is not reused anywhere.
+
+The brief it answers: nothing overwhelming, everything the developer needs visible at once,
+no digging through buttons for details that matter, quick to navigate, good to look at. Only
+raw logs and the full transcript are behind one click or one key.
+
+![Failed run, the most common visit](20-companion-ux-research/figma/m03-failed-light.png)
+
+### Pages in the file
+
+| Page | What is on it |
+| --- | --- |
+| Principles | One frame: the ten rules, the text budget with this design's counts, the five questions and where each is answered, and the sources used. |
+| Wireframes | All 15 screens (17 frames) in grayscale, each with pink numbered pins and a notes panel: what every element is for, how you move on, the word count, and the sources that shaped it. The navigation flow diagram sits beside screen 01. |
+| Mockups | The starred screens in hi-fi, with real guest frames from TipSplit runs `20260923-044138-de31017819a86d84` (fail) and `20260923-025814-1feb83aa6cc4b6c8` (pass). Light and dark, plus the compact 1024 x 680 and wide 1600 x 1000 windows. |
+| Components | Status glyph set, icons, buttons (3 kinds x 6 states), toolbar button, icon button, keycap, tool chip, run row, check row, palette row, Thinking, task row, filmstrip thumb, evidence mark, evidence frame; and a states board with every piece in every state it can be in. |
+| Tokens | Color variables in Light, Dark and Wireframe modes with WCAG contrast, the type scale, spacing, radius, elevation, focus and motion. |
+
+### Screens
+
+| # | Screen and state | Wireframe | Hi-fi mockup |
+| --- | --- | --- | --- |
+| 01 | Home: runs grouped Needs you / Running / Done, the selected run open | yes | `m01-home-wide-light.png` (1600 x 1000) |
+| 02 | Run, live: "Checking, 2 of 4 checks, 4:18", "Now clicking 25% in TipSplit", live screen | yes | `m02-live-light.png`, `m02-live-dark.png` |
+| 03 | Run, failed: first failure selected, marked frame, "Expected $50.00, saw $10.00", Accept fail / Reject | yes | `m03-failed-light.png`, `m03-failed-dark.png` |
+| 04 | Run, passed: each check shows the value it read, captioned key frames, Accept pass | yes | `m04-passed-light.png` |
+| 05 | Verifier paused at its limit: Paused, one sentence, Continue | yes | |
+| 06 | Machine booting: plain phases with times, no IPs or image names | yes | |
+| 07a | Screen not answering: "The Mac's screen stopped answering. Restart it? Your files are kept." Restart the Mac / Keep waiting | yes | `m07a-not-answering-light.png` |
+| 07b | Restarting: phases over the dimmed last picture, no buttons | yes | `m07b-restarting-light.png` |
+| 08 | Running out of resources: one amber line under the header, dismissible | yes | |
+| 09 | Take control: full-bleed screen, "You have control", Give control back | yes | `m09-take-control-light.png` |
+| 10 | Activity and composer: steps grouped by check (Task Rows, Tool Chips, Thinking), Raw logs, Message the verifier | yes | |
+| 11 | Evidence viewer: large marked frame, captioned key frames, Play recording | yes | |
+| 12 | Cmd-K palette: actions for this run with keys, jump to runs | yes | `m12-command-palette-light.png` |
+| 13 | Empty: no runs yet (the one `claude mcp add` command); Greenroom not running (the `launchctl kickstart` fix) | yes (13a, 13b) | |
+| 14 | Settings and updates sheet | yes | |
+| 15 | Compact window of 03; dark variants of 02 and 03 | yes | `m03-failed-compact-light.png` and the dark files above |
+
+Other exports: `wireframes-overview.png`, `navigation-flow.png`, `principles.png`,
+`component-states.png`, `tokens.png`.
+
+### Navigation flow
+
+![Navigation flow](20-companion-ux-research/figma/navigation-flow.png)
+
+- Home (01) is a run already open: Up and Down move between runs, so there is no separate
+  "list" screen. With no runs, or no daemon, the pane shows 13a or 13b.
+- A run goes Starting (06) to Checking (02). From Checking it can pause at its limit (05,
+  Continue returns), lose its screen (07a, Restart the Mac leads to 07b, which returns by
+  itself), warn about resources (08, a banner on the same screen), be driven by you (09, Take
+  control and Give control back), or land a verdict (03 or 04).
+- Accept or Reject moves the run to Done and selects the next run that needs you, so a
+  reviewer walks the Needs you list with one key.
+- From any run, one click or one key: Activity and the composer (10, A and M), the evidence
+  viewer (11, E or a click on the picture), the palette (12, Cmd-K), Settings (14, Cmd-comma).
+  J and K move between checks, Left and Right between frames.
+
+### Decisions made while drawing
+
+- **Checks column 400 px, picture 568 px** at 1280 x 800. At 376 px the selected failed
+  check wrapped under its "saw" value.
+- **Word counts** (run pane, excluding the guest screen): live about 52 (budget 60), failed
+  about 64 (budget 70), passed about 58, first launch about 30 (budget 35).
+- **Contrast.** The first light palette failed 4.5:1 for status text on a selected row (red
+  4.0, blue 4.3, green 4.2, amber 4.2). The shipped values (accent `#2156D9`, pass `#157034`,
+  fail `#C21F1F`, wait `#A34B05`) pass on every surface in both themes. `text-tertiary`
+  (3.3:1) is kept for disabled text only; placeholders use `text-secondary`.
+- **Font.** The app ships in SF Pro. Figma's renderer does not carry SF Pro (text rendered
+  blank), so the file draws in Inter, whose metrics are close; the text styles swap in one
+  place.
+- **Paused, Not answering and Restarting are header states,** not messages. Each has one
+  sentence and at most one primary.
+- **Passed shows its evidence too:** the value each check read, a green mark on the frame, and
+  three captioned key frames instead of a filmstrip (PostHog found full replays go unwatched).
+- **Restart the Mac is plain in the resource warning (08)** and primary only when the screen
+  has actually stopped (07a): the run is still working in 08.
+
+### Open-source code to reuse (licences checked on GitHub)
+
+| Piece | Source | Licence | Used for |
+| --- | --- | --- | --- |
+| Sidebar, sheet, command, primitives | shadcn/ui, Radix, Base UI, cmdk | MIT | shell, palette, sheet |
+| Task Rows, Thinking, Tool Chips, Loading | Beautiful UI | MIT | Activity, boot |
+| Steps, Tool, Reasoning, Thinking Bar, Text Shimmer, Prompt Input, Source | prompt-kit, <https://github.com/ibelick/prompt-kit> | MIT | Activity, the Now line, composer |
+| Status, Relative Time, Snippet, Banner, Image Zoom, Video Player | Kibo UI, <https://github.com/shadcnblocks/kibo> | MIT | run meta, "12 min ago", copy command, resource warning, evidence viewer, recording |
+| Rolling digits | NumberFlow, <https://github.com/barvian/number-flow> | MIT | tally and elapsed time |
+| Motion | Motion, Motion Primitives, Sonner | MIT | state changes, "verdict ready" toast |
+| Icons | Lucide | ISC | every icon in the file |
+
+### designeer.xyz sources used
+
+Every category of <https://designeer.xyz> was read (Inspiration 122, Components 120, Build
+64, Visuals 55, Utilities 61, Design Engineers 132, Reading 33). What shaped what:
+
+| Category | Source | What it shaped |
+| --- | --- | --- |
+| Reading | The Shape of AI | Action plan is the checks list (02); Stream of Thought is Activity (10); Citations and Footprints are the evidence mark and filmstrip (03, 11); Controls are Take control and Continue (05, 09); Verification is Accept and Reject (03, 04); Disclosure is "Proposed by the verifier". |
+| Reading | UI Playbook, Inclusive Components | The states board: hover, pressed, focused, disabled, loading, empty, error for every piece; a 2 px focus ring that is never removed; 44 px targets. |
+| Reading | Refactoring UI, Practical Typography | Hierarchy by weight and color, four sizes, tabular numbers (Tokens, all frames). |
+| Reading | Laws of UX, Good UI | The familiar shell (Jakob), one primary (Hick), feedback within 0.1 s (Doherty); showing evidence of success on a pass (04). |
+| Reading | Animations.dev, Devouring Details, Design System Checklist | Motion rules and durations (Tokens); completeness of the Components and Tokens pages. |
+| Components | shadcn/ui, Radix, Base UI, Beautiful UI, prompt-kit, Kibo UI, NumberFlow, Motion Primitives, Component Gallery, Transitions.dev, loading.dev | The component set and the reuse table above; state naming; easings; the boot and checking spinners. |
+| Inspiration | 60fps, Details.so, Detail Design | Press, focus and panel motion (Tokens, 10, 12). |
+| Inspiration | Sombra, Dark Mode Design | Dark surfaces: near-black that lightens as it rises, never pure black (02 and 03 dark). |
+| Inspiration | Mobbin, navbar.gallery, Minimal Gallery | Sidebar and palette patterns (01, 12); restraint on empty states (13). |
+| Design engineers | Emil Kowalski, Rauno Freiberg, Paco Coursey, Dominik Kandravy, ibelick | Motion and Sonner; interface guidelines (no modal for a warning, 08); cmdk (12); native macOS craft (window, sheet); prompt-kit. |
+| Visuals | Lucide, Phosphor | Icons (Lucide), fallback set (Phosphor). |
+| Visuals | OKLCH, Huetone, Color.review, APCA | Tuning the palette until every text token passed (Tokens). |
+| Utilities | Mesurer, SVGOMG, Squoosh | 8 pt spacing checks, icon SVG cleanup, export size. |
+| Utilities | Screen Studio, Cursorful; Raycast, Linear, Ghostty | The click ring on the live screen (02); the native craft bar. |
+| Build | Playwright, Vite, Biome | The fixture harness that renders every state (phase 3). |
+| Build | Agentation, Refero and getdesign.md (DESIGN.md) | Briefing coding agents: hand them this file's tokens as a DESIGN.md and annotate review screenshots with Agentation. |
+
+### Not done here
+
+- Components are Figma components with variables and text styles, not Code Connect
+  mappings: there is no web package yet (phase 3).
+- The hi-fi set covers the starred screens; 05, 06, 08, 10, 11, 13 and 14 exist as annotated
+  wireframes built from the same components and tokens, so a hi-fi version is a mode switch.
