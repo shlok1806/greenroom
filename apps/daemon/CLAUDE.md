@@ -185,6 +185,9 @@ Each layer depends only on the ones below. Keep it that way.
   by `install.sh` through `-ldflags -X .../internal/buildinfo.<name>=`. Unstamped (`go run`, tests)
   is empty, never a guess from `debug.ReadBuildInfo`. Renaming a var breaks the stamp silently:
   change `install.sh` with it. A leaf; imports nothing of the daemon's.
+- `internal/openfiles` - the open file limit (daemon ADR 0002): `Raise` at `serve` and
+  `bench run` start, `Inherited` (what a child started now gets), `Count` (`lsof -p`). A leaf;
+  imports nothing of the daemon's.
 - `internal/bench` - the verifier bench (ADR 0025): cases, patches, the runner and the
   scorer. Sits beside `api` and `mcpserver`: it drives `machine`, `session` and `verifier`,
   and nothing imports it but `bench.go`.
@@ -340,6 +343,18 @@ Boot and lifecycle
   serve and bench set it once, from `Verifier.Models` (or `manual`/`none`), before any run.
   The options come from `nim.ChatOptions`/`nim.DescribeOptions`, the same maps the requests
   are built from, so a new request field is recorded without anyone remembering to.
+- File limit (daemon ADR 0002, issue #186): tart 2.37 leaks one vsock fd in `tart run` on
+  every `tart exec`, however it ends (about 27 a minute from frame recording at 2 s; measured
+  in run `20260927-210125-687fa19deff41e76`), and `tart run` dies with "Error(24)" in
+  `vm.log` when it runs out. 65536 lasts about 40 hours, 138240 about 85.
+  `raiseFileLimit` must run before the first `tart.Client.Start`: Go gives children the soft
+  limit the daemon started with (launchd's 256) until the program calls `syscall.Setrlimit`
+  (never `unix.Setrlimit`, which the runtime does not see). `install.sh` also sets the job's
+  `SoftResourceLimits`/`HardResourceLimits` `NumberOfFiles`. `filewatch.go` counts each ready
+  machine's `tart run` fds every 30 s (a reattached one's pid from `tart.RunPID`, the fcntl
+  lock owner of its `config.json`) into `Machine.Files`, set only on copies
+  (`publicLocked`), so `state.json` never holds a count; one WARN per machine from 80 percent.
+  The upstream fix (tart's `ControlSocket.handleClient`) is not ours; #186 stays open for it.
 - `waitReady` watches `tart run`'s process; if it exits, fail at once with the tail of
   `vm.log`. `watchProcess` does the same after ready; a reattached machine has no process,
   so it polls `tart list` every `WithVMPollInterval` (15 s) instead.
@@ -422,6 +437,12 @@ Exec
   on the host does not help: tart itself stays up. Output a background child writes
   after the shell exits is lost. zsh `-c` runs `a && b &` with `a` in the foreground;
   that is zsh, not us.
+- A cancelled `tart.Exec`/`ExecTo`/`ExecInputTo` gets SIGINT, and SIGKILL only
+  `execInterruptWait` (3 s) later (`interruptOnCancel`, daemon ADR 0002): tart cancels the
+  gRPC call on SIGINT, which ends the guest command and lets tart exit cleanly; SIGKILL left
+  the guest command running. It does not reduce the fd leak (every exec leaks one either
+  way). Never build an exec `exec.Cmd` without it. Sessions and pipes are exempt (a
+  session's guest command must outlive its host exec).
 - The timeout is enforced in the guest (ADR 0014, issue #28): the wrapper puts zsh in its
   own process group (`set -m`) and a watchdog TERMs it at the timeout, KILLs it 5 s later.
   The result keeps the output so far, exit 124, `timedOut`. The host waits the timeout
@@ -1059,7 +1080,11 @@ mode, each read back with the copy's signature).
   the test binary (`testsupport/fakescreen.go`, gated by an env var in its `init`). Its control
   files are listed there; `testsupport.ServeStarts` counts starts.
 - `WithSSHProbe`, `WithReadyTimeout` shorten or replace boot waits; `WithScreenIdle` the
-  live screen's idle stop.
+  live screen's idle stop. `WithFileCheck` replaces the file count's interval, counter, limit
+  and pid lookup; `newTestManager` turns it off (`Interval: 0`).
+- `internal/openfiles` and `internal/tart` re-execute their test binary as a helper (an env
+  var in `TestMain`): one started under `ulimit -Sn 256` proves a child inherits the raised
+  limit, one holds tart's `config.json` lock for `RunPID`.
 - `InstallXcode` tests (`xcode_test.go`) put a fake `ssh` first on `PATH` and a fake
   Xcode.app (xcodebuild and an Info.plist); the host's real `ditto` makes the stream.
 - A fake `rsync` earlier on `PATH` covers `Sync` (it runs twice without mirror: the copy,

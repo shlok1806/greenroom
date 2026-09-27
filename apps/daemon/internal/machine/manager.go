@@ -63,6 +63,10 @@ type Machine struct {
 	// Models is who verifies this run (issue #154), as its manifest records it. Never edited
 	// after Create, so copies share it.
 	Models *Models `json:"models,omitempty"`
+	// Files is how many files the machine's `tart run` has open against its limit (issue #186,
+	// daemon ADR 0002), from the latest count (filewatch.go). Only copies carry it, from files,
+	// so state.json never holds a stale count.
+	Files *FileUse `json:"files,omitempty"`
 
 	// boot is each boot phase as it started and ended (bootphase.go), guarded by
 	// Manager.mu. Unexported, so neither MCP results nor state.json carry it; the
@@ -78,6 +82,9 @@ type Machine struct {
 	ready chan struct{} // closed once Status leaves Booting
 	proc  *tart.Process // nil for a reattached machine
 	input *inputState
+
+	files       *FileUse // guarded by Manager.mu; replaced, never edited in place
+	filesWarned bool     // guarded by Manager.mu; the near-limit warning was logged
 
 	// sessions is guarded by Manager.mu and deliberately not persisted: a
 	// restarted daemon cannot prove a guest process is the one an old id named.
@@ -136,6 +143,7 @@ type Manager struct {
 	screenInputSlack time.Duration
 	messageActivity  func(runID string) time.Time // guarded by mu; see SetMessageActivity
 	models           *Models                      // guarded by mu; see SetModels
+	fileCheck        FileCheck
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)
@@ -215,7 +223,7 @@ func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error)
 		Root: root, Log: log, tart: tart.New(), machines: map[string]*Machine{},
 		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout, frameInterval: defaultFrameInterval,
 		vmPoll: defaultVMPollInterval, screenIdle: defaultScreenIdle, hostTimeZone: HostTimeZone, screenBuffer: defaultScreenBuffer,
-		screenInputSlack: screenInputSlack,
+		screenInputSlack: screenInputSlack, fileCheck: defaultFileCheck(),
 	}
 	m.sshProbe = m.probeSSHInGuest
 	for _, opt := range opts {
@@ -315,6 +323,7 @@ func (mc *Machine) publicLocked() *Machine {
 	c.execs, c.cleanups = nil, nil
 	c.bootCancel, c.bootDone, c.frameDone = nil, nil, nil
 	c.boot = slices.Clone(mc.boot) // putPhase rewrites elements in place
+	c.Files, c.files = mc.files, nil
 	return &c
 }
 

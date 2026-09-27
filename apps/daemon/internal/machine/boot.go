@@ -160,6 +160,7 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 // stays in the foreground for the life of the VM; a reattached machine's
 // belongs to an earlier daemon, so tart is polled for it instead.
 func (m *Manager) watchProcess(mc *Machine) {
+	go m.watchFiles(mc)
 	if mc.proc != nil {
 		go func() {
 			mc.proc.Wait()
