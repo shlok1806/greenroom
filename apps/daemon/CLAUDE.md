@@ -4,6 +4,9 @@ One Go binary, `greenroom`. MCP on `/mcp`, companion API on `/api/`, `/healthz`.
 Tart as a subprocess. State and evidence under `~/.greenroom/` (`state.json`,
 `daemon.lock`, `runs/<runId>/`).
 
+Decisions about the daemon alone go in `apps/daemon/docs/adr/` ("daemon ADR NNNN"); a bare
+"ADR NNNN" here means the root `docs/adr/`.
+
 ## Commands
 
 ```sh
@@ -85,7 +88,7 @@ send either). The companion and smoke client send a loopback Host and no Origin.
 - `GET`/`HEAD /install.sh` and `/dl/<bare name>` (`api.Dist`, files in `-dist`, default
   `<root>/dist`) are the only public routes without a token (`installPath` in `guard.go`).
   Anything put in `dist` is world-readable through the tunnel. `Cache-Control: no-store`.
-- `PUT /api/runs/{id}/sync?dest=&name=` (`upload.go`) unpacks into
+- `PUT /api/runs/{id}/sync?dest=&name=&mirror=&exclude=` (`upload.go`) unpacks into
   `<root>/uploads/<runId>/<name>` (emptied first), then calls `Manager.Sync` from there,
   so the default dest is `work/<name>`. `internal/tarball` (`Untar`) takes only files, dirs
   and symlinks, refuses `..`, absolute names and links that leave the directory, never
@@ -118,7 +121,9 @@ artifact route for a public-host call, which the connect token opens.
   `~/.greenroom/client.json`, per field.
 - `machine_sync` is never forwarded: the daemon cannot read this computer. connect tars and
   gzips `source` while walking it (no temp file), honouring `exclude` itself (rsync's simple
-  forms, `Excludes` in `sync.go`; no `**`), and PUTs it to `/api/runs/{id}/sync?dest=&name=`.
+  forms, `Excludes` in `sync.go`; no `**`), and PUTs it to `/api/runs/{id}/sync?dest=&name=`,
+  plus `mirror=true` and every `exclude` pattern (trimmed), which the daemon's rsync needs to
+  keep the guest's excluded paths out of a mirror and the stray count.
   Symlinks stay symlinks, never followed; sockets, devices and fifos are skipped; owners are
   not sent. Its description gains `remote.SyncNote`. The result is the route's JSON as
   structured content plus one text copy; a refusal is a tool error with the HTTP status.
@@ -851,6 +856,21 @@ Sync
   are keyed to their absolute path and fail hard elsewhere.
 - rsync uses `-a`, not `-az`. Compression makes a local VM sync ~4x slower
   (`docs/10-build-transport.md`). `TestSyncBuildsTheRsyncCommand` asserts it.
+- Strays and mirror (daemon ADR 0001, `apps/daemon/docs/adr/`, issue #188). A sync never
+  deletes unless `mirror` (rsync `--delete -v`, never `--delete-excluded`: an excluded path
+  is never deleted and never a stray). Every sync reports `strays`/`strayPaths` (first
+  `maxStrayPaths`) from rsync's own `deleting <path>` lines: a mirror's, or else a second
+  `--dry-run --delete` pass with the same excludes. Never count strays by diffing listings in
+  Go: rsync's exclude rules are the ones that decide. A failed dry run is logged and leaves
+  `strays` out; the sync still succeeds.
+- A mirror refuses (`mirrorDest`, `CheckMirrorDest` for the upload route) a dest under two
+  components, under `Library` or a hidden top-level directory, and then in the guest
+  (`syncGuardScript`, exit 4) one whose physical path is not the home's plus dest: rsync's
+  receiver follows a symlinked destination, so `--delete` would empty its target. Keep the
+  guard before rsync, with the path as an argument.
+- `Manager.Sync` takes `SyncOptions`; the upload route reads `mirror=true` and repeated
+  `exclude=` from the query (connect sends every pattern it applied, so the daemon's rsync
+  protects the guest's excluded paths although the archive left them out).
 
 Pull (ADR 0022)
 
@@ -1042,9 +1062,13 @@ mode, each read back with the copy's signature).
   live screen's idle stop.
 - `InstallXcode` tests (`xcode_test.go`) put a fake `ssh` first on `PATH` and a fake
   Xcode.app (xcodebuild and an Info.plist); the host's real `ditto` makes the stream.
-- A fake `rsync` earlier on `PATH` covers `Sync`. Pull tests run the host's real rsync
-  with a fake `ssh` that runs the remote side in a local shell in a temp `HOME`
-  (`localSSH`); the fake tart runs the pull probe and tar for real from the same `HOME`.
+- A fake `rsync` earlier on `PATH` covers `Sync` (it runs twice without mirror: the copy,
+  then the stray count's dry run, so a fake that records arguments must append). Pull tests
+  and the stray and mirror tests run the host's real rsync with a fake `ssh` that runs the
+  remote side in a local shell in a temp `HOME` (`localSSH`); the fake tart runs the pull
+  probe and tar and the mirror guard (`greenroom-sync-guard`) for real from the same `HOME`.
+  A test that mirrors must set `HOME` to a temp dir first, or the guard's `mkdir -p` lands in
+  the real home.
 - `internal/bench` runner tests use the real manager on the fake tart, a fake `rsync` that
   copies its source (so the patched app is visible) and a scripted `verifier.Brain`. The fake
   tart stops every VM on one `stopped` file, so they run one trial at a time with

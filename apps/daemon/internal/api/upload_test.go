@@ -162,6 +162,37 @@ func TestUploadSyncUnpacksAndSyncsFromStaging(t *testing.T) {
 	}
 }
 
+// connect sends mirror and its exclude patterns as query parameters: the guest's excluded
+// paths must be protected from --delete although the archive left them out (daemon ADR 0001).
+func TestUploadSyncPassesMirrorAndExcludesToRsync(t *testing.T) {
+	argsFile := fakeRsync(t)
+	t.Setenv("HOME", t.TempDir()) // the fake tart runs the mirror's dest guard for real from $HOME
+	h := newHarness(t)
+	runID := h.ready()
+	body := gzTar(t, entry{name: "main.go", body: "package main"})
+
+	code, resp := h.put("/api/runs/"+runID+"/sync?name=myapp&mirror=true&exclude=.build&exclude=node_modules", "application/gzip", body)
+	if code != http.StatusOK {
+		t.Fatalf("upload: %d %s", code, resp)
+	}
+	var res machine.SyncResult
+	if err := json.Unmarshal([]byte(resp), &res); err != nil {
+		t.Fatalf("decode %s: %v", resp, err)
+	}
+	if !res.Mirror || res.Dest != "work/myapp" {
+		t.Errorf("result = %+v, want a mirror into work/myapp", res)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("rsync never ran: %v", err)
+	}
+	for _, want := range []string{"\n--delete\n", "\n--exclude\n.build\n", "\n--exclude\nnode_modules\n"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("rsync arguments have no %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestUploadSyncRefusesBadRequests(t *testing.T) {
 	fakeRsync(t)
 	h := newHarness(t)
@@ -184,6 +215,10 @@ func TestUploadSyncRefusesBadRequests(t *testing.T) {
 		{"escaping link", path, "application/gzip", gzTar(t, entry{name: "l", typ: tar.TypeSymlink, link: "../../.."}), http.StatusBadRequest},
 		{"dest outside the home", path + "?dest=/etc", "application/gzip", good, http.StatusBadRequest},
 		{"dest climbing", path + "?dest=work/../..", "application/gzip", good, http.StatusBadRequest},
+		{"mirror not a boolean", path + "?mirror=yes", "application/gzip", good, http.StatusBadRequest},
+		{"mirror into a top-level dir", path + "?mirror=true&dest=work", "application/gzip", good, http.StatusBadRequest},
+		{"mirror into Library", path + "?mirror=true&dest=Library/Preferences", "application/gzip", good, http.StatusBadRequest},
+		{"mirror into a hidden dir", path + "?mirror=true&dest=~/.ssh/keys", "application/gzip", good, http.StatusBadRequest},
 	} {
 		if code, resp := h.put(tc.path, tc.contentType, tc.body); code != tc.want {
 			t.Errorf("%s: %d %s, want %d", tc.name, code, resp, tc.want)

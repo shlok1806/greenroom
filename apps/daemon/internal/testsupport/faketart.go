@@ -134,9 +134,10 @@ case "$sub" in
     if [ -f "$C/agent-down" ]; then echo "Error: is the Tart Guest Agent running?" >&2; exit 1; fi
     [ -f "$C/fail-exec" ] && { echo "Error: VM is not running" >&2; exit 1; }
     # A session's output reads and its close run for real on the host (machine/sessionguest.go),
-    # and so do machine_pull's probe and tar, from the host's $HOME as the guest's.
+    # and so do machine_pull's probe and tar and machine_sync's mirror guard, from the host's $HOME
+    # as the guest's.
     case "$*" in
-      *greenroom-session-read*|*greenroom-session-close*|*greenroom-pull-probe*|*greenroom-pull-tar*) shift; exec "$@" ;;
+      *greenroom-session-read*|*greenroom-session-close*|*greenroom-pull-probe*|*greenroom-pull-tar*|*greenroom-sync-guard*) shift; exec "$@" ;;
     esac
     case "$*" in
       *authorized_keys*) [ -f "$C/fail-keyinstall" ] && { echo "Error: cannot write" >&2; exit 1; } ;;

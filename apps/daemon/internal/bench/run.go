@@ -24,7 +24,7 @@ import (
 type Machines interface {
 	Create(ctx context.Context, image string) (*machine.Machine, error)
 	Wait(ctx context.Context, runID string, timeout time.Duration) (*machine.Machine, error)
-	Sync(ctx context.Context, runID, source, dest string, exclude []string) (machine.SyncResult, error)
+	Sync(ctx context.Context, runID, source string, opts machine.SyncOptions) (machine.SyncResult, error)
 	Exec(ctx context.Context, runID, command, cwd string, timeout time.Duration) (machine.ExecResult, error)
 	Destroy(ctx context.Context, runID string) error
 	TakeControl(runID, holder string, ttl time.Duration) (machine.Control, bool, error)
@@ -507,7 +507,7 @@ func (r *Runner) setUp(ctx context.Context, c Case, app App, runID, hostApp stri
 			return fmt.Errorf("boot: still booting after %s", r.cfg.BootTimeout)
 		}
 	}
-	if _, err := r.machines.Sync(ctx, runID, hostApp, "", nil); err != nil {
+	if _, err := r.machines.Sync(ctx, runID, hostApp, machine.SyncOptions{}); err != nil {
 		return fmt.Errorf("sync: %w", err)
 	}
 	cwd := "~/" + machine.GuestWorkDir + "/" + c.App

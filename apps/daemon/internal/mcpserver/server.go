@@ -143,15 +143,20 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		RunID   string   `json:"runId" jsonschema:"runId from machine_create"`
 		Source  string   `json:"source" jsonschema:"Absolute path of a directory on the host to copy into the machine"`
 		Dest    string   `json:"dest,omitempty" jsonschema:"Guest directory, relative to the guest home: work/myapp and ~/work/myapp are the same place. Must stay inside the home: no absolute path, no .., not ~ itself. Defaults to work/<basename of source>."`
-		Exclude []string `json:"exclude,omitempty" jsonschema:"rsync exclude patterns, e.g. node_modules, .git, build"`
+		Exclude []string `json:"exclude,omitempty" jsonschema:"rsync exclude patterns, e.g. node_modules, .git, build. An excluded path is neither copied nor deleted by mirror, and is never a stray."`
+		Mirror  bool     `json:"mirror,omitempty" jsonschema:"Delete what dest has and source does not (rsync --delete), so dest holds exactly the source. Deletes only inside dest, never an excluded path; refused for a dest less than two levels below the home, under Library or a hidden top-level directory, or reached through a symlink. Default false: nothing is deleted."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_sync",
 		Description: "Copy a host directory into the machine with rsync. Fast on repeat calls; only changed files move. " +
+			"By default nothing in dest is ever deleted: files an earlier sync left there stay and get built. The " +
+			"result's strays counts them (paths in dest that source does not have and no exclude covers) and " +
+			"strayPaths lists the first 20. Pass mirror true to delete them, for example when you re-sync another " +
+			"branch or worktree into a machine you reuse; exclude build caches (.build, node_modules) to keep them. " +
 			"dest is relative to the guest home, and a leading ~/ is accepted (it means the same). The result's dest is " +
 			"the path relative to the home, which machine_exec's cwd takes as is.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in syncIn) (*mcp.CallToolResult, machine.SyncResult, error) {
-		res, err := mgr.Sync(ctx, in.RunID, in.Source, in.Dest, in.Exclude)
+		res, err := mgr.Sync(ctx, in.RunID, in.Source, machine.SyncOptions{Dest: in.Dest, Exclude: in.Exclude, Mirror: in.Mirror})
 		res.Seconds = round(res.Seconds)
 		return nil, res, err
 	})

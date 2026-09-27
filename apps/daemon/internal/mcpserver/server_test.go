@@ -756,6 +756,61 @@ func TestSyncDescriptionMatchesTheTildeBehaviour(t *testing.T) {
 	}
 }
 
+// Issue #188 through the tool: a re-sync of another branch reports the earlier branch's file,
+// and mirror deletes it while an excluded build cache stays.
+func TestSyncReportsStraysAndMirrorDeletesThem(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	home := guestHome(t)
+	dest := filepath.Join(home, "work", "app")
+	for p, body := range map[string]string{"stray.go": "package app", ".build/cache": "kept"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dest, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dest, p), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "main.go"), []byte("package main"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]any{"runId": runID, "source": source, "dest": "work/app", "exclude": []string{".build"}}
+
+	var res machine.SyncResult
+	h.call("machine_sync", args, &res)
+	if res.Strays == nil || *res.Strays != 1 || len(res.StrayPaths) != 1 || res.StrayPaths[0] != "stray.go" {
+		t.Fatalf("result = %+v, want the one stray named", res)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "stray.go")); err != nil {
+		t.Fatalf("a sync without mirror deleted the stray: %v", err)
+	}
+
+	args["mirror"] = true
+	res = machine.SyncResult{}
+	h.call("machine_sync", args, &res)
+	if !res.Mirror || res.Strays == nil || *res.Strays != 1 {
+		t.Errorf("mirror result = %+v, want one stray deleted", res)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "stray.go")); err == nil {
+		t.Error("mirror left the stray")
+	}
+	if _, err := os.Stat(filepath.Join(dest, ".build", "cache")); err != nil {
+		t.Errorf("mirror deleted the excluded build cache: %v", err)
+	}
+
+	// The description tells an agent when to reach for mirror.
+	tools, err := h.session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name == "machine_sync" && (!strings.Contains(tool.Description, "mirror true") || !strings.Contains(tool.Description, "strays")) {
+			t.Errorf("machine_sync description does not explain strays and mirror: %q", tool.Description)
+		}
+	}
+}
+
 // --- machine_pull ---
 
 // guestHome stands a local shell in for the guest behind rsync's ssh, with a fresh HOME as

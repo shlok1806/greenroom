@@ -23,6 +23,7 @@ type SyncArgs struct {
 	Source  string   `json:"source"`
 	Dest    string   `json:"dest,omitempty"`
 	Exclude []string `json:"exclude,omitempty"`
+	Mirror  bool     `json:"mirror,omitempty"`
 }
 
 // RefusedError is the daemon refusing a request connect made itself (an upload, a pull, a
@@ -70,6 +71,16 @@ func Upload(ctx context.Context, client *http.Client, base string, args SyncArgs
 	q := url.Values{"name": {filepath.Base(source)}}
 	if args.Dest != "" {
 		q.Set("dest", args.Dest)
+	}
+	// The archive leaves excluded paths out; the daemon needs the patterns too, so a mirror
+	// keeps the guest's copies of them and the stray count skips them (daemon ADR 0001).
+	for _, ex := range args.Exclude {
+		if ex = strings.TrimSpace(ex); ex != "" {
+			q.Add("exclude", ex)
+		}
+	}
+	if args.Mirror {
+		q.Set("mirror", "true")
 	}
 	target := base + "/api/runs/" + url.PathEscape(args.RunID) + "/sync?" + q.Encode()
 
