@@ -138,7 +138,12 @@ func (m *Manager) ui(ctx context.Context, runID, reader, app string, limit int,
 	started := time.Now()
 	seq := mc.rec.begin() // before the tree is recorded, so its step is its own (issue #47)
 	at := mc.input.handovers.Load()
-	tree, err := m.readUI(ctx, mc, app, limit)
+	// Capped whatever the caller's ctx allows, as a screenshot is (daemon ADR 0003).
+	capped := m.looks().cap
+	look, cancel := context.WithTimeout(ctx, capped)
+	tree, err := m.readUI(look, mc, app, limit)
+	err = lookError(ctx, look, err, "the UI read", capped)
+	cancel()
 	tree.Seconds = time.Since(started).Seconds()
 	tree.Step = seq
 	input := map[string]any{"limit": limit, "reader": reader}
@@ -175,7 +180,8 @@ func (m *Manager) readUI(ctx context.Context, mc *Machine, app string, limit int
 	if err != nil {
 		return UITree{}, err
 	}
-	res, err := runHelper(ctx, m.tart, mc.Name, "--ui-base64", base64.StdEncoding.EncodeToString(req))
+	res, err := readHelper(ctx, m.tart, mc.Name, m.looks().uiLimit(), "the UI tree read",
+		"--ui-base64", base64.StdEncoding.EncodeToString(req))
 	if err != nil {
 		return UITree{}, fmt.Errorf("read the UI tree: %w", err)
 	}

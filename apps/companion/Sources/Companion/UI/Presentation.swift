@@ -34,6 +34,8 @@ extension SummaryState {
     var glyph: GlyphKind {
         switch self {
         case .starting, .restarting: .starting
+        // The Mac is up and nobody is checking: an open ring, nothing turning.
+        case .ready: .pending
         case .checking: .checking
         case .paused: .paused
         case .notAnswering: .warning
@@ -299,7 +301,7 @@ struct HeaderModel: Equatable, Sendable {
         case .notAnswering: return "for \(Clock.elapsed(s.inStatus(now: now)))"
         case .restarting: return Clock.elapsed(s.inStatus(now: now))
         case .starting: return Clock.elapsed(s.elapsed(now: now))
-        case .checking, .paused:
+        case .ready, .checking, .paused:
             let time = Clock.elapsed(s.elapsed(now: now))
             return checks.map { "\($0), \(time)" } ?? time
         default: return checks ?? ""

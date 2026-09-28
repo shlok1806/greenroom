@@ -37,6 +37,10 @@ import (
 //	input-down          the input helper refuses every event
 //	screen              "<width>x<height>" the input helper reports (default 1024x768)
 //	shot.b64            base64 PNG a screenshot returns
+//	shot-hang           a screenshot hangs this many seconds and returns nothing, like a guest
+//	                    whose WindowServer is wedged (issue #187)
+//	ui-hang             the input helper's --ui-base64 hangs this many seconds
+//	input-install-sleep compiling the guest input helper takes this many seconds
 //	ui.json             what the input helper's --ui-base64 prints (default: Finder, no elements)
 //	crash-report        what the crash report lookup prints: a report's path, then its exception
 //	                    line (default: nothing, no report)
@@ -240,9 +244,11 @@ case "$sub" in
         if [ -f "$C/input-stale" ]; then echo "stale greenroom-input-2"; else echo current; fi
         exit 0 ;;
       *swiftc*)
+        [ -f "$C/input-install-sleep" ] && sleep "$(cat "$C/input-install-sleep")"
         [ -f "$C/fail-input-install" ] && { echo "swiftc: command not found" >&2; exit 1; }
         exit 0 ;;
       *"greenroom-input"*"--ui-base64"*)
+        [ -f "$C/ui-hang" ] && exec sleep "$(cat "$C/ui-hang")"
         [ -f "$C/input-down" ] && { echo '{"error":"this machine has not granted Accessibility"}' >&2; exit 1; }
         if [ -f "$C/ui.json" ]; then cat "$C/ui.json"; else
           echo '{"app":{"name":"Finder","bundleId":"com.apple.finder","pid":1},"apps":["Finder"],"screen":{"width":1024,"height":768},"elements":[],"truncated":false}'
@@ -277,7 +283,9 @@ case "$sub" in
     done
     # Screenshots come before exec-codes so a timed frame capture cannot consume a queued code.
     case "$*" in
-      *base64*) cat "$C/shot.b64" 2>/dev/null; exit 0 ;;
+      *base64*)
+        [ -f "$C/shot-hang" ] && exec sleep "$(cat "$C/shot-hang")"
+        cat "$C/shot.b64" 2>/dev/null; exit 0 ;;
       *screencapture*) exit 0 ;;
     esac
     if [ -f "$C/exec-codes" ]; then

@@ -78,13 +78,24 @@ good to look at.
    with the notice in `apps/companion/ACKNOWLEDGEMENTS.md`; never GPL, AGPL or BSL):
    Ghostty's command palette (MIT) for Cmd-K; Beautiful UI's Task Rows, Thinking state, Tool
    Chips and Shimmer (MIT), ported line by line into SwiftUI with the Figma file's sizes;
-   Emil Kowalski's motion rules for the durations and easing. Packages are still an allowlist
+   Emil Kowalski's motion rules for the durations and easing; cmdk's ranking (MIT) for the
+   palette; Motion's spring conversions (MIT); NumberFlow's digit timing (MIT); Lucide's icons
+   (ISC) as the Figma file exports them. Packages are still an allowlist
    (0007 items 1 to 5 stand); copying a file is not a package. Pow and Inferno were
    considered: Inferno's effects are Metal shaders, which the Command Line Tools (the
    self-hosted runner and the guest) cannot compile, and nothing in the design needs Pow's
    effects, so neither is added.
 
-8. **Measured, not asserted**: the snapshot harness renders every state at 1280 x 800 (and
+8. **Cloned, not reinterpreted** (`docs/22-swiftui-clone-plan.md`). Figma wins for colour,
+   type, spacing, radius, elevation and the motion it names; the original's source wins for
+   behaviour Figma does not draw. `UI/Motion.swift` holds every curve, keyframe animation and
+   spring as a pure function of time, and every loop reads a `MotionClock`, so a test or the
+   harness asks for any moment. Tests hold them to ground truth: our keyframes against what
+   Chromium drew frame by frame for the Beautiful UI originals (docs/22 specs), the springs
+   against Motion's generator, the ranking against cmdk's scores, the tokens against the
+   design's values. Thresholds are docs/22 section 6.3.
+
+9. **Measured, not asserted**: the snapshot harness renders every state at 1280 x 800 (and
    1024 x 680 and dark for the key ones) and reads each render back with Apple's text
    recogniser; a test holds each state to the docs/20 word budget (live 60, verdict waiting
    70, finished 50, booting 20, no run open 15, first launch 35). The sidebar stays smooth

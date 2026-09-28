@@ -1,0 +1,2872 @@
+{
+  "source": "dip/cmdk@dd2250ed608443e8f32bafc5fa2d1d07a3746aa3 cmdk/src/command-score.ts",
+  "licence": "MIT",
+  "cases": [
+    {
+      "string": "Accept fail",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Reject",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Open activity",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Message the verifier",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Open the evidence",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Play the recording",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Copy run ID",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Settings",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Take control",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Give control back",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Keep waiting",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Continue",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "HTML",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "haml",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "",
+      "score": 0.99
+    },
+    {
+      "string": "Accept fail",
+      "query": "a",
+      "score": 0.989901
+    },
+    {
+      "string": "Reject",
+      "query": "a",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "a",
+      "score": 0.891
+    },
+    {
+      "string": "Message the verifier",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "Open the evidence",
+      "query": "a",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "Copy run ID",
+      "query": "a",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "a",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "Give control back",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "Keep waiting",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "Continue",
+      "query": "a",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "a",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "a",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "HTML",
+      "query": "a",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "a",
+      "score": 0.1683
+    },
+    {
+      "string": "Accept fail",
+      "query": "acc",
+      "score": 0.989901
+    },
+    {
+      "string": "Reject",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "acc",
+      "score": 0.08910000000000001
+    },
+    {
+      "string": "Message the verifier",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "acc",
+      "score": 0.01683
+    },
+    {
+      "string": "Copy run ID",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "acc",
+      "score": 0.01683
+    },
+    {
+      "string": "Give control back",
+      "query": "acc",
+      "score": 0.01683
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "acc",
+      "score": 0.017
+    },
+    {
+      "string": "Keep waiting",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "acc",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "rej",
+      "score": 0.989901
+    },
+    {
+      "string": "Open activity",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "rej",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "act",
+      "score": 0.16777882517122683
+    },
+    {
+      "string": "Reject",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "act",
+      "score": 0.891
+    },
+    {
+      "string": "Message the verifier",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "act",
+      "score": 0.025698425949900003
+    },
+    {
+      "string": "Give control back",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "act",
+      "score": 0.016746018131784137
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "act",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "mtv",
+      "score": 0.80181981
+    },
+    {
+      "string": "Open the evidence",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "mtv",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "tip",
+      "score": 0.989901
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "tip",
+      "score": 0.016629147085717538
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "tip",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "tipsplt",
+      "score": 0.88993098710109
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "tipsplt",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "word",
+      "score": 0.989901
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "word",
+      "score": 0.989901
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "word",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "wc",
+      "score": 0.8909109000000001
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "wc",
+      "score": 0.16776204728870972
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "wc",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "todo",
+      "score": 0.989901
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "todo",
+      "score": 0.989901
+    },
+    {
+      "string": "HTML",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "todo",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "mac",
+      "score": 0.89991
+    },
+    {
+      "string": "Keep waiting",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "mac",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "rm",
+      "score": 0.88993098710109
+    },
+    {
+      "string": "Keep waiting",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "rm",
+      "score": 0.02846823082403303
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "rm",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "cb",
+      "score": 0.8019000000000001
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "cb",
+      "score": 0.8019000000000001
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "cb",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "HM",
+      "score": 0.15145485300000003
+    },
+    {
+      "string": "Keep waiting",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "HM",
+      "score": 0.1681317
+    },
+    {
+      "string": "haml",
+      "query": "HM",
+      "score": 0.16809807534131702
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "HM",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "hm",
+      "score": 0.15145485300000003
+    },
+    {
+      "string": "Keep waiting",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "hm",
+      "score": 0.16809807534131702
+    },
+    {
+      "string": "haml",
+      "query": "hm",
+      "score": 0.1681317
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "hm",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "set",
+      "score": 0.08910000000000001
+    },
+    {
+      "string": "Open the evidence",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "set",
+      "score": 0.989901
+    },
+    {
+      "string": "Take control",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "set",
+      "score": 0.099
+    },
+    {
+      "string": "Keep waiting",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "set",
+      "score": 0.028525252804389
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "set",
+      "score": 0.099
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "set",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "evid",
+      "score": 0.891
+    },
+    {
+      "string": "Play the recording",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "evid",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "ptr",
+      "score": 0.80181981
+    },
+    {
+      "string": "Copy run ID",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "ptr",
+      "score": 0.004844443683769384
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "ptr",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "fbb",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "fbb",
+      "score": 0.6336
+    },
+    {
+      "string": "Accept fail",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "bz",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "bz",
+      "score": 0.13450536
+    },
+    {
+      "string": "Accept fail",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "zzz",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "uc",
+      "score": 0.15147000000000002
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "uc",
+      "score": 0.16776204728870972
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "uc",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "split bill",
+      "score": 0.81
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "split bill",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "Open",
+      "score": 0.99
+    },
+    {
+      "string": "Message the verifier",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "Open",
+      "score": 0.99
+    },
+    {
+      "string": "Play the recording",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "Open",
+      "score": 0
+    },
+    {
+      "string": "Accept fail",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Reject",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Open activity",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Message the verifier",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Open the evidence",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Play the recording",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Copy run ID",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Take control",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Give control back",
+      "query": "control back",
+      "score": 0.9
+    },
+    {
+      "string": "Restart the Mac",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Keep waiting",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Continue",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "TipSplit: split the bill",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "WordCount: case buttons",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "WordCount: longest word",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "UnitConvert: Temperature",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "TodoList: summary line",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "TodoList: Clear done",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "HTML",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "haml",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "foo/bar_baz.swift",
+      "query": "control back",
+      "score": 0
+    },
+    {
+      "string": "Settings",
+      "query": "prefs",
+      "aliases": ["preferences", "options"],
+      "score": 0.15087186746084716
+    }
+  ]
+}

@@ -143,10 +143,8 @@ func (a *api) summaryInput(runID string, mc *machine.Machine, store *session.Sto
 	}
 	if mc != nil {
 		in.CreatedAt = mc.CreatedAt
-		in.Machine = &summary.LiveMachine{Status: mc.Status, Error: mc.Error, Boot: mc.BootPhases()}
-		// The files watch (issue #186, daemon ADR 0002) warns near the limit; the summary says it
-		// in words.
-		in.Machine.LowOnFiles = mc.Files != nil && mc.Files.Warning != ""
+		in.Machine = &summary.LiveMachine{Status: mc.Status, Error: mc.Error, Boot: mc.BootPhases(),
+			LowOnFiles: mc.Files != nil && mc.Files.Warning != ""}
 		if mc.Control != nil {
 			in.Machine.Controller = mc.Control.Holder
 		}

@@ -61,7 +61,7 @@ private struct GlyphShape: View {
                 context.stroke(arc, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round))
             case .pending:
                 let ring = Path(ellipseIn: CGRect(x: 1.25, y: 1.25, width: 13.5, height: 13.5))
-                context.stroke(ring, with: .color(Palette.textTertiary), lineWidth: 1.5)
+                context.stroke(ring, with: .color(color), lineWidth: 1.5)
             case .starting:
                 let ring = Path(ellipseIn: CGRect(x: 1.5, y: 1.5, width: 13, height: 13))
                 context.stroke(ring, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2.5, 2.6]))
