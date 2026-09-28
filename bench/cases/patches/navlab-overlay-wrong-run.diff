@@ -1,0 +1,11 @@
+--- a/Sources/NavLab/Scenes.swift	2026-09-27 19:06:39
++++ b/Sources/NavLab/Scenes.swift	2026-09-28 03:42:41
+@@ -28,7 +28,7 @@
+             Spacer()
+                 .frame(height: 90)
+             Button("Open run 42") {
+-                openRun = "Run 42"
++                openRun = "Run 41"
+             }
+             .buttonStyle(DrawnButtonStyle())
+             .overlay(alignment: .topLeading) {

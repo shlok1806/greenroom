@@ -519,6 +519,10 @@ func (r *Runner) setUp(ctx context.Context, c Case, app App, runID, hostApp stri
 		// Built, never launched, and gone: nothing the verifier could start either.
 		return r.exec(ctx, runID, "rm -rf "+shellQuote(c.App), "~/"+machine.GuestWorkDir, time.Minute, "remove app")
 	}
+	if !c.Opens() {
+		// Built and not running: launching it is the verifier's job (the app-launch hazard).
+		return nil
+	}
 	if err := r.exec(ctx, runID, launchScript(app), cwd, 2*time.Minute, "launch"); err != nil {
 		return err
 	}

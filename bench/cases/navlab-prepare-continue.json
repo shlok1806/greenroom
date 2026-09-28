@@ -1,0 +1,14 @@
+{
+  "id": "navlab-prepare-continue",
+  "app": "navlab",
+  "kind": "correct",
+  "split": "holdout",
+  "tier": "navigation",
+  "patch": null,
+  "task": "NavLab (a macOS app of navigation scenes, with a Scenes list on the left) is running on screen. I changed the Prepare and continue scene. Open it, press Prepare, then press Continue once it can be pressed: the stage line should then read Stage: Step 2 of 3. Give a pass or fail verdict.",
+  "expected": "pass",
+  "must_check": [
+    "Stage: Step 2 of 3 after Prepare then Continue"
+  ],
+  "notes": "A control enabled late. Continue is disabled for 2 s after Prepare; a press before then does nothing."
+}

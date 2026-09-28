@@ -1,0 +1,11 @@
+--- a/Sources/NavLab/Scenes.swift	2026-09-27 19:06:39
++++ b/Sources/NavLab/Scenes.swift	2026-09-28 03:42:41
+@@ -148,7 +148,7 @@
+ /// A release note of about 400 characters on one line that the window truncates (#190). Its last
+ /// sentence carries the fact a task asks about.
+ struct LongLabelScene: View {
+-    let note = "Release 4.2 notes: the importer now accepts CSV files with a header row, the settings window remembers its size between launches, the sidebar hides empty folders, search matches accented letters, exports keep the original file dates, the progress bar no longer jumps back at 99 percent, and crash reports include the last three actions. The nightly export now starts at 02:30 UTC."
++    let note = "Release 4.2 notes: the importer now accepts CSV files with a header row, the settings window remembers its size between launches, the sidebar hides empty folders, search matches accented letters, exports keep the original file dates, the progress bar no longer jumps back at 99 percent, and crash reports include the last three actions. The nightly export now starts at 03:30 UTC."
+ 
+     var body: some View {
+         VStack(alignment: .leading, spacing: 16) {

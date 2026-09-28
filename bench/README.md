@@ -16,6 +16,8 @@ fault was planted in it, so there is no human-agreement ceiling on the verdict.
   - `unitconvert` - length, temperature and weight, either way round, with a decimals setting.
   - `todolist` - add, tick, delete and clear items, saved between launches.
   - `wordcount` - word and character counts, case buttons, a saved draft.
+  - `navlab` - no feature to check, only hazards to get through: a scene per way a verifier lost
+    its way on a real desktop (docs/21 section 1). The navigation tier runs on it.
 
   Each has `app.json` (`name`: the executable and `.app` name; `bundleId`: its defaults
   domain) and `build.sh`, which makes `build/<name>.app` with one `swiftc` call. Command Line
@@ -76,7 +78,10 @@ fault was planted in it, so there is no human-agreement ceiling on the verdict.
   `holdout` before a verifier change merges and put its numbers in the PR. Keep about a
   quarter of the cases in holdout, spread over kinds and families.
 
-- `tier` (optional): `simple`, the only tier so far, or absent for not tiered. See below.
+- `tier` (optional): `simple`, `navigation`, or absent for not tiered. See below.
+- `open` (optional): `false` builds the app and leaves it not running, so launching it is part
+  of the task (the navigation tier's app launch). Only on correct and mutant cases; absent means
+  the runner opens the app.
 
 ## The simple tier
 
@@ -94,6 +99,58 @@ untagging a case means changing that test on purpose.
 `go test ./internal/bench` (from `apps/daemon`) checks every case: the schema, the rules in
 the table, that each patch applies (strictly, as `patch -p1` does, and the same as `patch`),
 that each mutant changes its app, and the sizes below.
+
+## The navigation tier
+
+The simple tier measures judging. The navigation tier measures getting around: every case runs
+on `navlab`, whose scenes put one desktop hazard of docs/21 section 1 between the verifier and an
+easy fact, so a verifier that navigates well gets it right and one that does not shows up as a
+wrong verdict or no answer. It exists to compare the verifier before and after the desktop
+toolkit (docs/21 section 8, #212): the same cases with the old tools and with `-desktop-toolkit`.
+
+NavLab shows a loading window for 3 s, then a window with a Scenes list on the left:
+
+| Scene | Hazard | Field case (docs/21 1.4) |
+| --- | --- | --- |
+| Overlay | a floating Runs list drawn over Open run 42 in the same window; a click at the button's center opens Run 9 | covered control, #189, case 1 |
+| Nested scroll | Details at the end of an inner scroll area, a Summary below the outer page's fold; a wheel over one moves only it | wrong scroll area, #190, case 2 |
+| Long label | a 400-character release note on one line, its fact in the cut-off part | clipped text, #190, case 2 |
+| Amount field | drops a key that arrives within 15 ms of the one before | lost keystroke, case 8 |
+| Delayed result | Compute shows its result 3 s later | waiting by polling |
+| Prepare and continue | Continue is enabled 2 s after Prepare | acting on a disabled control |
+| Second window | an Inspector panel floats over the Note field and keeps the keyboard | window focus, case 6, #195 |
+| Splitter, Dialogs and menus | a 9-point divider; a sheet, an alert, a save panel, a context menu, a pop-up, a web view, a canvas button, a menu-only command | waves 2 and 3 |
+| Text and password | a paragraph a triple click selects, a secure field, and the window's toolbar with items behind its overflow chevron | docs/21a I2, I15, M15 |
+
+The 13 cases (`TestTheNavigationTierIsPinned` lists them, 9 dev and 4 holdout):
+
+| Case | Hazard | Kind | Split |
+| --- | --- | --- | --- |
+| `navlab-overlay-open-run` | covered control | correct | dev |
+| `navlab-overlay-wrong-run` | covered control (opens Run 41) | mutant | dev |
+| `navlab-scroll-details` | wrong scroll area, inner | correct | dev |
+| `navlab-scroll-summary` | wrong scroll area, outer | correct | holdout |
+| `navlab-summary-flagged-count` | wrong scroll area (counts 4 flagged) | mutant | dev |
+| `navlab-long-label-time` | clipped text | correct | dev |
+| `navlab-long-label-wrong-time` | clipped text (03:30 UTC) | mutant | holdout |
+| `navlab-amount-tax` | lost keystroke | correct | dev |
+| `navlab-delayed-result` | waiting | correct | dev |
+| `navlab-delayed-never` | waiting (the result takes 45 s) | mutant | holdout |
+| `navlab-prepare-continue` | late-enabled control | correct | holdout |
+| `navlab-inspector-note` | window focus | correct | dev |
+| `navlab-launch` | app launch (`open: false`) | correct | dev |
+
+Read the numbers with this in mind: a mutant of a hazard scene can be failed for the wrong
+reason (a verifier that clicks through the Runs list sees a wrong run on a correct build too), so
+the **correct cases carry the navigation signal** and the mutants guard the false pass rate. Tasks
+never mention the hazard. Each case's `notes` says what a verifier that cannot navigate does
+wrong there.
+
+```sh
+go run . bench run -tier navigation -split dev -trials 1 -out nav-before.jsonl                     # the old tools
+go run . bench run -tier navigation -split dev -trials 1 -desktop-toolkit -out nav-after.jsonl    # the toolkit
+go run . bench score -tier navigation nav-before.jsonl
+```
 
 ## Adding an app or a case
 

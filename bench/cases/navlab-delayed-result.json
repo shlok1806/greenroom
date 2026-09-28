@@ -1,0 +1,14 @@
+{
+  "id": "navlab-delayed-result",
+  "app": "navlab",
+  "kind": "correct",
+  "split": "dev",
+  "tier": "navigation",
+  "patch": null,
+  "task": "NavLab (a macOS app of navigation scenes, with a Scenes list on the left) is running on screen. I changed the Delayed result scene. Open it and press Compute: within 5 seconds the result should read Result: 42. Give a pass or fail verdict.",
+  "expected": "pass",
+  "must_check": [
+    "Result: 42 within 5 seconds of pressing Compute"
+  ],
+  "notes": "Waiting (docs/21 1.2 class 13). The result shows 3 s after Compute; a look right after the press sees Computing..."
+}

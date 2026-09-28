@@ -1,0 +1,14 @@
+{
+  "id": "navlab-overlay-open-run",
+  "app": "navlab",
+  "kind": "correct",
+  "split": "dev",
+  "tier": "navigation",
+  "patch": null,
+  "task": "NavLab (a macOS app of navigation scenes, with a Scenes list on the left) is running on screen. I changed the Overlay scene. Open it and press Open run 42: the line under the title should then read Open: Run 42. Give a pass or fail verdict.",
+  "expected": "pass",
+  "must_check": [
+    "Open: Run 42 after pressing Open run 42"
+  ],
+  "notes": "Covered control (#189, docs/21 1.4 case 1). The Runs list floats over Open run 42 in the same window; a click at the button's center opens Run 9, so a verifier that does not notice the list fails a correct build."
+}
