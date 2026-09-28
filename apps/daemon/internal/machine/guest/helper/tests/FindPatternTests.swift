@@ -59,6 +59,29 @@ func testARoleMatchesWithOrWithoutItsPrefix() {
     expect(roleMatches(wanted: nil, role: "AXButton") && roleMatches(wanted: "", role: "AXGroup"), "no role asked for")
 }
 
+func testFindLooksInEveryTextFieldButASecret() {
+    guard let run = try? textPattern("run 12"), let digits = try? textPattern("/^\\d+$/") else {
+        expect(false, "the patterns did not parse")
+        return
+    }
+    expect(findMatches(run, role: nil, FindFields(role: "AXButton", title: "Open Run 12")), "the title")
+    expect(findMatches(run, role: nil, FindFields(role: "AXStaticText", value: "run 12 passed")), "the value")
+    expect(findMatches(run, role: nil, FindFields(role: "AXImage", desc: "Run 12")), "the description")
+    expect(findMatches(run, role: nil, FindFields(role: "AXButton", help: "Opens run 12")), "the help")
+    expect(findMatches(run, role: nil, FindFields(role: "AXTextField", placeholder: "Run 12 notes")), "the placeholder")
+    expect(findMatches(run, role: nil, FindFields(role: "AXRow", identifier: "run 12")), "the identifier")
+    expect(!findMatches(run, role: nil, FindFields(role: "AXRow", identifier: "_NS:run 12")), "not AppKit's generated identifier")
+    expect(!findMatches(run, role: nil, FindFields(role: "AXButton", title: "Open Run 13")), "no field holds it")
+
+    expect(findMatches(run, role: "Button", FindFields(role: "AXButton", title: "Run 12")), "the role asked for")
+    expect(!findMatches(run, role: "Row", FindFields(role: "AXButton", title: "Run 12")), "another role")
+
+    // A secure field's value is never matched, by text or by pattern, so find cannot read it out.
+    expect(!findMatches(digits, role: nil, FindFields(role: "AXSecureTextField", value: "1234", secret: true)), "a secret's value")
+    expect(findMatches(run, role: nil, FindFields(role: "AXSecureTextField", value: "x", placeholder: "Run 12 PIN", secret: true)),
+           "a secret's other fields")
+}
+
 func testASignatureChangesWithWhatItRead() {
     func signature(_ build: (inout Signature) -> Void) -> UInt64 {
         var s = Signature()

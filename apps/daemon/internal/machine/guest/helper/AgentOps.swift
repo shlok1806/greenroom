@@ -11,6 +11,7 @@ func registerAgentOps() {
     registerCoreOps()
     registerCaptureOp()
     registerShellOp()
+    registerSnapshotOps()
 }
 
 /// The read queue of the app a request targets: `args.app` if it names one, else the
