@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -38,6 +40,141 @@ func within(parent string, err error) error {
 		f = parent + "." + ae.Field
 	}
 	return &ArgError{Field: f, Msg: ae.Msg}
+}
+
+// DecodeArgs decodes a tool call's JSON arguments into v (one of the argument types here, or a
+// surface's own struct that holds them), turning the decoder's errors into ones that name the
+// field and say what to send. Fields v does not have are ignored: a surface has arguments of its
+// own, such as runId. Call the type's Normalize after it.
+func DecodeArgs(raw []byte, v any) error {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		raw = []byte("{}")
+	}
+	return decodeError("arguments", json.Unmarshal(raw, v))
+}
+
+// decodeError turns an error of encoding/json into an ArgError: the field the decoder names,
+// under parent when the value is nested, and what it must be. An ArgError passes through.
+func decodeError(parent string, err error) error {
+	var te *json.UnmarshalTypeError
+	var se *json.SyntaxError
+	var ae *ArgError
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &ae):
+		return ae
+	case errors.As(err, &te):
+		field := te.Field // the path of keys to the value, as the caller wrote them
+		switch {
+		case field == "" && parent == "arguments":
+			return argErr(parent, "must be a JSON object, not %s", jsonKind(te.Value))
+		case field == "":
+			return argErr(parent, "must be %s, not %s", goKind(te.Type), jsonKind(te.Value))
+		case parent != "arguments":
+			field = parent + "." + field
+		}
+		return argErr(field, "must be %s, not %s", goKind(te.Type), jsonKind(te.Value))
+	case errors.As(err, &se), errors.Is(err, io.ErrUnexpectedEOF):
+		return argErr(parent, "not valid JSON (%v); send one JSON object", err)
+	}
+	if key, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		return argErr(parent, "has no key %s", key)
+	}
+	return argErr(parent, "%v", err)
+}
+
+// withHelp adds what to send to an ArgError that does not say.
+func withHelp(err error, help string) error {
+	var ae *ArgError
+	if !errors.As(err, &ae) {
+		return err
+	}
+	return &ArgError{Field: ae.Field, Msg: ae.Msg + "; " + help}
+}
+
+// isNull reports whether raw is JSON null or nothing at all: an argument that was not given.
+func isNull(raw []byte) bool {
+	return len(raw) == 0 || bytes.Equal(raw, []byte("null"))
+}
+
+// fromAny is DecodeArgs for a value a surface already decoded (a string, a map, raw JSON): it is
+// encoded again and decoded into v, so every form takes the one path.
+func fromAny(field string, value, v any) error {
+	var raw []byte
+	switch x := value.(type) {
+	case nil:
+	case json.RawMessage:
+		raw = x
+	case []byte:
+		raw = x
+	default:
+		b, err := json.Marshal(value)
+		if err != nil {
+			return argErr(field, "cannot be read (%v)", err)
+		}
+		raw = b
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		raw = []byte("null")
+	}
+	return DecodeArgs(raw, v)
+}
+
+// ScrollToFrom reads machine_scroll's `to` from whatever a surface decoded it as.
+func ScrollToFrom(value any) (ScrollTo, error) {
+	var t ScrollTo
+	if err := fromAny("to", value, &t); err != nil {
+		return ScrollTo{}, err
+	}
+	return t, t.Validate()
+}
+
+// WaitTargetFrom reads a wait's or an expectation's `target` from whatever a surface decoded it as.
+func WaitTargetFrom(value any) (WaitTarget, error) {
+	var t WaitTarget
+	if err := fromAny("target", value, &t); err != nil {
+		return WaitTarget{}, err
+	}
+	return t, t.Validate()
+}
+
+// goKind names the JSON type a Go type decodes from, with its article.
+func goKind(t reflect.Type) string {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Bool:
+		return "true or false"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "a whole number"
+	case reflect.Float32, reflect.Float64:
+		return "a number"
+	case reflect.String:
+		return "a string"
+	case reflect.Slice, reflect.Array:
+		return "a list"
+	}
+	return "an object"
+}
+
+// jsonKind names what the caller sent, from the decoder's word for it.
+func jsonKind(v string) string {
+	switch {
+	case v == "string":
+		return "a string"
+	case v == "bool":
+		return "true or false"
+	case v == "array":
+		return "a list"
+	case v == "object":
+		return "an object"
+	case strings.HasPrefix(v, "number"):
+		return "the " + v
+	}
+	return v
 }
 
 // Refs.
@@ -414,6 +551,8 @@ type ScrollTo struct {
 	By    float64
 }
 
+const scrollToHelp = `pass "top", "bottom", a ref such as "e45", {"pages": n} or {"by": points}`
+
 // Scroll bounds: enough to cross any real list in one call, small enough to catch a unit mistake.
 const (
 	maxScrollPages = 100
@@ -425,10 +564,13 @@ const (
 func (t *ScrollTo) UnmarshalJSON(b []byte) error {
 	b = bytes.TrimSpace(b)
 	*t = ScrollTo{}
-	if len(b) > 0 && b[0] == '"' {
+	if isNull(b) {
+		return nil // Validate says it is missing
+	}
+	if b[0] == '"' {
 		var s string
 		if err := json.Unmarshal(b, &s); err != nil {
-			return err
+			return decodeError("to", err)
 		}
 		if s == "top" || s == "bottom" {
 			t.Edge = s
@@ -437,8 +579,8 @@ func (t *ScrollTo) UnmarshalJSON(b []byte) error {
 		}
 		return nil
 	}
-	if len(b) == 0 || b[0] != '{' {
-		return argErr("to", "pass \"top\", \"bottom\", a ref such as \"e45\", {\"pages\": n} or {\"by\": points}")
+	if b[0] != '{' {
+		return argErr("to", "%s", scrollToHelp)
 	}
 	var o struct {
 		Ref   string   `json:"ref"`
@@ -448,7 +590,7 @@ func (t *ScrollTo) UnmarshalJSON(b []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&o); err != nil {
-		return argErr("to", "%v; pass {\"ref\": \"e45\"}, {\"pages\": n} or {\"by\": points}", err)
+		return withHelp(decodeError("to", err), `pass {"ref": "e45"}, {"pages": n} or {"by": points}`)
 	}
 	set := 0
 	if o.Ref != "" {
@@ -505,7 +647,7 @@ func (t ScrollTo) Validate() error {
 		}
 		return nil
 	}
-	return argErr("to", "missing; pass \"top\", \"bottom\", a ref such as \"e45\", {\"pages\": n} or {\"by\": points}")
+	return argErr("to", "missing; %s", scrollToHelp)
 }
 
 // Describe says where the scroll goes, for a sentence: `to the bottom`, `e45 into view`.
@@ -591,10 +733,13 @@ const targetHelp = `pass a ref such as "e62", {"text": "Done", "role": "Button"}
 func (t *WaitTarget) UnmarshalJSON(b []byte) error {
 	b = bytes.TrimSpace(b)
 	*t = WaitTarget{}
-	if len(b) > 0 && b[0] == '"' {
+	if isNull(b) {
+		return nil // Validate says it is missing
+	}
+	if b[0] == '"' {
 		var s string
 		if err := json.Unmarshal(b, &s); err != nil {
-			return err
+			return decodeError("target", err)
 		}
 		if s == TargetIdle {
 			t.Idle = true
@@ -603,7 +748,7 @@ func (t *WaitTarget) UnmarshalJSON(b []byte) error {
 		}
 		return nil
 	}
-	if len(b) == 0 || b[0] != '{' {
+	if b[0] != '{' {
 		return argErr("target", "%s", targetHelp)
 	}
 	type plain WaitTarget
@@ -611,7 +756,7 @@ func (t *WaitTarget) UnmarshalJSON(b []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
-		return argErr("target", "%v; %s", err, targetHelp)
+		return withHelp(decodeError("target", err), targetHelp)
 	}
 	*t = WaitTarget(p)
 	return nil
