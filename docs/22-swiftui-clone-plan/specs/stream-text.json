@@ -1,0 +1,688 @@
+{
+ "piece": "stream-text",
+ "source": "https://github.com/slev12397/beautiful-ui",
+ "sourceSha": "44a274e598395ab61e7c96c26fda2758780253b7",
+ "licence": "MIT, Copyright (c) 2026 Shane Levine",
+ "viewport": {
+  "width": 640,
+  "height": 480
+ },
+ "deviceScaleFactor": 2,
+ "frameMs": 16.6667,
+ "settleMs": 1500,
+ "runs": [
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "light",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "p",
+     "tag": "p",
+     "cls": "max-w-80 text-[13px] leading-normal text-ink",
+     "frame": [
+      0,
+      0,
+      320,
+      39
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]",
+     "tag": "span",
+     "cls": "",
+     "text": "The verifier opened TipSplit and set the tip to 25 percent.",
+     "frame": [
+      0,
+      1,
+      289.78,
+      35.5
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]/span[0]",
+     "tag": "span",
+     "cls": "stream-caret",
+     "frame": [
+      51.3,
+      22.36,
+      2,
+      13.64
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "light",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "p",
+     "tag": "p",
+     "cls": "max-w-80 text-[13px] leading-normal text-ink",
+     "frame": [
+      0,
+      0,
+      320,
+      39
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]",
+     "tag": "span",
+     "cls": "",
+     "text": "The verifier opened TipSplit and set the tip to 25 percent.",
+     "frame": [
+      0,
+      1,
+      286.39,
+      35.5
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]/span[0]",
+     "tag": "span",
+     "cls": "stream-caret",
+     "frame": [
+      50.77,
+      22.36,
+      2,
+      13.64
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px"
+     }
+    }
+   ],
+   "animations": [
+    {
+     "id": 1,
+     "kind": "CSSAnimation",
+     "name": "caret-blink",
+     "target": "p[0]/span[0]/span[0]",
+     "bornAtMs": 283,
+     "durationMs": 1000,
+     "delayMs": 0,
+     "easing": "linear",
+     "iterations": "infinite",
+     "fill": "none",
+     "keyframes": [
+      {
+       "offset": 0,
+       "easing": "steps(1)",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.5,
+       "easing": "steps(1)",
+       "opacity": "0"
+      },
+      {
+       "offset": 1,
+       "easing": "steps(1)",
+       "opacity": "1"
+      }
+     ]
+    }
+   ],
+   "curves": [
+    {
+     "tMs": 283,
+     "sample": [
+      {
+       "target": "p[0]/span[0]/span[0]",
+       "frame": [
+        50.77,
+        22.36,
+        2,
+        13.64
+       ],
+       "opacity": 1,
+       "transform": "none"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "dark",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "p",
+     "tag": "p",
+     "cls": "max-w-80 text-[13px] leading-normal text-ink",
+     "frame": [
+      0,
+      0,
+      320,
+      39
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]",
+     "tag": "span",
+     "cls": "",
+     "text": "The verifier opened TipSplit and set the tip to 25 percent.",
+     "frame": [
+      0,
+      1,
+      289.78,
+      35.5
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]/span[0]",
+     "tag": "span",
+     "cls": "stream-caret",
+     "frame": [
+      51.3,
+      22.36,
+      2,
+      13.64
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "dark",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "p",
+     "tag": "p",
+     "cls": "max-w-80 text-[13px] leading-normal text-ink",
+     "frame": [
+      0,
+      0,
+      320,
+      39
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]",
+     "tag": "span",
+     "cls": "",
+     "text": "The verifier opened TipSplit and set the tip to 25 percent.",
+     "frame": [
+      0,
+      1,
+      286.39,
+      35.5
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]/span[0]",
+     "tag": "span",
+     "cls": "stream-caret",
+     "frame": [
+      50.77,
+      22.36,
+      2,
+      13.64
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "light",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "p",
+     "tag": "p",
+     "cls": "max-w-80 text-[13px] leading-normal text-ink",
+     "frame": [
+      0,
+      0,
+      320,
+      39
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]",
+     "tag": "span",
+     "cls": "",
+     "text": "The verifier opened TipSplit and set the tip to 25 percent.",
+     "frame": [
+      0,
+      1.89,
+      237.29,
+      35.23
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]/span[0]",
+     "tag": "span",
+     "cls": "stream-caret",
+     "frame": [
+      103.77,
+      22.97,
+      2,
+      13.64
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "light",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "p",
+     "tag": "p",
+     "cls": "max-w-80 text-[13px] leading-normal text-ink",
+     "frame": [
+      0,
+      0,
+      320,
+      39
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]",
+     "tag": "span",
+     "cls": "",
+     "text": "The verifier opened TipSplit and set the tip to 25 percent.",
+     "frame": [
+      0,
+      2.09,
+      233.52,
+      34.81
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]/span[0]",
+     "tag": "span",
+     "cls": "stream-caret",
+     "frame": [
+      103.63,
+      22.75,
+      2,
+      13.64
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "dark",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "p",
+     "tag": "p",
+     "cls": "max-w-80 text-[13px] leading-normal text-ink",
+     "frame": [
+      0,
+      0,
+      320,
+      39
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]",
+     "tag": "span",
+     "cls": "",
+     "text": "The verifier opened TipSplit and set the tip to 25 percent.",
+     "frame": [
+      0,
+      1.89,
+      237.29,
+      35.23
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]/span[0]",
+     "tag": "span",
+     "cls": "stream-caret",
+     "frame": [
+      103.77,
+      22.97,
+      2,
+      13.64
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "dark",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "p",
+     "tag": "p",
+     "cls": "max-w-80 text-[13px] leading-normal text-ink",
+     "frame": [
+      0,
+      0,
+      320,
+      39
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]",
+     "tag": "span",
+     "cls": "",
+     "text": "The verifier opened TipSplit and set the tip to 25 percent.",
+     "frame": [
+      0,
+      2.09,
+      233.52,
+      34.81
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "p/span[0]/span[0]",
+     "tag": "span",
+     "cls": "stream-caret",
+     "frame": [
+      103.63,
+      22.75,
+      2,
+      13.64
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px"
+     }
+    }
+   ]
+  }
+ ]
+}
