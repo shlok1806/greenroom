@@ -25,10 +25,12 @@ enum StateFixtures {
             }
         }
 
+        /// A restart is held to the budget of the screen that asked for it (not answering): the
+        /// Figma frame 07b says what the Mac is doing and which check waits, about 64 words.
         var budget: WordBudget.Screen {
             switch self {
-            case .failed, .paused, .notAnswering, .warning: .runVerdictWaiting
-            case .live, .restarting: .runLive
+            case .failed, .paused, .notAnswering, .restarting, .warning: .runVerdictWaiting
+            case .live: .runLive
             case .starting: .booting
             case .done: .runFinished
             }
@@ -112,8 +114,8 @@ enum StateFixtures {
     /// the mockup's would count against the clone.
     /// `compact`: the board frame 03's compact variant draws (one run running, three done
     /// shown of 43).
-    static func mockup(_ golden: SummaryBoard, compact: Bool = false) -> SummaryBoard {
-        let now = start.addingTimeInterval(State.failed.at)
+    static func mockup(_ golden: SummaryBoard, compact: Bool = false, at: State = .failed) -> SummaryBoard {
+        let now = start.addingTimeInterval(at.at)
         guard var tip = board(golden).summary(tipSplit) else { return golden }
         let order = ["Each pays becomes", "Each pays is", "Tip is", "Window shows"]
         tip.checks.items.sort { a, b in
@@ -204,6 +206,41 @@ enum StateFixtures {
             .init(id: .running, runs: [run("m-run-0", "UnitConvert: Temperature", .checking, .live, .running, age: 72, elapsed: 72)]),
             .init(id: .done, runs: done),
         ], macs: golden.macs)
+    }
+
+    /// The mockup's board with TipSplit in `state` as Figma 02 (live) and 07a/07b (not
+    /// answering, restarting) draw it: two checks passed, two to go.
+    static func mockup(_ golden: SummaryBoard, state: State) -> SummaryBoard {
+        var board = mockup(golden, at: state)
+        if state == .notAnswering || state == .restarting {
+            // Figma 07 draws one other run running.
+            board.groups = board.groups.map { group in
+                var group = group
+                group.runs.removeAll { $0.runId == "m-run-1" }
+                group.count = group.runs.count
+                return group
+            }
+        }
+        edit(&board, tipSplit) { s in
+            apply(state, to: &s)
+            s.detail = state == .live ? nil : s.detail
+            let items = [
+                SummaryCheck(id: "window", text: "Window shows Bill, Tip and People", state: .pass),
+                SummaryCheck(id: "tip", text: "Tip is $24.00 for $120 at 20%", state: .pass, saw: "$24.00"),
+                SummaryCheck(id: "each", text: "Each pays is $48.00 for 3 people", state: .pending),
+                SummaryCheck(id: "each-25", text: "Each pays becomes $50.00 at 25%", state: .pending),
+            ]
+            s.checks = SummaryChecks(total: 4, passed: 2, pending: 2, text: "2 of 4 checks", items: items)
+        }
+        // A run still running leads its group, as the frames draw it.
+        board.groups = board.groups.map { group in
+            var group = group
+            if let i = group.runs.firstIndex(where: { $0.runId == tipSplit }), group.id == .running {
+                group.runs.insert(group.runs.remove(at: i), at: 0)
+            }
+            return group
+        }
+        return board
     }
 
     static func edit(_ board: inout SummaryBoard, _ runId: String, _ change: (inout Summary) -> Void) {

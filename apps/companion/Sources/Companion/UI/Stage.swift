@@ -18,13 +18,15 @@ struct StageView: View {
         // A passed run shows the frames its checks were proven on (Figma 04); any other, the
         // filmstrip to scrub (Figma 03).
         let keyFrames = summary.state == .passed ? KeyFrames.items(summary.checks.items, steps: shell.store.steps[summary.runId] ?? []) : []
-        let strip = summary.state != .starting && keyFrames.isEmpty
+        // No filmstrip while the Mac starts, restarts or does not answer (Figma 06, 07a, 07b).
+        let strip = ![.starting, .notAnswering, .restarting].contains(summary.state) && keyFrames.isEmpty
+        let captionHeight = captionHeight(content)
         GeometryReader { geo in
             // The design's stage: 24 above, 16 below, 32 at the sides;
             // the evidence (the 4:3 picture, 12, a 28 pt caption), 24, the 58 pt filmstrip or
             // the 144 pt key frames, centred in what is left. The picture takes the full width
             // unless the height ends first, and no more than the key frames' row under it.
-            let chrome: CGFloat = 12 + 28 + (keyFrames.isEmpty ? (strip ? 24 + 58 : 0) : 24 + KeyFrames.height + 20)
+            let chrome: CGFloat = 12 + captionHeight + (keyFrames.isEmpty ? (strip ? 24 + 58 : 0) : 24 + KeyFrames.height + 20)
             let tall = geo.size.height - padding.top - Gap.x16 - chrome
             let room = min(geo.size.width - padding.horizontal * 2, tall * 4 / 3)
             let width = max(200, keyFrames.isEmpty ? room : min(room, KeyFrames.rowWidth))
@@ -40,7 +42,7 @@ struct StageView: View {
                         .onTapGesture { if case .picture = content { shell.evidenceOpen = true } }
                         .cloneScope("Screen")
                     caption(content)
-                        .frame(width: width, height: 28)
+                        .frame(width: width, height: captionHeight)
                         .cloneScope("Caption")
                 }
                 .cloneScope("Evidence")
@@ -110,7 +112,7 @@ struct StageView: View {
                     Circle().fill(Palette.accent).frame(width: 6, height: 6)
                     Text("Live").textStyle(.captionEmphasis).foregroundStyle(Palette.accent)
                 }
-            } else if summary.lastFrame != nil, summary.state != .starting, summary.state != .restarting {
+            } else if hasRecording {
                 // Compact has room for the icon alone (Figma 03 compact).
                 if windowClass == .compact {
                     IconButton(icon: .video, name: "Recording") { shell.evidenceOpen = true }
@@ -125,6 +127,19 @@ struct StageView: View {
         }
     }
 
+    /// Whether the caption offers the recording: not while the Mac starts, restarts or does not
+    /// answer, when there is none to watch yet (Figma 06, 07a, 07b).
+    private var hasRecording: Bool {
+        summary.lastFrame != nil && ![.starting, .restarting, .notAnswering].contains(summary.state)
+    }
+
+    /// The caption's line: 28 with the Recording button, 22 with the Live badge, else one line of
+    /// Title (20), as Figma 03, 02 and 07 draw it.
+    private func captionHeight(_ content: StageContent) -> CGFloat {
+        if case .live = content { return 22 }
+        return hasRecording ? Metrics.buttonHeight : 20
+    }
+
     private func captionText(_ content: StageContent) -> Text {
         switch content {
         case .live:
@@ -132,6 +147,7 @@ struct StageView: View {
             return Text("")
         case .picture(_, _, _, let dimmed) where dimmed:
             // Restarting says so over the picture; a stuck screen says how old its last picture is.
+            if summary.state == .restarting { return Text("Last picture before the restart").foregroundStyle(Palette.textSecondary) }
             guard summary.state == .notAnswering else { return Text("") }
             return Text("Last picture, \(Clock.elapsed(summary.inStatus(now: frozenNow ?? Date()))) ago").foregroundStyle(Palette.textSecondary)
         case .picture:
@@ -311,27 +327,45 @@ struct KeyFramesView: View {
 /// The Mac's restart, over the dimmed last picture (Figma Mockups 07b): no buttons.
 struct RestartProgress: View {
     var phases: [BootPhase]
+    @Environment(\.frozenNow) private var frozenNow
 
     var body: some View {
-        let rows = [
-            ("Stopped the Mac", GlyphKind.passed),
-            ("Starting macOS", phases.contains { $0.phase.text == "start" && !$0.running } ? .passed : .checking),
-            ("Reconnecting the screen", phases.contains { $0.phase.text == "ssh" } ? .checking : .pending),
+        let start = phases.first { $0.phase.text == "start" }
+        let rows: [(String, GlyphKind, String)] = [
+            ("Stopped the Mac", .passed, phases.first { $0.phase.text == "stop" }?.seconds.map { Clock.elapsed(Int($0.rounded())) } ?? ""),
+            ("Starting macOS", start.map { !$0.running } == true ? .passed : .checking, start.map(time) ?? ""),
+            ("Reconnecting the screen", phases.contains { $0.phase.text == "ssh" } ? .checking : .pending, ""),
         ]
+        // Figma 07b: 20 in, rows 18 tall and 12 apart, the glyph 10 from a 200 pt label, the
+        // phase's time 10 after it in a 24 pt column.
         VStack(alignment: .leading, spacing: Gap.x12) {
-            ForEach(rows, id: \.0) { text, glyph in
-                HStack(spacing: Gap.x12) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                let (text, glyph, time) = row
+                HStack(spacing: 10) {
                     StatusGlyph(kind: glyph, color: glyph == .passed ? .pass : (glyph == .checking ? .accent : .tertiary))
+                        .clonePart("Glyph")
                     Text(text).textStyle(.body).foregroundStyle(glyph == .pending ? Palette.textSecondary : Palette.text)
                         .frame(width: 200, alignment: .leading)
+                        .clonePart(time.isEmpty ? "Text" : "Text[0]")
+                    Text(time).textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                        .frame(width: 24, alignment: .trailing)
+                        .clonePart(time.isEmpty ? "Time" : "Text[1]")
                 }
+                .frame(height: 18)
+                .cloneScope("Frame[\(index)]")
             }
         }
-        .padding(Gap.x16)
+        .padding(20)
         .background(RoundedRectangle(cornerRadius: Corner.sheet).fill(Palette.bgRaised))
         .shadow(color: .black.opacity(Elevation.raisedOpacity), radius: Elevation.raisedRadius / 2, y: Elevation.raisedY)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Restarting the Mac")
+        .cloneScope("Restart progress")
+    }
+
+    /// A phase's time: how long it took, or how long it has run.
+    private func time(_ phase: BootPhase) -> String {
+        Clock.elapsed(Int((phase.seconds ?? (frozenNow ?? Date()).timeIntervalSince(phase.at)).rounded()))
     }
 }
 

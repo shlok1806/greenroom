@@ -245,7 +245,8 @@ struct ChecksColumn: View {
                     let many = summary.checks.items.count > 1
                     ForEach(Array(summary.checks.items.enumerated()), id: \.element.id) { index, check in
                         CheckRowView(check: check, selected: check.id == shell.selectedCheckID, metaOverride: meta(for: check),
-                                     showsPassValue: summary.state != .failed)
+                                     showsPassValue: summary.state == .passed,
+                                     checking: summary.state == .checking && check.id == CheckSelection.current(summary.checks.items))
                             .onTapGesture { shell.select(check: check.id) }
                             .accessibilityAction { shell.select(check: check.id) }
                             .cloneScope(many ? "Check row[\(index)]" : "Check row")
@@ -266,11 +267,14 @@ struct ChecksColumn: View {
     }
 
     /// While the Mac is stuck or restarting, a check not yet answered says it waits.
+    /// The check the verifier is on (the first not yet answered) says what is happening to it:
+    /// "waiting" while the screen does not answer or the Mac restarts, "paused" (Figma 07a and
+    /// 07b); while live it is drawn checking (Figma 02).
     private func meta(for check: SummaryCheck) -> String? {
-        guard check.state == .pending else { return nil }
+        guard check.state == .pending, check.id == CheckSelection.current(summary.checks.items) else { return nil }
         switch summary.state {
-        case .notAnswering: return check.id == shell.selectedCheckID ? "waiting" : nil
-        case .paused: return check.id == shell.selectedCheckID ? "paused" : nil
+        case .notAnswering, .restarting: return "waiting"
+        case .paused: return "paused"
         default: return nil
         }
     }

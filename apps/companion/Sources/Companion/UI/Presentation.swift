@@ -162,6 +162,8 @@ struct RunRowModel: Equatable, Sendable, Identifiable {
         if s.group == .done {
             return (Clock.age(since: s.endedAt ?? s.since, now: now), .secondary)
         }
+        // A restart counts from its start, as the header does (Figma 07b).
+        if s.state == .restarting { return (Clock.elapsed(s.inStatus(now: now)), .secondary) }
         return (Clock.elapsed(s.elapsed(now: now)), .secondary)
     }
 }
@@ -364,8 +366,17 @@ enum EvidenceCaption: Equatable, Sendable {
 /// with a picture, else the first.
 enum CheckSelection {
     /// Nil for a plan nothing has answered yet: no check is proven, so none is singled out.
-    static func initial(_ checks: [SummaryCheck]) -> String? {
-        (checks.first { $0.state == .fail } ?? checks.first { $0.picture != nil } ?? checks.first { $0.state != .pending })?.id
+    /// While the verifier checks, the check it is on (Figma 02).
+    static func initial(_ checks: [SummaryCheck], checking: Bool = false) -> String? {
+        // "checking": the run is open with no outcome yet (checking, paused, not answering,
+        // restarting), so the eye goes to where the verifier is (Figma 02, 07a, 07b).
+        if checking, checks.contains(where: { $0.state != .pending }), let current = current(checks) { return current }
+        return (checks.first { $0.state == .fail } ?? checks.first { $0.picture != nil } ?? checks.first { $0.state != .pending })?.id
+    }
+
+    /// The check the verifier is on: the first not yet answered.
+    static func current(_ checks: [SummaryCheck]) -> String? {
+        checks.first { $0.state == .pending }?.id
     }
 
     /// The check `delta` after `id`, wrapping; the first (or last) when none is selected.

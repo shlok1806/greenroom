@@ -61,7 +61,7 @@ struct CloneSSIM {
 
     /// Compares `render` (2x) with the Figma PNG whose window sits at `origin`, masked by the
     /// layout file's text, glyph and icon frames (grown by a point) and its guest pictures.
-    static func compare(render: CGImage, figma: CGImage, origin: CGPoint, layout: String) -> Result? {
+    static func compare(render: CGImage, figma: CGImage, origin: CGPoint, layout: String, masked: [String] = []) -> Result? {
         guard let r = pixels(render), let f = pixels(figma) else { return nil }
         let (w, h) = (r.width / 2, r.height / 2)
         guard Int(origin.x) + w <= f.width, Int(origin.y) + h <= f.height else { return nil }
@@ -75,7 +75,7 @@ struct CloneSSIM {
         func luma(_ p: [Double]) -> Luma {
             Luma(width: w, height: h, values: (0..<(w * h)).map { 0.2126 * p[$0 * 3] + 0.7152 * p[$0 * 3 + 1] + 0.0722 * p[$0 * 3 + 2] })
         }
-        let region = mask(layout: layout, width: w, height: h)
+        let region = mask(layout: layout, width: w, height: h, masked: masked)
         let ssim = map(luma(a), luma(b))
         var (sum, count, off) = (0.0, 0, 0)
         for i in 0..<(w * h) where region[i] {
@@ -89,7 +89,8 @@ struct CloneSSIM {
     }
 
     /// True where the chrome is compared.
-    static func mask(layout: String, width w: Int, height h: Int) -> [Bool] {
+    /// `masked`: path prefixes the frame draws otherwise than the app by decision; not compared.
+    static func mask(layout: String, width w: Int, height h: Int, masked: [String] = []) -> [Bool] {
         var region = [Bool](repeating: true, count: w * h)
         func clear(_ x0: Int, _ y0: Int, _ x1: Int, _ y1: Int) {
             for y in max(0, y0)..<min(h, max(0, y1)) {
@@ -107,6 +108,7 @@ struct CloneSSIM {
             if bareRow || f.count > 5 || path.hasSuffix("/Glyph") || path.contains("/Icon/") || path.hasSuffix("GlyphBox") {
                 clear(Int(x) - 1, Int(y) - 1, Int(x + fw) + 2, Int(y + fh) + 2)
             }
+            if masked.contains(where: { path.hasPrefix($0) }) { clear(Int(x) - 1, Int(y) - 1, Int(x + fw) + 2, Int(y + fh) + 2) }
             if path.hasSuffix("/Screen") || path.hasSuffix("/Filmstrip") || (path.contains("/Key frame") && path.hasSuffix("/Rectangle")) || path.hasSuffix("Traffic lights") {
                 clear(Int(x), Int(y), Int(x + fw), Int(y + fh))
             }

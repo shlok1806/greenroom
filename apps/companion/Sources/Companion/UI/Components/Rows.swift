@@ -79,13 +79,13 @@ struct GroupHeading: View {
 struct CheckRowView: View {
     var check: SummaryCheck
     var selected: Bool
-    /// Drawn as the check being worked on now: the spinner and "checking".
-    var checking = false
     /// Overrides the meta: "waiting", "paused".
     var metaOverride: String?
-    /// Whether a passed check shows the value it read: in a run that passed (Figma 04), not in
-    /// one that failed, where the eye goes to what failed (Figma 03).
+    /// Whether a passed check shows the value it read: in a run that passed (Figma 04), not
+    /// while it runs or when it failed, where the eye goes elsewhere (Figma 02, 03).
     var showsPassValue = true
+    /// Drawn as the check being worked on now: the spinner and "checking".
+    var checking = false
     var hovered = false
 
     var body: some View {

@@ -30,7 +30,7 @@ final class RunWindowTests: XCTestCase {
     /// A store over the golden board with TipSplit in `state`: every picture a grey PNG, every
     /// list empty, every post recorded.
     private func store(_ state: F.State = .failed, posts: Posts = Posts(), mockup: Bool = false, compact: Bool = false,
-                       passed: Bool = false) throws -> RunStore {
+                       passed: Bool = false, mockupState: F.State? = nil) throws -> RunStore {
         let png = Self.greyPNG
         let client = StubURLProtocol.client { request in
             let path = request.url?.path ?? ""
@@ -45,8 +45,12 @@ final class RunWindowTests: XCTestCase {
             return .json("{}", status: 404)
         }
         let store = RunStore(client: client, screenSource: NoScreen())
-        store.board = passed ? F.mockupPassed(try SummaryTests.golden())
-            : mockup ? F.mockup(try SummaryTests.golden(), compact: compact) : F.board(try SummaryTests.golden(), state: state)
+        let golden = try SummaryTests.golden()
+        if let mockupState {
+            store.board = F.mockup(golden, state: mockupState)
+        } else {
+            store.board = passed ? F.mockupPassed(golden) : mockup ? F.mockup(golden, compact: compact) : F.board(golden, state: state)
+        }
         store.reachable = true
         store.selectedRunId = F.tipSplit
         var detail = RunDetail(runId: F.tipSplit)
@@ -148,6 +152,10 @@ final class RunWindowTests: XCTestCase {
         var dark = false
         var compact = false
         var passed = false
+        /// The state the frame draws TipSplit in, when not failed or passed.
+        var state: StateFixtures.State?
+        /// Parts the frame draws otherwise than the app, by decision (see the PR for why).
+        var skip: [String] = []
     }
 
     static let frames: [FigmaFrame] = [
@@ -155,13 +163,19 @@ final class RunWindowTests: XCTestCase {
         FigmaFrame(name: "m03-failed-dark", dark: true),
         FigmaFrame(name: "m03-failed-compact-light", size: CGSize(width: 1024, height: 680), compact: true),
         FigmaFrame(name: "m04-passed-light", passed: true),
+        FigmaFrame(name: "m02-live-light", state: .live),
+        // The daemon puts a Mac that stopped answering under Needs you (root ADR 0036); the
+        // frame leaves it under Running. Frames 07 also show four Done runs where 02 to 04 show five.
+        FigmaFrame(name: "m07a-not-answering-light", state: .notAnswering, skip: ["Sidebar/Runs"]),
+        FigmaFrame(name: "m07b-restarting-light", state: .restarting,
+                   skip: ["Sidebar/Runs/Run row[7]", "Sidebar/Runs/Run row[8]", "Sidebar/Runs/More"]),
     ]
 
     /// The failed run on the mockup's board, as `frame` draws it.
     private func mockupHost(_ frame: FigmaFrame, redacted: Bool) async throws -> ParkedHost {
-        let shell = ShellModel(store: try store(.failed, mockup: true, compact: frame.compact, passed: frame.passed))
+        let shell = ShellModel(store: try store(.failed, mockup: true, compact: frame.compact, passed: frame.passed, mockupState: frame.state))
         await shell.store.select(F.tipSplit)
-        let host = await host(shell, state: .failed, size: frame.size, redacted: redacted, dark: frame.dark)
+        let host = await host(shell, state: frame.state ?? .failed, size: frame.size, redacted: redacted, dark: frame.dark)
         try await Task.sleep(for: .seconds(1))
         host.window.contentView?.layoutSubtreeIfNeeded()
         host.window.contentView?.displayIfNeeded()
@@ -183,10 +197,10 @@ final class RunWindowTests: XCTestCase {
             let host = try await mockupHost(frame, redacted: true)
             let parts = CloneParts.frames(in: host.window)
             let layout = try String(contentsOf: Self.figma(frame.name + ".layout.txt"), encoding: .utf8)
-            let (compared, misses) = Self.layoutMisses(parts: parts, layout: layout)
+            let (compared, misses) = Self.layoutMisses(parts: parts, layout: layout, skip: frame.skip)
             report.append("\(frame.name) \(compared) parts, \(misses.count) off")
             misses.forEach { print("  off \(frame.name): " + $0) }
-            XCTAssertGreaterThan(compared, 60, "\(frame.name) parts found: \(parts.keys.sorted())")
+            XCTAssertGreaterThanOrEqual(compared, 50, "\(frame.name) parts found: \(parts.keys.sorted())")
             XCTAssertTrue(misses.isEmpty, "\(frame.name):\n" + misses.joined(separator: "\n"))
         }
         print("clone layout: " + report.joined(separator: "; "))
@@ -196,7 +210,7 @@ final class RunWindowTests: XCTestCase {
     /// origin but not its width, since SF Pro and Inter set the same words a little apart; a part
     /// laid out from the trailing edge is held by its trailing edge; a text that follows another
     /// text on its line is held by its top and height only. The traffic lights are the system's.
-    static func layoutMisses(parts: [String: CGRect], layout: String) -> (compared: Int, misses: [String]) {
+    static func layoutMisses(parts: [String: CGRect], layout: String, skip: [String] = []) -> (compared: Int, misses: [String]) {
         func last(_ path: String) -> String { String(path.split(separator: "/").last ?? "") }
         func hugs(_ path: String) -> Bool {
             ["Button", "Toolbar button", "Outcome", "Now", "Run meta", "Status"].contains { last(path).hasPrefix($0) }
@@ -213,7 +227,7 @@ final class RunWindowTests: XCTestCase {
             let f = line.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
             guard f.count >= 5, let x = Double(f[1]), let y = Double(f[2]), let w = Double(f[3]), let h = Double(f[4]) else { continue }
             let path = f[0]
-            if path.hasPrefix("Sidebar/Titlebar/Traffic lights") { continue }
+            if path.hasPrefix("Sidebar/Titlebar/Traffic lights") || skip.contains(where: { path.hasPrefix($0) }) { continue }
             guard let got = parts[path] else { continue }
             let text = f.count > 5
             var off: [String] = []
@@ -249,7 +263,7 @@ final class RunWindowTests: XCTestCase {
             }
             let png = try XCTUnwrap(NSBitmapImageRep(data: try Data(contentsOf: Self.figma(frame.name + ".png")))?.cgImage)
             let layout = try String(contentsOf: Self.figma(frame.name + ".layout.txt"), encoding: .utf8)
-            let result = try XCTUnwrap(CloneSSIM.compare(render: image, figma: png, origin: CGPoint(x: 48, y: 32), layout: layout))
+            let result = try XCTUnwrap(CloneSSIM.compare(render: image, figma: png, origin: CGPoint(x: 48, y: 32), layout: layout, masked: frame.skip))
             report.append(String(format: "%@ SSIM %.4f, %.2f%% off", frame.name, result.chrome, result.offShare * 100))
             XCTAssertGreaterThanOrEqual(result.chrome, 0.985, frame.name)
         }

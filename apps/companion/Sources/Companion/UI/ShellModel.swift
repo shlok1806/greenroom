@@ -46,7 +46,8 @@ final class ShellModel {
     var selectedCheckID: String? {
         guard let runId else { return nil }
         if let chosen = checkSelection[runId], checks.contains(where: { $0.id == chosen }) { return chosen }
-        return CheckSelection.initial(checks)
+        let open: Set<SummaryState> = [.checking, .paused, .notAnswering, .restarting]
+        return CheckSelection.initial(checks, checking: summary.map { open.contains($0.state) } ?? false)
     }
 
     var selectedCheck: SummaryCheck? { checks.first { $0.id == selectedCheckID } }
