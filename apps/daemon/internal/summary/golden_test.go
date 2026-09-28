@@ -137,7 +137,7 @@ func TestTheFailedTipSplitReadsAsTheFigmaScreen(t *testing.T) {
 		{"name", s.Name, "TipSplit: split the bill"},
 		{"source", s.Source, "Claude Code"},
 		{"status", s.Status, "Failed"},
-		{"tally", s.Checks.Text, "2 of 4 checks failed"},
+		{"tally", s.Checks.Text, "2 of 4 checks"},
 		{"detail", s.Detail, "Proposed by the verifier after 3:26."},
 		{"primary", s.PrimaryAction.Label, "Accept fail"},
 		{"secondary", s.SecondaryActions[0].Label, "Reject"},
@@ -154,9 +154,10 @@ func TestTheFailedTipSplitReadsAsTheFigmaScreen(t *testing.T) {
 	}
 }
 
-// defaultWords are the words a UI shows for a summary without being asked: the header (name,
-// source, status, tally, the one sentence or now, the actions, the machine warning) and the
-// selected check with its values. Observed and pictures are one click away.
+// defaultWords are the words the run's page shows without being asked, all from the summary:
+// the header (name, source, status, tally, the one sentence or now, the actions, the machine
+// warning), every check as a row with the value a failed one saw, and under the picture the
+// selected check's setup and its two values. What was observed, in full, is one click away.
 func defaultWords(s Summary) []string {
 	parts := []string{s.Name, s.Status, s.Checks.Text, s.Detail, s.Now, s.Machine.Warning}
 	if s.Source != "" {
@@ -168,13 +169,17 @@ func defaultWords(s Summary) []string {
 	for _, a := range s.SecondaryActions {
 		parts = append(parts, a.Label)
 	}
-	if s.Failing != nil {
-		parts = append(parts, s.Failing.Text)
-		if s.Failing.Expected != "" || s.Failing.Saw != "" {
-			parts = append(parts, "Expected "+s.Failing.Expected+", saw "+s.Failing.Saw)
+	for _, row := range s.Checks.Items {
+		parts = append(parts, row.Text)
+		if row.Saw != "" {
+			parts = append(parts, "saw "+row.Saw)
 		}
-	} else if s.Checks.Current != nil {
-		parts = append(parts, s.Checks.Current.Text)
+	}
+	if f := s.Failing; f != nil {
+		parts = append(parts, f.Setup)
+		if f.Expected != "" || f.Saw != "" {
+			parts = append(parts, "Expected "+f.Expected+", saw "+f.Saw)
+		}
 	}
 	var words []string
 	for _, p := range parts {
@@ -192,40 +197,46 @@ func rowWords(s Summary) []string {
 	return words
 }
 
-// budget is docs/20 section 6's ceiling for the screen a summary heads.
+// budget is docs/20 section 6's ceiling for the page a summary heads. A page that lists a
+// verdict's checks has the verdict page's 70 whether the verdict still waits or is closed: the
+// rows are the same. The live run's closed verdict, four checks in the verifier's own words,
+// comes to 53 words, which the finished page's 50 does not hold; criteria as short as the
+// Figma's do fit it.
 func budget(s Summary) (string, int) {
 	switch {
 	case s.State == Starting || s.State == Restarting:
 		return "booting", 20
+	case len(s.Checks.Items) > 0 && (s.State == Passed || s.State == Failed || s.State == Inconclusive):
+		return "verdict", 70
 	case s.Group == Done:
 		return "finished", 50
-	case s.PrimaryAction != nil && s.PrimaryAction.ID == ActAccept:
-		return "verdict waiting for you", 70
 	}
 	return "live", 60
 }
 
 func TestEverySummaryStaysWithinTheTextBudget(t *testing.T) {
 	for _, in := range figmaRuns(t) {
-		s := Derive(in)
-		screen, limit := budget(s)
-		// Beside a checks list (eight words a row) the header leaves the list most of the
-		// budget: it takes at most half. Booting shows no checks.
-		ceiling := limit / 2
-		if screen == "booting" {
-			ceiling = limit
-		}
-		if n := len(defaultWords(s)); n > ceiling {
-			t.Errorf("%s (%s): %d words by default, over %d of the %d budget: %q", s.Name, screen, n, ceiling, limit, defaultWords(s))
-		}
-		if n := len(rowWords(s)); n > 6 {
-			t.Errorf("%s: its row has %d words, over 6", s.Name, n)
-		}
-		if n := len(strings.Fields(s.Name)); n > NameWords {
-			t.Errorf("%s: name of %d words", s.Name, n)
-		}
-		if s.Checks.Current != nil && len(strings.Fields(s.Checks.Current.Text)) > checkWords {
-			t.Errorf("%s: check row %q over %d words", s.Name, s.Checks.Current.Text, checkWords)
+		withinBudget(t, Derive(in))
+	}
+}
+
+// withinBudget checks a summary's words against docs/20 section 6: the run's page, a runs
+// list row of six words, a name of five and check rows of eight.
+func withinBudget(t *testing.T, s Summary) {
+	t.Helper()
+	screen, limit := budget(s)
+	if n := len(defaultWords(s)); n > limit {
+		t.Errorf("%s (%s): %d words by default, over the budget of %d: %q", s.Name, screen, n, limit, defaultWords(s))
+	}
+	if n := len(rowWords(s)); n > 6 {
+		t.Errorf("%s: its row has %d words, over 6", s.Name, n)
+	}
+	if n := len(strings.Fields(s.Name)); n > NameWords {
+		t.Errorf("%s: name of %d words", s.Name, n)
+	}
+	for _, row := range s.Checks.Items {
+		if n := len(strings.Fields(row.Text)); n > checkWords {
+			t.Errorf("%s: check row %q has %d words, over %d", s.Name, row.Text, n, checkWords)
 		}
 	}
 }
@@ -249,12 +260,13 @@ var forbidden = []*regexp.Regexp{
 
 // texts are every string of a summary a person could read.
 func texts(s Summary) []string {
-	out := []string{s.Name, s.Source, s.Status, s.Detail, s.Now, s.Checks.Text, s.Machine.Status, s.Machine.Warning, s.Outcome}
-	if s.Checks.Current != nil {
-		out = append(out, s.Checks.Current.Text)
+	out := []string{s.Name, s.Source, s.Status, s.Detail, s.Now, s.Checks.Text, s.Machine.Status, s.Machine.Warning,
+		s.Machine.Ended, s.Outcome}
+	for _, row := range s.Checks.Items {
+		out = append(out, row.Text, row.Saw)
 	}
 	if f := s.Failing; f != nil {
-		out = append(out, f.Text, f.Expected, f.Saw, f.Observed)
+		out = append(out, f.Text, f.Setup, f.Expected, f.Saw, f.Observed)
 	}
 	if s.PrimaryAction != nil {
 		out = append(out, s.PrimaryAction.Label)

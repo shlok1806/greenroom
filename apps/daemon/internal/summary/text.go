@@ -187,37 +187,78 @@ func plain(s string) string {
 // value is money, a number or a percentage: "$50.00", "25%", "1,200".
 var value = regexp.MustCompile(`[-+]?[$\x{20AC}\x{00A3}]?\d[\d,]*(?:\.\d+)?%?`)
 
-// Disagreement finds the values a failed check's criterion and observation disagree on: the
-// first value the criterion names that the observation does not (expected), and the first value
-// of the same kind the observation names that the criterion does not (saw). Quoted text counts
-// as a value. Either is empty when the words do not show it.
+// Disagreement finds the values a failed check's criterion and observation disagree on, from
+// their words. Quoted text counts as a value. Either is empty when the words do not show it.
+//
+// saw is a value only the observation names: the one that follows a result word ("reads
+// $8.00"), else the first. expected is the value the observation itself says was wanted
+// ("not $48.00", "instead of $50.00"), else a value of saw's kind from the criterion: one the
+// observation does not repeat, that follows a result word ("Each pays reads $48.00"), before
+// one that only sets the scene ("With Bill 120"). Taking the first value of each (the live
+// check's criterion opens "With Bill 120, 20% tip, People 3") gave "expected 120".
 func Disagreement(criterion, observed string) (expected, saw string) {
-	want, got := values(criterion), values(observed)
-	for _, v := range want {
-		if !slices.Contains(got, v) {
-			expected = v
+	want, got := valuesAt(criterion), valuesAt(observed)
+	for _, g := range got {
+		if g.follows(observed, wantedLead) {
+			expected = g.v
 			break
 		}
 	}
-	for _, v := range got {
-		if slices.Contains(want, v) {
-			continue
-		}
-		if expected == "" || valueKind(v) == valueKind(expected) {
-			saw = v
-			break
-		}
+	saw = pick(got, observed, func(f found) bool { return f.v != expected && !has(want, f.v) })
+	if expected != "" || saw == "" {
+		return expected, saw
+	}
+	kind := valueKind(saw)
+	ofKind := func(f found) bool { return f.v != saw && valueKind(f.v) == kind }
+	expected = pick(want, criterion, func(f found) bool { return ofKind(f) && !has(got, f.v) })
+	if expected == "" {
+		expected = pick(want, criterion, ofKind)
 	}
 	return expected, saw
 }
 
-// values lists the quoted phrases and the numeric values in s, in the order they appear. A
-// number inside a quote is listed too, after its quote.
-func values(s string) []string {
-	type found struct {
-		at int
-		v  string
+var (
+	// resultLead ends the words before a value that is a result: "Each pays reads ".
+	resultLead = regexp.MustCompile(`(?i)\b(?:reads?|is|are|was|were|shows?|showed|shown|becomes?|became|says?|said|displays?|displayed|equals?|gives?|gave|to)\s+(?:exactly\s+|only\s+|now\s+|still\s+|as\s+)?$`)
+	// wantedLead ends the words before a value the observation says was wanted: "not ".
+	wantedLead = regexp.MustCompile(`(?i)\b(?:not(?:\s+(?:read|show|say|display|equal|be)s?)?|instead of|rather than|expected|should (?:be|read|show|say))\s+(?:the\s+)?(?:expected\s+)?$`)
+)
+
+// found is a value and where it starts in its text.
+type found struct {
+	at int
+	v  string
+}
+
+// follows reports whether the words of s before the value end as lead does.
+func (f found) follows(s string, lead *regexp.Regexp) bool {
+	return f.at <= len(s) && lead.MatchString(s[:f.at])
+}
+
+// pick is the first value ok allows that follows a result word in s, else the first it allows.
+func pick(vals []found, s string, ok func(found) bool) string {
+	first := ""
+	for _, f := range vals {
+		if !ok(f) {
+			continue
+		}
+		if f.follows(s, resultLead) {
+			return f.v
+		}
+		if first == "" {
+			first = f.v
+		}
 	}
+	return first
+}
+
+func has(vals []found, v string) bool {
+	return slices.ContainsFunc(vals, func(f found) bool { return f.v == v })
+}
+
+// valuesAt lists the quoted phrases and the numeric values in s, in the order they appear. A
+// number inside a quote is listed too, after its quote.
+func valuesAt(s string) []found {
 	var all []found
 	for _, m := range quotedValue.FindAllStringSubmatchIndex(s, -1) {
 		if v := strings.TrimSpace(s[m[2]:m[3]]); v != "" {
@@ -225,14 +266,10 @@ func values(s string) []string {
 		}
 	}
 	for _, m := range value.FindAllStringIndex(s, -1) {
-		all = append(all, found{m[0] + 1, strings.TrimRight(s[m[0]:m[1]], ",")})
+		all = append(all, found{m[0], strings.TrimRight(s[m[0]:m[1]], ",")})
 	}
 	slices.SortStableFunc(all, func(a, b found) int { return a.at - b.at })
-	out := make([]string, 0, len(all))
-	for _, f := range all {
-		out = append(out, f.v)
-	}
-	return out
+	return all
 }
 
 var quotedValue = regexp.MustCompile(`["\x{201C}]([^"\x{201C}\x{201D}]{1,60})["\x{201D}]`)

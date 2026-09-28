@@ -23,7 +23,19 @@
             "failed": 0,
             "pending": 2,
             "text": "2 checks planned",
-            "current": null
+            "current": null,
+            "items": [
+              {
+                "id": "c1",
+                "text": "Longest word shows the longest word",
+                "state": "pending"
+              },
+              {
+                "id": "c2",
+                "text": "Longest word updates as you type",
+                "state": "pending"
+              }
+            ]
           },
           "failing": null,
           "primaryAction": {
@@ -59,11 +71,37 @@
             "passed": 2,
             "failed": 2,
             "pending": 0,
-            "text": "2 of 4 checks failed",
+            "text": "2 of 4 checks",
             "current": {
+              "id": "each-25",
               "text": "Each pays becomes $50.00 at 25%",
-              "state": "fail"
-            }
+              "state": "fail",
+              "saw": "$10.00"
+            },
+            "items": [
+              {
+                "id": "each-25",
+                "text": "Each pays becomes $50.00 at 25%",
+                "state": "fail",
+                "saw": "$10.00"
+              },
+              {
+                "id": "each",
+                "text": "Each pays is $48.00 for 3 people",
+                "state": "fail",
+                "saw": "$8.00"
+              },
+              {
+                "id": "window",
+                "text": "Window shows Bill, Tip and People",
+                "state": "pass"
+              },
+              {
+                "id": "tip",
+                "text": "Tip is $24.00 for $120 at 20%",
+                "state": "pass"
+              }
+            ]
           },
           "failing": {
             "text": "Each pays becomes $50.00 at 25%",
@@ -124,8 +162,30 @@
             "passed": 4,
             "failed": 0,
             "pending": 0,
-            "text": "4 of 4 checks passed",
-            "current": null
+            "text": "4 of 4 checks",
+            "current": null,
+            "items": [
+              {
+                "id": "upper",
+                "text": "UPPERCASE turns the text to capitals",
+                "state": "pass"
+              },
+              {
+                "id": "lower",
+                "text": "lowercase turns the text to small letters",
+                "state": "pass"
+              },
+              {
+                "id": "count",
+                "text": "The word count stays 2",
+                "state": "pass"
+              },
+              {
+                "id": "window",
+                "text": "Window shows the text and both buttons",
+                "state": "pass"
+              }
+            ]
           },
           "failing": null,
           "primaryAction": {
@@ -166,7 +226,8 @@
             "passed": 0,
             "failed": 0,
             "pending": 0,
-            "current": null
+            "current": null,
+            "items": []
           },
           "failing": null,
           "primaryAction": {
@@ -216,7 +277,29 @@
             "failed": 0,
             "pending": 4,
             "text": "4 checks planned",
-            "current": null
+            "current": null,
+            "items": [
+              {
+                "id": "c1",
+                "text": "Celsius 100 shows Fahrenheit 212",
+                "state": "pending"
+              },
+              {
+                "id": "c2",
+                "text": "Celsius 0 shows Fahrenheit 32",
+                "state": "pending"
+              },
+              {
+                "id": "c3",
+                "text": "Clearing the field clears the result",
+                "state": "pending"
+              },
+              {
+                "id": "c4",
+                "text": "Window shows both fields",
+                "state": "pending"
+              }
+            ]
           },
           "failing": null,
           "primaryAction": {
@@ -253,7 +336,8 @@
             "passed": 0,
             "failed": 0,
             "pending": 0,
-            "current": null
+            "current": null,
+            "items": []
           },
           "failing": null,
           "primaryAction": null,
@@ -289,14 +373,22 @@
             "passed": 1,
             "failed": 0,
             "pending": 0,
-            "text": "1 of 1 check passed",
-            "current": null
+            "text": "1 of 1 check",
+            "current": null,
+            "items": [
+              {
+                "id": "keeps",
+                "text": "The text is kept after switching case",
+                "state": "pass"
+              }
+            ]
           },
           "failing": null,
           "primaryAction": null,
           "secondaryActions": [],
           "machine": {
-            "status": "off"
+            "status": "off",
+            "ended": "The coding agent shut down the Mac."
           },
           "outcome": "Verified",
           "lastFrame": {

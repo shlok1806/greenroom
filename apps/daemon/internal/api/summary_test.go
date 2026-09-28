@@ -68,7 +68,7 @@ func TestARunsSummaryFollowsItFromBootToVerdictToDone(t *testing.T) {
 		t.Fatal(err)
 	}
 	s = h.summary(runID)
-	if s.State != summary.Failed || s.Group != summary.NeedsYou || s.Checks.Text != "1 of 2 checks failed" {
+	if s.State != summary.Failed || s.Group != summary.NeedsYou || s.Checks.Text != "1 of 2 checks" {
 		t.Fatalf("proposed fail: %s in %s, %q", s.Status, s.Group, s.Checks.Text)
 	}
 	if s.Failing == nil || s.Failing.Expected != "$50.00" || s.Failing.Saw != "$10.00" {

@@ -168,17 +168,26 @@ type Checks struct {
 	// Current is the check a person looks at first: the first failed, else the first not
 	// checked. Nil when there is none.
 	Current *CheckRef `json:"current"`
+	// Items is every check as a row: failed first, then not checked, then passed, each in
+	// the verifier's order. A plan with no verdict lists its checks in order, all pending.
+	Items []CheckRef `json:"items"`
 }
 
-// CheckRef is one check in a few words.
+// CheckRef is one check as a row: eight words or fewer, its state, and for a failed check the
+// value that was seen.
 type CheckRef struct {
+	ID    string `json:"id,omitempty"`
 	Text  string `json:"text"`
 	State string `json:"state"` // pass, fail, pending
+	Saw   string `json:"saw,omitempty"`
 }
 
 // Failing is the first failing check and what shows it.
 type Failing struct {
-	Text string `json:"text"`
+	// Text is the check's row text. Setup is the clause that set the scene before its claim
+	// ("With Bill 120, 20% tip, People 3"), when the row left it out.
+	Text  string `json:"text"`
+	Setup string `json:"setup,omitempty"`
 	// Expected and Saw are the values that disagree, when the check's words name them
 	// ("$50.00", "$10.00"). Either may be empty; Observed then says it.
 	Expected string `json:"expected,omitempty"`
@@ -221,6 +230,9 @@ type Machine struct {
 	Status string `json:"status"`
 	// Warning is a problem a person should act on, in words; empty when there is none.
 	Warning string `json:"warning,omitempty"`
+	// Ended says how the Mac went away ("The Mac stopped on its own."), once it has and the
+	// run's records say how.
+	Ended string `json:"ended,omitempty"`
 }
 
 // Input is everything one run's summary is made from. Nil and empty fields mean the daemon
@@ -622,9 +634,9 @@ const humanSeat = "human"
 
 func machineWords(in Input) Machine {
 	if in.Machine == nil {
-		return Machine{Status: "off"}
+		return Machine{Status: "off", Ended: machineEnd(in)}
 	}
-	out := Machine{}
+	out := Machine{Ended: machineEnd(in)}
 	switch in.Machine.Status {
 	case machine.Booting:
 		out.Status = "starting"

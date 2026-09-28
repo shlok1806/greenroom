@@ -213,7 +213,8 @@ func (a *api) summaryEvents(runIDs []string, sent map[string][]byte) []sseEvent 
 		}
 		s := a.runSummary(id, live[id], now)
 		still := s
-		still.ElapsedSeconds, still.UpdatedAt = 0, time.Time{}
+		// lastFrame moves every frame interval, and `frame` events already say so.
+		still.ElapsedSeconds, still.UpdatedAt, still.LastFrame = 0, time.Time{}, nil
 		key, err := json.Marshal(still)
 		if err != nil || bytes.Equal(key, sent[id]) {
 			continue
