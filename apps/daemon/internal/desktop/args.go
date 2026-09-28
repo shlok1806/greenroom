@@ -1,0 +1,863 @@
+package desktop
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"regexp"
+	"slices"
+	"strings"
+)
+
+// The tool arguments MCP and the verifier share. Small types validate themselves (Validate); the
+// per-tool argument structs fill their defaults, clamp their bounds and validate in Normalize.
+// Every error names the field and says what to send, since a model reads it and tries again.
+
+// ArgError is a bad tool argument: which field, and what to send instead.
+type ArgError struct {
+	Field string
+	Msg   string
+}
+
+func (e *ArgError) Error() string { return e.Field + ": " + e.Msg }
+
+func argErr(field, format string, a ...any) error {
+	return &ArgError{Field: field, Msg: fmt.Sprintf(format, a...)}
+}
+
+// within puts a nested type's error under its parent field: `to.ref: ...` inside `scroll`.
+func within(parent string, err error) error {
+	var ae *ArgError
+	if parent == "" || !errors.As(err, &ae) {
+		return err
+	}
+	f := parent
+	if ae.Field != "" && ae.Field != parent {
+		f = parent + "." + ae.Field
+	}
+	return &ArgError{Field: f, Msg: ae.Msg}
+}
+
+// Refs.
+
+var (
+	refPattern = regexp.MustCompile(`^e(0|[1-9][0-9]{0,8})$`)
+	bareNumber = regexp.MustCompile(`^[0-9]+$`)
+)
+
+const refHelp = `refs look like "e17" and come from machine_snapshot, machine_find or an action's result`
+
+// Ref is an element reference, `e<n>`. A bare number is refused, not read as a ref: machine_ui's
+// element numbers are bare numbers too, and taking one as a ref would act on a different element.
+type Ref string
+
+// Validate reports a missing or malformed ref.
+func (r Ref) Validate() error { return validateRef("ref", string(r)) }
+
+func validateRef(field, s string) error {
+	switch {
+	case s == "":
+		return argErr(field, "missing; pass a ref such as \"e17\" (%s)", refHelp)
+	case refPattern.MatchString(s):
+		return nil
+	case bareNumber.MatchString(s):
+		return argErr(field, "%q is not a ref; %s (machine_ui's element numbers are not refs)", s, refHelp)
+	}
+	return argErr(field, "%q is not a ref; %s", s, refHelp)
+}
+
+// Bounds.
+
+// Bounds is a numeric argument's default and maximum. Zero means the default; a value over the
+// maximum is clamped to it, since a model asking for a long wait wants the longest there is.
+type Bounds struct {
+	Field   string
+	Default int
+	Max     int
+}
+
+// The bounds of daemon ADR 0006 point 10. waitFor has no default in the ADR; 10 s is long enough
+// for a typical UI change and leaves most of the 40 s cap for a wait asked for on purpose.
+var (
+	ActionTimeout = Bounds{Field: "timeoutMs", Default: 5000, Max: 30000}
+	WaitTimeout   = Bounds{Field: "timeoutMs", Default: 10000, Max: 40000}
+	ExpectTimeout = Bounds{Field: "timeoutMs", Default: 2000, Max: 40000}
+	SnapshotLimit = Bounds{Field: "limit", Default: 250, Max: SnapshotLimitMax}
+	FindLimit     = Bounds{Field: "limit", Default: 50, Max: 200}
+)
+
+// SnapshotLimitMax is the most elements one snapshot returns.
+const SnapshotLimitMax = 1000
+
+// Clamp applies the default and the maximum, and refuses a negative value.
+func (b Bounds) Clamp(v int) (int, error) {
+	switch {
+	case v < 0:
+		return 0, argErr(b.Field, "%d is negative; pass 0 or leave it out for the default of %d, at most %d", v, b.Default, b.Max)
+	case v == 0:
+		return b.Default, nil
+	}
+	return min(v, b.Max), nil
+}
+
+// Names.
+
+// oneOf refuses a value outside names, listing them.
+func oneOf(field, v string, names ...string) error {
+	if slices.Contains(names, v) {
+		return nil
+	}
+	return argErr(field, "%q is not one of %s", v, strings.Join(quoteAll(names), ", "))
+}
+
+func quoteAll(names []string) []string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = fmt.Sprintf("%q", n)
+	}
+	return out
+}
+
+// The modifier and button names the helper posts, mirroring machine's validateActions (and
+// input.swift's `flags` and `mouseButton`): an unknown name would be dropped or read as a left
+// click, so a typo in cmd-Q would type a q (issue #31).
+var (
+	modifierNames = []string{"cmd", "command", "meta", "shift", "alt", "option", "opt", "ctrl", "control", "fn", "function"}
+	buttonNames   = []string{"left", "right", "middle", "center"}
+)
+
+func validateMods(field string, mods []string) error {
+	for i, m := range mods {
+		if !slices.Contains(modifierNames, strings.ToLower(m)) {
+			return argErr(fmt.Sprintf("%s[%d]", field, i), "unknown modifier %q; use cmd, shift, alt, ctrl, fn (or command, meta, option, opt, control, function)", m)
+		}
+	}
+	return nil
+}
+
+// Snapshot and find.
+
+// SnapshotMode is what a snapshot includes.
+type SnapshotMode string
+
+// The snapshot modes.
+const (
+	ModeInteractive SnapshotMode = "interactive" // controls and text, the default
+	ModeAll         SnapshotMode = "all"
+	ModeText        SnapshotMode = "text"
+)
+
+// Validate refuses an unknown mode; empty is the default.
+func (m SnapshotMode) Validate() error {
+	if m == "" {
+		return nil
+	}
+	return oneOf("mode", string(m), string(ModeInteractive), string(ModeAll), string(ModeText))
+}
+
+// SnapshotArgs are machine_snapshot's arguments.
+type SnapshotArgs struct {
+	App      string       `json:"app,omitempty"`
+	Window   string       `json:"window,omitempty"`
+	Ref      string       `json:"ref,omitempty"`
+	Mode     SnapshotMode `json:"mode,omitempty"`
+	Limit    int          `json:"limit,omitempty"`
+	FullText []string     `json:"fullText,omitempty"`
+}
+
+// Normalize fills the defaults, clamps the limit and validates.
+func (a *SnapshotArgs) Normalize() error {
+	if err := a.Mode.Validate(); err != nil {
+		return err
+	}
+	if a.Mode == "" {
+		a.Mode = ModeInteractive
+	}
+	if a.Ref != "" {
+		if err := validateRef("ref", a.Ref); err != nil {
+			return err
+		}
+	}
+	for i, r := range a.FullText {
+		if err := validateRef(fmt.Sprintf("fullText[%d]", i), r); err != nil {
+			return err
+		}
+	}
+	var err error
+	a.Limit, err = SnapshotLimit.Clamp(a.Limit)
+	return err
+}
+
+// FindArgs are machine_find's arguments.
+type FindArgs struct {
+	Text             string `json:"text"`
+	Role             string `json:"role,omitempty"`
+	App              string `json:"app,omitempty"`
+	IncludeOffscreen *bool  `json:"includeOffscreen,omitempty"`
+	Limit            int    `json:"limit,omitempty"`
+}
+
+// Normalize fills the defaults, clamps the limit and validates.
+func (a *FindArgs) Normalize() error {
+	if a.Text == "" {
+		return argErr("text", "missing; pass the text to find (a substring, or /regex/)")
+	}
+	if a.Text == "//" {
+		return argErr("text", "the /regex/ is empty; put a pattern between the slashes, or pass plain text")
+	}
+	if a.IncludeOffscreen == nil {
+		t := true
+		a.IncludeOffscreen = &t
+	}
+	var err error
+	a.Limit, err = FindLimit.Clamp(a.Limit)
+	return err
+}
+
+// Actions.
+
+// PressArgs are machine_press's arguments: a ref, or a point (fractions of the screen) with a
+// reason, for content that has no ref.
+type PressArgs struct {
+	Ref       string   `json:"ref,omitempty"`
+	X         *float64 `json:"x,omitempty"`
+	Y         *float64 `json:"y,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
+	Button    string   `json:"button,omitempty"`
+	Count     int      `json:"count,omitempty"`
+	Mods      []string `json:"mods,omitempty"`
+	Via       string   `json:"via,omitempty"`
+	Force     bool     `json:"force,omitempty"`
+	TimeoutMs int      `json:"timeoutMs,omitempty"`
+}
+
+// The ways a press is delivered.
+const (
+	ViaPointer = "pointer"
+	ViaAX      = "ax"
+)
+
+// Normalize fills the defaults, clamps the timeout and validates.
+func (a *PressArgs) Normalize() error {
+	point := a.X != nil || a.Y != nil
+	switch {
+	case a.Ref != "" && point:
+		return argErr("ref", "pass a ref or x and y, not both; a ref is better when the element has one")
+	case point && (a.X == nil || a.Y == nil):
+		return argErr("x", "a point needs both x and y, fractions of the screen 0 to 1")
+	case point && (!finite(*a.X) || !finite(*a.Y)):
+		return argErr("x", "x and y must be numbers, fractions of the screen 0 to 1")
+	case point && strings.TrimSpace(a.Reason) == "":
+		return argErr("reason", "a press at a point needs a reason: say why the target has no ref (a canvas, a game); otherwise pass its ref")
+	case !point:
+		if err := validateRef("ref", a.Ref); err != nil {
+			return err
+		}
+	}
+	if a.Button != "" && !slices.Contains(buttonNames, strings.ToLower(a.Button)) {
+		return argErr("button", "unknown button %q; use left, right or middle", a.Button)
+	}
+	switch {
+	case a.Count == 0:
+		a.Count = 1
+	case a.Count < 0 || a.Count > 3:
+		return argErr("count", "%d is out of range; pass 1 (a click), 2 (a double click) or 3", a.Count)
+	}
+	if err := validateMods("mods", a.Mods); err != nil {
+		return err
+	}
+	if a.Via == "" {
+		a.Via = ViaPointer
+	}
+	if err := oneOf("via", a.Via, ViaPointer, ViaAX); err != nil {
+		return err
+	}
+	if a.Via == ViaAX && point {
+		return argErr("via", "\"ax\" presses an element and needs its ref; a point is pressed with the pointer")
+	}
+	var err error
+	a.TimeoutMs, err = ActionTimeout.Clamp(a.TimeoutMs)
+	return err
+}
+
+func finite(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) }
+
+// TypeArgs are machine_type's arguments. Without a ref it types into the focused element.
+type TypeArgs struct {
+	Ref       string `json:"ref,omitempty"`
+	Text      string `json:"text"`
+	Replace   bool   `json:"replace,omitempty"`
+	Submit    string `json:"submit,omitempty"`
+	TimeoutMs int    `json:"timeoutMs,omitempty"`
+}
+
+// Normalize clamps the timeout and validates. Whitespace-only text is allowed and read back;
+// empty text is refused, since typing nothing would report success (issue #126).
+func (a *TypeArgs) Normalize() error {
+	if a.Ref != "" {
+		if err := validateRef("ref", a.Ref); err != nil {
+			return err
+		}
+	}
+	if a.Text == "" {
+		return argErr("text", "missing; pass the characters to type (to clear a field, use machine_set_value with an empty value, or replace with the new text)")
+	}
+	if a.Submit != "" && a.Submit != "return" && a.Submit != "tab" {
+		return argErr("submit", "%q is not one of \"return\", \"tab\"; leave it out to press nothing after typing", a.Submit)
+	}
+	var err error
+	a.TimeoutMs, err = ActionTimeout.Clamp(a.TimeoutMs)
+	return err
+}
+
+// SetValueArgs are machine_set_value's arguments. An empty value is allowed: it clears the field.
+type SetValueArgs struct {
+	Ref       string `json:"ref"`
+	Value     string `json:"value"`
+	TimeoutMs int    `json:"timeoutMs,omitempty"`
+}
+
+// Normalize clamps the timeout and validates.
+func (a *SetValueArgs) Normalize() error {
+	if err := validateRef("ref", a.Ref); err != nil {
+		return err
+	}
+	var err error
+	a.TimeoutMs, err = ActionTimeout.Clamp(a.TimeoutMs)
+	return err
+}
+
+// KeyArgs are machine_key's arguments. Without a ref the key goes to the frontmost app.
+type KeyArgs struct {
+	Key       string   `json:"key"`
+	Mods      []string `json:"mods,omitempty"`
+	Ref       string   `json:"ref,omitempty"`
+	TimeoutMs int      `json:"timeoutMs,omitempty"`
+}
+
+// Normalize clamps the timeout and validates. Key names are the helper's to judge; this only
+// refuses an empty one.
+func (a *KeyArgs) Normalize() error {
+	if strings.TrimSpace(a.Key) == "" {
+		return argErr("key", "missing; pass a key such as \"return\", \"escape\", \"tab\" or \"s\" (with mods [\"cmd\"] for cmd-S)")
+	}
+	if err := validateMods("mods", a.Mods); err != nil {
+		return err
+	}
+	if a.Ref != "" {
+		if err := validateRef("ref", a.Ref); err != nil {
+			return err
+		}
+	}
+	var err error
+	a.TimeoutMs, err = ActionTimeout.Clamp(a.TimeoutMs)
+	return err
+}
+
+// Scroll.
+
+// ScrollTo is where machine_scroll goes: "top", "bottom", a ref (as a string or {"ref"}),
+// {"pages": n} or {"by": dy}. Positive pages and by scroll down, as every tool says.
+type ScrollTo struct {
+	Edge  string // "top" or "bottom"
+	Ref   string
+	Pages float64
+	By    float64
+}
+
+// Scroll bounds: enough to cross any real list in one call, small enough to catch a unit mistake.
+const (
+	maxScrollPages = 100
+	maxScrollBy    = 100000
+)
+
+// UnmarshalJSON accepts every form the tools document. An object with a key it does not know is
+// refused, so {"page": 2} is not read as no scroll at all.
+func (t *ScrollTo) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	*t = ScrollTo{}
+	if len(b) > 0 && b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		if s == "top" || s == "bottom" {
+			t.Edge = s
+		} else {
+			t.Ref = s
+		}
+		return nil
+	}
+	if len(b) == 0 || b[0] != '{' {
+		return argErr("to", "pass \"top\", \"bottom\", a ref such as \"e45\", {\"pages\": n} or {\"by\": points}")
+	}
+	var o struct {
+		Ref   string   `json:"ref"`
+		Pages *float64 `json:"pages"`
+		By    *float64 `json:"by"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&o); err != nil {
+		return argErr("to", "%v; pass {\"ref\": \"e45\"}, {\"pages\": n} or {\"by\": points}", err)
+	}
+	set := 0
+	if o.Ref != "" {
+		t.Ref, set = o.Ref, set+1
+	}
+	if o.Pages != nil {
+		t.Pages, set = *o.Pages, set+1
+		if t.Pages == 0 {
+			return argErr("to.pages", "0 scrolls nowhere; pass a positive number to scroll down or a negative one to scroll up")
+		}
+	}
+	if o.By != nil {
+		t.By, set = *o.By, set+1
+		if t.By == 0 {
+			return argErr("to.by", "0 scrolls nowhere; pass positive points to scroll down or negative to scroll up")
+		}
+	}
+	if set > 1 {
+		return argErr("to", "pass one of ref, pages or by, not several")
+	}
+	return nil
+}
+
+// MarshalJSON writes the agent's wire form (daemon ADR 0006): a ref always as {"ref"}.
+func (t ScrollTo) MarshalJSON() ([]byte, error) {
+	switch {
+	case t.Edge != "":
+		return json.Marshal(t.Edge)
+	case t.Ref != "":
+		return json.Marshal(map[string]string{"ref": t.Ref})
+	case t.Pages != 0:
+		return json.Marshal(map[string]float64{"pages": t.Pages})
+	case t.By != 0:
+		return json.Marshal(map[string]float64{"by": t.By})
+	}
+	return []byte("null"), nil
+}
+
+// Validate refuses a missing or out-of-range destination.
+func (t ScrollTo) Validate() error {
+	switch {
+	case t.Edge != "":
+		return oneOf("to", t.Edge, "top", "bottom")
+	case t.Ref != "":
+		return within("to", validateRef("ref", t.Ref))
+	case t.Pages != 0:
+		if !finite(t.Pages) || math.Abs(t.Pages) > maxScrollPages {
+			return argErr("to.pages", "pass a number of pages between -%d and %d", maxScrollPages, maxScrollPages)
+		}
+		return nil
+	case t.By != 0:
+		if !finite(t.By) || math.Abs(t.By) > maxScrollBy {
+			return argErr("to.by", "pass points between -%d and %d", maxScrollBy, maxScrollBy)
+		}
+		return nil
+	}
+	return argErr("to", "missing; pass \"top\", \"bottom\", a ref such as \"e45\", {\"pages\": n} or {\"by\": points}")
+}
+
+// Describe says where the scroll goes, for a sentence: `to the bottom`, `e45 into view`.
+func (t ScrollTo) Describe() string {
+	switch {
+	case t.Edge != "":
+		return "to the " + t.Edge
+	case t.Ref != "":
+		return word(t.Ref) + " into view"
+	case t.Pages != 0:
+		return fmt.Sprintf("%g %s %s", math.Abs(t.Pages), pluralWord(math.Abs(t.Pages), "page"), upDown(t.Pages))
+	case t.By != 0:
+		return fmt.Sprintf("%g points %s", math.Abs(t.By), upDown(t.By))
+	}
+	return "nowhere"
+}
+
+func pluralWord(n float64, w string) string {
+	if n == 1 {
+		return w
+	}
+	return w + "s"
+}
+
+func upDown(v float64) string {
+	if v < 0 {
+		return "up"
+	}
+	return "down"
+}
+
+// ScrollArgs are machine_scroll's toolkit arguments; the old raw scroll (x, y, deltaX, deltaY
+// and no ref) is the MCP layer's to keep.
+type ScrollArgs struct {
+	Ref       string   `json:"ref"`
+	To        ScrollTo `json:"to"`
+	TimeoutMs int      `json:"timeoutMs,omitempty"`
+}
+
+// Normalize clamps the timeout and validates.
+func (a *ScrollArgs) Normalize() error {
+	if a.Ref == "" {
+		return argErr("ref", "missing; pass the ref of a scroll container, or of any element inside one")
+	}
+	if err := validateRef("ref", a.Ref); err != nil {
+		return err
+	}
+	if err := a.To.Validate(); err != nil {
+		return err
+	}
+	var err error
+	a.TimeoutMs, err = ActionTimeout.Clamp(a.TimeoutMs)
+	return err
+}
+
+// Waits and expectations.
+
+// WaitTarget is what a wait or an expectation watches: a ref, an element by text (and role), an
+// app, a window by title, or the app going idle. It decodes from a ref string, "idle", or an
+// object.
+type WaitTarget struct {
+	Ref    string `json:"ref,omitempty"`
+	Text   string `json:"text,omitempty"`
+	Role   string `json:"role,omitempty"`
+	App    string `json:"app,omitempty"`
+	Window string `json:"window,omitempty"`
+	Idle   bool   `json:"idle,omitempty"`
+}
+
+// The kinds of wait target.
+const (
+	TargetRef    = "ref"
+	TargetText   = "text"
+	TargetApp    = "app"
+	TargetWindow = "window"
+	TargetIdle   = "idle"
+)
+
+const targetHelp = `pass a ref such as "e62", {"text": "Done", "role": "Button"}, {"app": "TipSplit"}, {"window": "Settings"} or {"idle": true}`
+
+// UnmarshalJSON accepts a ref string, "idle", or an object; an object with a key it does not know
+// is refused rather than read as no target.
+func (t *WaitTarget) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	*t = WaitTarget{}
+	if len(b) > 0 && b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		if s == TargetIdle {
+			t.Idle = true
+		} else {
+			t.Ref = s
+		}
+		return nil
+	}
+	if len(b) == 0 || b[0] != '{' {
+		return argErr("target", "%s", targetHelp)
+	}
+	type plain WaitTarget
+	var p plain
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return argErr("target", "%v; %s", err, targetHelp)
+	}
+	*t = WaitTarget(p)
+	return nil
+}
+
+// Kind is which of the target forms this is. App alone is an app target; with text or a window
+// it only scopes them.
+func (t WaitTarget) Kind() string {
+	switch {
+	case t.Idle:
+		return TargetIdle
+	case t.Ref != "":
+		return TargetRef
+	case t.Text != "":
+		return TargetText
+	case t.Window != "":
+		return TargetWindow
+	case t.App != "":
+		return TargetApp
+	}
+	return ""
+}
+
+// Validate refuses an empty target, one naming two things, and a role without text.
+func (t WaitTarget) Validate() error {
+	n := 0
+	for _, set := range []bool{t.Idle, t.Ref != "", t.Text != "", t.Window != ""} {
+		if set {
+			n++
+		}
+	}
+	switch {
+	case n == 0 && t.App == "":
+		return argErr("target", "missing; %s", targetHelp)
+	case n > 1:
+		return argErr("target", "names more than one thing; pass one of ref, text, window or idle (app may scope text, window or idle)")
+	case t.Ref != "" && t.App != "":
+		return argErr("target.app", "a ref already names one element; leave app out")
+	case t.Role != "" && t.Text == "":
+		return argErr("target.role", "role narrows a text search; pass text with it")
+	case t.Ref != "":
+		return within("target", validateRef("ref", t.Ref))
+	}
+	return nil
+}
+
+// Describe names the target for a sentence.
+func (t WaitTarget) Describe() string {
+	switch t.Kind() {
+	case TargetIdle:
+		if t.App != "" {
+			return quote(t.App)
+		}
+		return "the app"
+	case TargetRef:
+		return word(t.Ref)
+	case TargetText:
+		s := "an element"
+		if t.Role != "" {
+			s = "a " + word(t.Role)
+		}
+		return s + " with text " + quote(t.Text)
+	case TargetWindow:
+		return "window " + quote(t.Window)
+	case TargetApp:
+		return "app " + quote(t.App)
+	}
+	return "the target"
+}
+
+// WaitState is what a wait waits for.
+type WaitState string
+
+// The wait states.
+const (
+	WaitAppears    WaitState = "appears"
+	WaitDisappears WaitState = "disappears"
+	WaitEnabled    WaitState = "enabled"
+	WaitDisabled   WaitState = "disabled"
+	WaitFocused    WaitState = "focused"
+	WaitChanges    WaitState = "changes"
+	WaitValue      WaitState = "value"
+)
+
+var waitStates = []string{
+	string(WaitAppears), string(WaitDisappears), string(WaitEnabled), string(WaitDisabled),
+	string(WaitFocused), string(WaitChanges), string(WaitValue),
+}
+
+// Validate refuses an unknown state; empty is the default (appears).
+func (s WaitState) Validate() error {
+	if s == "" {
+		return nil
+	}
+	return oneOf("state", string(s), waitStates...)
+}
+
+// The text comparisons.
+const (
+	OpEquals   = "equals"
+	OpContains = "contains"
+	OpMatches  = "matches"
+	OpAtLeast  = "atLeast"
+	OpAtMost   = "atMost"
+)
+
+// ValueMatch is a wait's value condition.
+type ValueMatch struct {
+	Op       string `json:"op"`
+	Expected string `json:"expected"`
+}
+
+// Validate refuses an unknown op and an empty pattern. A pattern is the agent's to compile (it
+// runs NSRegularExpression, not Go's regexp), so it is not compiled here.
+func (m ValueMatch) Validate() error {
+	if err := oneOf("value.op", m.Op, OpEquals, OpContains, OpMatches); err != nil {
+		return err
+	}
+	if m.Op == OpMatches && m.Expected == "" {
+		return argErr("value.expected", "an empty pattern matches anything; pass the pattern to match")
+	}
+	return nil
+}
+
+// WaitArgs are machine_wait_for's arguments.
+type WaitArgs struct {
+	Target    WaitTarget  `json:"target"`
+	State     WaitState   `json:"state,omitempty"`
+	Value     *ValueMatch `json:"value,omitempty"`
+	TimeoutMs int         `json:"timeoutMs,omitempty"`
+}
+
+// Normalize fills the defaults, clamps the timeout and validates.
+func (a *WaitArgs) Normalize() error {
+	if err := a.Target.Validate(); err != nil {
+		return err
+	}
+	if err := a.State.Validate(); err != nil {
+		return err
+	}
+	switch {
+	case a.Target.Idle && a.State != "" && a.State != WaitChanges:
+		return argErr("state", "an idle wait has no state; leave state out")
+	case a.Target.Idle:
+		a.State = ""
+	case a.State == "":
+		a.State = WaitAppears
+	}
+	switch {
+	case a.State == WaitValue && a.Value == nil:
+		return argErr("value", "state \"value\" needs value: {\"op\": \"equals\", \"expected\": \"42\"} (op equals, contains or matches)")
+	case a.State != WaitValue && a.Value != nil:
+		return argErr("value", "value is only used with state \"value\"; set state to \"value\" or leave value out")
+	case a.Value != nil:
+		if err := a.Value.Validate(); err != nil {
+			return err
+		}
+	}
+	var err error
+	a.TimeoutMs, err = WaitTimeout.Clamp(a.TimeoutMs)
+	return err
+}
+
+// ExpectProperty is what an expectation reads.
+type ExpectProperty string
+
+// The expectation properties.
+const (
+	PropValue    ExpectProperty = "value"
+	PropName     ExpectProperty = "name"
+	PropExists   ExpectProperty = "exists"
+	PropVisible  ExpectProperty = "visible"
+	PropEnabled  ExpectProperty = "enabled"
+	PropSelected ExpectProperty = "selected"
+	PropCount    ExpectProperty = "count"
+)
+
+var expectProps = []string{
+	string(PropValue), string(PropName), string(PropExists), string(PropVisible),
+	string(PropEnabled), string(PropSelected), string(PropCount),
+}
+
+// Validate refuses an unknown property.
+func (p ExpectProperty) Validate() error {
+	if p == "" {
+		return argErr("property", "missing; pass one of %s", strings.Join(quoteAll(expectProps), ", "))
+	}
+	return oneOf("property", string(p), expectProps...)
+}
+
+// kind is the type of value the property has: text, flag or count.
+func (p ExpectProperty) kind() string {
+	switch p {
+	case PropValue, PropName:
+		return "text"
+	case PropCount:
+		return "count"
+	}
+	return "flag"
+}
+
+// ExpectOp is how an expectation compares.
+type ExpectOp string
+
+// Validate refuses an op the property does not take.
+func (o ExpectOp) Validate(p ExpectProperty) error {
+	var ops []string
+	switch p.kind() {
+	case "text":
+		ops = []string{OpEquals, OpContains, OpMatches}
+	case "count":
+		ops = []string{OpEquals, OpAtLeast, OpAtMost}
+	default:
+		ops = []string{OpEquals}
+	}
+	if slices.Contains(ops, string(o)) {
+		return nil
+	}
+	return argErr("op", "%q does not apply to %s; use %s", string(o), string(p), strings.Join(quoteAll(ops), ", "))
+}
+
+// ExpectArgs are machine_expect's arguments. Expected is a string for value and name, a bool for
+// the flags (default true), a whole number for count.
+type ExpectArgs struct {
+	Target    WaitTarget     `json:"target"`
+	Property  ExpectProperty `json:"property"`
+	Op        ExpectOp       `json:"op,omitempty"`
+	Expected  any            `json:"expected,omitempty"`
+	TimeoutMs int            `json:"timeoutMs,omitempty"`
+}
+
+// Normalize fills the defaults, clamps the timeout and validates.
+func (a *ExpectArgs) Normalize() error {
+	if err := a.Target.Validate(); err != nil {
+		return err
+	}
+	if a.Target.Idle {
+		return argErr("target", "idle is for machine_wait_for; expect needs an element, a window or an app")
+	}
+	if err := a.Property.Validate(); err != nil {
+		return err
+	}
+	if a.Op == "" {
+		a.Op = OpEquals
+	}
+	if err := a.Op.Validate(a.Property); err != nil {
+		return err
+	}
+	if err := a.normalizeExpected(); err != nil {
+		return err
+	}
+	var err error
+	a.TimeoutMs, err = ExpectTimeout.Clamp(a.TimeoutMs)
+	return err
+}
+
+func (a *ExpectArgs) normalizeExpected() error {
+	switch a.Property.kind() {
+	case "text":
+		s, ok := a.Expected.(string)
+		switch {
+		case !ok:
+			return argErr("expected", "%s compares text; pass a string", string(a.Property))
+		case a.Op == OpMatches && s == "":
+			return argErr("expected", "an empty pattern matches anything; pass the pattern to match")
+		}
+	case "count":
+		n, ok := number(a.Expected)
+		if !ok || n < 0 || n != math.Trunc(n) {
+			return argErr("expected", "count compares a whole number of elements; pass one, such as 3")
+		}
+		a.Expected = int(n)
+	default:
+		if a.Expected == nil {
+			a.Expected = true
+		}
+		if _, ok := a.Expected.(bool); !ok {
+			return argErr("expected", "%s is true or false; pass a bool, or leave it out for true", string(a.Property))
+		}
+	}
+	return nil
+}
+
+// number reads a JSON number however it was decoded.
+func number(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, finite(n)
+	case int:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil && finite(f)
+	}
+	return 0, false
+}
