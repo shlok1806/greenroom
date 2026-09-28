@@ -34,6 +34,20 @@ no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
   group, tone, sentence, "now", each check's row (`checks.items`) and the actions are the
   daemon's; `UI/Presentation.swift` only lays them out (glyphs, times, tallies), with a test
   per rule (`SummaryTests`, over the daemon's golden board read in place).
+- `UI/Motion.swift` (docs/22 C06): `Curve` (CSS timing functions, exact as `timingCurve`;
+  never SwiftUI's `.easeOut`, which is not CSS's), `CSSKeyframes` (the curve applies per
+  segment; `value(at:)` is pure), `MotionClock` and `Clocked` (every loop works out its phase
+  from the clock; never `repeatForever`, so the harness can render any moment),
+  `MotionSpring` (Motion's springs as SwiftUI's), `TableCurve` (CSS `linear()`, NumberFlow's
+  roll). `MotionTests` holds them to the browser's sampled frames in
+  `docs/22-swiftui-clone-plan/specs/` and to `Tests/CompanionTests/Golden/` (made with node
+  from the pinned sources; regenerate when a source sha is bumped).
+- `UI/Icons.swift`: the design's icons as paths (the Figma icon components exported as SVG,
+  Lucide's outlines). Never an SF Symbol in `UI/`: it is not what the design draws.
+- `UI/CommandScore.swift` is cmdk's ranking, ported line for line; change it only with its
+  golden file.
+- `TypeStyle` carries the design's tracking and line box: `.textStyle(_:)` pads each line to
+  the style's line height, so a row of text is as tall as the design's.
 - `UI/Components/` is the Figma Components page with every state; `UI/KeyPalette.swift` is
   Ghostty's palette adapted (MIT). Copied or ported code is credited in `ACKNOWLEDGEMENTS.md`.
 - `GREENROOM_REDESIGN_SNAPSHOTS=<dir> .build/out/Products/Debug/CompanionSnapshots` renders

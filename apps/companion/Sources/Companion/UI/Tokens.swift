@@ -171,6 +171,17 @@ enum TypeStyle: String, CaseIterable, Sendable {
         }
     }
 
+    /// Tracking in points: the Figma text style's letter spacing (a percentage of the size).
+    /// Display -1.8%, Title -1%, Body -0.5%, Caption 0.
+    var tracking: CGFloat {
+        switch self {
+        case .display: -0.018 * size
+        case .title: -0.01 * size
+        case .body, .bodyEmphasis: -0.005 * size
+        case .caption, .captionEmphasis: 0
+        }
+    }
+
     var font: Font { .system(size: size, weight: weight) }
 
     var nsFont: NSFont {
@@ -182,19 +193,29 @@ enum TypeStyle: String, CaseIterable, Sendable {
         return NSFont.systemFont(ofSize: size, weight: weight)
     }
 
-    /// The gap between lines that makes the face's own line reach `lineHeight`.
-    var lineSpacing: CGFloat {
+    /// The face's own line: ascender, descender and leading.
+    var naturalLineHeight: CGFloat {
         let font = nsFont
-        let natural = font.ascender - font.descender + font.leading
-        return max(0, lineHeight - natural)
+        return font.ascender - font.descender + font.leading
     }
+
+    /// The gap between lines that makes each line `lineHeight` tall.
+    var lineSpacing: CGFloat { max(0, lineHeight - naturalLineHeight) }
+
+    /// Half the leading, above the first line and below the last, as a CSS or Figma line box
+    /// splits it: a line of text is then exactly `lineHeight` tall.
+    var halfLeading: CGFloat { max(0, (lineHeight - naturalLineHeight) / 2) }
 }
 
 extension View {
-    /// Sets a type style: its face, size and weight, its line height, and tabular figures so
-    /// times and counts never shift.
+    /// Sets a type style: its face, size, weight and tracking, a line box `lineHeight` tall
+    /// per line (docs/22 section 3.5), and tabular figures so times and counts never shift.
     func textStyle(_ style: TypeStyle) -> some View {
-        font(style.font).lineSpacing(style.lineSpacing).monospacedDigit()
+        font(style.font)
+            .tracking(style.tracking)
+            .lineSpacing(style.lineSpacing)
+            .padding(.vertical, style.halfLeading)
+            .monospacedDigit()
     }
 }
 
@@ -233,35 +254,6 @@ enum Elevation {
     static let raisedRadius: CGFloat = 64
     static let raisedY: CGFloat = 24
     static let raisedOpacity: Double = 0.22
-}
-
-/// Motion (Figma Tokens, Motion). Only state changes move; keyboard navigation and
-/// high-frequency actions never animate (Emil Kowalski, "You don't need animations").
-enum Motion {
-    /// Press and hover.
-    static let press: Double = 0.12
-    /// A row settling, a panel sliding.
-    static let settle: Double = 0.18
-    /// A verdict landing.
-    static let land: Double = 0.24
-    /// The Checking ring turns once in this long, linear.
-    static let ring: Double = 0.8
-    /// The Thinking shimmer crosses the word in this long.
-    static let shimmer: Double = 1.6
-    /// A pressed control's scale.
-    static let pressedScale: CGFloat = 0.97
-    /// Where an entering element starts: this scale at opacity 0, never from 0.
-    static let enterScale: CGFloat = 0.96
-
-    /// ease-out, cubic-bezier(0.23, 1, 0.32, 1), for every duration above.
-    static func easeOut(_ duration: Double) -> Animation {
-        .timingCurve(0.23, 1, 0.32, 1, duration: duration)
-    }
-
-    /// The animation for a state change, or none under Reduce Motion.
-    static func change(_ duration: Double, reduce: Bool) -> Animation? {
-        reduce ? nil : easeOut(duration)
-    }
 }
 
 /// The window's layout (Figma Tokens, Layout). Three window classes: compact (1024 x 680),

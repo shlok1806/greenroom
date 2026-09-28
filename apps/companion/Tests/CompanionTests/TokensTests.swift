@@ -106,6 +106,100 @@ final class TokensTests: XCTestCase {
         XCTAssertNotNil(Motion.change(Motion.settle, reduce: false))
     }
 
+    // MARK: - Against the design's ground truth (docs/22 specs/tokens.json)
+
+    private func figmaTokens() throws -> [String: Any] {
+        let url = MotionTests.specs.appendingPathComponent("tokens.json")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        return try XCTUnwrap(json["figma"] as? [String: Any])
+    }
+
+    /// Every colour the design names is the token's value, exactly (delta E 0), light and dark.
+    func testEveryColourIsTheDesignsHex() throws {
+        let colours = try XCTUnwrap(try figmaTokens()["color"] as? [String: [String: String]])
+        XCTAssertEqual(colours.count, 17)
+        for (name, modes) in colours {
+            // "bg-sidebar" is `bgSidebar`.
+            let parts = name.split(separator: "-")
+            let key = String(parts[0]) + parts.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined()
+            let token = try XCTUnwrap(ColorToken(rawValue: key), "no token for \(name)")
+            for (mode, dark) in [("light", false), ("dark", true)] {
+                let hex = try XCTUnwrap(modes[mode]).dropFirst()
+                let want = try XCTUnwrap(UInt32(hex, radix: 16))
+                XCTAssertEqual(dark ? token.hex.dark : token.hex.light, want, "\(name) \(mode)")
+            }
+        }
+    }
+
+    func testTypeSpacingRadiiLayoutAndMotionAreTheDesigns() throws {
+        let figma = try figmaTokens()
+        let type = try XCTUnwrap(figma["type"] as? [String: Any])
+        for style in TypeStyle.allCases {
+            let spec = try XCTUnwrap(type[style.rawValue] as? [String: Double], "\(style)")
+            XCTAssertEqual(Double(style.size), spec["size"])
+            XCTAssertEqual(Double(style.lineHeight), spec["lineHeight"])
+            XCTAssertEqual(Double(style.tracking), try XCTUnwrap(spec["trackingPercent"]) / 100 * Double(style.size), accuracy: 1e-9)
+            let weight: Double = style.weight == .semibold ? 600 : (style.weight == .medium ? 500 : 400)
+            XCTAssertEqual(weight, spec["weight"])
+            // A line of text is exactly the design's line box tall.
+            XCTAssertEqual(style.naturalLineHeight + 2 * style.halfLeading, style.lineHeight, accuracy: 0.001)
+        }
+        XCTAssertEqual(Gap.scale.map(Double.init), figma["spacing"] as? [Double])
+
+        let radius = try XCTUnwrap(figma["radius"] as? [String: Double])
+        XCTAssertEqual(Double(Corner.keycap), radius["keycap"])
+        XCTAssertEqual(Double(Corner.control), radius["button"])
+        XCTAssertEqual(Double(Corner.row), radius["checkRow"])
+        XCTAssertEqual(Double(Corner.window), radius["window"])
+        XCTAssertEqual(Double(Corner.sheet), radius["palette"])
+
+        let layout = try XCTUnwrap(figma["layout"] as? [String: Any])
+        XCTAssertEqual(Double(Metrics.toolbarHeight), layout["toolbar"] as? Double)
+        XCTAssertEqual(Double(Metrics.headerHeight), layout["runHeader"] as? Double)
+        XCTAssertEqual(Double(Metrics.runRowHeight), layout["runRow"] as? Double)
+        XCTAssertEqual(Double(Metrics.checkRowMinHeight), layout["checkRowMin"] as? Double)
+        let sidebar = try XCTUnwrap(layout["sidebar"] as? [String: Double])
+        let checks = try XCTUnwrap(layout["checksColumn"] as? [String: Double])
+        for c in WindowClass.allCases {
+            XCTAssertEqual(Double(c.sidebar), sidebar[c.rawValue])
+            XCTAssertEqual(Double(c.checks), checks[c.rawValue])
+        }
+
+        let motion = try XCTUnwrap(figma["motion"] as? [String: Any])
+        XCTAssertEqual(motion["curve"] as? [Double], [Curve.outStrong.x1, Curve.outStrong.y1, Curve.outStrong.x2, Curve.outStrong.y2])
+        XCTAssertEqual(Motion.press * 1000, motion["pressHoverMs"] as? Double)
+        XCTAssertEqual(Motion.settle * 1000, motion["rowSettleMs"] as? Double)
+        XCTAssertEqual(Motion.land * 1000, motion["verdictLandingMs"] as? Double)
+        XCTAssertEqual(Double(Motion.pressedScale), motion["pressScale"] as? Double)
+        XCTAssertEqual(Double(Motion.enterScale), motion["enterFromScale"] as? Double)
+        XCTAssertEqual(Double(Motion.swapBlur), motion["contentSwapBlurPx"] as? Double)
+        XCTAssertEqual(Motion.ring * 1000, motion["checkingRingPeriodMs"] as? Double)
+        XCTAssertEqual(Motion.shimmer * 1000, motion["thinkingShimmerPeriodMs"] as? Double)
+
+        let raised = try XCTUnwrap((figma["elevation"] as? [String: Any])?["raised"] as? [[String: Any]])
+        XCTAssertEqual(Double(Elevation.raisedRadius), raised.first?["blur"] as? Double, "the CSS blur; SwiftUI's radius is half of it")
+        XCTAssertEqual(Double(Elevation.raisedY), raised.first?["y"] as? Double)
+        XCTAssertEqual(Elevation.raisedOpacity, raised.first?["opacity"] as? Double)
+    }
+
+    /// The icons are the design's outlines: each parses to a path inside the 16-unit box.
+    func testEveryIconParsesInsideItsBox() {
+        XCTAssertEqual(Icon.allCases.count, 24)
+        for icon in Icon.allCases {
+            let bounds = icon.path.boundingRect
+            XCTAssertFalse(icon.path.isEmpty, "\(icon)")
+            XCTAssertTrue(CGRect(x: 0, y: 0, width: 16, height: 16).contains(bounds), "\(icon): \(bounds)")
+            XCTAssertGreaterThan(max(bounds.width, bounds.height), 5, "\(icon)")
+        }
+        // The check is the three points the design draws.
+        let check = SVGPath.path("M13.3334 4L6.00002 11.3333L2.66669 8")
+        XCTAssertEqual(check.boundingRect.minX, 2.66669, accuracy: 1e-4)
+        XCTAssertEqual(check.boundingRect.maxY, 11.3333, accuracy: 1e-4)
+        // Relative commands parse too.
+        let relative = SVGPath.path("m1 1 l2 0 v2 h-2 z")
+        XCTAssertEqual(relative.boundingRect, CGRect(x: 1, y: 1, width: 2, height: 2))
+    }
+
     func testWindowClassesFollowTheFigmaFrames() {
         XCTAssertEqual(WindowClass.of(width: 1024), .compact)
         XCTAssertEqual(WindowClass.of(width: 1280), .regular)
