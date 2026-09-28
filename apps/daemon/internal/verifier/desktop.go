@@ -57,8 +57,7 @@ func toolsFor(toolkit bool) []nim.Tool {
 	if !toolkit {
 		return tools
 	}
-	out := slices.Clone(tools)
-	return append(out, toolkitToolDefs...)
+	return withToolkitDefs(tools, toolkitToolDefs, toolkitActionDefs)
 }
 
 // maxSnapshotOutput caps a snapshot's outline fed back to the model, cut on a line.
@@ -110,6 +109,10 @@ func cutOnLine(s string, n int, note string) string {
 var toolkitPromptLines = []string{
 	"- Start with machine_snapshot and read its attention line first: a sheet, alert or menu listed there comes before anything else.",
 	"- Use machine_find to find one element by its text instead of reading a long snapshot.",
+	"- Act by ref with machine_press, machine_type (with ref, replace and submit), machine_key and machine_scroll. They wait for the element and refuse, saying why, when it cannot be used.",
+	"- An action's result is its effect. Do not take a snapshot or a screenshot to see whether it worked.",
+	"- A point needs a reason: press at x and y only for content with no ref, such as a canvas.",
+	"- machine_set_value is for setup only, never for the input a check is about.",
 }
 
 // systemPromptFor is the verifier's system prompt: with the toolkit, a section on its tools goes

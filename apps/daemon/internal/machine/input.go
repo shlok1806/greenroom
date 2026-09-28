@@ -149,6 +149,12 @@ func helperSourceDir() string {
 // renewal, so the caller announces a handover only once. A renewal with no
 // ttl keeps the lease's own. A lease this replaces because it ran out is
 // announced as lapsed first, whoever takes (issue #57).
+//
+// One exception (daemon ADR 0006 point 11, #212): on a machine with a guest agent, a seat that
+// pauses the agent (a human) takes the screen from the coder or the verifier, whose per-call
+// lease an action holds for up to 30 s of auto-wait. It is a fresh take for the human (a
+// handover, the "control" event, PAUSE), and the agent ends the action in flight with `paused`.
+// The preempted call's release then finds the human's lease and leaves it alone.
 func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Control, fresh bool, err error) {
 	mc, err := m.get(runID)
 	if err != nil {
@@ -162,9 +168,13 @@ func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Co
 	lapsed := m.lapseLocked(mc, now)
 	current := mc.Control
 	if current != nil && current.Holder != holder {
-		m.mu.Unlock()
-		return *current, false, fmt.Errorf("%w: %s has it until %s",
-			ErrControlHeld, current.Holder, current.Expires.Format(time.RFC3339))
+		takeover := mc.agent != nil && agentHolderPauses(holder) && !agentHolderPauses(current.Holder)
+		if !takeover {
+			m.mu.Unlock()
+			return *current, false, fmt.Errorf("%w: %s has it until %s",
+				ErrControlHeld, current.Holder, current.Expires.Format(time.RFC3339))
+		}
+		current = nil // the agent's lease ends here; the human's is a fresh take
 	}
 	fresh = current == nil
 	if fresh && holder != HolderVerifier {
@@ -418,8 +428,7 @@ func (m *Manager) InputAs(ctx context.Context, runID, holder string, actions []I
 	// The lease is per call, so it never spans a verifier turn: without this the coder's clicks
 	// landed between the verifier's and each corrupted what the other checked (issue #82).
 	if holder == HolderCoder && m.inVerifierTurn(runID) {
-		return InputResult{}, errors.New("greenroom's verifier is in the middle of a turn on this machine and is using " +
-			"the screen; wait for its reply or verdict with agent_wait, or send a note, then try again")
+		return InputResult{}, errVerifierTurn
 	}
 	// Refused before the lease is taken, so a bad batch leaves no trace at all.
 	if err := validateActions(actions); err != nil {

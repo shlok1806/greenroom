@@ -172,6 +172,14 @@ Additions from the control catalog (docs/21a, its comment on #212):
     while a human holds the screen (`ScreenTakenError`), the coder refused during a verifier
     turn (#82), the verifier refused after a handover until it looks again (#124): a
     `machine_snapshot`, `machine_find` or `machine_screenshot` is a look. Reads take no lease.
+    **Takeover** (#212): an action holds its per-call lease for up to 30 s of auto-wait, so on a
+    machine with a guest agent a seat that pauses the agent (a human) may take the screen from
+    the coder or the verifier while they hold it. It is a fresh take for the human (a handover,
+    the "control" event, PAUSE); the agent ends the action in flight with `paused`, which the
+    action returns as the screen taken by that human, recorded as its step's error; the next
+    action is refused while the human holds the screen and works after the give back. The
+    preempted call's release never releases the human's lease. Without an agent a held screen
+    is refused to everyone, as before.
 12. **Recording.** Every call is a step, recorded by its reader (`by`), under its tool's name:
     `machine_snapshot` (the whole structured snapshot), `machine_find`, `machine_press`,
     `machine_type`, `machine_set_value`, `machine_key`, `machine_scroll`, `machine_wait_for`,
