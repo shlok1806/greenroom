@@ -190,7 +190,8 @@ enum SidebarLayout {
     /// The rows in list order. Needs you and Running show every run; Done shows its newest
     /// `doneShown` unless expanded, plus the selected run wherever it is. An empty Needs you
     /// says so; an empty Running or Done group has no heading. A search shows every match.
-    static func items(_ board: SummaryBoard, expanded: Set<SummaryGroup>, selected: String?, query: String = "") -> [SidebarItem] {
+    static func items(_ board: SummaryBoard, expanded: Set<SummaryGroup>, selected: String?, query: String = "",
+                      doneShown: Int = doneShown) -> [SidebarItem] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         var out: [SidebarItem] = []
         for group in SummaryGroup.allCases {

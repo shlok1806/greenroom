@@ -22,7 +22,8 @@ struct RunsSidebar: View {
     @Environment(\.frozenNow) private var frozenNow
 
     private var items: [SidebarItem] {
-        board.map { SidebarLayout.items($0, expanded: expanded, selected: selected, query: query) } ?? []
+        let doneShown = (WindowClass.allCases.first { $0.sidebar == width } ?? .regular).doneShown
+        return board.map { SidebarLayout.items($0, expanded: expanded, selected: selected, query: query, doneShown: doneShown) } ?? []
     }
 
     var body: some View {

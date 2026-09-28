@@ -9,7 +9,7 @@ struct RunPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            RunToolbar(shell: shell, summary: summary)
+            RunToolbar(shell: shell, summary: summary, windowClass: windowClass)
             StatusHeader(shell: shell, summary: summary)
             if let warning = shell.warning(for: summary) {
                 WarningBanner(text: warning, restart: summary.state == .notAnswering ? nil : {
@@ -37,18 +37,22 @@ struct RunPane: View {
     }
 }
 
-/// The toolbar: the run's name, who started it and when, and the panels.
+/// The toolbar: the run's name, who started it and when, and the panels. A compact window
+/// shows the name alone (Figma 03 compact).
 struct RunToolbar: View {
     @Bindable var shell: ShellModel
     var summary: Summary
+    var windowClass: WindowClass = .regular
     @Environment(\.frozenNow) private var frozenNow
 
     var body: some View {
         HStack(spacing: Gap.x8) {
             Text(summary.name).textStyle(.bodyEmphasis).foregroundStyle(Palette.text).lineLimit(1)
                 .fixedSize().clonePart("Run name")
-            Text(origin).textStyle(.body).foregroundStyle(Palette.textSecondary).lineLimit(1)
-                .layoutPriority(-1).clonePart("Run meta")
+            if windowClass != .compact {
+                Text(origin).textStyle(.body).foregroundStyle(Palette.textSecondary).lineLimit(1)
+                    .layoutPriority(-1).clonePart("Run meta")
+            }
             Spacer(minLength: Gap.x8)
             ToolbarButton(icon: .activity, title: "Activity", on: shell.activityOpen) { shell.toggleActivity() }
                 .help("Activity (A)")

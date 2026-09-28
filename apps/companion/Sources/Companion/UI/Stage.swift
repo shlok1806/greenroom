@@ -17,7 +17,7 @@ struct StageView: View {
         let padding = windowClass.stagePadding
         let strip = summary.state != .starting
         GeometryReader { geo in
-            // The design's stage: 24 above, 16 below, 32 at the sides (24, 16 and 24 compact);
+            // The design's stage: 24 above, 16 below, 32 at the sides;
             // the evidence (the 4:3 picture, 12, a 28 pt caption), 24, the 58 pt filmstrip,
             // centred in what is left. The picture takes the full width unless the height ends first.
             let chrome: CGFloat = 12 + 28 + (strip ? 24 + 58 : 0)
@@ -102,9 +102,16 @@ struct StageView: View {
                     Text("Live").textStyle(.captionEmphasis).foregroundStyle(Palette.accent)
                 }
             } else if summary.lastFrame != nil, summary.state != .starting, summary.state != .restarting {
-                ToolbarButton(icon: .video, title: "Recording") { shell.evidenceOpen = true }
-                    .help("Open the evidence and the recording (E)")
-                    .cloneScope("Toolbar button")
+                // Compact has room for the icon alone (Figma 03 compact).
+                if windowClass == .compact {
+                    IconButton(icon: .video, name: "Recording") { shell.evidenceOpen = true }
+                        .help("Open the evidence and the recording (E)")
+                        .cloneScope("Icon button")
+                } else {
+                    ToolbarButton(icon: .video, title: "Recording") { shell.evidenceOpen = true }
+                        .help("Open the evidence and the recording (E)")
+                        .cloneScope("Toolbar button")
+                }
             }
         }
     }
@@ -198,12 +205,14 @@ struct FilmstripView: View {
     var width: CGFloat
 
     var body: some View {
-        let items = Filmstrip.items(frames, checks: summary.checks.items, count: 8)
+        // As many 68 pt thumbs as fit at least 2 apart, spread across the picture's width (the
+        // design's space-between): eight under a 568 pt picture, six under a compact 432.
+        let count = max(1, Int((width + 2) / (Metrics.thumbWidth + 2)))
+        let items = Filmstrip.items(frames, checks: summary.checks.items, count: count)
         if items.isEmpty {
             EmptyView()
         } else {
-            // Eight 68 pt thumbs spread across the picture's width (the design's space-between).
-            let thumb = min(Metrics.thumbWidth, (width - 7 * 2) / 8)
+            let thumb = min(Metrics.thumbWidth, (width - CGFloat(count - 1) * 2) / CGFloat(count))
             HStack(spacing: 0) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     if index > 0 { Spacer(minLength: 2) }

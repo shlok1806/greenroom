@@ -110,7 +110,9 @@ enum StateFixtures {
     /// the sidebar's runs as the mockup names them, the checks in the mockup's order. For the
     /// pixel comparison against the frame (docs/22 section 7), where content that differs from
     /// the mockup's would count against the clone.
-    static func mockup(_ golden: SummaryBoard) -> SummaryBoard {
+    /// `compact`: the board frame 03's compact variant draws (one run running, three done
+    /// shown of 43).
+    static func mockup(_ golden: SummaryBoard, compact: Bool = false) -> SummaryBoard {
         let now = start.addingTimeInterval(State.failed.at)
         guard var tip = board(golden).summary(tipSplit) else { return golden }
         let order = ["Each pays becomes", "Each pays is", "Tip is", "Window shows"]
@@ -136,12 +138,17 @@ enum StateFixtures {
             run("m-done-4", "WordCount: keeps text", .passed, .pass, .done, age: 2 * day),
         ]
         done += (0..<38).map { run("m-old-\($0)", "Older run \($0)", .passed, .pass, .done, age: 3 * day + TimeInterval($0) * hour) }
+        var running = [
+            run("m-run-0", "UnitConvert: Temperature", .checking, .live, .running, age: 72, elapsed: 72),
+            run("m-run-1", "TodoList: summary line", .starting, .live, .running, age: 24, elapsed: 24),
+        ]
+        if compact {
+            running.removeLast()
+            done.swapAt(2, 3)
+        }
         return SummaryBoard(groups: [
             .init(id: .needsYou, runs: [tip, word]),
-            .init(id: .running, runs: [
-                run("m-run-0", "UnitConvert: Temperature", .checking, .live, .running, age: 72, elapsed: 72),
-                run("m-run-1", "TodoList: summary line", .starting, .live, .running, age: 24, elapsed: 24),
-            ]),
+            .init(id: .running, runs: running),
             .init(id: .done, runs: done),
         ], macs: golden.macs)
     }

@@ -1,0 +1,122 @@
+# Figma node 12:400, "04 Run, passed (1280x800, light)", read with use_figma on 2026-09-28.
+# One layer per line: path;x;y;width;height[;text], points from the frame's top left. Paths are
+# layer names joined by "/", with [i] when a parent has more than one child of that name.
+Sidebar;0;0;248;800
+Sidebar/Titlebar;0;0;247;52
+Sidebar/Titlebar/Traffic lights;20;20;52;12
+Sidebar/Titlebar/Icon button;207;12;28;28
+Sidebar/Titlebar/Icon button/Icon/search;213;18;16;16
+Sidebar/Runs;0;52;247;704
+Sidebar/Runs/Group[0];8;52;231;30
+Sidebar/Runs/Group[0]/Text;16;64;57;14;Needs you
+Sidebar/Runs/Run row[0];8;84;231;32
+Sidebar/Runs/Run row[0]/Glyph;16;92;16;16
+Sidebar/Runs/Run row[0]/Name;40;91;135;18;TipSplit: fix each pays
+Sidebar/Runs/Run row[0]/Meta;183;93;48;14;4 passed
+Sidebar/Runs/Run row[1];8;118;231;32
+Sidebar/Runs/Run row[1]/Glyph;16;126;16;16
+Sidebar/Runs/Run row[1]/Name;40;125;146;18;TodoList: Clear done
+Sidebar/Runs/Run row[1]/Meta;194;127;37;14;1 failed
+Sidebar/Runs/Group[1];8;152;231;30
+Sidebar/Runs/Group[1]/Text;16;164;44;14;Running
+Sidebar/Runs/Run row[2];8;184;231;32
+Sidebar/Runs/Run row[2]/Glyph;16;192;16;16
+Sidebar/Runs/Run row[2]/Name;40;191;163;18;UnitConvert: Temperature
+Sidebar/Runs/Run row[2]/Meta;211;193;20;14;1:12
+Sidebar/Runs/Group[2];8;218;231;30
+Sidebar/Runs/Group[2]/Text;16;230;28;14;Done
+Sidebar/Runs/Run row[3];8;250;231;32
+Sidebar/Runs/Run row[3]/Glyph;16;258;16;16
+Sidebar/Runs/Run row[3]/Name;40;257;171;18;TipSplit: split the bill
+Sidebar/Runs/Run row[3]/Meta;219;259;12;14;1h
+Sidebar/Runs/Run row[4];8;284;231;32
+Sidebar/Runs/Run row[4]/Glyph;16;292;16;16
+Sidebar/Runs/Run row[4]/Name;40;291;169;18;WordCount: longest word
+Sidebar/Runs/Run row[4]/Meta;217;293;14;14;2h
+Sidebar/Runs/Run row[5];8;318;231;32
+Sidebar/Runs/Run row[5]/Glyph;16;326;16;16
+Sidebar/Runs/Run row[5]/Name;40;325;171;18;UnitConvert: result size
+Sidebar/Runs/Run row[5]/Meta;219;327;12;14;1d
+Sidebar/Runs/Run row[6];8;352;231;32
+Sidebar/Runs/Run row[6]/Glyph;16;360;16;16
+Sidebar/Runs/Run row[6]/Name;40;359;171;18;TodoList: add item
+Sidebar/Runs/Run row[6]/Meta;219;361;12;14;1d
+Sidebar/Runs/Run row[7];8;386;231;32
+Sidebar/Runs/Run row[7]/Glyph;16;394;16;16
+Sidebar/Runs/Run row[7]/Name;40;393;169;18;WordCount: keeps text
+Sidebar/Runs/Run row[7]/Meta;217;395;14;14;2d
+Sidebar/Runs/More;8;420;231;26
+Sidebar/Runs/More/Text;40;426;76;14;Show 38 more
+Sidebar/Footer;0;756;247;44
+Sidebar/Footer/Icon/machine;16;771.5;14;14
+Sidebar/Footer/Text;38;771.5;165;14;2 of 3 Macs free
+Sidebar/Footer/Icon button;211;764.5;28;28
+Sidebar/Footer/Icon button/Icon/settings;217;770.5;16;16
+Run;248;0;1032;800
+Run/Toolbar;248;0;1032;52
+Run/Toolbar/Run name;272;16.5;135;18;TipSplit: fix each pays
+Run/Toolbar/Run meta;415;16.5;178;18;from Claude Code, 6 min ago
+Run/Toolbar/Toolbar button[0];1042;11.5;86;28
+Run/Toolbar/Toolbar button[0]/Icon/activity;1050;17.5;16;16
+Run/Toolbar/Toolbar button[0]/Text;1072;16.5;46;18;Activity
+Run/Toolbar/Toolbar button[1];1136;11.5;96;28
+Run/Toolbar/Toolbar button[1]/Icon/message;1144;17.5;16;16
+Run/Toolbar/Toolbar button[1]/Text;1166;16.5;56;18;Message
+Run/Toolbar/Icon button;1240;11.5;28;28
+Run/Toolbar/Icon button/Icon/more;1246;17.5;16;16
+Run/Header;248;52;1032;81
+Run/Header/Status;272;68;802;48
+Run/Header/Status/Outcome;272;68;213;28
+Run/Header/Status/Outcome/Glyph;272;72;20;20
+Run/Header/Status/Outcome/Status word;302;68;76;28;Passed
+Run/Header/Status/Outcome/Tally;388;72;97;20;4 of 4 checks
+Run/Header/Status/Now;272;98;238;18
+Run/Header/Status/Now/Now text;302;98;208;18;Proposed by the verifier after 6:12
+Run/Header/Button[0];1082;78;65;28
+Run/Header/Button[0]/Text;1095;83;39;18;Reject
+Run/Header/Button[1];1155;78;101;28
+Run/Header/Button[1]/Text;1167;83;77;18;Accept pass
+Run/Body;248;133;1032;667
+Run/Body/Checks;248;133;400;667
+Run/Body/Checks/Heading;264;149;367;24
+Run/Body/Checks/Heading/Text;276;153;41;14;Checks
+Run/Body/Checks/Check row[0];264;175;367;60
+Run/Body/Checks/Check row[0]/Top;276;185;343;18
+Run/Body/Checks/Check row[0]/Top/GlyphBox;276;185;16;18
+Run/Body/Checks/Check row[0]/Top/Label;302;185;263;18;Each pays becomes $50.00 at 25%
+Run/Body/Checks/Check row[0]/Top/Meta;575;185;44;18;$50.00
+Run/Body/Checks/Check row[0]/DetailWrap;276;207;343;18
+Run/Body/Checks/Check row[0]/DetailWrap/Detail;302;207;317;18;Bill 120, 3 people, then 25%.
+Run/Body/Checks/Check row[1];264;237;367;38
+Run/Body/Checks/Check row[1]/Top;276;247;343;18
+Run/Body/Checks/Check row[1]/Top/GlyphBox;276;247;16;18
+Run/Body/Checks/Check row[1]/Top/Label;302;247;263;18;Each pays is $48.00 for 3 people
+Run/Body/Checks/Check row[1]/Top/Meta;575;247;44;18;$48.00
+Run/Body/Checks/Check row[2];264;277;367;38
+Run/Body/Checks/Check row[2]/Top;276;287;343;18
+Run/Body/Checks/Check row[2]/Top/GlyphBox;276;287;16;18
+Run/Body/Checks/Check row[2]/Top/Label;302;287;263;18;Tip is $24.00 for $120 at 20%
+Run/Body/Checks/Check row[2]/Top/Meta;575;287;44;18;$24.00
+Run/Body/Checks/Check row[3];264;317;367;38
+Run/Body/Checks/Check row[3]/Top;276;327;343;18
+Run/Body/Checks/Check row[3]/Top/GlyphBox;276;327;16;18
+Run/Body/Checks/Check row[3]/Top/Label;302;327;317;18;Window shows Bill, Tip and People
+Run/Body/Stage;648;133;632;667
+Run/Body/Stage/Evidence;708;174.5;512;424
+Run/Body/Stage/Evidence/Screen;708;174.5;512;384
+Run/Body/Stage/Evidence/Screen/Evidence mark;865;417.5;127;23
+Run/Body/Stage/Evidence/Caption;708;570.5;512;28
+Run/Body/Stage/Evidence/Caption/Text;708;574.5;402;20;Saw $50.00, as expected
+Run/Body/Stage/Evidence/Caption/Toolbar button;1118;570.5;102;28
+Run/Body/Stage/Evidence/Caption/Toolbar button/Icon/video;1126;576.5;16;16
+Run/Body/Stage/Evidence/Caption/Toolbar button/Text;1148;575.5;62;18;Recording
+Run/Body/Stage/Key frames;708;622.5;512;144
+Run/Body/Stage/Key frames/Key frame[0];708;622.5;165.33;144
+Run/Body/Stage/Key frames/Key frame[0]/Rectangle;708;622.5;165.33;124
+Run/Body/Stage/Key frames/Key frame[0]/Text;708;752.5;84;14;Opened TipSplit
+Run/Body/Stage/Key frames/Key frame[1];881.33;622.5;165.33;144
+Run/Body/Stage/Key frames/Key frame[1]/Rectangle;881.33;622.5;165.33;124
+Run/Body/Stage/Key frames/Key frame[1]/Text;881.33;752.5;76;14;$48.00 at 20%
+Run/Body/Stage/Key frames/Key frame[2];1054.67;622.5;165.33;144
+Run/Body/Stage/Key frames/Key frame[2]/Rectangle;1054.67;622.5;165.33;124
+Run/Body/Stage/Key frames/Key frame[2]/Text;1054.67;752.5;76;14;$50.00 at 25%

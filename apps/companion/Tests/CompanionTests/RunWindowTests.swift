@@ -29,7 +29,7 @@ final class RunWindowTests: XCTestCase {
 
     /// A store over the golden board with TipSplit in `state`: every picture a grey PNG, every
     /// list empty, every post recorded.
-    private func store(_ state: F.State = .failed, posts: Posts = Posts(), mockup: Bool = false) throws -> RunStore {
+    private func store(_ state: F.State = .failed, posts: Posts = Posts(), mockup: Bool = false, compact: Bool = false) throws -> RunStore {
         let png = Self.greyPNG
         let client = StubURLProtocol.client { request in
             let path = request.url?.path ?? ""
@@ -44,7 +44,7 @@ final class RunWindowTests: XCTestCase {
             return .json("{}", status: 404)
         }
         let store = RunStore(client: client, screenSource: NoScreen())
-        store.board = mockup ? F.mockup(try SummaryTests.golden()) : F.board(try SummaryTests.golden(), state: state)
+        store.board = mockup ? F.mockup(try SummaryTests.golden(), compact: compact) : F.board(try SummaryTests.golden(), state: state)
         store.reachable = true
         store.selectedRunId = F.tipSplit
         var detail = RunDetail(runId: F.tipSplit)
@@ -91,11 +91,12 @@ final class RunWindowTests: XCTestCase {
         return rep.representation(using: .png, properties: [:])!
     }()
 
-    private func host(_ shell: ShellModel, state: F.State, size: CGSize = CGSize(width: 1280, height: 800), redacted: Bool = true) async -> ParkedHost {
+    private func host(_ shell: ShellModel, state: F.State, size: CGSize = CGSize(width: 1280, height: 800), redacted: Bool = true,
+                      dark: Bool = false) async -> ParkedHost {
         let view = CompanionShell(shell: shell)
             .environment(\.frozenNow, F.start.addingTimeInterval(state.at))
             .environment(\.redactsGuestScreen, redacted)
-        let host = ParkedHost(view, size: size)
+        let host = ParkedHost(view, size: size, dark: dark)
         hosts.append(host)
         await host.settle(1.0)
         return host
@@ -135,30 +136,63 @@ final class RunWindowTests: XCTestCase {
         print("word budget: " + report.joined(separator: ", "))
     }
 
-    // MARK: - Layout against the Figma frame (docs/22 section 7)
+    // MARK: - Against the Figma frames (docs/22 section 7)
 
-    /// Every part the window reports, against the layer of the same path in the Figma frame
-    /// "03 Run, failed, evidence (1280x800, light)" (`docs/22-swiftui-clone-plan/figma/
-    /// m03-failed-light.layout.txt`). Boxes: origin and size within 0.5 pt. Text: the design
-    /// draws Inter and the app SF Pro, so a text part's origin and height are held to 0.5 pt and
-    /// its width is not compared (docs/22 section 7). Sidebar rows past the first two depend on
-    /// the board's runs, which differ from the mockup's, and are not compared.
-    func testTheFailedRunIsLaidOutAsTheFigmaFrame() async throws {
-        CloneParts.enabled = true
-        defer { CloneParts.enabled = false }
-        let shell = ShellModel(store: try store(.failed, mockup: true))
+    /// A Figma frame the window is held to: its layout file and PNG export under
+    /// `docs/22-swiftui-clone-plan/figma/`, and the window that draws it.
+    struct FigmaFrame {
+        var name: String
+        var size = CGSize(width: 1280, height: 800)
+        var dark = false
+        var compact = false
+    }
+
+    static let frames: [FigmaFrame] = [
+        FigmaFrame(name: "m03-failed-light"),
+        FigmaFrame(name: "m03-failed-dark", dark: true),
+        FigmaFrame(name: "m03-failed-compact-light", size: CGSize(width: 1024, height: 680), compact: true),
+    ]
+
+    /// The failed run on the mockup's board, as `frame` draws it.
+    private func mockupHost(_ frame: FigmaFrame, redacted: Bool) async throws -> ParkedHost {
+        let shell = ShellModel(store: try store(.failed, mockup: true, compact: frame.compact))
         await shell.store.select(F.tipSplit)
-        let host = await host(shell, state: .failed)
+        let host = await host(shell, state: .failed, size: frame.size, redacted: redacted, dark: frame.dark)
         try await Task.sleep(for: .seconds(1))
         host.window.contentView?.layoutSubtreeIfNeeded()
-        let parts = CloneParts.frames(in: host.window)
-        let url = MotionTests.repo.appendingPathComponent("docs/22-swiftui-clone-plan/figma/m03-failed-light.layout.txt")
-        // The traffic lights are the system's, placed by the window.
-        let skip = ["Sidebar/Titlebar/Traffic lights"]
-        // How each part may differ, and only this: a part sized by its words ("hugs") keeps
-        // its origin but not its width, since SF Pro and Inter set the same words a little
-        // apart; a part laid out from the trailing edge is held by its trailing edge; a text
-        // that follows another text on its line is held by its top and height only.
+        host.window.contentView?.displayIfNeeded()
+        return host
+    }
+
+    private static func figma(_ file: String) -> URL {
+        MotionTests.repo.appendingPathComponent("docs/22-swiftui-clone-plan/figma").appendingPathComponent(file)
+    }
+
+    /// Every part the window reports, against the layer of the same path in each frame's layout
+    /// file. Boxes: origin and size within 0.5 pt. Text: the design draws Inter and the app SF
+    /// Pro, so a text part's origin and height are held to 0.5 pt and its width is not compared.
+    func testTheFailedRunIsLaidOutAsTheFigmaFrames() async throws {
+        CloneParts.enabled = true
+        defer { CloneParts.enabled = false }
+        var report: [String] = []
+        for frame in Self.frames {
+            let host = try await mockupHost(frame, redacted: true)
+            let parts = CloneParts.frames(in: host.window)
+            let layout = try String(contentsOf: Self.figma(frame.name + ".layout.txt"), encoding: .utf8)
+            let (compared, misses) = Self.layoutMisses(parts: parts, layout: layout)
+            report.append("\(frame.name) \(compared) parts, \(misses.count) off")
+            misses.forEach { print("  off \(frame.name): " + $0) }
+            XCTAssertGreaterThan(compared, 60, "\(frame.name) parts found: \(parts.keys.sorted())")
+            XCTAssertTrue(misses.isEmpty, "\(frame.name):\n" + misses.joined(separator: "\n"))
+        }
+        print("clone layout: " + report.joined(separator: "; "))
+    }
+
+    /// How each part may differ, and only this: a part sized by its words ("hugs") keeps its
+    /// origin but not its width, since SF Pro and Inter set the same words a little apart; a part
+    /// laid out from the trailing edge is held by its trailing edge; a text that follows another
+    /// text on its line is held by its top and height only. The traffic lights are the system's.
+    static func layoutMisses(parts: [String: CGRect], layout: String) -> (compared: Int, misses: [String]) {
         func last(_ path: String) -> String { String(path.split(separator: "/").last ?? "") }
         func hugs(_ path: String) -> Bool {
             ["Button", "Toolbar button", "Outcome", "Now", "Run meta", "Status"].contains { last(path).hasPrefix($0) }
@@ -169,21 +203,19 @@ final class RunWindowTests: XCTestCase {
                 || path.contains("/Button") || path.contains("/Toolbar button") || path.contains("Toolbar/Icon button")
         }
         func followsText(_ path: String) -> Bool { ["Tally", "Run meta"].contains(last(path)) }
-        var widths: [String: Double] = [:]
         var misses: [String] = []
         var compared = 0
-        for line in try String(contentsOf: url, encoding: .utf8).split(separator: "\n") where !line.hasPrefix("#") {
+        for line in layout.split(separator: "\n") where !line.hasPrefix("#") {
             let f = line.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
             guard f.count >= 5, let x = Double(f[1]), let y = Double(f[2]), let w = Double(f[3]), let h = Double(f[4]) else { continue }
             let path = f[0]
-            widths[path] = w
-            if skip.contains(where: { path.hasPrefix($0) }) { continue }
+            if path.hasPrefix("Sidebar/Titlebar/Traffic lights") { continue }
             guard let got = parts[path] else { continue }
             let text = f.count > 5
             var off: [String] = []
             if trailing(path), !path.contains("Icon/") || last(path) == "Icon button" {
                 // Held by the trailing edge: the words before it set its start.
-                if !text, abs(got.maxX - (x + w)) > 0.5, !path.contains("/Button[0]"), !(path.hasSuffix("Button[0]")), !path.hasSuffix("Toolbar button[0]") {
+                if !text, abs(got.maxX - (x + w)) > 0.5, !path.hasSuffix("Button[0]"), !path.hasSuffix("Toolbar button[0]") {
                     off.append("maxX \(got.maxX) want \(x + w)")
                 }
             } else if !followsText(path), !(path.split(separator: "/").dropLast().contains { hugs(String($0)) }) {
@@ -195,33 +227,29 @@ final class RunWindowTests: XCTestCase {
             if !off.isEmpty { misses.append("\(path): " + off.joined(separator: ", ")) }
             compared += 1
         }
-        print("clone layout m03: \(compared) parts compared, \(misses.count) off")
-        misses.forEach { print("  off: " + $0) }
-        XCTAssertGreaterThan(compared, 60, "parts found: \(parts.keys.sorted())")
-        XCTAssertTrue(misses.isEmpty, misses.joined(separator: "\n"))
+        return (compared, misses)
     }
 
-    /// The failed run on the mockup's board against the Figma frame's PNG export
-    /// (`docs/22-swiftui-clone-plan/figma/m03-failed-light.png`, the window at 48, 32 with its
-    /// shadow around it): SSIM over the chrome at least 0.985 (docs/22 section 7). Glyphs, icons
-    /// and the guest pictures are masked out by the frame's layout file. GREENROOM_CLONE_RENDER
-    /// names a PNG to write the render to.
-    func testTheFailedRunMatchesTheFigmaFramePixelForPixel() async throws {
-        let shell = ShellModel(store: try store(.failed, mockup: true))
-        await shell.store.select(F.tipSplit)
-        let host = await host(shell, state: .failed, redacted: false)
-        try await Task.sleep(for: .seconds(1))
-        host.window.contentView?.displayIfNeeded()
-        let image = try XCTUnwrap(host.image())
-        if let out = ProcessInfo.processInfo.environment["GREENROOM_CLONE_RENDER"] {
-            try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: out))
+    /// The failed run on the mockup's board against each frame's PNG export (the window at 48, 32
+    /// with its shadow around it): SSIM over the chrome at least 0.985. Glyphs, icons and the
+    /// guest pictures are masked out by the frame's layout file. GREENROOM_CLONE_RENDER names a
+    /// directory to write the renders to.
+    func testTheFailedRunMatchesTheFigmaFramesPixelForPixel() async throws {
+        var report: [String] = []
+        for frame in Self.frames {
+            let host = try await mockupHost(frame, redacted: false)
+            let image = try XCTUnwrap(host.image())
+            if let out = ProcessInfo.processInfo.environment["GREENROOM_CLONE_RENDER"] {
+                let url = URL(fileURLWithPath: out).appendingPathComponent(frame.name + ".png")
+                try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])).write(to: url)
+            }
+            let png = try XCTUnwrap(NSBitmapImageRep(data: try Data(contentsOf: Self.figma(frame.name + ".png")))?.cgImage)
+            let layout = try String(contentsOf: Self.figma(frame.name + ".layout.txt"), encoding: .utf8)
+            let result = try XCTUnwrap(CloneSSIM.compare(render: image, figma: png, origin: CGPoint(x: 48, y: 32), layout: layout))
+            report.append(String(format: "%@ SSIM %.4f, %.2f%% off", frame.name, result.chrome, result.offShare * 100))
+            XCTAssertGreaterThanOrEqual(result.chrome, 0.985, frame.name)
         }
-        let figma = MotionTests.repo.appendingPathComponent("docs/22-swiftui-clone-plan/figma")
-        let png = try XCTUnwrap(NSBitmapImageRep(data: try Data(contentsOf: figma.appendingPathComponent("m03-failed-light.png")))?.cgImage)
-        let layout = try String(contentsOf: figma.appendingPathComponent("m03-failed-light.layout.txt"), encoding: .utf8)
-        let result = try XCTUnwrap(CloneSSIM.compare(render: image, figma: png, origin: CGPoint(x: 48, y: 32), layout: layout))
-        print(String(format: "clone pixels m03: SSIM chrome %.4f, %.2f%% of chrome pixels off by more than 8/255", result.chrome, result.offShare * 100))
-        XCTAssertGreaterThanOrEqual(result.chrome, 0.985)
+        print("clone pixels: " + report.joined(separator: "; "))
     }
 
     // MARK: - VoiceOver

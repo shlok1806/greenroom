@@ -314,10 +314,13 @@ enum WindowClass: String, CaseIterable, Sendable {
         }
     }
 
-    /// The stage's padding: horizontal, top.
-    var stagePadding: (horizontal: CGFloat, top: CGFloat) {
-        self == .compact ? (Gap.x24, Gap.x16) : (Gap.x32, Gap.x24)
-    }
+    /// How many Done runs the sidebar shows before "Show N more": three in a compact window,
+    /// five otherwise (Figma 03 compact and regular).
+    var doneShown: Int { self == .compact ? 3 : 5 }
+
+    /// The stage's padding: horizontal, top. The same in every class (Figma 03 regular and
+    /// compact both put the evidence 32 in from the stage's sides).
+    var stagePadding: (horizontal: CGFloat, top: CGFloat) { (Gap.x32, Gap.x24) }
 }
 
 enum Metrics {

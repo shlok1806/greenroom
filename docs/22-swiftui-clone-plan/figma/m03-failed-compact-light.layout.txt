@@ -1,0 +1,120 @@
+# Figma node 12:1092, "03 Run, failed, evidence (1024x680, compact, light)", read with use_figma on 2026-09-28.
+# One layer per line: path;x;y;width;height[;text], points from the frame's top left. Paths are
+# layer names joined by "/", with [i] when a parent has more than one child of that name.
+Sidebar;0;0;208;680
+Sidebar/Titlebar;0;0;207;52
+Sidebar/Titlebar/Traffic lights;20;20;52;12
+Sidebar/Titlebar/Icon button;167;12;28;28
+Sidebar/Titlebar/Icon button/Icon/search;173;18;16;16
+Sidebar/Runs;0;52;207;584
+Sidebar/Runs/Group[0];8;52;191;30
+Sidebar/Runs/Group[0]/Text;16;64;57;14;Needs you
+Sidebar/Runs/Run row[0];8;84;191;32
+Sidebar/Runs/Run row[0]/Glyph;16;92;16;16
+Sidebar/Runs/Run row[0]/Name;40;91;104;18;TipSplit: split the bill
+Sidebar/Runs/Run row[0]/Meta;152;93;39;14;2 failed
+Sidebar/Runs/Run row[1];8;118;191;32
+Sidebar/Runs/Run row[1]/Glyph;16;126;16;16
+Sidebar/Runs/Run row[1]/Name;40;125;126;18;WordCount: case buttons
+Sidebar/Runs/Run row[1]/Meta;174;127;17;14;8m
+Sidebar/Runs/Group[1];8;152;191;30
+Sidebar/Runs/Group[1]/Text;16;164;44;14;Running
+Sidebar/Runs/Run row[2];8;184;191;32
+Sidebar/Runs/Run row[2]/Glyph;16;192;16;16
+Sidebar/Runs/Run row[2]/Name;40;191;123;18;UnitConvert: Temperature
+Sidebar/Runs/Run row[2]/Meta;171;193;20;14;1:12
+Sidebar/Runs/Group[2];8;218;191;30
+Sidebar/Runs/Group[2]/Text;16;230;28;14;Done
+Sidebar/Runs/Run row[3];8;250;191;32
+Sidebar/Runs/Run row[3]/Glyph;16;258;16;16
+Sidebar/Runs/Run row[3]/Name;40;257;129;18;WordCount: longest word
+Sidebar/Runs/Run row[3]/Meta;177;259;14;14;2h
+Sidebar/Runs/Run row[4];8;284;191;32
+Sidebar/Runs/Run row[4]/Glyph;16;292;16;16
+Sidebar/Runs/Run row[4]/Name;40;291;129;18;TodoList: Clear done
+Sidebar/Runs/Run row[4]/Meta;177;293;14;14;5h
+Sidebar/Runs/Run row[5];8;318;191;32
+Sidebar/Runs/Run row[5]/Glyph;16;326;16;16
+Sidebar/Runs/Run row[5]/Name;40;325;131;18;TodoList: add item
+Sidebar/Runs/Run row[5]/Meta;179;327;12;14;1d
+Sidebar/Runs/More;8;352;191;26
+Sidebar/Runs/More/Text;40;358;76;14;Show 40 more
+Sidebar/Footer;0;636;207;44
+Sidebar/Footer/Icon/machine;16;651.5;14;14
+Sidebar/Footer/Text;38;651.5;125;14;2 of 3 Macs free
+Sidebar/Footer/Icon button;171;644.5;28;28
+Sidebar/Footer/Icon button/Icon/settings;177;650.5;16;16
+Run;208;0;816;680
+Run/Toolbar;208;0;816;52
+Run/Toolbar/Run name;232;16.5;125;18;TipSplit: split the bill
+Run/Toolbar/Toolbar button[0];786;11.5;86;28
+Run/Toolbar/Toolbar button[0]/Icon/activity;794;17.5;16;16
+Run/Toolbar/Toolbar button[0]/Text;816;16.5;46;18;Activity
+Run/Toolbar/Toolbar button[1];880;11.5;96;28
+Run/Toolbar/Toolbar button[1]/Icon/message;888;17.5;16;16
+Run/Toolbar/Toolbar button[1]/Text;910;16.5;56;18;Message
+Run/Toolbar/Icon button;984;11.5;28;28
+Run/Toolbar/Icon button/Icon/more;990;17.5;16;16
+Run/Header;208;52;816;81
+Run/Header/Status;232;68;597;48
+Run/Header/Status/Outcome;232;68;198;28
+Run/Header/Status/Outcome/Glyph;232;72;20;20
+Run/Header/Status/Outcome/Status word;262;68;62;28;Failed
+Run/Header/Status/Outcome/Tally;334;72;96;20;2 of 4 checks
+Run/Header/Status/Now;232;98;240;18
+Run/Header/Status/Now/Now text;262;98;210;18;Proposed by the verifier after 3:26
+Run/Header/Button[0];837;78;65;28
+Run/Header/Button[0]/Text;850;83;39;18;Reject
+Run/Header/Button[1];910;78;90;28
+Run/Header/Button[1]/Text;922;83;66;18;Accept fail
+Run/Body;208;133;816;547
+Run/Body/Checks;208;133;320;547
+Run/Body/Checks/Heading;224;149;287;24
+Run/Body/Checks/Heading/Text;236;153;41;14;Checks
+Run/Body/Checks/Check row[0];224;175;287;78
+Run/Body/Checks/Check row[0]/Top;236;185;263;36
+Run/Body/Checks/Check row[0]/Top/GlyphBox;236;185;16;18
+Run/Body/Checks/Check row[0]/Top/Label;262;185;157;36;Each pays becomes $50.00 at 25%
+Run/Body/Checks/Check row[0]/Top/Meta;429;185;70;18;saw $10.00
+Run/Body/Checks/Check row[0]/DetailWrap;236;225;263;18
+Run/Body/Checks/Check row[0]/DetailWrap/Detail;262;225;237;18;Bill 120, 3 people, then 25%.
+Run/Body/Checks/Check row[1];224;255;287;56
+Run/Body/Checks/Check row[1]/Top;236;265;263;36
+Run/Body/Checks/Check row[1]/Top/GlyphBox;236;265;16;18
+Run/Body/Checks/Check row[1]/Top/Label;262;265;163;36;Each pays is $48.00 for 3 people
+Run/Body/Checks/Check row[1]/Top/Meta;435;265;64;18;saw $8.00
+Run/Body/Checks/Check row[2];224;313;287;38
+Run/Body/Checks/Check row[2]/Top;236;323;263;18
+Run/Body/Checks/Check row[2]/Top/GlyphBox;236;323;16;18
+Run/Body/Checks/Check row[2]/Top/Label;262;323;237;18;Tip is $24.00 for $120 at 20%
+Run/Body/Checks/Check row[3];224;353;287;38
+Run/Body/Checks/Check row[3]/Top;236;363;263;18
+Run/Body/Checks/Check row[3]/Top/GlyphBox;236;363;16;18
+Run/Body/Checks/Check row[3]/Top/Label;262;363;237;18;Window shows Bill, Tip and People
+Run/Body/Stage;528;133;496;547
+Run/Body/Stage/Evidence;560;187.5;432;364
+Run/Body/Stage/Evidence/Screen;560;187.5;432;324
+Run/Body/Stage/Evidence/Screen/Evidence mark;692;392.5;107;19
+Run/Body/Stage/Evidence/Caption;560;523.5;432;28
+Run/Body/Stage/Evidence/Caption/Text;560;527.5;396;20;Expected $50.00, saw $10.00
+Run/Body/Stage/Evidence/Caption/Icon button;964;523.5;28;28
+Run/Body/Stage/Evidence/Caption/Icon button/Icon/video;970;529.5;16;16
+Run/Body/Stage/Filmstrip;560;575.5;432;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[0];560;575.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[0]/Frame;560;575.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[0]/Mark;560;630.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[1];632.8;575.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[1]/Frame;632.8;575.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[1]/Mark;632.8;630.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[2];705.6;575.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[2]/Frame;705.6;575.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[2]/Mark;705.6;630.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[3];778.4;575.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[3]/Frame;778.4;575.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[3]/Mark;778.4;630.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[4];851.2;575.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[4]/Frame;851.2;575.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[4]/Mark;851.2;630.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[5];924;575.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[5]/Frame;924;575.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[5]/Mark;924;630.5;68;3
