@@ -123,6 +123,8 @@ type inputState struct {
 
 	approval captureApproval // when replayd's approvals were last written or checked
 	capture  captureGate     // one guest screencapture at a time (daemon ADR 0003)
+
+	desk deskState // the desktop toolkit's per-reader ref origins (desktop.go)
 }
 
 // installJob is one run of the helper install and screen read, shared by every caller that

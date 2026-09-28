@@ -29,7 +29,8 @@ const declareFirst = "error: declare_checks first: a task is open and you have n
 	"then act. Looking (machine_ui, machine_screenshot, machine_exec) needs no checks."
 
 // observationTools may be a check's evidence; isInputTool's may be its actions.
-var observationTools = []string{"machine_ui", "machine_screenshot", "machine_exec"}
+// The toolkit's looks (daemon ADR 0006 point 12) are observations too.
+var observationTools = append([]string{"machine_ui", "machine_screenshot", "machine_exec"}, toolkitLooks...)
 
 // taskStart is the index in msgs of the newest task from the coder or a human, or -1.
 func taskStart(msgs []session.Message) int {

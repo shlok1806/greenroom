@@ -341,6 +341,10 @@ func stateChangeText(c Change) string {
 		return "now " + overflowText
 	case c.Field == StateOverflow:
 		return "no longer in overflow"
+	case c.Field == StateNotDrawn && c.On:
+		return "now " + notDrawnText
+	case c.Field == StateNotDrawn:
+		return "now drawn"
 	case c.On:
 		return word(c.Field)
 	}

@@ -29,6 +29,24 @@ const manualHelp = `Instructions, one per line, case-insensitive first word:
   ask <question>                            ask a question
   help                                      show this text`
 
+// manualToolkitHelp is the grammar's toolkit part, for a daemon run with -desktop-toolkit (daemon
+// ADR 0006): the same tools as the model's, through the same calls.
+const manualToolkitHelp = `
+With the desktop toolkit:
+  snapshot [app]                            read the frontmost (or named) app as refs
+  find <text>                               find elements by text`
+
+// manualToolkitVerbs are the verbs only a toolkit daemon has.
+var manualToolkitVerbs = map[string]bool{"snapshot": true, "find": true}
+
+// help is the grammar this brain takes.
+func (m *Manual) help() string {
+	if m.mgr.DesktopToolkit() {
+		return manualHelp + manualToolkitHelp
+	}
+	return manualHelp
+}
+
 // Manual is a Brain driven by a person's typed instructions instead of a
 // model. It posts the same message shapes as Verifier, so the whole loop can
 // be tested and demoed without a model.
@@ -68,7 +86,7 @@ type runTally struct {
 
 func (m *Manual) follow(ctx context.Context, runID string, store *session.Store, lines []string) (int, session.Kind) {
 	if len(lines) == 0 {
-		m.post(store, session.Message{Kind: session.Reply, Text: manualHelp})
+		m.post(store, session.Message{Kind: session.Reply, Text: m.help()})
 		return 0, session.Reply
 	}
 	var t runTally
@@ -90,7 +108,11 @@ func (m *Manual) follow(ctx context.Context, runID string, store *session.Store,
 		case "ask":
 			m.post(store, session.Message{Kind: session.Question, Text: orElse(strings.TrimSpace(arg), "(empty question)")})
 			return steps, session.Question
-		case "run", "screenshot", "ui", "click", "type", "key", "scroll":
+		case "run", "screenshot", "ui", "click", "type", "key", "scroll", "snapshot", "find":
+			if manualToolkitVerbs[verb] && !m.mgr.DesktopToolkit() {
+				m.post(store, session.Message{Kind: session.Reply, Text: verb + " needs a daemon run with -desktop-toolkit\n\n" + m.help()})
+				return steps, session.Reply
+			}
 			if unusable(ctx, m.mgr, runID) != "" {
 				m.post(store, session.Message{Kind: session.Reply, Text: machineStatus(ctx, m.mgr, runID)})
 				return steps, session.Reply
@@ -104,7 +126,7 @@ func (m *Manual) follow(ctx context.Context, runID string, store *session.Store,
 			}
 			m.post(store, session.Message{Kind: session.Progress, Text: progressText(call, result), Step: step})
 		default: // "help" and anything unrecognised
-			m.post(store, session.Message{Kind: session.Reply, Text: manualHelp})
+			m.post(store, session.Message{Kind: session.Reply, Text: m.help()})
 			return steps, session.Reply
 		}
 	}
@@ -170,6 +192,19 @@ func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (
 		call = callOf("machine_key", map[string]any{"key": key, "mods": mods})
 		result, step = postInput(ctx, m.mgr, runID, "pressed "+keyLabel(key, mods),
 			machine.InputAction{Type: "key", Key: key, Mods: mods})
+		return call, result, step
+
+	case "snapshot":
+		call = callOf("machine_snapshot", map[string]string{"app": arg})
+		if arg == "" {
+			call = nim.ToolCall{Name: "machine_snapshot", Arguments: "{}"}
+		}
+		result, step = deskTool(ctx, m.mgr, runID, call)
+		return call, result, step
+
+	case "find":
+		call = callOf("machine_find", map[string]string{"text": arg})
+		result, step = deskTool(ctx, m.mgr, runID, call)
 		return call, result, step
 
 	default: // scroll

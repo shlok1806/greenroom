@@ -165,6 +165,9 @@ func secretChars(s string) (int, bool) {
 // overflowText is the flag of a toolbar item behind the overflow chevron.
 const overflowText = "in overflow: press the toolbar's >> button first"
 
+// notDrawnText is the flag of an element whose text the screen does not show (StateNotDrawn).
+const notDrawnText = "not drawn"
+
 // coverText says what covers an element: `covered by e70 List "Runs" (in this window)`.
 func coverText(c Covered) string {
 	s := "covered by "
@@ -319,6 +322,9 @@ func flags(n Node, withStates bool) []string {
 	}
 	if n.Has(StateOverflow) {
 		f = append(f, overflowText)
+	}
+	if n.Has(StateNotDrawn) {
+		f = append(f, notDrawnText)
 	}
 	f = append(f, visibilityFlags(n)...)
 	if len(n.Cut) > 0 {

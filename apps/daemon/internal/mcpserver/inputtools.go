@@ -26,13 +26,17 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 		App   string `json:"app,omitempty" jsonschema:"Application name or bundle id to read, e.g. TipSplit. Default: the frontmost application."`
 		Limit int    `json:"limit,omitempty" jsonschema:"Most elements to list. Default 250, max 1000."`
 	}
+	uiDescription := "Read the accessibility tree of the frontmost application (or a named one): every on-screen " +
+		"control and text with its role, title, label, value, identifier, state, and its center and size as " +
+		"fractions of the screen, the space machine_click takes. Call it before clicking and aim at element " +
+		"centers (or pass machine_click an element id) instead of estimating from a screenshot. Read it again " +
+		"after the UI changes. It only reads; it needs no control of the screen."
+	if mgr.DesktopToolkit() {
+		uiDescription = uiDescriptionToolkit
+	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "machine_ui",
-		Description: "Read the accessibility tree of the frontmost application (or a named one): every on-screen " +
-			"control and text with its role, title, label, value, identifier, state, and its center and size as " +
-			"fractions of the screen, the space machine_click takes. Call it before clicking and aim at element " +
-			"centers (or pass machine_click an element id) instead of estimating from a screenshot. Read it again " +
-			"after the UI changes. It only reads; it needs no control of the screen.",
+		Name:        "machine_ui",
+		Description: uiDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in uiIn) (*mcp.CallToolResult, machine.UITree, error) {
 		tree, err := mgr.UI(ctx, in.RunID, machine.HolderCoder, in.App, in.Limit)
 		if err != nil {

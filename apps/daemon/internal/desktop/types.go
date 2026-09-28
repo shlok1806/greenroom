@@ -125,12 +125,15 @@ const (
 	// StateOverflow is a toolbar item behind the toolbar's overflow chevron (catalog M15): it is
 	// not actionable until the chevron is pressed.
 	StateOverflow = "overflow"
+	// StateNotDrawn is set by the daemon, never the agent: the element says something, but its
+	// visible rect on a capture of the screen holds no ink (the ink test, ADR 0027).
+	StateNotDrawn = "notDrawn"
 )
 
 var stateOrder = []string{StateMain, StateDisabled, StateSelected, StateFocused, StateExpanded, StateEditable, StateBusy}
 
 // sentenceStates are the states that render as their own flag, not as a bare word.
-var sentenceStates = []string{StateSecret, StateOverflow}
+var sentenceStates = []string{StateSecret, StateOverflow, StateNotDrawn}
 
 // Where a coverer sits relative to the covered element (Covered.Where).
 const (
