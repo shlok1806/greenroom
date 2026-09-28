@@ -383,7 +383,6 @@ private func appOfRef(_ ref: String, call: Call) throws -> AppTarget {
         throw AgentFailure("stale_ref", "\(ref)'s app is no longer running (it quit or crashed); take a new machine_snapshot",
                            detail: ["ref": ref, "reason": "app_quit"])
     }
-    AXUIElementSetMessagingTimeout(app.root, actionMessagingTimeout)
     return app
 }
 
@@ -504,11 +503,15 @@ private func typeText(_ args: TypeArgs, call: Call) throws -> [String: Any] {
             let now = DispatchTime.now()
             if next > now { usleep(UInt32((next.uptimeNanoseconds - now.uptimeNanoseconds) / 1000)) }
         }
-        // A cancel, the deadline or a pause stops the typing between characters; what was
-        // typed stays typed and is reported.
+        // A pause (a person took the screen) ends the action here; a cancel or the deadline stops
+        // the typing and answers with its effect. What was typed stays typed either way.
         do {
             try call.check()
-        } catch let failure as AgentFailure {
+        } catch var failure as AgentFailure {
+            if failure.code == "paused" {
+                failure.detail = (failure.detail ?? [:]).merging(["posted": typedCount, "of": characters.count]) { $1 }
+                throw failure
+            }
             notes.append("stopped after \(typedCount) of \(characters.count) characters: \(failure.message)")
             break
         }

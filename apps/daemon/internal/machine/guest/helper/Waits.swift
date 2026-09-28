@@ -350,6 +350,9 @@ private func ambiguous(_ target: Target, _ seen: Seen) -> AgentFailure {
 /// What is kept of the call's deadline for the after tree and the answer.
 private let waitReserve: TimeInterval = 2
 
+/// The least time between two polls of a wait, however often the app notifies.
+private let minPollGapMs = 50
+
 private func waitFor(_ args: WaitForArgs, call: Call) throws -> [String: Any] {
     let target = try target(args.target)
     var state: WaitState?
@@ -398,8 +401,9 @@ private func waitFor(_ args: WaitForArgs, call: Call) throws -> [String: Any] {
     var last: Seen?
     var satisfied = false
     var quietSince = DispatchTime.now()
+    var seen = UIWaker.shared.stamp(pid)
     while true {
-        let stamp = UIWaker.shared.stamp(pid)
+        let polledAt = DispatchTime.now()
         if let now = try pollQueued(target, call: call, tree: wantsTree, until: end) {
             if case .idle = target {
                 if let previous = last?.tree, previous != now.tree { quietSince = DispatchTime.now() }
@@ -422,12 +426,19 @@ private func waitFor(_ args: WaitForArgs, call: Call) throws -> [String: Any] {
         if pid == nil, let found = targetPid(target, reader: call.reader) {
             pid = found
             watch(found)
+            seen = UIWaker.shared.stamp(pid)
         }
-        let nowStamp = UIWaker.shared.stamp(pid)
-        if nowStamp == stamp {
-            nap(waitPollMs, for: pid, since: stamp, until: end)
-        } else if case .idle = target {
-            quietSince = DispatchTime.now() // Notified while polling: something moved.
+        // Until the next poll: a notification wakes it early (for idle, it is also not quiet),
+        // but polls stay at least 50 ms apart, so an app that notifies all the time is not
+        // read all the time.
+        var next = DispatchTime.now() + .milliseconds(waitPollMs)
+        if next > end { next = end }
+        if UIWaker.shared.wait(pid, since: seen, until: next) {
+            seen = UIWaker.shared.stamp(pid)
+            if case .idle = target { quietSince = DispatchTime.now() }
+            let gapEnd = min(polledAt + .milliseconds(minPollGapMs), end)
+            let now = DispatchTime.now()
+            if gapEnd > now { usleep(UInt32((gapEnd.uptimeNanoseconds - now.uptimeNanoseconds) / 1000)) }
         }
         try call.check()
     }

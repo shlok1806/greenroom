@@ -198,7 +198,7 @@ func scrollIntoView(_ target: AXUIElement, container: AXUIElement, reader: Strin
     if let point = found.point {
         var progress = ScrollProgress()
         _ = progress.record(scrollMarker(container))
-        while out.steps < maxScrollSteps, DispatchTime.now() < end, !call.cancelled {
+        while out.steps < maxScrollSteps, DispatchTime.now() < end, !call.cancelled, pausedBy(call) == nil {
             guard let frame = readElement(target).frame else { break }
             if insideView(frame, view) {
                 out.visible = true
@@ -304,6 +304,7 @@ private func scroll(_ args: ScrollArgs, call: Call) throws -> [String: Any] {
         steps = done.steps
         via = done.via
         visible = done.visible
+        if let holder = pausedBy(call) { throw pausedAfter(holder, steps: steps) }
         if let frame = target.read.frame, let view = viewRect(of: container, reader: call.reader) {
             down = intoViewDistance(frame: frame, view: view).dy >= 0
         }
@@ -340,7 +341,7 @@ private func scroll(_ args: ScrollArgs, call: Call) throws -> [String: Any] {
                 guard steps < planned.count else { break }
                 step = planned[steps]
             }
-            if call.input, let holder = pauseHolder(), holder != call.reader { break }
+            if let holder = pausedBy(call) { throw pausedAfter(holder, steps: steps) }
             postWheel(at: point, dx: 0, dy: step)
             steps += 1
             via = "wheel"
@@ -378,6 +379,19 @@ private func scroll(_ args: ScrollArgs, call: Call) throws -> [String: Any] {
         }
     }
     return result
+}
+
+/// The holder that paused the agent, when that stops this call's input: a person took the screen,
+/// and the action ends with `paused` (daemon ADR 0006 point 11, takeover).
+func pausedBy(_ call: Call) -> String? {
+    guard call.input, let holder = pauseHolder(), holder != call.reader else { return nil }
+    return holder
+}
+
+private func pausedAfter(_ holder: String, steps: Int) -> AgentFailure {
+    var failure = pausedFailure(holder)
+    failure.detail = (failure.detail ?? [:]).merging(["posted": steps]) { $1 }
+    return failure
 }
 
 private func elapsed(since start: DispatchTime) -> Int {
