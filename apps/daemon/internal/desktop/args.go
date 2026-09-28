@@ -282,7 +282,47 @@ func (a *PressArgs) Normalize() error {
 	return err
 }
 
+// PressOp is the `press` op's arguments as the agent reads them (daemon ADR 0006): the point in
+// guest points, where the tool takes fractions of the screen.
+type PressOp struct {
+	Ref       string   `json:"ref,omitempty"`
+	Point     *Point   `json:"point,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
+	Force     bool     `json:"force,omitempty"`
+	Button    string   `json:"button,omitempty"`
+	Count     int      `json:"count,omitempty"`
+	Mods      []string `json:"mods,omitempty"`
+	Via       string   `json:"via,omitempty"`
+	TimeoutMs int      `json:"timeoutMs,omitempty"`
+}
+
+// Op turns normalized arguments into the op's, placing a point on screen s.
+func (a PressArgs) Op(s Screen) PressOp {
+	op := PressOp{Ref: a.Ref, Reason: a.Reason, Force: a.Force, Button: strings.ToLower(a.Button),
+		Count: a.Count, Mods: a.Mods, Via: a.Via, TimeoutMs: a.TimeoutMs}
+	if a.X != nil && a.Y != nil {
+		p := s.Point(*a.X, *a.Y)
+		op.Point = &p
+	}
+	return op
+}
+
 func finite(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) }
+
+// The ways text is typed (catalog I9).
+const (
+	// TypeViaUnicode posts each character as the event's Unicode string: exact whatever the
+	// keyboard layout, but no key equivalents and no input method.
+	TypeViaUnicode = "unicode"
+	// TypeViaKeys posts virtual key codes with shift, as a US keyboard sends them.
+	TypeViaKeys = "keys"
+)
+
+// The keys machine_type may press after the text.
+const (
+	SubmitReturn = "return"
+	SubmitTab    = "tab"
+)
 
 // TypeArgs are machine_type's arguments. Without a ref it types into the focused element.
 type TypeArgs struct {
@@ -290,6 +330,7 @@ type TypeArgs struct {
 	Text      string `json:"text"`
 	Replace   bool   `json:"replace,omitempty"`
 	Submit    string `json:"submit,omitempty"`
+	Via       string `json:"via,omitempty"`
 	TimeoutMs int    `json:"timeoutMs,omitempty"`
 }
 
@@ -304,8 +345,14 @@ func (a *TypeArgs) Normalize() error {
 	if a.Text == "" {
 		return argErr("text", "missing; pass the characters to type (to clear a field, use machine_set_value with an empty value, or replace with the new text)")
 	}
-	if a.Submit != "" && a.Submit != "return" && a.Submit != "tab" {
+	if a.Submit != "" && a.Submit != SubmitReturn && a.Submit != SubmitTab {
 		return argErr("submit", "%q is not one of \"return\", \"tab\"; leave it out to press nothing after typing", a.Submit)
+	}
+	if a.Via == "" {
+		a.Via = TypeViaUnicode
+	}
+	if a.Via != TypeViaUnicode && a.Via != TypeViaKeys {
+		return argErr("via", "%q is not one of \"unicode\", \"keys\"; leave it out for \"unicode\" (exact text on any keyboard layout), or pass \"keys\" when the app must see real key presses", a.Via)
 	}
 	var err error
 	a.TimeoutMs, err = ActionTimeout.Clamp(a.TimeoutMs)

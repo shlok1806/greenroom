@@ -21,10 +21,15 @@ const (
 	ChangeRole            ChangeKind = "role"
 	ChangeName            ChangeKind = "name"
 	ChangeValue           ChangeKind = "value"
+	ChangeDocument        ChangeKind = "document"   // a window shows another file
 	ChangeState           ChangeKind = "state"      // Field is the state, On whether it is set now
 	ChangeVisibility      ChangeKind = "visibility" // Field is covered, offscreen, clipped or visible
 	ChangeGone            ChangeKind = "gone"
 )
+
+// fieldEdited is the Field of the ChangeState that says a window's document has unsaved changes
+// now, or no longer has.
+const fieldEdited = "edited"
 
 // The visibility aspects a ChangeVisibility names in Field.
 const (
@@ -206,10 +211,16 @@ func nodeChanges(b, a Node) []Change {
 	case b.Value != a.Value || (b.Chars != a.Chars && (len(b.Cut) > 0 || len(a.Cut) > 0)):
 		add(Change{Kind: ChangeValue, From: b.Value, To: a.Value})
 	}
+	if b.Document != a.Document {
+		add(Change{Kind: ChangeDocument, From: b.Document, To: a.Document})
+	}
 	for _, s := range stateUnion(b.States, a.States) {
 		if was, is := b.Has(s), a.Has(s); was != is {
 			add(Change{Kind: ChangeState, Field: s, On: is})
 		}
+	}
+	if b.Edited != a.Edited {
+		add(Change{Kind: ChangeState, Field: fieldEdited, On: a.Edited})
 	}
 	for _, c := range visibilityChanges(b, a) {
 		add(c)
@@ -219,25 +230,7 @@ func nodeChanges(b, a Node) []Change {
 
 // stateUnion is every state either side has, in the outline's order.
 func stateUnion(x, y []string) []string {
-	var all []string
-	for _, s := range append(slices.Clone(x), y...) {
-		if !slices.Contains(all, s) {
-			all = append(all, s)
-		}
-	}
-	var out, rest []string
-	for _, s := range stateOrder {
-		if slices.Contains(all, s) {
-			out = append(out, s)
-		}
-	}
-	for _, s := range all {
-		if !slices.Contains(stateOrder, s) {
-			rest = append(rest, s)
-		}
-	}
-	slices.Sort(rest)
-	return append(out, rest...)
+	return sortStates(append(slices.Clone(x), y...))
 }
 
 // visibilityChanges compares what hit testing and clipping said. A move into or out of a scroll
@@ -314,11 +307,10 @@ func (c Change) Text() string {
 		return fmt.Sprintf("%s: name %s -> %s", Label(n), quote(c.From), quote(c.To))
 	case ChangeValue:
 		return Label(n) + ": " + valueChangeText(c, n)
+	case ChangeDocument:
+		return fmt.Sprintf("%s: document %s -> %s", Label(n), quote(c.From), quote(c.To))
 	case ChangeState:
-		if c.On {
-			return Label(n) + ": " + word(c.Field)
-		}
-		return Label(n) + ": not " + word(c.Field)
+		return Label(n) + ": " + stateChangeText(c)
 	case ChangeVisibility:
 		return Label(n) + ": " + visibilityChangeText(c, n)
 	}
@@ -342,13 +334,30 @@ func insideText(n int) string {
 	return fmt.Sprintf(" (with %d elements inside)", n)
 }
 
+// stateChangeText is `selected` or `not selected`; the states that read as a sentence say theirs.
+func stateChangeText(c Change) string {
+	switch {
+	case c.Field == StateOverflow && c.On:
+		return "now " + overflowText
+	case c.Field == StateOverflow:
+		return "no longer in overflow"
+	case c.On:
+		return word(c.Field)
+	}
+	return "not " + word(c.Field)
+}
+
 func valueChangeText(c Change, n Node) string {
 	if c.Field == StateSecret {
 		return fmt.Sprintf("now %s chars (was %s), secret", c.To, c.From)
 	}
+	full := fmt.Sprintf("%d chars in full; fullText: %s", n.Chars, word(n.Ref))
+	if c.From == c.To {
+		return "value changed past where it is cut (now " + full + ")"
+	}
 	s := fmt.Sprintf("value %s -> %s", quote(c.From), quote(c.To))
 	if len(n.Cut) > 0 {
-		s += fmt.Sprintf(" (cut at our limit; %d chars in full, fullText: %s)", n.Chars, word(n.Ref))
+		s += " (cut; " + full + ")"
 	}
 	return s
 }

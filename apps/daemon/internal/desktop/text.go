@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -113,9 +114,9 @@ func pct(f float64) string {
 	return fmt.Sprintf("%.0f%%", min(max(f, 0), 1)*100)
 }
 
-// orderedStates is the node's states in the outline's order: the known ones first, then any
-// the daemon does not know yet, sorted. The secret state is left to its own flag.
-func orderedStates(states []string) []string {
+// sortStates puts states in the outline's order: the known ones first, then any the daemon does
+// not know yet, sorted, each once.
+func sortStates(states []string) []string {
 	var out, rest []string
 	for _, s := range stateOrder {
 		if slices.Contains(states, s) {
@@ -123,17 +124,46 @@ func orderedStates(states []string) []string {
 		}
 	}
 	for _, s := range states {
-		if s != StateSecret && !slices.Contains(stateOrder, s) && !slices.Contains(rest, s) {
+		if !slices.Contains(stateOrder, s) && !slices.Contains(rest, s) {
 			rest = append(rest, s)
 		}
 	}
 	slices.Sort(rest)
-	res := make([]string, 0, len(out)+len(rest))
-	for _, s := range append(out, rest...) {
-		res = append(res, word(s))
-	}
-	return res
+	return append(out, rest...)
 }
+
+// orderedStates is the node's states as the words of a line, in the outline's order. The states
+// that read as a sentence (secret, overflow) are left to their own flags.
+func orderedStates(states []string) []string {
+	var out []string
+	for _, s := range sortStates(states) {
+		if !slices.Contains(sentenceStates, s) {
+			out = append(out, word(s))
+		}
+	}
+	return out
+}
+
+// SecretText stands for text that is never shown, a secure field's value or what was typed into
+// one: `<secret, 8 chars>`, the form the agent sends as `typed` (catalog I15).
+func SecretText(chars int) string {
+	return fmt.Sprintf("<secret, %d chars>", max(chars, 0))
+}
+
+var secretPattern = regexp.MustCompile(`^<secret, ([0-9]{1,9}) chars>$`)
+
+// secretChars reads the length out of a SecretText.
+func secretChars(s string) (int, bool) {
+	m := secretPattern.FindStringSubmatch(s)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	return n, err == nil
+}
+
+// overflowText is the flag of a toolbar item behind the overflow chevron.
+const overflowText = "in overflow: press the toolbar's >> button first"
 
 // coverText says what covers an element: `covered by e70 List "Runs" (in this window)`.
 func coverText(c Covered) string {
@@ -286,6 +316,9 @@ func flags(n Node, withStates bool) []string {
 	}
 	if n.Secret() {
 		f = append(f, fmt.Sprintf("secret, %d chars", n.Chars))
+	}
+	if n.Has(StateOverflow) {
+		f = append(f, overflowText)
 	}
 	f = append(f, visibilityFlags(n)...)
 	if len(n.Cut) > 0 {

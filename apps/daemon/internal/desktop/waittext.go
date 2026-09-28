@@ -3,6 +3,7 @@ package desktop
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // ScrollText renders a scroll's result: `scrolled e20 ScrollArea "Items" y 0% -> 100% (at the
@@ -113,13 +114,17 @@ func WaitText(a WaitArgs, r WaitResult) string {
 		subject = Label(*r.Node)
 	}
 	took, limit := secs(r.ElapsedMs), secs(a.TimeoutMs)
+	secret := r.Node != nil && r.Node.Secret()
 	var lead string
 	if r.Satisfied {
-		lead = subject + " " + waitMet(a, took)
+		lead = subject + " " + waitMet(a, took, secret)
 	} else {
-		lead = subject + " " + waitMissed(a, limit)
+		lead = subject + " " + waitMissed(a, limit, secret)
 	}
-	if r.Value != nil && (r.Node == nil || !r.Node.Secret()) {
+	switch {
+	case secret:
+		lead += ", value " + SecretText(r.Node.Chars)
+	case r.Value != nil:
 		lead += ", value " + quote(*r.Value)
 	}
 	if !r.Satisfied {
@@ -135,7 +140,7 @@ func WaitText(a WaitArgs, r WaitResult) string {
 	return strings.Join(lines, "\n")
 }
 
-func waitMet(a WaitArgs, took string) string {
+func waitMet(a WaitArgs, took string, secret bool) string {
 	if a.Target.Idle {
 		return "went idle after " + took
 	}
@@ -151,12 +156,12 @@ func waitMet(a WaitArgs, took string) string {
 	case WaitChanges:
 		return "changed after " + took
 	case WaitValue:
-		return valueMatchText(a.Value) + ": matched after " + took
+		return valueMatchText(a.Value, secret) + ": matched after " + took
 	}
 	return "appeared after " + took
 }
 
-func waitMissed(a WaitArgs, limit string) string {
+func waitMissed(a WaitArgs, limit string, secret bool) string {
 	if a.Target.Idle {
 		return "was still changing after " + limit
 	}
@@ -172,14 +177,19 @@ func waitMissed(a WaitArgs, limit string) string {
 	case WaitChanges:
 		return "did not change within " + limit
 	case WaitValue:
-		return valueMatchText(a.Value) + ": not matched within " + limit
+		return valueMatchText(a.Value, secret) + ": not matched within " + limit
 	}
 	return "did not appear within " + limit
 }
 
-func valueMatchText(m *ValueMatch) string {
-	if m == nil {
+// valueMatchText is the condition a value wait waits for. Against a secure field the expected
+// text is a secret too, and only its length is said.
+func valueMatchText(m *ValueMatch, secret bool) string {
+	switch {
+	case m == nil:
 		return "value"
+	case secret:
+		return "value " + word(m.Op) + " " + SecretText(utf8.RuneCountInString(m.Expected))
 	}
 	return "value " + word(m.Op) + " " + quote(m.Expected)
 }
@@ -191,12 +201,22 @@ func ExpectText(a ExpectArgs, r ExpectResult) string {
 	if r.Passed {
 		verdict = "passed"
 	}
-	observed := jsonText(r.Observed)
-	if observed == "" {
+	observed, expected := jsonText(r.Observed), expectedText(a.Expected)
+	switch {
+	case r.Node != nil && r.Node.Secret() && a.Property == PropValue:
+		observed = SecretText(r.Node.Chars)
+		if s, ok := a.Expected.(string); ok {
+			expected = SecretText(utf8.RuneCountInString(s))
+		}
+	case observed == "":
 		observed = "nothing: the target was not found"
 	}
+	subject := a.Target.Describe()
+	if r.Node != nil && a.Property != PropCount {
+		subject = Label(*r.Node)
+	}
 	return fmt.Sprintf("expect %s %s %s %s: %s after %s (observed %s)",
-		a.Target.Describe(), word(string(a.Property)), word(string(a.Op)), expectedText(a.Expected), verdict, secs(r.ElapsedMs), observed)
+		subject, word(string(a.Property)), word(string(a.Op)), expected, verdict, secs(r.ElapsedMs), observed)
 }
 
 // expectedText renders what the caller expected: strings quoted, numbers and bools bare.

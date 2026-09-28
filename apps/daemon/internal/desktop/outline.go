@@ -184,11 +184,18 @@ func windowLine(n Node) string {
 	if n.Name != "" {
 		s += " " + quote(n.Name)
 	}
-	if st := orderedStates(n.States); len(st) > 0 {
+	st := orderedStates(n.States)
+	if n.Edited {
+		st = append(st, "edited")
+	}
+	if len(st) > 0 {
 		s += " (" + strings.Join(st, ", ") + ")"
 	}
 	if !n.Frame.Empty() {
 		s += fmt.Sprintf(" %.0fx%.0f at (%.0f,%.0f)", n.Frame.W(), n.Frame.H(), n.Frame.X(), n.Frame.Y())
+	}
+	if n.Document != "" {
+		s += " document " + quote(n.Document)
 	}
 	if f := flags(n, false); len(f) > 0 {
 		s += " [" + strings.Join(f, ", ") + "]"
