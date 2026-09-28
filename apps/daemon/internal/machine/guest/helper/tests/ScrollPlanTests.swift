@@ -32,6 +32,14 @@ func testAnElementTallerThanTheViewIsBroughtToItsStart() {
     expect(insideView(filling, view))
 }
 
+func testALabelMostlyAboveTheDockShows() {
+    let reach = CGRect(x: 0, y: 30, width: 1024, height: 660)   // the Dock's top at 690
+    expect(showsInView(CGRect(x: 267, y: 673, width: 202, height: 19), reach), "a label two points under the Dock's edge shows")
+    expect(!showsInView(CGRect(x: 267, y: 685, width: 202, height: 19), reach), "a label mostly under the Dock does not")
+    expect(!showsInView(CGRect(x: 267, y: 700, width: 202, height: 19), reach), "a label wholly under the Dock does not")
+    expect(showsInView(CGRect(x: 10, y: 100, width: 50, height: 20), reach), "a label well inside shows")
+}
+
 func testIntoViewStopsAboveTheDock() {
     // A 1024x768 screen with a 24 point menu bar and a 70 point Dock: AppKit's visible frame is
     // y 70 to 744 from the bottom, 24 to 698 from the top.

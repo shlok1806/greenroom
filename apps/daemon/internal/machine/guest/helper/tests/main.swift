@@ -20,6 +20,7 @@ func expectEqual<T: Equatable>(_ got: T, _ want: T, _ what: String = "", file: S
 }
 
 let tests: [(String, () -> Void)] = [
+    ("a label mostly above the Dock shows", testALabelMostlyAboveTheDockShows),
     ("cut keeps a short string whole", testCutKeepsAShortStringWhole),
     ("cut marks a long string", testCutMarksALongString),
     ("a frame round trips", testAFrameRoundTrips),
