@@ -126,7 +126,7 @@ func (m *Manager) captureFrame(ctx context.Context, mc *Machine, dir string) {
 // writeFrame captures one frame unless a capture is already outstanding (errCaptureBusy).
 // The capture's own limits bound it (captureScreen), so it needs no deadline here.
 func (m *Manager) writeFrame(ctx context.Context, mc *Machine, dir string) error {
-	pngBytes, err := m.captureScreen(ctx, mc, false)
+	pngBytes, _, err := m.captureScreen(ctx, mc, false)
 	if err != nil {
 		return err
 	}

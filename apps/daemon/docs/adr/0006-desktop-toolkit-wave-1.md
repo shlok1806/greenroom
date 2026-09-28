@@ -92,6 +92,26 @@ the target app's windows in interactive mode, used as the before and after of ac
 
 `ui`, `desktop`, `screen`, `input` and `sh` keep their old shapes (daemon ADR 0005 point 12).
 
+Additions from the control catalog (docs/21a, its comment on #212):
+
+- **W16.** A window node carries `document` (the `AXDocument` file URL, as a path) and
+  `edited: true` (`AXEdited`) when the app reports them; the outline shows both on the window
+  line.
+- **M15.** A toolbar item that sits behind the overflow chevron (its toolbar has an
+  `AXOverflowButton` and the item has no visible rect inside the toolbar) has the state
+  `overflow`, and the outline says `[in overflow: press the toolbar's >> button first]`. It is
+  not actionable until it shows.
+- **I2.** `press {count}` is 1, 2 or 3. The pairs of one press carry
+  `kCGMouseEventClickState` 1, 2, 3 in turn, so an app sees a double or triple click and not
+  separate single clicks.
+- **I9.** `type {via}` is `unicode` (default: each character as the event's Unicode string,
+  exact whatever the keyboard layout, but no key equivalents and no input method) or `keys`
+  (virtual key codes with shift, as a US keyboard sends them; a character with no key is
+  `bad_request` naming it, before anything is typed).
+- **I15.** Typing into a secure text field works while secure input is on (a trusted poster may
+  post; taps cannot read). Its result and step never carry the typed text or the value: `typed`
+  is `<secret, N chars>`, and the read-back compares lengths only.
+
 ### Actionability
 
 4. **Checks, in order, retried until the timeout**: attached (4.3's resolution), not behind a

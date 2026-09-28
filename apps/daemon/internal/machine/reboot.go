@@ -59,6 +59,7 @@ type rebootRun struct {
 	gen     int           // the boot this reboot starts
 	proc    *tart.Process // the tart run to stop; nil for a reattached machine
 	frames  chan struct{} // closed when the old frame recorder has returned; nil if none ran
+	agent   chan struct{} // closed when the old boot's guest agent is stopped; nil if none ran
 	ready   chan struct{} // closed when the reboot ends, either way
 	cancel  context.CancelFunc
 	done    chan struct{} // closed when the goroutine returns (Destroy waits for it)
@@ -92,6 +93,7 @@ func (m *Manager) Reboot(ctx context.Context, runID string) (*Machine, int, erro
 	r := rebootRun{started: started, gen: mc.gen, proc: mc.proc, frames: mc.frameDone,
 		ready: mc.ready, cancel: mc.bootCancel, done: mc.bootDone}
 	live := m.releaseLocked(mc, errors.New("the live screen ended: the machine is rebooting (machine_reboot); reconnect once it is ready"))
+	r.agent = mc.agentDone
 	for _, j := range mc.execs {
 		j.abort(errExecRebooted) // a finished job ignores it; the results stay for machine_exec_wait
 	}
@@ -137,6 +139,9 @@ func (m *Manager) reboot(boot context.Context, mc *Machine, r rebootRun) {
 	timings := map[string]any{}
 	if r.frames != nil {
 		<-r.frames // no frame of the old boot lands after the stop
+	}
+	if r.agent != nil {
+		<-r.agent // the old agent's tart exec has ended; the new boot starts its own
 	}
 	err := m.stopForReboot(ctx, mc, r.proc, timings)
 	if err == nil {

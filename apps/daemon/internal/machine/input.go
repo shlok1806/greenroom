@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/guestagent"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
 
@@ -93,6 +94,9 @@ type InputResult struct {
 	Screen  Screen  `json:"screen"`
 	Seconds float64 `json:"seconds"`
 	Step    int     `json:"step"`
+	// Degraded is a batch posted by the one-shot exec because the guest agent's channel was down
+	// (daemon ADR 0005 point 13); nothing of it had been sent on the channel.
+	Degraded bool `json:"degraded,omitempty"`
 }
 
 // inputState is a machine's installed helper. It has its own lock because the
@@ -164,6 +168,9 @@ func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Co
 	if fresh && holder != HolderVerifier {
 		mc.handedOver()
 	}
+	if fresh {
+		m.pauseAgentLocked(mc, holder) // an input already in flight stops at its next event (daemon ADR 0005 point 14)
+	}
 	if ttl <= 0 {
 		ttl = ControlTTL
 		if !fresh && current.ttl > 0 {
@@ -220,6 +227,7 @@ func (m *Manager) ReleaseControl(runID, holder string) (Control, bool, error) {
 	if current.Holder != HolderVerifier {
 		mc.handedOver()
 	}
+	m.resumeAgentLocked(mc, current.Holder)
 	m.mu.Unlock()
 
 	m.emit(LifecycleEvent{Kind: "control", RunID: runID, Machine: m.snapshot(mc)})
@@ -308,6 +316,7 @@ func (m *Manager) lapseLocked(mc *Machine, now time.Time) *LifecycleEvent {
 	if c.Holder != HolderVerifier {
 		mc.handedOver()
 	}
+	m.resumeAgentLocked(mc, c.Holder)
 	if !m.liveLocked(mc) {
 		return nil
 	}
@@ -385,10 +394,13 @@ func (m *Manager) Input(ctx context.Context, runID, holder string, actions []Inp
 
 	started := time.Now()
 	out := InputResult{Actions: len(actions), Screen: screen}
-	err = m.postInput(ctx, mc, screen, actions)
+	out.Degraded, err = m.postInput(ctx, mc, holder, screen, actions)
 	out.Seconds = time.Since(started).Seconds()
-	out.Step = mc.rec.stepAs(holder, "machine_input", map[string]any{"holder": holder, "actions": actions},
-		map[string]any{"actions": out.Actions, "screen": screen}, err, started)
+	output := map[string]any{"actions": out.Actions, "screen": screen}
+	if out.Degraded {
+		output["degraded"] = true
+	}
+	out.Step = mc.rec.stepAs(holder, "machine_input", map[string]any{"holder": holder, "actions": actions}, output, err, started)
 	m.emitStep(mc.RunID, out.Step)
 	return out, err
 }
@@ -573,30 +585,46 @@ func clamp01(v float64) float64 {
 	return math.Min(math.Max(v, 0), 1)
 }
 
-func (m *Manager) postInput(ctx context.Context, mc *Machine, screen Screen, actions []InputAction) error {
+// postInput posts a batch for holder: over the guest agent's channel when the machine has one
+// (op input, which a PAUSE by another seat stops), else on the live screen's pipe while it
+// runs, else by the one-shot helper. It falls back from the channel only when nothing was sent
+// on it (degraded), so a batch is never posted twice.
+func (m *Manager) postInput(ctx context.Context, mc *Machine, holder string, screen Screen, actions []InputAction) (degraded bool, err error) {
 	scaled := make([]InputAction, len(actions))
 	for i, a := range actions {
 		scaled[i] = pixels(a, screen)
+	}
+	_, route, err := m.viaAgent(ctx, mc, guestagent.Request{Op: "input", Reader: holder, Input: true,
+		Args:     map[string]any{"actions": scaled},
+		Deadline: min(inputCost(scaled)+m.screenInputSlack, guestagent.MaxDeadline)})
+	switch route {
+	case routeAgent:
+		if err != nil {
+			return false, fmt.Errorf("input failed: %w", err)
+		}
+		return false, nil
+	case routeDegraded:
+		degraded = true
 	}
 	if s := m.liveScreen(mc); s != nil {
 		err := s.input(ctx, scaled)
 		if !errors.Is(err, errScreenEnded) {
 			if err != nil {
-				return fmt.Errorf("input failed: %w", err)
+				return degraded, fmt.Errorf("input failed: %w", err)
 			}
-			return nil
+			return degraded, nil
 		}
 	}
 	payload, err := json.Marshal(struct {
 		Actions []InputAction `json:"actions"`
 	}{scaled})
 	if err != nil {
-		return err
+		return degraded, err
 	}
 	if _, err := runHelper(ctx, m.tart, mc.Name, "--json-base64", base64.StdEncoding.EncodeToString(payload)); err != nil {
-		return fmt.Errorf("input failed: %w", err)
+		return degraded, fmt.Errorf("input failed: %w", err)
 	}
-	return nil
+	return degraded, nil
 }
 
 // runHelper runs the installed helper with args. Arguments go through a
@@ -677,7 +705,13 @@ func (m *Manager) runInstall(ctx context.Context, mc *Machine, job *installJob) 
 // installInput makes sure this version of the helper is in the guest and reads the screen
 // size with it. Only a helper that is missing or stale pays the compile's deadline; asking is
 // bounded by helperCheck, and the screen read by the look watchdog.
+//
+// With the guest agent connected the helper is current (boot's helper phase checked it before
+// starting the agent, which is that helper), so only the screen is read, over the channel.
 func (m *Manager) installInput(ctx context.Context, mc *Machine) (Screen, error) {
+	if s, route, err := m.agentScreen(ctx, mc); route == routeAgent {
+		return s, err
+	}
 	res, timedOut, err := guestLook(ctx, m.tart, mc.Name, helperCheck, "/bin/sh", "-c", helperCheckScript())
 	if timedOut {
 		// The helper's --version touches nothing but its own binary (input.swift), so a check

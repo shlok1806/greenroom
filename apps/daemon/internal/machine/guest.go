@@ -204,6 +204,9 @@ type Shot struct {
 	Height int     `json:"height"`
 	Scale  float64 `json:"scale,omitempty"` // absent while the point size is unknown
 	Step   int     `json:"step"`
+	// Degraded is a capture taken by a one-shot exec because the guest agent's channel was down
+	// (daemon ADR 0005 point 13).
+	Degraded bool `json:"degraded,omitempty"`
 }
 
 // Screenshot captures the guest display as PNG, stores it in the run
@@ -236,7 +239,7 @@ func (m *Manager) ScreenshotAs(ctx context.Context, runID, reader string) (data 
 	limit := m.looks().cap
 	look, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	data, err = m.captureScreen(look, mc, true)
+	data, shot.Degraded, err = m.captureScreen(look, mc, true)
 	if err = lookError(ctx, look, err, "the screenshot", limit); err != nil {
 		return nil, Shot{Step: seq}, err
 	}
@@ -255,29 +258,35 @@ func (m *Manager) ScreenshotAs(ctx context.Context, runID, reader string) (data 
 // a caller waits for an outstanding one, within ctx, then captures itself; without it (the
 // recorder) it gets errCaptureBusy at once. The capture runs detached from ctx under its own
 // limits, so a caller that gives up returns at once while the slot stays held until the guest
-// command is over. A capture that times out is a *ScreenNotAnsweringError.
-func (m *Manager) captureScreen(ctx context.Context, mc *Machine, wait bool) ([]byte, error) {
+// command (or the agent's capture) is over. A capture that times out, or any capture while the
+// guest agent reports a stalled screen, is a *ScreenNotAnsweringError. degraded says the
+// guest agent's channel was down and a one-shot exec took it.
+func (m *Manager) captureScreen(ctx context.Context, mc *Machine, wait bool) (png []byte, degraded bool, err error) {
+	if err := m.agentStalled(mc, "the screen capture"); err != nil {
+		return nil, false, err
+	}
 	lim := m.looks().captureLimit()
 	g := &mc.input.capture
 	epoch, err := g.acquire(ctx, wait, lim.guest)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	type result struct {
-		png []byte
-		err error
+		png      []byte
+		degraded bool
+		err      error
 	}
 	done := make(chan result, 1)
 	go func() {
-		png, timedOut, err := m.captureOnce(context.WithoutCancel(ctx), mc, lim)
+		png, timedOut, degraded, err := m.captureOnce(context.WithoutCancel(ctx), mc, lim)
 		g.release(epoch, timedOut, err == nil)
-		done <- result{png, err}
+		done <- result{png, degraded, err}
 	}()
 	select {
 	case r := <-done:
-		return r.png, r.err
+		return r.png, r.degraded, r.err
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, false, ctx.Err()
 	}
 }
 
@@ -285,24 +294,30 @@ func (m *Manager) captureScreen(ctx context.Context, mc *Machine, wait bool) ([]
 // as base64. The watchdog removes the dir, so a capture it stops leaves no file behind.
 const captureShellScript = `f="$GREENROOM_LOOK_DIR/shot.png"; screencapture -x "$f" && base64 -i "$f"`
 
-// captureOnce checks the capture approvals, then runs one guest screencapture under the look
-// watchdog. ctx carries no cancel from the caller: only lim ends it.
-func (m *Manager) captureOnce(ctx context.Context, mc *Machine, lim lookLimit) (png []byte, timedOut bool, err error) {
+// captureOnce checks the capture approvals, then takes one capture: over the guest agent's
+// channel (op capture), or else one guest screencapture under the look watchdog. ctx carries no
+// cancel from the caller: only lim ends it.
+func (m *Manager) captureOnce(ctx context.Context, mc *Machine, lim lookLimit) (png []byte, timedOut, degraded bool, err error) {
 	m.ensureCaptureApproval(ctx, mc)
+	png, route, timedOut, err := m.agentCapture(ctx, mc, lim)
+	if route == routeAgent {
+		return png, timedOut, false, err
+	}
+	degraded = route == routeDegraded
 	res, timedOut, err := guestLook(ctx, m.tart, mc.Name, lim, "/bin/sh", "-c", captureShellScript)
 	switch {
 	case timedOut:
-		return nil, true, &ScreenNotAnsweringError{What: "the screen capture", After: lim.guest}
+		return nil, true, degraded, &ScreenNotAnsweringError{What: "the screen capture", After: lim.guest}
 	case err != nil:
-		return nil, false, err
+		return nil, false, degraded, err
 	case res.ExitCode != 0:
-		return nil, false, fmt.Errorf("screencapture failed: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		return nil, false, degraded, fmt.Errorf("screencapture failed: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	png, err = base64.StdEncoding.DecodeString(strings.TrimSpace(res.Stdout))
 	if err != nil {
-		return nil, false, fmt.Errorf("decode screenshot: %w", err)
+		return nil, false, degraded, fmt.Errorf("decode screenshot: %w", err)
 	}
-	return png, false, nil
+	return png, false, degraded, nil
 }
 
 // geometryOf measures a PNG from its header and relates it to the guest's
