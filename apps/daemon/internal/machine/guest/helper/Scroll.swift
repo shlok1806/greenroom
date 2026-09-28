@@ -224,7 +224,7 @@ func scrollIntoView(_ target: AXUIElement, container: AXUIElement, reader: Strin
     var reach = reachableView(view, screenVisible: screen) ?? view
     func shows() -> Bool {
         guard let frame = readElement(target).frame else { return false }
-        return insideView(frame, reach) && reach.intersects(screen)
+        return showsInView(frame, reach) && reach.intersects(screen)
     }
     func finish() -> IntoView {
         if !out.visible, let frame = readElement(target).frame, insideView(frame, view) { out.pastScreenEdge = true }

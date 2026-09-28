@@ -66,6 +66,21 @@ func insideView(_ frame: CGRect, _ view: CGRect) -> Bool {
     return d.dx == 0 && d.dy == 0
 }
 
+/// Whether `frame` shows in `reach` well enough to read and press: wholly inside, or its center
+/// inside with most of it (`readableShare` of its area) in. A label whose bottom point or two
+/// sits under the Dock's top edge is readable, and a scroll to the end cannot bring it higher;
+/// calling it not visible sent a model to move the window for nothing (live run, e195).
+func showsInView(_ frame: CGRect, _ reach: CGRect) -> Bool {
+    if insideView(frame, reach) { return true }
+    guard frame.width >= 1, frame.height >= 1, reach.contains(CGPoint(x: frame.midX, y: frame.midY)) else { return false }
+    let seen = frame.intersection(reach)
+    guard !seen.isNull else { return false }
+    return seen.width * seen.height >= readableShare * frame.width * frame.height
+}
+
+/// The share of an element's area that must be in view for `showsInView`.
+let readableShare: CGFloat = 0.6
+
 /// The next wheel step for a distance left to scroll, in Greenroom's sign: all of it when it is
 /// short, else most of a view, so an element never jumps past the view in one step.
 func wheelStep(distance: CGFloat, viewLength: CGFloat) -> CGFloat {
