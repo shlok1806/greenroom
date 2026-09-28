@@ -81,6 +81,11 @@ func testInteractiveModeListsControlsTextAndNamedContainers() {
     expect(!listed("AXButton", mode: .text), "text leaves out a control with no words")
     expect(listed("AXButton", named: true, mode: .text) && listed("AXStaticText", valued: true, mode: .text), "text lists words")
     expect(listed("AXWindow", mode: .text), "and the window they are in")
+
+    // A scroll bar says again what its scroll area's `scroll` says.
+    expect(!listed("AXScrollBar", valued: true), "interactive leaves out a scroll bar")
+    expect(!listed("AXScrollBar", valued: true, mode: .text), "text leaves out a scroll bar's value")
+    expect(listed("AXScrollBar", mode: .all), "all lists it")
 }
 
 func testContainersAreNotHitTested() {

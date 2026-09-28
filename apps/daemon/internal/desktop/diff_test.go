@@ -56,6 +56,8 @@ func TestDiffOfOneElement(t *testing.T) {
 		{"value", with(base, func(n *Node) { n.Value = "$15.12" }), with(base, func(n *Node) { n.Value = "$24.00" }),
 			[]string{`e5 Button "Go": value "$15.12" -> "$24.00"`}},
 		{"value set from nothing", base, with(base, func(n *Node) { n.Value = "1" }), []string{`e5 Button "Go": value "" -> "1"`}},
+		{"a scroll bar's value is its scroll area's position, not a change", with(el("e93", "ScrollBar", "", 1), func(n *Node) { n.Value = "0" }),
+			with(el("e93", "ScrollBar", "", 1), func(n *Node) { n.Value = "0.935483870967742" }), nil},
 		{"a cut value says it is cut", with(base, func(n *Node) { n.Value = "aaa" }),
 			with(base, func(n *Node) { n.Value, n.Chars, n.Cut = "bbb", 900, []string{"value"} }),
 			[]string{`e5 Button "Go": value "aaa" -> "bbb" (cut; 900 chars in full; fullText: e5)`}},
