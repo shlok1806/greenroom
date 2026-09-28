@@ -437,7 +437,7 @@ func RefusalText(ref string, target *Node, r Refusal) string {
 	case ReasonUnstable:
 		return fmt.Sprintf("refused: %s kept moving (its frame changed between reads)%s; wait for the animation to end with machine_wait_for {\"idle\": true}, then try again", subject, after)
 	case ReasonModal:
-		return fmt.Sprintf("refused: %s is behind %s%s; handle %s first (press one of its buttons)", subject, modalText(cause), after, "the "+modalNoun(cause))
+		return fmt.Sprintf("refused: %s is behind %s%s; handle the %s first (%s)", subject, modalText(cause), after, modalNoun(cause), modalAdvice(cause))
 	case ReasonNotEditable:
 		return fmt.Sprintf("refused: %s is not editable (it takes no typed text or value)%s; pick a text field, text area or another editable element", subject, after)
 	case ReasonNotFrontmost:
@@ -447,7 +447,10 @@ func RefusalText(ref string, target *Node, r Refusal) string {
 		}
 		return fmt.Sprintf("refused: the app of %s could not be brought to the front%s%s; close or quit what holds the front, then try again", subject, held, after)
 	}
-	s := fmt.Sprintf("refused: %s is not actionable (%s)%s", subject, word(r.Reason), after)
+	s := fmt.Sprintf("refused: %s is not actionable%s", subject, after)
+	if r.Reason != "" {
+		s = fmt.Sprintf("refused: %s is not actionable (%s)%s", subject, word(r.Reason), after)
+	}
 	if r.Message != "" {
 		s += ": " + oneLine(r.Message)
 	}
@@ -486,6 +489,19 @@ func modalText(c Cause) string {
 		a.Kind = "modal"
 	}
 	return attentionText(a)
+}
+
+// modalAdvice is how to get a modal thing out of the way with wave 1's tools.
+func modalAdvice(c Cause) string {
+	switch c.Kind {
+	case AttentionMenu:
+		return "pick one of its items, or press escape with machine_key to close it"
+	case AttentionPopover:
+		return "finish with it, or press escape with machine_key to close it"
+	case "":
+		return "press one of its buttons, or escape with machine_key"
+	}
+	return "press one of its buttons"
 }
 
 // modalNoun is what kind of modal thing it is, for a sentence.
