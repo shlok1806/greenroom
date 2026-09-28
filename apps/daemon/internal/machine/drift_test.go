@@ -1,8 +1,10 @@
 package machine
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -45,23 +47,23 @@ func TestAnImageFromBeforeTheHelperAndRecipeIsStale(t *testing.T) {
 	if st.State != ImageStale || st.Rebuild != "-lean -name greenroom-lean-a -force" || len(st.Reasons) != 2 {
 		t.Fatalf("status = %+v, want stale with both reasons and the lean rebuild", st)
 	}
-	if !strings.Contains(st.Reasons[0], "its input helper is 6, this daemon's is 8") ||
-		!strings.Contains(st.Reasons[1], "it records no image recipe, this daemon's is 2") {
+	if !strings.Contains(st.Reasons[0], "its input helper is 6, this daemon's is "+strconv.Itoa(inputHelperVersion)) ||
+		!strings.Contains(st.Reasons[1], "it records no image recipe, this daemon's is "+strconv.Itoa(imageRecipeVersion)) {
 		t.Errorf("reasons = %q", st.Reasons)
 	}
 }
 
 func TestAnImageWithThisDaemonsHelperAndRecipeIsCurrent(t *testing.T) {
-	root := guestRoot(t, []string{"greenroom-input-6", "greenroom-input-8"}, `{"known":true,"imageRecipe":2}`)
+	root := guestRoot(t, []string{"greenroom-input-6", "greenroom-input-" + strconv.Itoa(inputHelperVersion)}, fmt.Sprintf(`{"known":true,"imageRecipe":%d}`, imageRecipeVersion))
 	helpers, manifest, err := ReadImageFacts(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st := JudgeImage("greenroom-base", helpers, manifest); st.State != ImageCurrent || st.Recipe != 2 || st.Rebuild != "" {
+	if st := JudgeImage("greenroom-base", helpers, manifest); st.State != ImageCurrent || st.Recipe != imageRecipeVersion || st.Rebuild != "" {
 		t.Errorf("status = %+v, want current", st)
 	}
 	// An older recipe alone is stale too.
-	st := JudgeImage("greenroom-base", []int{8}, map[string]any{"known": true, "imageRecipe": float64(1)})
+	st := JudgeImage("greenroom-base", []int{inputHelperVersion}, map[string]any{"known": true, "imageRecipe": float64(1)})
 	if st.State != ImageStale || st.Rebuild != "-force" || !strings.Contains(st.Reasons[0], "it records image recipe 1") {
 		t.Errorf("status = %+v", st)
 	}

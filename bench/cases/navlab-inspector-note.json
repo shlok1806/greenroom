@@ -1,0 +1,15 @@
+{
+  "id": "navlab-inspector-note",
+  "app": "navlab",
+  "kind": "correct",
+  "split": "dev",
+  "tier": "navigation",
+  "patch": null,
+  "task": "NavLab (a macOS app of navigation scenes, with a Scenes list on the left) is running on screen. I changed the Second window scene. Open it, press Open Inspector, set the Inspector's Name to Atlas and press Apply: the main window should read Project: Atlas. Then type ship it into the main window's Note field and press return: it should read Note: ship it. Give a pass or fail verdict.",
+  "expected": "pass",
+  "must_check": [
+    "Project: Atlas after Apply in the Inspector",
+    "Note: ship it after typing it into the Note field"
+  ],
+  "notes": "Window focus (docs/21 1.4 case 6, #195). The Inspector floats over the main window's Note field and keeps the keyboard, so typing without focusing the Note field types into the Inspector."
+}

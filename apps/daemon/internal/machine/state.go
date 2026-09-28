@@ -71,6 +71,11 @@ func (m *Manager) loadState() error {
 		case mc.Status == Ready:
 			m.watchProcess(mc, 0)
 			m.startFrames(mc, 0)
+			if m.desktopToolkit {
+				// The agent ended with the daemon that started it; this one reconnects with one
+				// exec (daemon ADR 0005). Refs from before are gone with that connection.
+				m.startAgent(mc, 0)
+			}
 		}
 	}
 	return m.saveState()

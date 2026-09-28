@@ -137,8 +137,16 @@ func (m *Manager) bootGuest(boot context.Context, mc *Machine, timings map[strin
 			}
 		}
 		endSettings("", nil) // each of them is never fatal
-		// A stale image's helper is compiled here, not in the first UI call (issue #41).
-		_ = shown(PhaseHelper, func() error { m.bootInputHelper(boot, mc, timings); return nil })
+		// A stale image's helper is compiled here, not in the first UI call (issue #41). With the
+		// desktop toolkit the guest agent, which is that helper, starts right after (daemon ADR
+		// 0005); it is never fatal either.
+		_ = shown(PhaseHelper, func() error {
+			m.bootInputHelper(boot, mc, timings)
+			if m.desktopToolkit {
+				m.bootAgent(ctx, mc, timings)
+			}
+			return nil
+		})
 		endChecks := m.beginPhase(mc, PhaseChecks)
 		// What the image says about its toolchain (ADR 0019) and what is on its screen
 		// (ADR 0018), for machine_wait. Neither is fatal, and the desktop is only reported.
@@ -169,6 +177,9 @@ func (m *Manager) bootGuest(boot context.Context, mc *Machine, timings map[strin
 				return m.waitSSH(sshCtx, mc, got.ip)
 			})
 		})
+	}
+	if err != nil {
+		m.stopAgent(mc) // a machine that did not come up keeps no agent trying to reach it
 	}
 	return got, err
 }

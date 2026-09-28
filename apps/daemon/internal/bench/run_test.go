@@ -272,6 +272,24 @@ func TestRunnerRunsEachCaseOnAFreshMachineAndResumes(t *testing.T) {
 	}
 }
 
+// A case with open false is built and left not running: launching it is the verifier's task
+// (the navigation tier's app launch).
+func TestRunnerLeavesAnOpenFalseAppNotRunning(t *testing.T) {
+	r := newRig(t)
+	closed := r.addCase(t, `{"id":"demo-closed","app":"demo","kind":"correct","split":"dev","patch":null,"task":"Check it. PASS","expected":"pass","must_check":["x"],"open":false}`)
+	out := filepath.Join(t.TempDir(), "r.jsonl")
+	if _, err := r.runner([]Case{closed}, 1, out).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if res := byKey(t, out)["demo-closed#1"]; res.Ending != EndVerdict || !res.Right() {
+		t.Errorf("result = %+v, want a right verdict", res)
+	}
+	stdin := testsupport.ExecStdin(t, r.control)
+	if !strings.Contains(stdin, "./build.sh") || strings.Contains(stdin, "open 'build/Demo.app'") {
+		t.Errorf("want the app built and never opened; the guest ran:\n%s", stdin)
+	}
+}
+
 func TestRunnerPlaysATakeoverAndATaskWhileBooting(t *testing.T) {
 	r := newRig(t)
 	takeover := r.addCase(t, `{"id":"demo-takeover","app":"demo","kind":"infra","split":"dev","patch":null,"task":"Check it. TAKEOVER","expected":"ask_or_inconclusive","must_check":[],"infra":{"type":"human_takeover","afterSteps":1}}`)

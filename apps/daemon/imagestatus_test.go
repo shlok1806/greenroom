@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,7 +21,7 @@ func TestImageStatusNamesStaleImagesAndTheirRebuild(t *testing.T) {
 	trees := map[string]string{}
 	for name, tree := range map[string]struct{ helper, manifest string }{
 		"greenroom-lean-a": {"greenroom-input-6", ""},
-		"greenroom-base":   {"greenroom-input-8", `{"known":true,"imageRecipe":2}`},
+		"greenroom-base":   {"greenroom-input-" + strconv.Itoa(machine.InputHelperVersion()), fmt.Sprintf(`{"known":true,"imageRecipe":%d}`, machine.ImageRecipeVersion())},
 	} {
 		disk := filepath.Join(home, "vms", name, "disk.img")
 		if err := os.MkdirAll(filepath.Dir(disk), 0o755); err != nil {
@@ -56,10 +58,10 @@ func TestImageStatusNamesStaleImagesAndTheirRebuild(t *testing.T) {
 	var out strings.Builder
 	printImageStatuses(&out, statuses)
 	for _, want := range []string{
-		"greenroom-lean-a: stale: its input helper is 6, this daemon's is 8",
-		"it records no image recipe, this daemon's is 2",
+		"greenroom-lean-a: stale: its input helper is 6, this daemon's is " + strconv.Itoa(machine.InputHelperVersion()),
+		"it records no image recipe, this daemon's is " + strconv.Itoa(machine.ImageRecipeVersion()),
 		"  Rebuild it (needs about 20 GB free): scripts/build-image.sh -lean -name greenroom-lean-a -force\n",
-		"greenroom-base: current (input helper 8, image recipe 2)\n",
+		"greenroom-base: current (input helper " + strconv.Itoa(machine.InputHelperVersion()) + ", image recipe " + strconv.Itoa(machine.ImageRecipeVersion()) + ")\n",
 		"greenroom-busy: running, so not checked",
 		"greenroom-gone: not on this host\n",
 	} {

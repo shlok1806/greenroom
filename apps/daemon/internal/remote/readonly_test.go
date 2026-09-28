@@ -14,3 +14,21 @@ func TestRunReportIsRetriedAndRunFinishIsNot(t *testing.T) {
 		t.Error("run_finish is in readOnlyTools; a retry could finish twice")
 	}
 }
+
+// The desktop toolkit's looks are retried; an action posts input, and a retry could post it twice
+// (daemon ADR 0005: an input is never posted twice).
+func TestToolkitLooksAreRetriedAndActionsAreNot(t *testing.T) {
+	for _, look := range toolkitLooks {
+		if !readOnlyTools[look] {
+			t.Errorf("%s is not in readOnlyTools", look)
+		}
+	}
+	for _, action := range []string{"machine_press", "machine_type", "machine_set_value", "machine_key", "machine_scroll"} {
+		if readOnlyTools[action] {
+			t.Errorf("%s is in readOnlyTools; a retry could post its input twice", action)
+		}
+	}
+}
+
+// toolkitLooks are the toolkit's tools that only read.
+var toolkitLooks = []string{"machine_snapshot", "machine_find", "machine_wait_for", "machine_expect"}

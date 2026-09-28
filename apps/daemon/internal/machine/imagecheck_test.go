@@ -60,6 +60,16 @@ func writeControl(t *testing.T, control, name, body string) {
 
 func runCheck(t *testing.T, bin, out string) ImageCheckResult {
 	t.Helper()
+	control := filepath.Join(filepath.Dir(bin), "control")
+	// A healthy guest agent (agentSmoke), unless the test canned another answer.
+	for name, body := range map[string]string{
+		"agent-snapshot.json": `{"result": {"nodes": [{"ref": "e1", "role": "Window", "name": "Desktop"}]}}`,
+		"agent-waitFor.json":  `{"result": {"satisfied": true, "elapsedMs": 300}}`,
+	} {
+		if _, err := os.Stat(filepath.Join(control, name)); os.IsNotExist(err) {
+			writeControl(t, control, name, body)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	res, err := CheckImage(ctx, ImageCheck{TartBin: bin, Image: "greenroom-new", OutDir: out,
@@ -128,8 +138,10 @@ func TestCheckImageFailsOnAPromptAnUnaskedAppAndABanner(t *testing.T) {
 	if strings.Contains(findings, "Menubar") {
 		t.Errorf("the menu bar is on every desktop and must not be a finding:\n%s", findings)
 	}
-	// Surface, never sweep: the check reports the window and leaves it.
-	if calls := testsupport.Calls(t, control); regexp.MustCompile(`pkill|killall|quit app "Terminal"|to quit\b.*Terminal`).MatchString(calls) {
+	// Surface, never sweep: the check reports the window and leaves it. The guest agent's start
+	// pkills an orphaned agent of its own (agentScript), which is not something the check found.
+	calls := regexp.MustCompile(`pkill -f '\[g\]reenroom-input-\d+ --agent'`).ReplaceAllString(testsupport.Calls(t, control), "")
+	if regexp.MustCompile(`pkill|killall|quit app "Terminal"|to quit\b.*Terminal`).MatchString(calls) {
 		t.Errorf("the check closed something it found:\n%s", calls)
 	}
 }
@@ -159,6 +171,29 @@ func TestCheckImageFailsOnAFlatScreenshot(t *testing.T) {
 	res := runCheck(t, bin, t.TempDir())
 	if res.Passed || !strings.Contains(strings.Join(res.Passes[0].Findings, "\n"), "one flat colour") {
 		t.Fatalf("a black screenshot passed: %+v", res.Passes[0].Findings)
+	}
+}
+
+// The gate checks the guest agent too (daemon ADR 0005): an agent that cannot read the
+// screen fails the image.
+func TestCheckImageFailsWhenTheGuestAgentCannotWork(t *testing.T) {
+	bin, control := testsupport.FakeTart(t)
+	writeControl(t, control, "shot.b64", busyPNG(t))
+	writeControl(t, control, "desktop.json", cleanDesktop)
+	writeControl(t, control, "agent-snapshot.json", `{"error": {"code": "not_trusted", "message": "this machine has not granted Accessibility"}}`)
+	writeControl(t, control, "agent-waitFor.json", `{"result": {"satisfied": false, "elapsedMs": 10000}}`)
+	res := runCheck(t, bin, t.TempDir())
+	if res.Passed {
+		t.Fatal("an image whose guest agent cannot read the screen passed")
+	}
+	got := strings.Join(res.Passes[0].Findings, "\n")
+	for _, want := range []string{"could not snapshot Finder", "never went idle"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("findings lack %q:\n%s", want, got)
+		}
+	}
+	if !strings.Contains(testsupport.Calls(t, control), "--agent") {
+		t.Error("the gate never started the guest agent")
 	}
 }
 

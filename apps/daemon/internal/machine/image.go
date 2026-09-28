@@ -24,7 +24,9 @@ const prepareTimeout = 12 * time.Minute
 // so a bump rebuilds it. 1: Xcode in every image (ADR 0026); images before it have none.
 // 2: the Login Items & Extensions alert installing Xcode raises is closed at build time
 // (xcode.sh waits for it, base.sh closes it), so it is not on every clone's screen.
-const imageRecipeVersion = 2
+// 3: helper 9, the guest agent (daemon ADR 0005), baked in, and the dialog gate checks it
+// (agentSmoke: its permissions, a Finder snapshot, a capture that is not flat, idle).
+const imageRecipeVersion = 3
 
 // InputHelperVersion is the helper version PrepareGuest bakes into an image.
 func InputHelperVersion() int { return inputHelperVersion }

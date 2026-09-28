@@ -125,6 +125,8 @@ func (r *Remote) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp
 var readOnlyTools = map[string]bool{
 	"machine_list": true, "machine_wait": true, "machine_exec_wait": true, "machine_screenshot": true,
 	"machine_ui": true, "machine_session_read": true, "agent_wait": true, "agent_transcript": true, "run_report": true,
+	// The desktop toolkit's looks (daemon ADR 0006); its actions post input and are never retried.
+	"machine_snapshot": true, "machine_find": true, "machine_wait_for": true, "machine_expect": true,
 }
 
 // drop forgets broken so the next call dials a new session.

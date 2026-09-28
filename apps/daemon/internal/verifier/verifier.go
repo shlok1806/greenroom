@@ -278,7 +278,9 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 	var res TurnResult
 	seen := store.Len()
 	status := machineStatus(ctx, v.mgr, runID)
-	msgs := withStatus(project(store.After(0)), status)
+	toolkit := v.mgr.DesktopToolkit()
+	offered := toolsFor(toolkit)
+	msgs := withStatus(projectWith(systemPromptFor(toolkit), store.After(0)), status)
 	nudged := false
 	taskNudged := false
 	screenTaken := 0        // input refused, or the screen taken, during this turn (issues #97, #124)
@@ -297,7 +299,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			msgs = append(msgs, nim.Message{Role: "user", Content: "[machine status changed] " + now})
 		}
 
-		msg, usage, err := v.llm.Chat(ctx, v.cfg.Model, msgs, tools)
+		msg, usage, err := v.llm.Chat(ctx, v.cfg.Model, msgs, offered)
 		res.Tokens += usage.PromptTokens + usage.CompletionTokens
 		res.Seconds = since(started)
 		if err != nil {

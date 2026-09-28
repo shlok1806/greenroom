@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,8 +126,10 @@ func TestWatchScreenOpensWithHelloFormatAndAKeyframe(t *testing.T) {
 			prev = s
 		}
 	}
-	if !strings.Contains(testsupport.Calls(t, control), `pkill -f '[g]reenroom-input-8 --serve'; exec "$HOME/.greenroom/bin/greenroom-input-8" --serve`) {
-		t.Errorf("the stream did not run helper version 7 with --serve:\n%s", testsupport.Calls(t, control))
+	want := fmt.Sprintf(`pkill -f '[g]reenroom-input-%d --serve'; exec "$HOME/.greenroom/bin/greenroom-input-%d" --serve`,
+		inputHelperVersion, inputHelperVersion)
+	if !strings.Contains(testsupport.Calls(t, control), want) {
+		t.Errorf("the stream did not run helper version %d with --serve:\n%s", inputHelperVersion, testsupport.Calls(t, control))
 	}
 }
 

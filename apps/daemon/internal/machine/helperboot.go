@@ -11,16 +11,17 @@ import (
 // its own budget, like ssh, so a slow compile cannot starve the other phases.
 const helperCompileTimeout = 3 * time.Minute
 
-// helperCheckScript prints "current" when this daemon's input helper answers
-// --version in the guest, else "stale" and the helpers the image does have
-// (none at all for an image that was never prepared). It only reads. The
-// first line names it for the fake tart.
+// helperCheckScript prints "current" when this daemon's input helper answers --version in the
+// guest with exactly this build's line (version and source hash, daemon ADR 0005), else "stale"
+// and the helpers the image does have (none at all for an image that was never prepared). A
+// helper of this version built from other sources is stale too. It only reads. The first line
+// names it for the fake tart.
 func helperCheckScript() string {
 	return fmt.Sprintf(`: greenroom-helper-check
 bin="$HOME/%s"
-if [ -x "$bin" ] && "$bin" --version >/dev/null 2>&1; then echo current; exit 0; fi
+if [ -x "$bin" ] && [ "$("$bin" --version 2>/dev/null)" = %q ]; then echo current; exit 0; fi
 echo stale $(ls "$HOME/.greenroom/bin" 2>/dev/null | grep '^greenroom-input-')
-`, helperName())
+`, helperName(), helperVersionLine())
 }
 
 // warnStaleRecipe says so when the image's manifest names another recipe than this daemon's

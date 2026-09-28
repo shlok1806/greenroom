@@ -10,6 +10,7 @@
       "!docs/image-experiment/raw",
       "!apps/daemon/internal/report/testdata",
       "!apps/daemon/internal/summary/testdata",
+      "!apps/daemon/internal/mcpserver/testdata",
       "!docs/22-swiftui-clone-plan/specs"
     ]
   },

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 )
 
 // Rate is k events in n trials with its exact upper bound (UpperBound).
@@ -329,6 +331,24 @@ func Report(source string, all []Result, now time.Time, opts ReportOptions) stri
 			metricsTable(&b, []string{"simple dev", "simple holdout", "simple", "all"},
 				[]Metrics{bySplit(simple, SplitDev), bySplit(simple, SplitHoldout), bySplit(simple, ""), all3})
 		}
+	}
+
+	if nav := filterResults(results, func(r Result) bool { return r.Tier == TierNavigation }); len(nav) > 0 {
+		p("\n## Navigation\n\n")
+		p("Navigation-tier trials (bench/README.md): calls and minutes per verdict, and the verifier's wasted calls by class, " +
+			"read from each trial's steps.jsonl (docs/21 sections 1 and 9). A refusal is the toolkit naming a navigation " +
+			"failure; the old tools show the same failures as misaimed clicks and inputs with no change.\n\n")
+		var heads []string
+		var sets []NavStats
+		for _, set := range []struct {
+			head    string
+			toolkit bool
+		}{{"old tools", false}, {"toolkit", true}} {
+			if rs := filterResults(nav, func(r Result) bool { return r.Toolkit == set.toolkit }); len(rs) > 0 {
+				heads, sets = append(heads, set.head), append(sets, NavigationStats(rs, machine.ReadSteps))
+			}
+		}
+		b.WriteString(navigationSection(heads, sets))
 	}
 
 	if len(labels) > 1 {

@@ -13,7 +13,7 @@ Working instructions for agents in this repo. What greenroom is and how to run i
 - `packages/` - empty; TypeScript packages only when one is needed.
 - `bench/` - the verifier bench (ADR 0025): fixture macOS apps, cases with known verdicts and
   their mutant patches. See its `README.md`; the runner is `greenroom bench`.
-- `docs/` - notes `00`-`19` (`12`-`15`: iOS, verifier quality, field data, market research; `17`: scene setup plan; `18`: verifier strictness audit; `19`: dogfooding findings), ADRs in `docs/adr/`.
+- `docs/` - notes `00`-`20` (`12`-`15`: iOS, verifier quality, field data, market research; `17`: scene setup plan; `18`: verifier strictness audit; `19`: dogfooding findings; `20`: Companion UX research and redesign plan), ADRs in `docs/adr/`.
 - `scripts/update.sh` - updates a source install (root ADR 0033): refuses a dirty checkout, one
   off `main` or one that cannot fast-forward, then `git merge --ff-only origin/main`, the
   daemon's `install.sh`, then the Companion's. `--check` only reports. Tested by

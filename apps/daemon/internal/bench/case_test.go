@@ -124,6 +124,59 @@ func TestTheSimpleTierIsPinned(t *testing.T) {
 	}
 }
 
+// The navigation tier is navlab's hazard cases (bench/README.md): one list per split, so tagging
+// or untagging one is a change of this test on purpose. Every one of them is on navlab.
+func TestTheNavigationTierIsPinned(t *testing.T) {
+	cases, err := LoadCases(repoBench(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		SplitDev: {"navlab-overlay-open-run", "navlab-overlay-wrong-run", "navlab-scroll-details",
+			"navlab-summary-flagged-count", "navlab-long-label-time", "navlab-amount-tax", "navlab-delayed-result",
+			"navlab-inspector-note", "navlab-launch"},
+		SplitHoldout: {"navlab-scroll-summary", "navlab-long-label-wrong-time", "navlab-delayed-never",
+			"navlab-prepare-continue"},
+	}
+	for split, ids := range want {
+		var got []string
+		for _, c := range Filter(cases, nil, split, "", TierNavigation) {
+			got = append(got, c.ID)
+			if c.App != "navlab" {
+				t.Errorf("navigation case %s is on %s", c.ID, c.App)
+			}
+		}
+		w := slices.Sorted(slices.Values(ids))
+		if !slices.Equal(got, w) {
+			t.Errorf("%s navigation cases: got %v, want %v", split, got, w)
+		}
+	}
+}
+
+// open false leaves the app built and not running; it is refused on a case whose task cannot
+// be about launching it, and true is never written (absent means opened).
+func TestOpenFalseIsOnlyForCheckableCases(t *testing.T) {
+	no, yes := false, true
+	c := Case{ID: "navlab-x", App: "navlab", Kind: KindCorrect, Split: SplitDev, Task: "t", Expected: ExpectPass,
+		MustCheck: []string{"m"}, Open: &no}
+	if err := c.Validate(); err != nil || c.Opens() {
+		t.Fatalf("open false on a correct case: %v, opens %v", err, c.Opens())
+	}
+	c.Open = &yes
+	if err := c.Validate(); err == nil {
+		t.Error("open true was accepted")
+	}
+	c.Open, c.Kind, c.Expected, c.MustCheck = &no, KindAmbiguous, AskOrInconclusive, nil
+	if err := c.Validate(); err == nil {
+		t.Error("open false on an ambiguous case was accepted")
+	}
+	c = Case{ID: "tipsplit-x", App: "tipsplit", Kind: KindCorrect, Split: SplitDev, Task: "t", Expected: ExpectPass,
+		MustCheck: []string{"m"}, Tier: TierNavigation}
+	if err := c.Validate(); err == nil {
+		t.Error("a navigation case off navlab was accepted")
+	}
+}
+
 // Every mutant's patch really changes its app, and no two mutants share one.
 func TestEveryMutantChangesItsApp(t *testing.T) {
 	dir := repoBench(t)
