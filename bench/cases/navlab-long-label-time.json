@@ -7,8 +7,6 @@
   "patch": null,
   "task": "NavLab (a macOS app of navigation scenes, with a Scenes list on the left) is running on screen. I changed the Long label scene. Open it: the last sentence of the release note should say the nightly export starts at 02:30 UTC. Give a pass or fail verdict.",
   "expected": "pass",
-  "must_check": [
-    "the release note ends saying the nightly export starts at 02:30 UTC"
-  ],
+  "must_check": ["the release note ends saying the nightly export starts at 02:30 UTC"],
   "notes": "Clipped text (#190, docs/21 1.4 case 2). The note is one line the window truncates; the fact is in the cut-off part. A verifier reading only the screen, or a tree that cuts labels silently, cannot see it."
 }

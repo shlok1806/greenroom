@@ -7,9 +7,7 @@
   "patch": null,
   "task": "NavLab (a macOS app of navigation scenes) is built at ~/work/navlab/build/NavLab.app but not running. I changed its Long label scene. Launch NavLab, open the Long label scene: the last sentence of the release note should say the nightly export starts at 02:30 UTC. Give a pass or fail verdict.",
   "expected": "pass",
-  "must_check": [
-    "the release note ends saying the nightly export starts at 02:30 UTC"
-  ],
+  "must_check": ["the release note ends saying the nightly export starts at 02:30 UTC"],
   "open": false,
   "notes": "App launch (docs/21 1.4 case 5). NavLab is built and not running, and shows a loading window for 3 s before its scenes: a look right after launching sees the loading window."
 }

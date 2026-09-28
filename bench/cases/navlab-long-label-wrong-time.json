@@ -8,8 +8,6 @@
   "patch": "patches/navlab-long-label-wrong-time.diff",
   "task": "NavLab (a macOS app of navigation scenes, with a Scenes list on the left) is running on screen. I changed the Long label scene. Open it: the last sentence of the release note should say the nightly export starts at 02:30 UTC. Give a pass or fail verdict.",
   "expected": "fail",
-  "must_check": [
-    "the release note ends saying the nightly export starts at 02:30 UTC"
-  ],
+  "must_check": ["the release note ends saying the nightly export starts at 02:30 UTC"],
   "notes": "Clipped text. The hidden sentence says 03:30 UTC."
 }
