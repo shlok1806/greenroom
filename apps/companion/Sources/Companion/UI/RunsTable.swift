@@ -16,6 +16,10 @@ struct RunsTable: NSViewRepresentable {
     var select: (String) -> Void
     var expand: (SummaryGroup) -> Void
     var frozenNow: Date?
+    /// Scrolls the table for the visible scroller.
+    var driver: ScrollDriver?
+    /// How far the list is scrolled, and the runs showing ("25-48 of 2,000").
+    var onScroll: ((ScrollMetrics, String) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -42,14 +46,20 @@ struct RunsTable: NSViewRepresentable {
         let scroll = NSScrollView()
         scroll.documentView = table
         scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        // The design draws no scroll bar beside the rows: an overlay scroller, which shows only
-        // while scrolling, even with a mouse attached (seen as a 17 pt bar in a Greenroom VM).
+        // The sidebar draws its own always-visible scroller (`VisibleScroller`): the system's
+        // overlay scroller hid until you scrolled, and the legacy one is a 17 pt bar.
+        scroll.hasVerticalScroller = false
         scroll.scrollerStyle = .overlay
         scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: Gap.x8, right: 0)
         scroll.automaticallyAdjustsContentInsets = false
         context.coordinator.table = table
+        context.coordinator.scrollView = scroll
+        driver?.scrollView = scroll
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scrolled(_:)),
+                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scrolled(_:)),
+                                               name: NSView.frameDidChangeNotification, object: table)
         return scroll
     }
 
@@ -73,6 +83,8 @@ struct RunsTable: NSViewRepresentable {
                 return false
             }, columnIndexes: [0])
         }
+        driver?.scrollView = scroll
+        if changed { DispatchQueue.main.async { c.report() } }
         if let selected, let row = items.firstIndex(of: .run(selected)) {
             c.syncingSelection = true
             table.selectRowIndexes([row], byExtendingSelection: false)
@@ -91,7 +103,27 @@ struct RunsTable: NSViewRepresentable {
         var selected: String?
         var frozenNow: Date?
         weak var table: NSTableView?
+        weak var scrollView: NSScrollView?
         var syncingSelection = false
+
+        @objc func scrolled(_ note: Notification) {
+            report()
+        }
+
+        /// Tells the sidebar how far the list is scrolled and which runs show.
+        func report() {
+            guard let scrollView, let table, let onScroll = parent?.onScroll else { return }
+            let clip = scrollView.contentView.bounds
+            let metrics = ScrollMetrics(offset: clip.origin.y, content: table.frame.height + Gap.x8, viewport: clip.height)
+            let runRows = items.indices.filter { if case .run = items[$0] { true } else { false } }
+            let visible = table.rows(in: clip)
+            let shown = runRows.filter { $0 >= visible.location && $0 < visible.location + visible.length }
+            var words = ""
+            if let first = shown.first.flatMap(runRows.firstIndex(of:)), let last = shown.last.flatMap(runRows.firstIndex(of:)) {
+                words = "\(first + 1)-\(last + 1) of \(runRows.count.formatted())"
+            }
+            onScroll(metrics, words)
+        }
 
         func numberOfRows(in tableView: NSTableView) -> Int { items.count }
 

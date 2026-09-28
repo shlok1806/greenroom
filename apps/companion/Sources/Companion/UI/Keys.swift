@@ -2,11 +2,14 @@ import AppKit
 import SwiftUI
 
 /// The window's keys (companion ADR 0019 point 6), all in this file: Up and Down move between
-/// runs, J and K between checks, Left and Right between frames, A opens Activity, M the
-/// composer, E the evidence, Cmd-K the palette, Cmd-Return the primary action, Cmd-Delete
-/// Reject, Esc closes what is open. Every one is also a labeled button and a menu item or
-/// palette row. While a text field has the keyboard only Esc and Cmd-K are ours; while the
-/// person drives the Mac, every key goes to the Mac.
+/// runs, J and K between checks, Left and Right between frames, Space plays the recording,
+/// F plays it at 1x or 4x, N jumps to the next failure (Shift-N the one before), Z shows the
+/// picture alone, A opens Activity, M the composer, E the evidence, C captures a screenshot,
+/// T takes control, U undoes an accept or reject, ? and Cmd-K the palette, Cmd-L back to live,
+/// Cmd-R reads everything again, Cmd-Return the primary action, Cmd-Delete Reject, Esc closes
+/// what is open. Every one is also a labeled button and a menu item or palette row. While a
+/// text field has the keyboard only Esc and Cmd-K are ours; while the person drives the Mac,
+/// every key goes to the Mac.
 @MainActor
 final class Keys {
     private let shell: ShellModel
@@ -63,12 +66,29 @@ final class Keys {
             }
             return false
         }
+        if flags == .command, key == "l" {
+            shell.goLive()
+            return true
+        }
+        if flags == .command, key == "r" {
+            shell.refresh()
+            return true
+        }
+        if flags == .shift, key == "n" {
+            shell.jumpToFailure(forward: false)
+            return true
+        }
+        if key == "?", flags.subtracting(.shift).isEmpty {
+            shell.paletteOpen = true
+            return true
+        }
         guard flags.isEmpty else { return false }
         switch event.keyCode {
         case 125: shell.moveRun(by: 1); return true   // down
         case 126: shell.moveRun(by: -1); return true  // up
-        case 123: shell.moveFrame(by: -1, in: filmstrip()); return true // left
-        case 124: shell.moveFrame(by: 1, in: filmstrip()); return true  // right
+        case 123: shell.moveFrame(by: -1); return true // left
+        case 124: shell.moveFrame(by: 1); return true  // right
+        case 49: shell.togglePlay(); return true       // space
         default: break
         }
         switch key {
@@ -77,13 +97,30 @@ final class Keys {
         case "a": shell.toggleActivity(); return true
         case "m": shell.openComposer(.message); return true
         case "e": shell.evidenceOpen.toggle(); return true
+        case "n": shell.jumpToFailure(); return true
+        case "l": shell.goLive(); return true
+        case "z": shell.toggleZoom(); return true
+        case "f": shell.toggleSpeed(); return true
+        case "c":
+            guard shell.canCapture else { return false }
+            shell.capture()
+            return true
+        case "u":
+            guard shell.store.verdictUndo.pending != nil else { return false }
+            shell.undoVerdictChoice()
+            return true
+        case "t":
+            guard let s = shell.summary else { return false }
+            if let take = ([shell.actions(for: s).primary].compactMap { $0 } + shell.actions(for: s).secondary)
+                .first(where: { $0.id == SummaryAction.takeControl }) {
+                shell.perform(take)
+                return true
+            }
+            guard shell.canTakeControl(s) else { return false }
+            shell.perform(SummaryAction(id: SummaryAction.takeControl, label: "Take control"))
+            return true
         default: return false
         }
-    }
-
-    private func filmstrip() -> [String] {
-        guard let s = shell.summary else { return [] }
-        return Filmstrip.items(shell.store.frames[s.runId] ?? [], checks: s.checks.items).map(\.file)
     }
 
     // MARK: - How actions show their keys
@@ -96,7 +133,8 @@ final class Keys {
     /// The key shown beside an action in the palette and menus.
     static func shortcut(for action: SummaryAction) -> String? {
         switch action.id {
-        case SummaryAction.accept, SummaryAction.continue, SummaryAction.takeControl, SummaryAction.giveBack,
+        case SummaryAction.takeControl: "T"
+        case SummaryAction.accept, SummaryAction.continue, SummaryAction.giveBack,
              SummaryAction.restart, SummaryAction.answer, SummaryAction.recheck, SummaryAction.keepWaiting:
             nil
         case SummaryAction.reject: "⌘⌫"
@@ -145,7 +183,24 @@ struct ShellCommands: Commands {
             }
             Button("Activity") { shell.toggleActivity() }
             Button("Message the Verifier") { shell.openComposer(.message) }
+            Button("New Task") { shell.openComposer(.task) }
             Button("Evidence") { shell.evidenceOpen.toggle() }
+            Button(shell.zoomed ? "Show Checks and Activity" : "Picture Only") { shell.toggleZoom() }
+            Divider()
+            Button(shell.playing ? "Pause Recording" : "Play Recording") { shell.togglePlay() }
+            Button(shell.speed == 1 ? "Play at 4×" : "Play at 1×") { shell.toggleSpeed() }
+            Button("Next Failure") { shell.jumpToFailure() }
+            Button("Previous Failure") { shell.jumpToFailure(forward: false) }
+            Button("Back to Live") { shell.goLive() }
+                .keyboardShortcut("l", modifiers: .command)
+            Divider()
+            Button("Capture Screenshot") { shell.capture() }.disabled(!shell.canCapture)
+            Button("Save Recording…") { shell.exportRecording() }.disabled(!shell.canExport)
+            Button("Copy Run ID") { shell.copyRunID() }.disabled(shell.runId == nil)
+            Button("Destroy the Mac…") { shell.confirmingDestroy = true }.disabled(!shell.canDestroy)
+            Divider()
+            Button("Refresh") { shell.refresh() }
+                .keyboardShortcut("r", modifiers: .command)
             Divider()
             Button("Command Palette") { shell.paletteOpen.toggle() }
                 .keyboardShortcut("k", modifiers: .command)

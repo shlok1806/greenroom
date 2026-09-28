@@ -1,38 +1,53 @@
 import SwiftUI
 
-/// The run pane (Figma Mockups 02 to 04, 07): the toolbar, the header that answers "is it
-/// working, did it pass, what do I do now", then the checks beside the stage.
+/// The run pane (Figma Mockups 02 to 04, 07; rethought around a player in redesign 7): the
+/// toolbar with the basic controls, the header that answers "is it working, did it pass, what
+/// do I do now", then the player (the picture, its caption and the transport bar) beside the
+/// inspector column (Checks, Activity, Message). Opening Activity never hides the player: the
+/// picture shrinks to the room left. Z folds the inspector away.
 struct RunPane: View {
     @Bindable var shell: ShellModel
     var summary: Summary
     var windowClass: WindowClass
+    @AppStorage("inspectorWidth", store: AppDefaults.shared) private var inspectorWidth = InspectorDivider.defaultWidth
+    @State private var bodyWidth: CGFloat = 0
+
+    /// The inspector's widths: at least 280, and never so wide that the player has under 360.
+    private var inspectorRange: ClosedRange<Double> {
+        let most = max(280, Double(bodyWidth) - 360)
+        return 280...min(720, most)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             RunToolbar(shell: shell, summary: summary, windowClass: windowClass)
             StatusHeader(shell: shell, summary: summary)
+            if shell.confirmingDestroy {
+                DestroyConfirmBanner(busy: shell.busy == "destroy", keep: { shell.confirmingDestroy = false }, destroy: shell.destroy)
+            }
+            if let error = shell.store.lastError {
+                ErrorBanner(text: error) { shell.store.clearError() }
+            }
             if let warning = shell.warning(for: summary) {
                 WarningBanner(text: warning, restart: summary.state == .notAnswering ? nil : {
                     shell.perform(SummaryAction(id: SummaryAction.restart, label: "Restart the Mac"))
                 }, dismiss: shell.dismissWarning)
             }
             HStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    ChecksColumn(shell: shell, summary: summary)
-                    // The 1 pt border is inside the column's width, as the design draws it.
-                    Rectangle().fill(Palette.border).frame(width: 1)
-                }
-                .frame(width: windowClass.checks)
-                .cloneScope("Checks")
-                if shell.activityOpen {
-                    ActivityPanel(shell: shell, summary: summary)
-                } else {
-                    StageView(shell: shell, summary: summary, windowClass: windowClass).cloneScope("Stage")
+                StageView(shell: shell, summary: summary, windowClass: windowClass).cloneScope("Stage")
+                if !shell.zoomed {
+                    InspectorDivider(width: $inspectorWidth, range: inspectorRange)
+                    InspectorColumn(shell: shell, summary: summary)
+                        .frame(width: CGFloat(min(max(inspectorWidth, inspectorRange.lowerBound), inspectorRange.upperBound)))
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { bodyWidth = $0 }
+            .animation(.easeOut(duration: Motion.settle), value: shell.zoomed)
             .cloneScope("Body")
         }
         .background(Palette.bg)
+        .overlay(alignment: .bottom) { UndoToast(shell: shell) }
         .cloneScope("Run")
     }
 }
@@ -47,22 +62,27 @@ struct RunToolbar: View {
 
     var body: some View {
         HStack(spacing: Gap.x8) {
+            // Who started it and when is in the tooltip and Details: the words go to the player.
             Text(summary.name).textStyle(.bodyEmphasis).foregroundStyle(Palette.text).lineLimit(1)
-                .fixedSize().clonePart("Run name")
-            if windowClass != .compact {
-                Text(origin).textStyle(.body).foregroundStyle(Palette.textSecondary).lineLimit(1)
-                    .layoutPriority(-1).clonePart("Run meta")
-            }
+                .help("\(summary.name), \(origin)")
+                .clonePart("Run name")
             Spacer(minLength: Gap.x8)
-            ToolbarButton(icon: .activity, title: "Activity", on: shell.activityOpen) { shell.toggleActivity() }
+            if shell.canTakeControl(summary) {
+                ToolbarButton(icon: .pointer, title: "Take control") {
+                    shell.perform(SummaryAction(id: SummaryAction.takeControl, label: "Take control"))
+                }
+                .help("Take control of the Mac (T)")
+                .accessibilityIdentifier("toolbar.takeControl")
+            }
+            DetailsButton(shell: shell, summary: summary)
+            ToolbarButton(icon: .activity, title: "Activity", on: shell.activityOpen, showsTitle: false) { shell.toggleActivity() }
                 .help("Activity (A)")
                 .cloneScope("Toolbar button[0]")
-            // Only while something will answer: a Mac that is gone takes no messages.
-            if summary.machine.isUp {
-                ToolbarButton(icon: .message, title: "Message", on: shell.composer == .message) { shell.openComposer(.message) }
-                    .help("Message the verifier (M)")
-                    .cloneScope("Toolbar button[1]")
+            ToolbarButton(icon: .message, title: "Message", on: shell.inspectorTab == .message && !shell.zoomed, showsTitle: false) {
+                if shell.inspectorTab == .message && !shell.zoomed { shell.show(.checks) } else { shell.openComposer(.message) }
             }
+            .help(summary.machine.isUp ? "The conversation; message the verifier (M)" : "The conversation (M). The Mac is gone, so nothing answers")
+            .cloneScope("Toolbar button[1]")
             RunMoreMenu(shell: shell, summary: summary).cloneScope("Icon button")
         }
         .padding(.leading, Gap.x24)
@@ -88,16 +108,28 @@ private struct RunMoreMenu: View {
 
     var body: some View {
         Menu {
-            Button("Open the evidence") { shell.evidenceOpen = true }
-            Button("Command palette") { shell.paletteOpen = true }
-            if summary.machine.status == "on" {
+            Button("Open the evidence (E)") { shell.evidenceOpen = true }
+            Button(shell.zoomed ? "Show checks and Activity (Z)" : "Picture only (Z)") { shell.toggleZoom() }
+            if summary.machine.isUp {
+                Button("New task for the verifier") { shell.openComposer(.task) }
+            }
+            Button("Command palette (⌘K)") { shell.paletteOpen = true }
+            Divider()
+            if shell.canCapture {
+                Button("Capture a screenshot (C)") { shell.capture() }
+            }
+            if shell.canExport {
+                Button("Save the recording…") { shell.exportRecording() }
+            }
+            Button("Copy run ID") { shell.copyRunID() }
+            if summary.machine.status == "on" || shell.canDestroy {
                 Divider()
+            }
+            if summary.machine.status == "on" {
                 Button("Restart the Mac") { shell.perform(SummaryAction(id: SummaryAction.restart, label: "Restart the Mac")) }
             }
-            Divider()
-            Button("Copy run ID") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(summary.runId, forType: .string)
+            if shell.canDestroy {
+                Button("Destroy the Mac…", role: .destructive) { shell.confirmingDestroy = true }
             }
         } label: {
             IconView(icon: .more).foregroundStyle(Palette.textSecondary)
@@ -110,6 +142,22 @@ private struct RunMoreMenu: View {
         .fixedSize()
         .help("More")
         .accessibilityLabel("More")
+    }
+}
+
+/// Details, one click away: the popover with the whole task, the times, the models, the Mac,
+/// the finish and the run ID.
+private struct DetailsButton: View {
+    @Bindable var shell: ShellModel
+    var summary: Summary
+    @State private var open = false
+
+    var body: some View {
+        IconButton(icon: .info, name: "Details") { open.toggle() }
+            .popover(isPresented: $open, arrowEdge: .bottom) {
+                RunDetailsView(shell: shell, summary: summary)
+            }
+            .accessibilityIdentifier("toolbar.details")
     }
 }
 
@@ -235,13 +283,11 @@ struct ChecksColumn: View {
                         BootRowView(row: row, current: row.glyph == .checking)
                     }
                 } else if summary.checks.items.isEmpty {
-                    heading("Checks")
                     Text(emptyText).textStyle(.body).foregroundStyle(Palette.textSecondary)
                         .padding(.horizontal, Gap.x12)
                         .padding(.vertical, 10)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    heading("Checks")
                     let many = summary.checks.items.count > 1
                     ForEach(Array(summary.checks.items.enumerated()), id: \.element.id) { index, check in
                         CheckRowView(check: check, selected: check.id == shell.selectedCheckID, metaOverride: meta(for: check),
@@ -254,6 +300,11 @@ struct ChecksColumn: View {
                 }
             }
             .padding(Gap.x16)
+        }
+        .visibleScroller { metrics in
+            let count = summary.checks.items.count
+            guard metrics.content > metrics.viewport * 1.5, count > 0 else { return nil }
+            return "\(count) checks"
         }
         .background(Palette.bg)
     }

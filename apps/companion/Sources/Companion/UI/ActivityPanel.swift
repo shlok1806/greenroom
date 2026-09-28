@@ -1,98 +1,384 @@
 import SwiftUI
 
-/// Activity and the composer (Figma wireframe 10), one click or one key (A, M) away and never
-/// on the default view: the verifier's work as task rows grouped by check, raw logs a click
-/// further, and the message field at the bottom.
-struct ActivityPanel: View {
+/// The inspector column at the right of the player (redesign 7): three tabs, Checks (the
+/// default: the checklist, the first failure selected), Activity (the verifier's work as task
+/// rows, or every step as a log) and Message (the conversation and the composer). It never
+/// replaces the player: the picture shrinks to the room left. Selecting a check or a step
+/// seeks the player; while the recording plays, the step under the playhead is the selected
+/// row and scrolls into view.
+struct InspectorColumn: View {
     @Bindable var shell: ShellModel
     var summary: Summary
-    @State private var raw = false
-    @State private var open: [String: Bool] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: Gap.x8) {
-                Text("Activity").textStyle(.title).foregroundStyle(Palette.text).accessibilityAddTraits(.isHeader)
-                Spacer()
-                ToolbarButton(icon: .logs, title: "Raw logs", on: raw) { raw.toggle() }
-                IconButton(icon: .close, name: "Close Activity") { shell.toggleActivity() }
+            HStack(spacing: 2) {
+                ForEach(InspectorTab.allCases, id: \.self) { tab in
+                    InspectorTabButton(title: tab.title, badge: nil, on: shell.inspectorTab == tab) {
+                        shell.show(tab)
+                    }
+                    .help(help(tab))
+                    .accessibilityIdentifier("inspector.\(tab.rawValue)")
+                }
+                Spacer(minLength: Gap.x4)
+                IconButton(icon: .sidebar, name: "Hide the inspector (Z)") { shell.toggleZoom() }
             }
-            .padding(.leading, Gap.x24)
-            .padding(.trailing, Gap.x12)
-            .frame(height: 48)
+            .padding(.leading, Gap.x12)
+            .padding(.trailing, Gap.x8)
+            .frame(height: 44)
             .overlay(alignment: .bottom) { Rectangle().fill(Palette.border).frame(height: 1) }
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    if raw { rawLogs } else { timeline }
-                }
-                .defaultScrollAnchor(.bottom)
-                .onChange(of: steps.count) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
-            }
-
-            if let mode = shell.composer ?? (summary.group == .done ? nil : ComposerMode.message) {
-                ComposerView(text: $shell.composerDraft, placeholder: mode.placeholder, sending: shell.sending,
-                             disabledReason: disabledReason(mode), focusRequest: shell.composerFocus, send: {
-                                 if shell.composer == nil { shell.composer = mode }
-                                 shell.sendComposer()
-                             })
-                    .padding(Gap.x16)
-                    .overlay(alignment: .top) { Rectangle().fill(Palette.border).frame(height: 1) }
+            switch shell.inspectorTab {
+            case .checks:
+                ChecksColumn(shell: shell, summary: summary).cloneScope("Checks")
+            case .activity:
+                ActivitySteps(shell: shell, summary: summary)
+            case .message:
+                ConversationTab(shell: shell, summary: summary)
             }
         }
         .background(Palette.bg)
     }
 
+    /// A figure beside a tab: the failed checks, the steps, the messages.
+    private func badge(_ tab: InspectorTab) -> String? {
+        switch tab {
+        case .checks:
+            let failed = summary.checks.items.filter { $0.state == .fail }.count
+            return failed > 0 ? "\(failed)" : nil
+        case .activity:
+            let count = (shell.store.steps[summary.runId] ?? []).count
+            return count > 0 ? "\(count)" : nil
+        case .message:
+            return nil
+        }
+    }
+
+    private func help(_ tab: InspectorTab) -> String {
+        switch tab {
+        case .checks:
+            let items = summary.checks.items
+            let failed = items.filter { $0.state == .fail }.count
+            return "Checks: \(items.count) in all, \(failed) failed (J and K move between them)"
+        case .activity:
+            return "Activity: \((shell.store.steps[summary.runId] ?? []).count) steps the verifier took (A)"
+        case .message:
+            return "The conversation, and a message or a new task for the verifier (M)"
+        }
+    }
+}
+
+/// A tab: its title, a figure, and a 2 pt rule under it while it shows.
+struct InspectorTabButton: View {
+    var title: String
+    var badge: String?
+    var on: Bool
+    var action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(title).textStyle(on ? .bodyEmphasis : .body).foregroundStyle(on ? Palette.text : Palette.textSecondary)
+                if let badge {
+                    Text(badge).textStyle(.caption).monospacedDigit().foregroundStyle(Palette.textSecondary)
+                }
+            }
+            .padding(.horizontal, Gap.x8)
+            .frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: Corner.control).fill(hovering && !on ? Palette.bgHover : .clear))
+            .overlay(alignment: .bottom) {
+                if on { Rectangle().fill(Palette.text).frame(height: 2).offset(y: 7) }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
+    }
+}
+
+/// Activity: the verifier's work as task rows grouped by check, or every step as a log line;
+/// linked to the player both ways.
+struct ActivitySteps: View {
+    @Bindable var shell: ShellModel
+    var summary: Summary
+    @AppStorage("activityLogs", store: AppDefaults.shared) private var logs = false
+    @AppStorage("activityFailuresOnly", store: AppDefaults.shared) private var failuresOnly = false
+    @State private var open: [String: Bool] = [:]
+
     private var steps: [Step] { shell.store.steps[summary.runId] ?? [] }
 
-    private var timeline: some View {
+    var body: some View {
+        let t = shell.timeline()
+        let currentStep = shell.currentStep(t)
         let sections = ActivityLayout.sections(messages: shell.store.messages[summary.runId] ?? [], steps: steps,
                                                checks: summary.checks.items, working: summary.state == .checking)
-        return LazyVStack(alignment: .leading, spacing: 0) {
+        let shownSections = failuresOnly ? sections.compactMap { section -> ActivityLayout.Section? in
+            let rows = section.rows.filter { $0.glyph == .failed }
+            return rows.isEmpty ? nil : ActivityLayout.Section(title: section.title, rows: rows)
+        } : sections
+        let currentRow = logs ? currentStep.map { "l\($0)" } : ActivityLayout.row(holding: currentStep, in: shownSections)
+        let failures = steps.filter { $0.error != nil }.count
+        VStack(spacing: 0) {
+            HStack(spacing: Gap.x8) {
+                Picker("Show", selection: $logs) {
+                    Text("Tasks").tag(false)
+                    Text("Log").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .help("Tasks: the verifier's work grouped by check. Log: every step, one line each")
+                Spacer()
+                Toggle(isOn: $failuresOnly) {
+                    Text(failures > 0 ? "Failed \(failures)" : "Failed").textStyle(.caption)
+                }
+                .toggleStyle(.button)
+                .controlSize(.small)
+                .help("Only the steps that failed")
+                .accessibilityIdentifier("activity.failuresOnly")
+            }
+            .padding(.horizontal, Gap.x12)
+            .padding(.vertical, 6)
+            .overlay(alignment: .bottom) { Rectangle().fill(Palette.border).frame(height: 1) }
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if logs {
+                        logLines(current: currentStep)
+                    } else {
+                        taskRows(shownSections, current: currentRow)
+                    }
+                }
+                .visibleScroller { metrics in
+                    guard metrics.content > metrics.viewport * 1.2, !steps.isEmpty else { return nil }
+                    let step = currentStep.map { "step \($0) of \(steps.count)" }
+                    return step ?? "\(steps.count) steps"
+                }
+                .onChange(of: currentRow) { _, row in
+                    guard let row else { return }
+                    withAnimation(.easeOut(duration: Motion.settle)) { proxy.scrollTo(row) }
+                }
+                .onChange(of: steps.count) { _, _ in
+                    if shell.playhead == nil, shell.showsLive { proxy.scrollTo("end", anchor: .bottom) }
+                }
+                .onAppear {
+                    if let currentRow { proxy.scrollTo(currentRow, anchor: .center) }
+                }
+            }
+        }
+    }
+
+    private func taskRows(_ sections: [ActivityLayout.Section], current: String?) -> some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
             if sections.isEmpty {
-                Text("Nothing yet. The verifier's steps show here as it works.")
+                Text(failuresOnly ? "No step failed." : "Nothing yet. The verifier's steps show here as it works.")
                     .textStyle(.body).foregroundStyle(Palette.textSecondary).padding(Gap.x24)
             }
             ForEach(sections) { section in
                 Text(section.title).textStyle(.captionEmphasis).foregroundStyle(Palette.textSecondary)
-                    .padding(.horizontal, Gap.x24)
+                    .lineLimit(2)
+                    .padding(.horizontal, Gap.x16)
                     .padding(.top, Gap.x16)
                     .padding(.bottom, Gap.x4)
                     .accessibilityAddTraits(.isHeader)
                 ForEach(section.rows) { row in
                     TaskRowView(row: row, expanded: Binding(
                         get: { open[row.id] ?? row.opensItself },
-                        set: { open[row.id] = $0 }))
-                        .padding(.horizontal, Gap.x16)
+                        set: { open[row.id] = $0 }),
+                        current: row.id == current,
+                        onSelect: { if let first = row.steps.first { shell.seek(toStep: first) } },
+                        onChip: { shell.seek(toStep: $0) },
+                        chipHelp: chipHelp)
+                        .padding(.horizontal, Gap.x8)
+                        .id(row.id)
                 }
             }
             if summary.state == .checking {
-                ThinkingView(live: true).padding(.horizontal, Gap.x24).padding(.vertical, Gap.x8)
+                ThinkingView(live: true).padding(.horizontal, Gap.x16).padding(.vertical, Gap.x8)
             }
             Color.clear.frame(height: 1).id("end")
         }
+        .padding(.trailing, Gap.x8)
         .padding(.bottom, Gap.x16)
     }
 
-    private var rawLogs: some View {
-        LazyVStack(alignment: .leading, spacing: 2) {
-            ForEach(steps) { step in
-                Text("\(step.seq)  \(step.tool)  \(StepSummary.line(for: step))\(step.error.map { "  error: \($0)" } ?? "")")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(step.error == nil ? Palette.text : Palette.fail)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private func logLines(current: Int?) -> some View {
+        let shown = failuresOnly ? steps.filter { $0.error != nil } : steps
+        return LazyVStack(alignment: .leading, spacing: 0) {
+            if shown.isEmpty {
+                Text(failuresOnly ? "No step failed." : "No steps yet.")
+                    .textStyle(.body).foregroundStyle(Palette.textSecondary).padding(Gap.x24)
+            }
+            ForEach(shown) { step in
+                Button { shell.seek(toStep: step.seq) } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: Gap.x8) {
+                        Text("\(step.seq)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.textSecondary)
+                            .frame(width: 30, alignment: .trailing)
+                        Text(StepSummary.phrase(for: step, in: steps) + (step.error.map { ", failed: \($0)" } ?? ""))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(step.error == nil ? Palette.text : Palette.fail)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(String(format: "%.1fs", Double(step.durationMs) / 1000))
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.textSecondary)
+                    }
+                    .padding(.horizontal, Gap.x8)
+                    .padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: Corner.control).fill(step.seq == current ? Palette.bgSelected : .clear))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(chipHelp(step.seq))
+                .id("l\(step.seq)")
             }
             Color.clear.frame(height: 1).id("end")
         }
-        .padding(Gap.x16)
+        .padding(.horizontal, Gap.x8)
+        .padding(.vertical, Gap.x8)
+        .padding(.trailing, Gap.x8)
+    }
+
+    /// A step's words on hover: tool, time, how long, the error in full.
+    private func chipHelp(_ seq: Int) -> String {
+        guard let step = steps.first(where: { $0.seq == seq }) else { return "Step \(seq)" }
+        var words = "Step \(seq): \(StepSummary.phrase(for: step, in: steps)). \(ToolCatalog.entry(for: step.tool).title), "
+            + "\(step.at.formatted(date: .omitted, time: .standard)), \(String(format: "%.1f s", Double(step.durationMs) / 1000))"
+        if let error = step.error { words += ". Failed: \(error)" }
+        return words + ". Click to show it on the player."
+    }
+}
+
+/// The conversation, oldest first, and the composer (a message, a new task, an answer or a
+/// rejection's reason). The old window's transcript, in the redesign's type.
+struct ConversationTab: View {
+    @Bindable var shell: ShellModel
+    var summary: Summary
+
+    private var messages: [Message] {
+        (shell.store.messages[summary.runId] ?? []).filter { message in
+            message.kind != .progress && !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: Gap.x12) {
+                        if messages.isEmpty {
+                            Text("No messages yet.").textStyle(.body).foregroundStyle(Palette.textSecondary)
+                        }
+                        ForEach(messages) { message in
+                            MessageBlock(message: message).id(message.seq)
+                        }
+                        Color.clear.frame(height: 1).id("end")
+                    }
+                    .padding(Gap.x16)
+                    .padding(.trailing, Gap.x8)
+                }
+                .defaultScrollAnchor(.bottom)
+                .visibleScroller { metrics in
+                    metrics.content > metrics.viewport * 1.2 ? "\(messages.count) messages" : nil
+                }
+                .onChange(of: messages.count) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
+            }
+
+            composer
+        }
+    }
+
+    @ViewBuilder
+    private var composer: some View {
+        let mode = shell.composer ?? .message
+        VStack(alignment: .leading, spacing: Gap.x8) {
+            if mode == .message || mode == .task {
+                Picker("Send as", selection: Binding(get: { mode }, set: { shell.openComposer($0) })) {
+                    Text("Message").tag(ComposerMode.message)
+                    Text("New task").tag(ComposerMode.task)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .disabled(!summary.machine.isUp)
+                .help("A message is a note the verifier answers; a new task starts it on new work")
+            } else {
+                HStack {
+                    Text(mode == .reject ? "Reject the verdict" : (mode == .answer ? "Answer the question" : "Ask for a re-check"))
+                        .textStyle(.captionEmphasis).foregroundStyle(Palette.textSecondary)
+                    Spacer()
+                    Button("Cancel") { shell.openComposer(.message) }.buttonStyle(ActionButtonStyle(kind: .plain))
+                }
+            }
+            ComposerView(text: $shell.composerDraft, placeholder: mode.placeholder, sendTitle: mode.send, sending: shell.sending,
+                         disabledReason: disabledReason(mode), focusRequest: shell.composerFocus, send: {
+                             if shell.composer == nil { shell.composer = mode }
+                             shell.sendComposer()
+                         })
+        }
+        .padding(Gap.x12)
+        .overlay(alignment: .top) { Rectangle().fill(Palette.border).frame(height: 1) }
     }
 
     private func disabledReason(_ mode: ComposerMode) -> String? {
-        guard mode == .message || mode == .answer else { return nil }
+        guard mode == .message || mode == .answer || mode == .task else { return nil }
         if summary.state == .paused, mode == .message, summary.primaryAction?.id == SummaryAction.continue {
             return nil
         }
         return summary.machine.isUp ? nil : "The verifier stopped with the Mac. Nothing will answer."
+    }
+}
+
+/// One message: who, when and what, with a 2 pt edge in the sender's colour.
+struct MessageBlock: View {
+    var message: Message
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Gap.x8) {
+            RoundedRectangle(cornerRadius: 1).fill(edge).frame(width: 2)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(sender).textStyle(.captionEmphasis).foregroundStyle(Palette.text)
+                    Text(kind).textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                    Spacer(minLength: 0)
+                    Text(message.at.formatted(date: .omitted, time: .shortened)).textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                }
+                Text(message.text).textStyle(.body).foregroundStyle(Palette.text)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var sender: String {
+        switch message.from {
+        case .coder: "Coding agent"
+        case .human: "You"
+        case .verifier: "Verifier"
+        case .system: "Greenroom"
+        case .unknown(let name): name
+        }
+    }
+
+    private var kind: String {
+        switch message.kind {
+        case .task: "task"
+        case .question: "question"
+        case .verdict: message.verdict.map { "verdict: \($0)" } ?? "verdict"
+        case .accept: "accepted"
+        case .dispute: "rejected"
+        case .answer: "answer"
+        default: ""
+        }
+    }
+
+    private var edge: Color {
+        switch message.from {
+        case .human: Palette.accent
+        case .verifier: Palette.text
+        default: Palette.border
+        }
     }
 }

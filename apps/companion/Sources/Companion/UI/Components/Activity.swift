@@ -63,6 +63,8 @@ struct TaskRowModel: Hashable, Sendable, Identifiable {
     var note: String?
     /// Opened by itself: the failed row.
     var opensItself: Bool
+    /// The steps this row covers, oldest first: where selecting it seeks the picture.
+    var steps: [Int] = []
 }
 
 /// Beautiful UI's Task Rows, as the Figma file draws them: 8 all round, a 12 pt chevron, the
@@ -71,6 +73,14 @@ struct TaskRowModel: Hashable, Sendable, Identifiable {
 struct TaskRowView: View {
     var row: TaskRowModel
     @Binding var expanded: Bool
+    /// The row under the recording's playhead (redesign 7): drawn selected.
+    var current = false
+    /// Selecting the row seeks the picture to its first step.
+    var onSelect: (() -> Void)?
+    /// A chip seeks the picture to its step.
+    var onChip: ((Int) -> Void)?
+    /// A chip's words on hover: the tool, the time, the error.
+    var chipHelp: ((Int) -> String)?
 
     @State private var hovering = false
 
@@ -79,7 +89,8 @@ struct TaskRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                expanded.toggle()
+                if opens { expanded.toggle() }
+                onSelect?()
             } label: {
                 HStack(spacing: Gap.x8) {
                     IconView(icon: .chevronRight, size: 12)
@@ -95,15 +106,24 @@ struct TaskRowView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!opens)
+            .disabled(!opens && onSelect == nil)
             .accessibilityLabel("\(row.title), \(row.meta)")
+            .accessibilityAddTraits(current ? .isSelected : [])
             .accessibilityValue(opens ? (expanded ? "expanded" : "collapsed") : "")
 
             Reveal(open: expanded && opens) {
                 VStack(alignment: .leading, spacing: Gap.x8) {
                     if !row.chips.isEmpty {
                         ChipFlowLayout(spacing: 6) {
-                            ForEach(row.chips) { ToolChip(chip: $0) }
+                            ForEach(row.chips) { chip in
+                                if let onChip {
+                                    Button { onChip(chip.id) } label: { ToolChip(chip: chip) }
+                                        .buttonStyle(.plain)
+                                        .help(chipHelp?(chip.id) ?? chip.label)
+                                } else {
+                                    ToolChip(chip: chip)
+                                }
+                            }
                         }
                     }
                     if let note = row.note {
@@ -117,7 +137,11 @@ struct TaskRowView: View {
             }
         }
         .padding(Gap.x8)
-        .background(RoundedRectangle(cornerRadius: Corner.control).fill(hovering && opens ? Palette.bgHover : .clear))
+        .background(RoundedRectangle(cornerRadius: Corner.control)
+            .fill(current ? Palette.bgSelected : (hovering && (opens || onSelect != nil) ? Palette.bgHover : .clear)))
+        .overlay(alignment: .leading) {
+            if current { RoundedRectangle(cornerRadius: 1).fill(Palette.accent).frame(width: 2).padding(.vertical, 6) }
+        }
         .onHover { hovering = $0 }
     }
 }

@@ -2,8 +2,10 @@ import AppKit
 import SwiftUI
 
 /// The stage (Figma Mockups 02 to 04, 07): the picture that proves the selected check, with its
-/// mark; the sentence under it ("Expected $50.00, saw $10.00"); the filmstrip. While the run is
-/// open with no outcome, the picture is the live screen.
+/// mark; the sentence under it ("Expected $50.00, saw $10.00"); the recording's timeline
+/// (redesign 7, which replaced the filmstrip and the key frames row). While the run is open
+/// with no outcome, the picture is the live screen. The picture shrinks to the room it has
+/// (Activity open beside it), never away.
 struct StageView: View {
     @Bindable var shell: ShellModel
     var summary: Summary
@@ -14,23 +16,21 @@ struct StageView: View {
         let frames = shell.store.frames[summary.runId] ?? []
         let content = StageContent.of(summary, check: shell.selectedCheck, pickedFrame: shell.selectedFrame,
                                       liveWanted: shell.showsLive, framesHeld: frames)
-        let padding = windowClass.stagePadding
-        // A passed run shows the frames its checks were proven on (Figma 04); any other, the
-        // filmstrip to scrub (Figma 03).
-        let keyFrames = summary.state == .passed ? KeyFrames.items(summary.checks.items, steps: shell.store.steps[summary.runId] ?? []) : []
-        // No filmstrip while the Mac starts, restarts or does not answer (Figma 06, 07a, 07b).
-        let strip = ![.starting, .notAnswering, .restarting].contains(summary.state) && keyFrames.isEmpty
+        // The timeline shows once there is a record to scrub; not while the Mac starts.
+        let strip = summary.state != .starting && (!frames.isEmpty || !(shell.store.steps[summary.runId] ?? []).isEmpty)
         let captionHeight = captionHeight(content)
         GeometryReader { geo in
-            // The design's stage: 24 above, 16 below, 32 at the sides;
-            // the evidence (the 4:3 picture, 12, a 28 pt caption), 24, the 58 pt filmstrip or
-            // the 144 pt key frames, centred in what is left. The picture takes the full width
-            // unless the height ends first, and no more than the key frames' row under it.
-            let chrome: CGFloat = 12 + captionHeight + (keyFrames.isEmpty ? (strip ? 24 + 58 : 0) : 24 + KeyFrames.height + 20)
+            // The design's stage: 24 above, 16 below, 32 at the sides (16 once the stage is
+            // narrow, as with Activity open); the evidence (the 4:3 picture, 12, a 28 pt
+            // caption), 20, the 32 pt timeline across the stage, centred in what is left. The
+            // picture takes the full width unless the height ends first.
+            let narrow = geo.size.width < 560
+            let padding = narrow ? (horizontal: Gap.x16, top: Gap.x16) : windowClass.stagePadding
+            let chrome: CGFloat = 12 + captionHeight + (strip ? 20 + TimelineBar.height : 0)
             let tall = geo.size.height - padding.top - Gap.x16 - chrome
             let room = min(geo.size.width - padding.horizontal * 2, tall * 4 / 3)
-            let width = max(200, keyFrames.isEmpty ? room : min(room, KeyFrames.rowWidth))
-            VStack(alignment: .leading, spacing: Gap.x24) {
+            let width = max(120, room)
+            VStack(alignment: .center, spacing: 20) {
                 VStack(alignment: .leading, spacing: Gap.x12) {
                     picture(content)
                         .frame(width: width, height: width * 3 / 4)
@@ -47,12 +47,8 @@ struct StageView: View {
                 }
                 .cloneScope("Evidence")
                 if strip {
-                    FilmstripView(shell: shell, summary: summary, frames: frames, width: width)
-                        .cloneScope("Filmstrip")
-                }
-                if !keyFrames.isEmpty {
-                    KeyFramesView(shell: shell, summary: summary, frames: keyFrames, width: width)
-                        .cloneScope("Key frames")
+                    TimelineBar(shell: shell, summary: summary)
+                        .frame(width: max(width, geo.size.width - padding.horizontal * 2))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -62,14 +58,27 @@ struct StageView: View {
         .background(Palette.bgStage)
     }
 
+    /// The click a scrubbed-to frame's step made, as a small box on the picture (the old
+    /// window's click marks).
+    private var clickMark: SummaryBox? {
+        guard shell.selectedFrame != nil else { return nil }
+        let t = shell.timeline()
+        let steps = shell.store.steps[summary.runId] ?? []
+        guard let seq = t.step(at: shell.currentSeconds(t)), let step = steps.first(where: { $0.seq == seq }),
+              let target = ClickMarks.target(of: step, in: steps) else { return nil }
+        let size = 0.03
+        return SummaryBox(x: target.fraction.x - size / 2, y: target.fraction.y - size * 2 / 3, w: size, h: size * 4 / 3)
+    }
+
     @ViewBuilder
     private func picture(_ content: StageContent) -> some View {
         switch content {
         case .live:
             LivePicture(shell: shell, runId: summary.runId)
         case .picture(let picture, let mark, let color, let dimmed):
+            let click = mark == nil ? clickMark : nil
             StorePicture(store: shell.store, runId: summary.runId, picture: picture) { frame in
-                EvidenceFrame(content: frame, mark: mark, markColor: color, dimmed: dimmed,
+                EvidenceFrame(content: frame, mark: mark ?? click, markColor: click == nil ? color : .accent, dimmed: dimmed,
                               openRecording: { shell.evidenceOpen = true })
             }
             .accessibilityElement(children: .contain)
@@ -109,21 +118,12 @@ struct StageView: View {
                 .clonePart("Text")
                 .frame(maxWidth: .infinity, alignment: .leading)
             if case .live = content {
-                HStack(spacing: 6) {
-                    Circle().fill(Palette.accent).frame(width: 6, height: 6)
-                    Text("Live").textStyle(.captionEmphasis).foregroundStyle(Palette.accent)
-                }
+                EmptyView()
             } else if hasRecording {
                 // Compact has room for the icon alone (Figma 03 compact).
-                if windowClass == .compact {
-                    IconButton(icon: .video, name: "Recording") { shell.evidenceOpen = true }
-                        .help("Open the evidence and the recording (E)")
-                        .cloneScope("Icon button")
-                } else {
-                    ToolbarButton(icon: .video, title: "Recording") { shell.evidenceOpen = true }
-                        .help("Open the evidence and the recording (E)")
-                        .cloneScope("Toolbar button")
-                }
+                // The player plays the recording itself; this opens it large with the video.
+                IconButton(icon: .video, name: "Open the evidence large, with the video (E)") { shell.evidenceOpen = true }
+                    .cloneScope("Icon button")
             }
         }
     }
@@ -152,7 +152,20 @@ struct StageView: View {
             guard summary.state == .notAnswering else { return Text("") }
             return Text("Last picture, \(Clock.elapsed(summary.inStatus(now: frozenNow ?? Date()))) ago").foregroundStyle(Palette.textSecondary)
         case .picture:
-            if shell.selectedFrame != nil { return Text("A frame you picked").foregroundStyle(Palette.textSecondary) }
+            if shell.selectedFrame != nil {
+                // What happened at the playhead, in words.
+                let t = shell.timeline()
+                let steps = shell.store.steps[summary.runId] ?? []
+                guard let seq = t.step(at: shell.currentSeconds(t)), let step = steps.first(where: { $0.seq == seq }) else {
+                    return Text("Before the first step").foregroundStyle(Palette.textSecondary)
+                }
+                let phrase = StepSummary.phrase(for: step, in: steps)
+                if step.error != nil {
+                    return Text("Step \(seq) ").foregroundStyle(Palette.textSecondary) + Text(phrase).foregroundStyle(Palette.text)
+                        + Text(", failed").foregroundStyle(Palette.fail)
+                }
+                return Text("Step \(seq) ").foregroundStyle(Palette.textSecondary) + Text(phrase).foregroundStyle(Palette.text)
+            }
             switch EvidenceCaption.of(shell.selectedCheck) {
             case .disagreement(let expected, let saw):
                 return Text("Expected ").foregroundStyle(Palette.textSecondary) + Text(expected).fontWeight(.semibold).foregroundStyle(Palette.text)
@@ -219,109 +232,6 @@ struct LivePicture: View {
         case .playing: ""
         case .failed(let why): "The screen is not coming through: \(why)"
         }
-    }
-}
-
-/// The filmstrip: key frames, a red bar under a frame a failed check cites; the selected one
-/// framed. Left and Right step through them.
-struct FilmstripView: View {
-    @Bindable var shell: ShellModel
-    var summary: Summary
-    var frames: [Frame]
-    var width: CGFloat
-
-    var body: some View {
-        // As many 68 pt thumbs as fit at least 2 apart, spread across the picture's width (the
-        // design's space-between): eight under a 568 pt picture, six under a compact 432.
-        let count = max(1, Int((width + 2) / (Metrics.thumbWidth + 2)))
-        let items = Filmstrip.items(frames, checks: summary.checks.items, count: count)
-        if items.isEmpty {
-            EmptyView()
-        } else {
-            let thumb = min(Metrics.thumbWidth, (width - CGFloat(count - 1) * 2) / CGFloat(count))
-            HStack(spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 { Spacer(minLength: 2) }
-                    StorePicture(store: shell.store, runId: summary.runId, picture: SummaryPicture(kind: "frame", file: item.file)) { frame in
-                        FilmstripThumb(image: frame.image, selected: isSelected(item, last: index == items.count - 1), mark: item.mark, width: thumb)
-                    }
-                    .cloneScope(items.count > 1 ? "Filmstrip thumb[\(index)]" : "Filmstrip thumb")
-                    .onTapGesture { shell.select(frame: item.file) }
-                    .accessibilityElement()
-                    .accessibilityLabel(item.mark == .failed ? "Frame of a failed check" : "Frame \(index + 1)")
-                    .accessibilityAddTraits(.isButton)
-                }
-            }
-            .frame(width: width)
-        }
-    }
-
-    private func isSelected(_ item: FilmstripItem, last: Bool) -> Bool {
-        if let picked = shell.selectedFrame { return picked == item.file }
-        if shell.showsLive { return last }
-        if let step = shell.selectedCheck?.picture?.step ?? shell.selectedCheck?.step {
-            return Filmstrip.frame(atOrAfter: step, in: frames)?.file == item.file
-        }
-        return last
-    }
-}
-
-/// A passed run's key frames (Figma 04): three pictures its checks were proven on, 8 apart,
-/// each captioned 6 below; the one proving the selected check ringed as the filmstrip's is.
-struct KeyFramesView: View {
-    @Bindable var shell: ShellModel
-    var summary: Summary
-    var frames: [KeyFrame]
-    var width: CGFloat
-    @Environment(\.redactsGuestScreen) private var redacted
-    @Environment(\.displayScale) private var scale
-
-    var body: some View {
-        // Every frame the same width on the device's pixel grid, each starting where the
-        // design's third starts, rounded: the frames land within half a pixel of the design's
-        // 165.33 pt, whatever is left over going to the gaps.
-        let each = (width - CGFloat(KeyFrames.count - 1) * KeyFrames.gap) / CGFloat(KeyFrames.count)
-        let wide = (each * scale).rounded() / scale
-        ZStack(alignment: .topLeading) {
-            ForEach(Array(frames.enumerated()), id: \.element.id) { index, frame in
-                let start = (CGFloat(index) * (each + KeyFrames.gap) * scale).rounded() / scale
-                let selected = shell.selectedCheck?.id == frame.checkID
-                    || (shell.selectedCheck?.picture?.step).map { $0 == frame.step } == true
-                VStack(alignment: .leading, spacing: 6) {
-                    StorePicture(store: shell.store, runId: summary.runId, picture: frame.picture) { content in
-                        ZStack {
-                            Palette.bgSelected
-                            if case .image(let image) = content, !redacted {
-                                Image(nsImage: image).resizable().interpolation(.medium).aspectRatio(contentMode: .fill)
-                            }
-                        }
-                        .frame(width: wide, height: (each * 3 / 4 * scale).rounded() / scale)
-                        .clipShape(RoundedRectangle(cornerRadius: Corner.control))
-                        .overlay {
-                            // Figma: 1 pt border inside; selected, 2 pt outside in the text colour.
-                            if selected {
-                                RoundedRectangle(cornerRadius: Corner.control + 2).strokeBorder(Palette.text, lineWidth: 2).padding(-2)
-                            } else {
-                                RoundedRectangle(cornerRadius: Corner.control).strokeBorder(Palette.border, lineWidth: 1)
-                            }
-                        }
-                    }
-                    .clonePart("Rectangle")
-                    Text(frame.caption).textStyle(.caption).foregroundStyle(selected ? Palette.text : Palette.textSecondary)
-                        .lineLimit(1)
-                        .clonePart("Text")
-                }
-                .frame(width: wide, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture { shell.select(check: frame.checkID) }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Key frame: \(frame.caption)")
-                .accessibilityAddTraits(.isButton)
-                .cloneScope(frames.count > 1 ? "Key frame[\(index)]" : "Key frame")
-                .padding(.leading, start)
-            }
-        }
-        .frame(width: width, alignment: .leading)
     }
 }
 

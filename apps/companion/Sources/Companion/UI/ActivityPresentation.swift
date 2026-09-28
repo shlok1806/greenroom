@@ -31,7 +31,7 @@ enum ActivityLayout {
                 rows.append((TaskRowModel(id: "s\(step.seq)", title: StepSummary.phrase(for: step, in: sortedSteps),
                                           glyph: step.error == nil ? .passed : .failed, color: step.error == nil ? .pass : .fail,
                                           meta: String(format: "%.1fs", Double(step.durationMs) / 1000), chips: [], note: nil,
-                                          opensItself: false), [step.seq]))
+                                          opensItself: false, steps: [step.seq]), [step.seq]))
             }
         } else {
             for (index, message) in progress.enumerated() {
@@ -42,7 +42,7 @@ enum ActivityLayout {
                 let isLast = index == progress.count - 1
                 rows.append((TaskRowModel(id: "m\(message.seq)", title: title(message.text), glyph: failedStep ? .failed : .passed,
                                           color: failedStep ? .fail : .pass, meta: Clock.elapsed(Int(span.rounded())),
-                                          chips: mine.map(chip), note: nil, opensItself: failedStep),
+                                          chips: mine.map(chip), note: nil, opensItself: failedStep, steps: mine.map(\.seq)),
                              Set(mine.map(\.seq))))
                 if isLast, working {
                     rows[rows.count - 1].0.glyph = .checking
@@ -72,6 +72,14 @@ enum ActivityLayout {
             }
         }
         return sections
+    }
+
+    /// The row a step belongs to: the one holding it, else the last row that began before it.
+    static func row(holding step: Int?, in sections: [Section]) -> String? {
+        guard let step else { return nil }
+        let rows = sections.flatMap(\.rows)
+        if let exact = rows.first(where: { $0.steps.contains(step) }) { return exact.id }
+        return rows.last { ($0.steps.first ?? .max) <= step }?.id
     }
 
     /// A verifier's progress line as a row title: its first sentence, short.
