@@ -1,0 +1,411 @@
+{
+  "groups": [
+    {
+      "id": "needs-you",
+      "title": "Needs you",
+      "count": 4,
+      "runs": [
+        {
+          "runId": "20260923-060011-44c1d0e9a2b3f581",
+          "name": "WordCount: longest word",
+          "source": "Claude Code",
+          "state": "paused",
+          "status": "Paused",
+          "tone": "wait",
+          "group": "needs-you",
+          "detail": "The verifier ran out of time. Continue lets it go on.",
+          "since": "2026-09-23T04:52:18Z",
+          "startedAt": "2026-09-23T04:41:38Z",
+          "elapsedSeconds": 700,
+          "checks": {
+            "total": 2,
+            "passed": 0,
+            "failed": 0,
+            "pending": 2,
+            "text": "2 checks planned",
+            "current": null,
+            "items": [
+              {
+                "id": "c1",
+                "text": "Longest word shows the longest word",
+                "state": "pending"
+              },
+              {
+                "id": "c2",
+                "text": "Longest word updates as you type",
+                "state": "pending"
+              }
+            ]
+          },
+          "failing": null,
+          "primaryAction": {
+            "id": "continue",
+            "label": "Continue"
+          },
+          "secondaryActions": [],
+          "machine": {
+            "status": "on"
+          },
+          "lastFrame": {
+            "kind": "frame",
+            "file": "1790139139000.jpg",
+            "url": "/api/runs/20260923-060011-44c1d0e9a2b3f581/frames/1790139139000.jpg",
+            "at": "2026-09-23T04:52:19Z"
+          },
+          "updatedAt": "2026-09-23T04:52:18Z"
+        },
+        {
+          "runId": "20260923-044138-de31017819a86d84",
+          "name": "TipSplit: split the bill",
+          "source": "Claude Code",
+          "state": "failed",
+          "status": "Failed",
+          "tone": "fail",
+          "group": "needs-you",
+          "detail": "Proposed by the verifier after 3:26.",
+          "since": "2026-09-23T04:46:04Z",
+          "startedAt": "2026-09-23T04:41:38Z",
+          "elapsedSeconds": 986,
+          "checks": {
+            "total": 4,
+            "passed": 2,
+            "failed": 2,
+            "pending": 0,
+            "text": "2 of 4 checks",
+            "current": {
+              "id": "each-25",
+              "text": "Each pays becomes $50.00 at 25%",
+              "state": "fail",
+              "saw": "$10.00"
+            },
+            "items": [
+              {
+                "id": "each-25",
+                "text": "Each pays becomes $50.00 at 25%",
+                "state": "fail",
+                "saw": "$10.00"
+              },
+              {
+                "id": "each",
+                "text": "Each pays is $48.00 for 3 people",
+                "state": "fail",
+                "saw": "$8.00"
+              },
+              {
+                "id": "window",
+                "text": "Window shows Bill, Tip and People",
+                "state": "pass"
+              },
+              {
+                "id": "tip",
+                "text": "Tip is $24.00 for $120 at 20%",
+                "state": "pass"
+              }
+            ]
+          },
+          "failing": {
+            "text": "Each pays becomes $50.00 at 25%",
+            "expected": "$50.00",
+            "saw": "$10.00",
+            "observed": "After choosing 25%, Each pays reads $10.00.",
+            "step": 5,
+            "picture": {
+              "kind": "screenshot",
+              "file": "005-screenshot.png",
+              "url": "/api/runs/20260923-044138-de31017819a86d84/artifacts/005-screenshot.png",
+              "at": "2026-09-23T04:44:19Z",
+              "step": 5
+            },
+            "mark": {
+              "x": 0.515,
+              "y": 0.635,
+              "w": 0.23,
+              "h": 0.05
+            }
+          },
+          "primaryAction": {
+            "id": "accept",
+            "label": "Accept fail"
+          },
+          "secondaryActions": [
+            {
+              "id": "reject",
+              "label": "Reject"
+            }
+          ],
+          "machine": {
+            "status": "on"
+          },
+          "lastFrame": {
+            "kind": "frame",
+            "file": "1790138660000.jpg",
+            "url": "/api/runs/20260923-044138-de31017819a86d84/frames/1790138660000.jpg",
+            "at": "2026-09-23T04:44:20Z",
+            "step": 5
+          },
+          "updatedAt": "2026-09-23T04:46:04Z"
+        },
+        {
+          "runId": "20260923-025814-1feb83aa6cc4b6c8",
+          "name": "WordCount: case buttons",
+          "source": "Claude Code",
+          "state": "passed",
+          "status": "Passed",
+          "tone": "pass",
+          "group": "needs-you",
+          "detail": "Proposed by the verifier after 3:30.",
+          "since": "2026-09-23T04:45:48Z",
+          "startedAt": "2026-09-23T04:41:38Z",
+          "elapsedSeconds": 730,
+          "checks": {
+            "total": 4,
+            "passed": 4,
+            "failed": 0,
+            "pending": 0,
+            "text": "4 of 4 checks",
+            "current": null,
+            "items": [
+              {
+                "id": "upper",
+                "text": "UPPERCASE turns the text to capitals",
+                "state": "pass"
+              },
+              {
+                "id": "lower",
+                "text": "lowercase turns the text to small letters",
+                "state": "pass"
+              },
+              {
+                "id": "count",
+                "text": "The word count stays 2",
+                "state": "pass"
+              },
+              {
+                "id": "window",
+                "text": "Window shows the text and both buttons",
+                "state": "pass"
+              }
+            ]
+          },
+          "failing": null,
+          "primaryAction": {
+            "id": "accept",
+            "label": "Accept pass"
+          },
+          "secondaryActions": [
+            {
+              "id": "reject",
+              "label": "Reject"
+            }
+          ],
+          "machine": {
+            "status": "on"
+          },
+          "lastFrame": {
+            "kind": "frame",
+            "file": "1790138749000.jpg",
+            "url": "/api/runs/20260923-025814-1feb83aa6cc4b6c8/frames/1790138749000.jpg",
+            "at": "2026-09-23T04:45:49Z"
+          },
+          "updatedAt": "2026-09-23T04:45:48Z"
+        },
+        {
+          "runId": "20260923-070129-9f00e1a4b27c3d65",
+          "name": "TodoList: summary line",
+          "source": "Claude Code",
+          "state": "not-answering",
+          "status": "Not answering",
+          "tone": "wait",
+          "group": "needs-you",
+          "detail": "The Mac's screen stopped answering. Restart it? Your files are kept.",
+          "since": "2026-09-23T04:44:58Z",
+          "startedAt": "2026-09-23T04:41:38Z",
+          "elapsedSeconds": 262,
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "pending": 0,
+            "current": null,
+            "items": []
+          },
+          "failing": null,
+          "primaryAction": {
+            "id": "restart",
+            "label": "Restart the Mac"
+          },
+          "secondaryActions": [
+            {
+              "id": "keep-waiting",
+              "label": "Keep waiting"
+            }
+          ],
+          "machine": {
+            "status": "on"
+          },
+          "lastFrame": {
+            "kind": "frame",
+            "file": "1790138559000.jpg",
+            "url": "/api/runs/20260923-070129-9f00e1a4b27c3d65/frames/1790138559000.jpg",
+            "at": "2026-09-23T04:42:39Z",
+            "step": 1
+          },
+          "updatedAt": "2026-09-23T04:46:00Z"
+        }
+      ]
+    },
+    {
+      "id": "running",
+      "title": "Running",
+      "count": 2,
+      "runs": [
+        {
+          "runId": "20260923-051502-7ab01d2c55e0f913",
+          "name": "UnitConvert: Temperature",
+          "source": "Codex",
+          "state": "checking",
+          "status": "Checking",
+          "tone": "live",
+          "group": "running",
+          "now": "Clicking Convert in UnitConvert",
+          "since": "2026-09-23T04:42:18Z",
+          "startedAt": "2026-09-23T04:41:38Z",
+          "elapsedSeconds": 72,
+          "checks": {
+            "total": 4,
+            "passed": 0,
+            "failed": 0,
+            "pending": 4,
+            "text": "4 checks planned",
+            "current": null,
+            "items": [
+              {
+                "id": "c1",
+                "text": "Celsius 100 shows Fahrenheit 212",
+                "state": "pending"
+              },
+              {
+                "id": "c2",
+                "text": "Celsius 0 shows Fahrenheit 32",
+                "state": "pending"
+              },
+              {
+                "id": "c3",
+                "text": "Clearing the field clears the result",
+                "state": "pending"
+              },
+              {
+                "id": "c4",
+                "text": "Window shows both fields",
+                "state": "pending"
+              }
+            ]
+          },
+          "failing": null,
+          "primaryAction": {
+            "id": "take-control",
+            "label": "Take control"
+          },
+          "secondaryActions": [],
+          "machine": {
+            "status": "on"
+          },
+          "lastFrame": {
+            "kind": "frame",
+            "file": "1790138569000.jpg",
+            "url": "/api/runs/20260923-051502-7ab01d2c55e0f913/frames/1790138569000.jpg",
+            "at": "2026-09-23T04:42:49Z",
+            "step": 2
+          },
+          "updatedAt": "2026-09-23T04:42:48Z"
+        },
+        {
+          "runId": "20260923-071502-0c1d2e3f40516273",
+          "name": "TodoList: add item",
+          "source": "Claude Code",
+          "state": "starting",
+          "status": "Starting",
+          "tone": "live",
+          "group": "running",
+          "now": "Waiting for the Mac",
+          "since": "2026-09-23T04:41:38Z",
+          "startedAt": "2026-09-23T04:41:38Z",
+          "elapsedSeconds": 24,
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "pending": 0,
+            "current": null,
+            "items": []
+          },
+          "failing": null,
+          "primaryAction": null,
+          "secondaryActions": [],
+          "machine": {
+            "status": "starting"
+          },
+          "lastFrame": null,
+          "updatedAt": "2026-09-23T04:41:40Z"
+        }
+      ]
+    },
+    {
+      "id": "done",
+      "title": "Done",
+      "count": 1,
+      "runs": [
+        {
+          "runId": "20260922-221040-5566778899aabbcc",
+          "name": "WordCount: keeps text",
+          "source": "Claude Code",
+          "state": "passed",
+          "status": "Passed",
+          "tone": "pass",
+          "group": "done",
+          "detail": "You accepted it.",
+          "since": "2026-09-23T04:44:58Z",
+          "startedAt": "2026-09-23T04:41:38Z",
+          "endedAt": "2026-09-23T04:45:10Z",
+          "elapsedSeconds": 212,
+          "checks": {
+            "total": 1,
+            "passed": 1,
+            "failed": 0,
+            "pending": 0,
+            "text": "1 of 1 check",
+            "current": null,
+            "items": [
+              {
+                "id": "keeps",
+                "text": "The text is kept after switching case",
+                "state": "pass"
+              }
+            ]
+          },
+          "failing": null,
+          "primaryAction": null,
+          "secondaryActions": [],
+          "machine": {
+            "status": "off",
+            "ended": "The coding agent shut down the Mac."
+          },
+          "outcome": "Verified",
+          "lastFrame": {
+            "kind": "frame",
+            "file": "1790138668000.jpg",
+            "url": "/api/runs/20260922-221040-5566778899aabbcc/frames/1790138668000.jpg",
+            "at": "2026-09-23T04:44:28Z"
+          },
+          "updatedAt": "2026-09-23T04:45:10Z"
+        }
+      ]
+    }
+  ],
+  "macs": {
+    "free": 2,
+    "total": 3,
+    "text": "2 of 3 Macs free"
+  },
+  "updatedAt": "2026-09-23T04:52:18Z"
+}

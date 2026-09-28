@@ -28,6 +28,8 @@ type api struct {
 	upLocks map[string]*sync.Mutex // per run, held while its uploads are written or removed
 
 	models report.Models // the verifier's models, for run reports (ADR 0034)
+
+	sums summaries // finished runs' summaries (ADR 0036)
 }
 
 // runHandler is a route under /api/runs/{id} whose run is known to exist.
@@ -55,8 +57,10 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger, opts ...
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/runs", a.listRuns)
 	mux.HandleFunc("GET /api/events", a.events)
+	mux.HandleFunc("GET /api/summary", a.board)
 	for pattern, h := range map[string]runHandler{
 		"GET /api/runs/{id}":                     a.runDetail,
+		"GET /api/runs/{id}/summary":             a.oneSummary,
 		"GET /api/runs/{id}/steps":               a.runSteps,
 		"GET /api/runs/{id}/frames":              a.runFrames,
 		"GET /api/runs/{id}/frames/{file...}":    a.frameFile,
