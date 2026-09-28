@@ -44,6 +44,7 @@ let tests: [(String, () -> Void)] = [
     ("a tail buffer keeps the end", testATailBufferKeepsTheEnd),
     ("an element keeps its ref across walks", testAnElementKeepsItsRefAcrossWalks),
     ("a ref is never reused", testARefIsNeverReused),
+    ("a raised counter never gives an old ref again", testARaisedCounterNeverGivesAnOldRefAgain),
     ("the least recently seen refs go first", testTheLeastRecentlySeenRefsGoFirst),
     ("a table never holds more than its capacity", testATableNeverHoldsMoreThanItsCapacity),
     ("readers have tables of their own", testReadersHaveTablesOfTheirOwn),

@@ -25,11 +25,58 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/guestagent"
 )
 
-// deskState is a machine's toolkit bookkeeping: for each reader, which agent connection handed
-// out its latest refs. It lives in inputState and has its own lock.
+// deskState is a machine's toolkit bookkeeping, for each reader: which agent connection handed
+// out its latest refs, the highest ref number it has been handed on this machine over every
+// connection, and the connection whose counter was raised past that. It lives in inputState and
+// has its own lock.
 type deskState struct {
-	mu   sync.Mutex
-	refs map[string]refOrigin
+	mu     sync.Mutex
+	refs   map[string]refOrigin
+	high   map[string]int
+	raised map[string]refOrigin
+}
+
+// saw records that reader was handed refs up to e<n>.
+func (d *deskState) saw(reader string, n int) {
+	if n <= 0 {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.high == nil {
+		d.high = map[string]int{}
+	}
+	d.high[reader] = max(d.high[reader], n)
+}
+
+// raiseFor is the `next` a refs op must send on connection o before reader's call, and false
+// when none is needed: o's counter was raised already, or reader never held a ref on this
+// machine (then o counts as raised, since nothing can repeat).
+func (d *deskState) raiseFor(reader string, o refOrigin) (int, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.raised[reader] == o {
+		return 0, false
+	}
+	if d.high[reader] == 0 {
+		d.markLocked(reader, o)
+		return 0, false
+	}
+	return d.high[reader] + 1, true
+}
+
+// raisedOn records that o's counter for reader is past every ref reader was handed.
+func (d *deskState) raisedOn(reader string, o refOrigin) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.markLocked(reader, o)
+}
+
+func (d *deskState) markLocked(reader string, o refOrigin) {
+	if d.raised == nil {
+		d.raised = map[string]refOrigin{}
+	}
+	d.raised[reader] = o
 }
 
 // refOrigin is a connection: its boot's supervisor (a reboot starts another) and its generation.
@@ -133,8 +180,15 @@ func (m *Manager) deskCall(ctx context.Context, mc *Machine, req guestagent.Requ
 			return guestagent.Response{}, staleConnectionError(req.Op, refs[0])
 		}
 	}
-	resp, conn, err := m.agentCall(ctx, mc, req)
+	resp, conn, err := m.agentCallPrepared(ctx, mc, req, func(conn *guestagent.Conn) error {
+		return m.raiseRefs(ctx, mc, sup, conn, req.Reader)
+	})
 	var ae *guestagent.Error
+	if err == nil {
+		mc.input.desk.saw(req.Reader, desktop.HighestRef(resp.Result))
+	} else if errors.As(err, &ae) {
+		mc.input.desk.saw(req.Reader, desktop.HighestRef(ae.Detail))
+	}
 	if err != nil && len(refs) > 0 && had && conn != nil && errors.As(err, &ae) &&
 		(ae.Code == guestagent.CodeStaleRef || ae.Code == guestagent.CodeNotFound) &&
 		(origin.sup != sup || origin.gen != conn.Gen()) {
@@ -145,6 +199,32 @@ func (m *Manager) deskCall(ctx context.Context, mc *Machine, req guestagent.Requ
 		mc.input.desk.note(req.Reader, refOrigin{sup: sup, gen: conn.Gen()})
 	}
 	return resp, err
+}
+
+// refsRaiseDeadline bounds the refs op, which only moves a counter.
+const refsRaiseDeadline = 2 * time.Second
+
+// raiseRefs makes conn's agent number reader's new refs past every ref reader was handed on this
+// machine (op refs), once per connection, before reader's first toolkit call on it. A new agent
+// (a reconnect, a reboot) starts its tables at e1, so without it an old ref the caller kept
+// could name another element; with it, an old ref is one this reader does not hold.
+func (m *Manager) raiseRefs(ctx context.Context, mc *Machine, sup *guestagent.Supervisor, conn *guestagent.Conn, reader string) error {
+	o := refOrigin{sup: sup, gen: conn.Gen()}
+	next, need := mc.input.desk.raiseFor(reader, o)
+	if !need {
+		return nil
+	}
+	if !conn.Has("refs") {
+		return fmt.Errorf("%w: the guest agent in machine %s (helper %d) does not offer \"refs\", so its refs could repeat after a "+
+			"reconnect: call machine_reboot, whose boot compiles the current helper, or rebuild the image "+
+			"(scripts/build-image.sh -force)", guestagent.ErrMissingOp, mc.RunID, conn.Hello().Version)
+	}
+	if _, err := conn.Call(ctx, guestagent.Request{Op: "refs", Reader: reader, Deadline: refsRaiseDeadline,
+		Args: map[string]any{"reader": reader, "next": next}}); err != nil {
+		return fmt.Errorf("raise the guest agent's refs past e%d: %w", next-1, err)
+	}
+	mc.input.desk.raisedOn(reader, o)
+	return nil
 }
 
 // refsOf is the refs among names, for deskCall: a window may be named by title, which is no ref.

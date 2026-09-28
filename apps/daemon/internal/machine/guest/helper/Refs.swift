@@ -28,6 +28,26 @@ func withRefs<T>(_ reader: String, _ body: (inout RefTable<AXHandle>) -> T) -> T
     return body(&refTables[reader, default: RefTable()])
 }
 
+private struct RefsArgs: Decodable {
+    var reader: String?
+    var next: Int
+}
+
+/// The `refs` op: raises a reader's counter so its next new ref is at least `e<next>`. The daemon
+/// sends it before a reader's first toolkit call on a new connection, with one past the highest
+/// ref it saw that reader hold on this machine, so refs never repeat across connections: an old
+/// ref is then "not a ref this reader holds" instead of the name of another element.
+func registerRefsOp() {
+    register("refs", .read(queueKey: { _ in "refs" })) { call in
+        let args = try call.args(RefsArgs.self)
+        let reader = meaningful(args.reader) ?? call.reader
+        guard !reader.isEmpty else { throw AgentFailure("bad_request", "refs: name the reader whose refs to raise") }
+        guard args.next >= 1 else { throw AgentFailure("bad_request", "refs: next must be 1 or more") }
+        let next = withRefs(reader) { $0.raise(next: args.next) }
+        return ["reader": reader, "next": next]
+    }
+}
+
 /// The element's ref for a reader: the one it has, or a new one.
 func giveRef(_ element: AXUIElement, _ fingerprint: Fingerprint, reader: String) -> String {
     withRefs(reader) { $0.see(AXHandle(element), fingerprint, at: refClock()) }

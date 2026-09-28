@@ -19,6 +19,10 @@ struct RefEntry<Handle: Hashable> {
     fileprivate var tick: UInt64
 }
 
+/// The highest number a raised counter starts at: nine digits, the most the daemon's ref
+/// pattern takes (and well inside what `refNumber` reads).
+let maxRefNumber = 999_999_999
+
 /// The number of a ref written `e<n>`, or nil for anything else.
 func refNumber(_ ref: String) -> Int? {
     guard ref.hasPrefix("e"), ref.count > 1, ref.count <= 12 else { return nil }
@@ -43,6 +47,16 @@ struct RefTable<Handle: Hashable> {
 
     /// The highest ref number given so far: refs above it were never this table's.
     var issued: Int { next - 1 }
+
+    /// Makes the next new ref at least `e<number>` (the `refs` op): the daemon keeps the highest
+    /// ref it has seen for a reader and raises a new agent's counter past it, so a ref from an
+    /// earlier connection is never given again to another element. Never lowers the counter,
+    /// and never past `maxRefNumber`. Returns the number the next new ref gets.
+    @discardableResult
+    mutating func raise(next number: Int) -> Int {
+        next = max(next, min(number, maxRefNumber))
+        return next
+    }
 
     /// The element's ref: the one it has, with its fingerprint brought up to date (a name
     /// changes while the element lives), or the next new one.

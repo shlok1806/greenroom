@@ -28,7 +28,7 @@ const fakeAgentEnv = "GREENROOM_FAKE_AGENT"
 // FakeAgentCaps is what the fake agent's HELLO lists: the ops of daemon ADR 0005 point 12 and
 // the toolkit ops of daemon ADR 0006.
 var FakeAgentCaps = []string{"screen", "capture", "ui", "desktop", "input", "sh",
-	"snapshot", "find", "press", "type", "setValue", "key", "scroll", "waitFor", "expect"}
+	"refs", "snapshot", "find", "press", "type", "setValue", "key", "scroll", "waitFor", "expect"}
 
 func init() {
 	if dir := os.Getenv(fakeAgentEnv); dir != "" {
@@ -60,7 +60,8 @@ func init() {
 // sleeps, checking between actions for a CANCEL or a PAUSE by another holder, then answers
 // {ok, actions, screen} (input-down refuses it, and ui, like the helper); sh answers the
 // capture-approval script as the fake tart does (fail-capture-approval exits 1,
-// capture-approval-stale makes `check` exit 3), and any other script with exit 0 and no output.
+// capture-approval-stale makes `check` exit 3), and any other script with exit 0 and no output;
+// refs answers {reader, next} from its args, as the agent does for a counter it raised.
 // A PAUSE refuses new inputs of other holders with `paused`, as the real agent does: any request
 // with input true (the toolkit's actions too) before it starts and during its agent-<op>-sleep.
 //
@@ -301,6 +302,13 @@ func (a *fakeAgentProc) answer(r fakeAgentRequest, cancel <-chan struct{}) {
 		result, err = a.input(r, cancel)
 	case "sh":
 		result = a.sh(r.Args)
+	case "refs":
+		var args struct {
+			Reader string `json:"reader"`
+			Next   int    `json:"next"`
+		}
+		_ = json.Unmarshal(r.Args, &args)
+		result = map[string]any{"reader": args.Reader, "next": args.Next}
 	default:
 		err = &fakeAgentError{guestagent.CodeInternal, "the fake agent has no agent-" + r.Op + ".json to answer " + r.Op + " with"}
 	}

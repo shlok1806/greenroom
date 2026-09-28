@@ -230,6 +230,81 @@ func TestARefFromAnEarlierConnectionIsRefusedBeforeAnythingIsSent(t *testing.T) 
 	}
 }
 
+// Refs never repeat for a reader on a machine: before a reader's first call on a new connection
+// the daemon raises the new agent's counter past every ref it handed that reader (op refs), so
+// an old e39 cannot come back as another element. A reader that never held a ref, and later
+// calls on the same connection, send no refs.
+func TestRefsNeverRepeatAcrossConnections(t *testing.T) {
+	mgr, mc, control := toolkitMachine(t)
+	can(t, control, "snapshot", snapshotJSON)
+	can(t, control, "find", `{"matches":[{"ref":"e39","role":"Button","name":"Inspect","window":"e1"}],"searched":12}`)
+	if _, err := mgr.Snapshot(context.Background(), mc.RunID, HolderCoder, desktop.SnapshotArgs{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.Find(context.Background(), mc.RunID, HolderCoder, desktop.FindArgs{Text: "Inspect"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(agentRequests(t, control, "refs")); n != 0 {
+		t.Fatalf("%d refs requests on the first connection, want none", n)
+	}
+
+	sup := mgr.agentSupervisor(mustGet(t, mgr, mc.RunID))
+	first, err := sup.Conn(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testsupport.Flag(t, control, "agent-exit")
+	_, _ = mgr.Find(context.Background(), mc.RunID, HolderVerifier, desktop.FindArgs{Text: "x"}) // the agent dies on it
+	if err := os.Remove(filepath.Join(control, "agent-exit")); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 5*time.Second, "a new connection", func() bool {
+		c, err := sup.Conn(context.Background(), 0)
+		return err == nil && c.Gen() > first.Gen()
+	})
+
+	sent := len(testsupport.ControlLines(t, control, "agent-requests"))
+	for range 2 {
+		if _, err := mgr.Snapshot(context.Background(), mc.RunID, HolderCoder, desktop.SnapshotArgs{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := mgr.Snapshot(context.Background(), mc.RunID, HolderVerifier, desktop.SnapshotArgs{}); err != nil {
+		t.Fatal(err)
+	}
+	var ops []string
+	var raised []map[string]any
+	for _, line := range testsupport.ControlLines(t, control, "agent-requests")[sent:] {
+		var r struct {
+			Op     string         `json:"op"`
+			Reader string         `json:"reader"`
+			Args   map[string]any `json:"args"`
+		}
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			t.Fatal(err)
+		}
+		ops = append(ops, r.Op+" "+r.Reader)
+		if r.Op == "refs" {
+			raised = append(raised, r.Args)
+		}
+	}
+	// The snapshot's capture (for its ink test) goes to the agent too; only the order of the
+	// toolkit ops matters here.
+	var toolkit []string
+	for _, op := range ops {
+		if !strings.HasPrefix(op, "capture") {
+			toolkit = append(toolkit, op)
+		}
+	}
+	want := []string{"refs coder", "snapshot coder", "snapshot coder", "snapshot verifier"}
+	if strings.Join(toolkit, ", ") != strings.Join(want, ", ") {
+		t.Fatalf("the agent saw %v, want %v", toolkit, want)
+	}
+	if len(raised) != 1 || raised[0]["reader"] != "coder" || raised[0]["next"] != float64(40) {
+		t.Fatalf("refs sent %v, want reader coder and next 40 (one past e39)", raised)
+	}
+}
+
 // Toolkit ops never fall back to an exec: without the agent they fail and say why.
 func TestToolkitOpsNeverFallBackToExec(t *testing.T) {
 	mgr, _, _ := newTestManager(t)
