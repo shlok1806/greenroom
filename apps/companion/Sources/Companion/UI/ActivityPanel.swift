@@ -17,16 +17,19 @@ struct InspectorColumn: View {
                     InspectorTabButton(title: tab.title, badge: nil, on: shell.inspectorTab == tab) {
                         shell.show(tab)
                     }
+                    .cloneScope("Tab[\(InspectorTab.allCases.firstIndex(of: tab) ?? 0)]")
                     .help(help(tab))
                     .accessibilityIdentifier("inspector.\(tab.rawValue)")
                 }
                 Spacer(minLength: Gap.x4)
                 IconButton(icon: .sidebar, name: "Hide the inspector (Z)") { shell.toggleZoom() }
+                    .cloneScope("Icon button")
             }
             .padding(.leading, Gap.x12)
             .padding(.trailing, Gap.x8)
             .frame(height: 44)
             .overlay(alignment: .bottom) { Rectangle().fill(Palette.border).frame(height: 1) }
+            .cloneScope("Tabs")
 
             switch shell.inspectorTab {
             case .checks:
@@ -80,6 +83,7 @@ struct InspectorTabButton: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Text(title).textStyle(on ? .bodyEmphasis : .body).foregroundStyle(on ? Palette.text : Palette.textSecondary)
+                    .clonePart("Text")
                 if let badge {
                     Text(badge).textStyle(.caption).monospacedDigit().foregroundStyle(Palette.textSecondary)
                 }

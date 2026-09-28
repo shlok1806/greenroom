@@ -33,20 +33,25 @@ struct TimelineBar: View {
         let steps = shell.store.steps[summary.runId] ?? []
         return VStack(spacing: 4) {
             TimelineTrack(shell: shell, summary: summary, timeline: t, current: current, steps: steps)
+                .cloneScope("Track")
             HStack(spacing: Gap.x4) {
                 if t.live {
                     LivePin(following: shell.showsLive) { shell.goLive() }
+                        .cloneScope("Live")
                         .padding(.trailing, Gap.x4)
                 }
                 IconButton(icon: .skipBack, name: "Previous frame (Left)") { shell.moveFrame(by: -1) }
                     .disabled(t.frames.isEmpty)
+                    .cloneScope("Icon button[0]")
                 IconButton(icon: shell.playing ? .pause : .play, name: shell.playing ? "Pause (Space)" : "Play the recording (Space)") {
                     shell.togglePlay()
                 }
                 .disabled(t.frames.isEmpty)
                 .accessibilityIdentifier("timeline.play")
+                .cloneScope("Icon button[1]")
                 IconButton(icon: .skipForward, name: "Next frame (Right)") { shell.moveFrame(by: 1) }
                     .disabled(t.frames.isEmpty)
+                    .cloneScope("Icon button[2]")
                 Text(TimelineWords.clock(current, of: t.duration))
                     .textStyle(.caption)
                     .monospacedDigit()
@@ -56,6 +61,7 @@ struct TimelineBar: View {
                     .help(clockHelp(t, current: current, steps: steps.count))
                     .accessibilityLabel("\(Clock.elapsed(Int(current))) of \(Clock.elapsed(Int(t.duration)))")
                     .accessibilityIdentifier("timeline.clock")
+                    .clonePart("Clock")
                 Spacer(minLength: Gap.x8)
                 if failures > 0 {
                     HStack(spacing: 0) {
@@ -79,6 +85,7 @@ struct TimelineBar: View {
                     .padding(.horizontal, 2)
                     .frame(height: 24)
                     .background(RoundedRectangle(cornerRadius: Corner.control).fill(Palette.failSubtle))
+                    .clonePart("Failures")
                 }
                 DropdownButton(center: shell.dropdowns, id: "speed", width: 150, items: {
                     [1.0, 2, 4].map { value in
@@ -95,9 +102,12 @@ struct TimelineBar: View {
                 .help("Playing at \(Int(shell.speed))×. Change speed (F)")
                 .accessibilityLabel("Speed \(Int(shell.speed))×")
                 .accessibilityIdentifier("timeline.speed")
+                .clonePart("Speed")
                 IconButton(icon: .expand, name: shell.zoomed ? "Show the inspector (Z)" : "Picture only (Z)") { shell.toggleZoom() }
+                    .cloneScope("Icon button[3]")
             }
             .frame(height: 28)
+            .cloneScope("Controls")
         }
     }
 

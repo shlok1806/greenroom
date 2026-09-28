@@ -142,7 +142,7 @@ final class ShellModel {
 
     /// Whether the run's Mac is on: its bar grows to now and the transport offers Live.
     static func isLive(_ s: Summary) -> Bool {
-        s.machine.status == "on" && s.endedAt == nil
+        s.machine.status == "on" && s.endedAt == nil && ![.starting, .notAnswering, .restarting].contains(s.state)
     }
 
     /// The open run's recording timeline, as of `now`. Built once per change of the record
@@ -396,7 +396,7 @@ final class ShellModel {
 
     /// Take control, when the header does not already offer it: any run whose Mac is on.
     func canTakeControl(_ s: Summary) -> Bool {
-        guard s.machine.status == "on", !driving else { return false }
+        guard Self.isLive(s), !driving else { return false }
         let (primary, secondary) = actions(for: s)
         return !([primary].compactMap { $0 } + secondary).contains { $0.id == SummaryAction.takeControl }
     }

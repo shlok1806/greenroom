@@ -164,7 +164,7 @@ struct InspectorDivider: View {
     @State private var start: Double?
     @State private var hovering = false
 
-    static let defaultWidth: Double = 380
+    static let defaultWidth: Double = 400
 
     var body: some View {
         Rectangle().fill(hovering || start != nil ? Palette.accent : Palette.border)

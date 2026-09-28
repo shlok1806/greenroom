@@ -38,6 +38,7 @@ struct RunPane: View {
                 if !shell.zoomed {
                     InspectorDivider(width: $inspectorWidth, range: inspectorRange)
                     InspectorColumn(shell: shell, summary: summary)
+                        .cloneScope("Inspector")
                         .frame(width: CGFloat(min(max(inspectorWidth, inspectorRange.lowerBound), inspectorRange.upperBound)))
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
@@ -73,8 +74,9 @@ struct RunToolbar: View {
                 }
                 .help("Take control of the Mac (T)")
                 .accessibilityIdentifier("toolbar.takeControl")
+                .cloneScope("Take control")
             }
-            DetailsButton(shell: shell, summary: summary)
+            DetailsButton(shell: shell, summary: summary).cloneScope("Details")
             ToolbarButton(icon: .activity, title: "Activity", on: shell.activityOpen, showsTitle: false) { shell.toggleActivity() }
                 .help("Activity (A)")
                 .cloneScope("Toolbar button[0]")
