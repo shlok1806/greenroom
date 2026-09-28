@@ -587,5 +587,620 @@
       },
       "updatedAt": "2026-09-28T01:38:14.156353Z"
     }
+  },
+  {
+    "stage": "check run: ready, its daemon started in the Mac",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "ready",
+      "status": "Ready",
+      "tone": "live",
+      "group": "running",
+      "now": "Running a command",
+      "since": "2026-09-28T03:53:01.150376Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 40,
+      "checks": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "pending": 0,
+        "current": null,
+        "items": []
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567591498.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567591498.jpg",
+        "at": "2026-09-28T03:53:11.498397Z",
+        "step": 2
+      },
+      "updatedAt": "2026-09-28T03:53:11.775798Z"
+    }
+  },
+  {
+    "stage": "check run: checking, reading the summary routes",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "checking",
+      "status": "Checking",
+      "tone": "live",
+      "group": "running",
+      "now": "Running a command",
+      "since": "2026-09-28T03:53:50.511306Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 86,
+      "checks": {
+        "total": 4,
+        "passed": 0,
+        "failed": 0,
+        "pending": 4,
+        "text": "4 checks planned",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pending"
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pending"
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pending"
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pending"
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567637551.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+        "at": "2026-09-28T03:53:57.551925Z",
+        "step": 7
+      },
+      "updatedAt": "2026-09-28T03:53:56.583782Z"
+    }
+  },
+  {
+    "stage": "check run: passed, proposed",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "passed",
+      "status": "Passed",
+      "tone": "pass",
+      "group": "needs-you",
+      "detail": "Proposed by the verifier after 0:23.",
+      "since": "2026-09-28T03:54:13.835141Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 104,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass"
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "accept",
+        "label": "Accept pass"
+      },
+      "secondaryActions": [
+        {
+          "id": "reject",
+          "label": "Reject"
+        }
+      ],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567654184.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567654184.jpg",
+        "at": "2026-09-28T03:54:14.184806Z",
+        "step": 8
+      },
+      "updatedAt": "2026-09-28T03:54:13.835141Z"
+    }
+  },
+  {
+    "stage": "check run: passed, accepted by the coding agent",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "passed",
+      "status": "Passed",
+      "tone": "quiet",
+      "group": "running",
+      "detail": "The coding agent accepted it; you have not reviewed it.",
+      "since": "2026-09-28T03:54:53.347612Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 143,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass"
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": null,
+      "secondaryActions": [
+        {
+          "id": "recheck",
+          "label": "Ask for a re-check"
+        }
+      ],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567693114.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567693114.jpg",
+        "at": "2026-09-28T03:54:53.114786Z",
+        "step": 8
+      },
+      "updatedAt": "2026-09-28T03:54:53.347612Z"
+    }
+  },
+  {
+    "stage": "check run: restarting",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "restarting",
+      "status": "Restarting",
+      "tone": "live",
+      "group": "running",
+      "detail": "Your files are kept.",
+      "now": "Shutting down the Mac",
+      "since": "2026-09-28T03:55:31Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 181,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks passed",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass"
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": null,
+      "secondaryActions": [],
+      "machine": {
+        "status": "restarting"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567730045.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567730045.jpg",
+        "at": "2026-09-28T03:55:30.045018Z",
+        "step": 8
+      },
+      "updatedAt": "2026-09-28T03:55:31.224374Z"
+    }
+  },
+  {
+    "stage": "check run: restarted",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "passed",
+      "status": "Passed",
+      "tone": "quiet",
+      "group": "running",
+      "detail": "The coding agent accepted it; you have not reviewed it.",
+      "since": "2026-09-28T03:54:53.347612Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 206,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass"
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": null,
+      "secondaryActions": [
+        {
+          "id": "recheck",
+          "label": "Ask for a re-check"
+        }
+      ],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567756870.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567756870.jpg",
+        "at": "2026-09-28T03:55:56.870327Z",
+        "step": 9
+      },
+      "updatedAt": "2026-09-28T03:55:56.390085Z"
+    }
+  },
+  {
+    "stage": "check run: checking your note",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "checking",
+      "status": "Checking",
+      "tone": "live",
+      "group": "running",
+      "now": "Reading your message",
+      "since": "2026-09-28T03:57:01.055848Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 270,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks passed",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass"
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567821517.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567821517.jpg",
+        "at": "2026-09-28T03:57:01.517535Z",
+        "step": 9
+      },
+      "updatedAt": "2026-09-28T03:57:01.055848Z"
+    }
+  },
+  {
+    "stage": "check run: paused at the verifier's limit",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "paused",
+      "status": "Paused",
+      "tone": "wait",
+      "group": "needs-you",
+      "detail": "The verifier used up its actions for this turn. Continue lets it go on.",
+      "since": "2026-09-28T03:57:06.516541Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 276,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks passed",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass"
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "continue",
+        "label": "Continue"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567826144.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567826144.jpg",
+        "at": "2026-09-28T03:57:06.144954Z",
+        "step": 11
+      },
+      "updatedAt": "2026-09-28T03:57:06.516541Z"
+    }
+  },
+  {
+    "stage": "check run: continued",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "checking",
+      "status": "Checking",
+      "tone": "live",
+      "group": "running",
+      "now": "Opening the app",
+      "since": "2026-09-28T03:58:01.737696Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 338,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks passed",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass"
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567889232.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567889232.jpg",
+        "at": "2026-09-28T03:58:09.232726Z",
+        "step": 12
+      },
+      "updatedAt": "2026-09-28T03:58:09.251139Z"
+    }
+  },
+  {
+    "stage": "check run: finished as verified",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "passed",
+      "status": "Passed",
+      "tone": "pass",
+      "group": "done",
+      "detail": "The coding agent accepted it; you have not reviewed it.",
+      "since": "2026-09-28T03:54:53.347612Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "endedAt": "2026-09-28T03:58:54.572038Z",
+      "elapsedSeconds": 382,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass"
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass"
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": null,
+      "secondaryActions": [],
+      "machine": {
+        "status": "off",
+        "ended": "The coding agent shut down the Mac."
+      },
+      "outcome": "Verified",
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567933138.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567933138.jpg",
+        "at": "2026-09-28T03:58:53.138529Z",
+        "step": 13
+      },
+      "updatedAt": "2026-09-28T03:58:54.582204Z"
+    }
   }
 ]

@@ -114,7 +114,7 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 					msg(session.Verifier, session.Reply, "Out of time.", 660, func(m *session.Message) { m.Stop = session.StopTime }).
 					msg(session.Human, session.Note, "Continue.", 700).now(710)
 			},
-			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Reading the task", ""},
+			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Reading your message", ""},
 		},
 		{
 			"a verifier question is Paused and needs your answer",

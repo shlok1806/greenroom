@@ -18,8 +18,16 @@ import (
 // and steps as recorded, and its first 150 frame lines.
 const liveRun = "20260928-000221-d9a2350ea69e1d91"
 
+// checkRun is the second recorded run, which checked this package itself: the branch's daemon
+// ran inside the machine serving liveRun's records, and the verifier read its summary routes
+// with curl. 4 of 4 checks passed, the coding agent accepted, a person restarted the Mac from
+// the API, a note ran the verifier into a limit of two actions twice, and the run finished as
+// verified.
+const checkRun = "20260928-035231-77e16574bcfba03a"
+
 // liveStage is the run as the daemon held it at one moment.
 type liveStage struct {
+	run      string // liveRun when empty
 	name     string
 	now      string         // the moment, RFC 3339
 	machine  machine.Status // "" when the Mac is gone
@@ -38,12 +46,28 @@ var liveStages = []liveStage{
 	{name: "failed, proposed, the Mac stopped on its own", now: "2026-09-28T01:37:00Z", messages: 14},
 	{name: "failed, accepted by a person", now: "2026-09-28T01:38:13.5Z", messages: 15},
 	{name: "finished as abandoned", now: "2026-09-28T01:38:20Z", messages: 16},
+
+	{run: checkRun, name: "check run: ready, its daemon started in the Mac", now: "2026-09-28T03:53:12Z", machine: machine.Ready, messages: 1},
+	{run: checkRun, name: "check run: checking, reading the summary routes", now: "2026-09-28T03:53:58Z", machine: machine.Ready, messages: 4},
+	{run: checkRun, name: "check run: passed, proposed", now: "2026-09-28T03:54:16Z", machine: machine.Ready, messages: 7},
+	{run: checkRun, name: "check run: passed, accepted by the coding agent", now: "2026-09-28T03:54:55Z", machine: machine.Ready, messages: 8},
+	{run: checkRun, name: "check run: restarting", now: "2026-09-28T03:55:33Z", machine: machine.Rebooting,
+		boot: []string{machine.PhaseStop}, messages: 10},
+	{run: checkRun, name: "check run: restarted", now: "2026-09-28T03:55:58Z", machine: machine.Ready, messages: 11},
+	{run: checkRun, name: "check run: checking your note", now: "2026-09-28T03:57:02Z", machine: machine.Ready, messages: 12},
+	{run: checkRun, name: "check run: paused at the verifier's limit", now: "2026-09-28T03:57:08Z", machine: machine.Ready, messages: 15},
+	{run: checkRun, name: "check run: continued", now: "2026-09-28T03:58:10Z", machine: machine.Ready, messages: 17},
+	{run: checkRun, name: "check run: finished as verified", now: "2026-09-28T03:59:00Z", messages: 21},
 }
 
 // liveInput rebuilds what the daemon held at the stage: every record dated up to its moment.
 func liveInput(t *testing.T, st liveStage) Input {
 	t.Helper()
-	dir := filepath.Join("testdata", liveRun)
+	run := st.run
+	if run == "" {
+		run = liveRun
+	}
+	dir := filepath.Join("testdata", run)
 	now, err := time.Parse(time.RFC3339Nano, st.now)
 	if err != nil {
 		t.Fatal(err)
@@ -76,8 +100,12 @@ func liveInput(t *testing.T, st liveStage) Input {
 	}
 	if st.machine != "" {
 		b.live(st.machine)
+		start := man.CreatedAt
+		if st.machine == machine.Rebooting {
+			start = now.Add(-2 * time.Second)
+		}
 		for i, p := range st.boot {
-			b.in.Machine.Boot = append(b.in.Machine.Boot, machine.BootPhase{Phase: p, At: man.CreatedAt.Add(time.Duration(i) * time.Second)})
+			b.in.Machine.Boot = append(b.in.Machine.Boot, machine.BootPhase{Phase: p, At: start.Add(time.Duration(i) * time.Second)})
 		}
 	} else {
 		b.in.EndedAt = man.DestroyedAt
@@ -121,11 +149,25 @@ func TestTheLiveRunReadsAsItHappened(t *testing.T) {
 		"failed, proposed, the Mac stopped on its own": {Failed, Done, "", "Proposed by the verifier after 2:47.", "2 of 4 checks", "Accept fail"},
 		"failed, accepted by a person":                 {Failed, Done, "", "You accepted it.", "2 of 4 checks", ""},
 		"finished as abandoned":                        {Failed, Done, "", "You accepted it.", "2 of 4 checks", ""},
+
+		"check run: ready, its daemon started in the Mac": {Ready, Running, "Running a command", "", "", "Take control"},
+		"check run: checking, reading the summary routes": {Checking, Running, "Running a command", "", "4 checks planned", "Take control"},
+		"check run: passed, proposed":                     {Passed, NeedsYou, "", "Proposed by the verifier after 0:23.", "4 of 4 checks", "Accept pass"},
+		"check run: passed, accepted by the coding agent": {Passed, Running, "", "The coding agent accepted it; you have not reviewed it.", "4 of 4 checks", ""},
+		"check run: restarting":                           {Restarting, Running, "Shutting down the Mac", "Your files are kept.", "4 of 4 checks passed", ""},
+		"check run: restarted":                            {Passed, Running, "", "The coding agent accepted it; you have not reviewed it.", "4 of 4 checks", ""},
+		"check run: checking your note":                   {Checking, Running, "Reading your message", "", "4 of 4 checks passed", "Take control"},
+		"check run: paused at the verifier's limit":       {Paused, NeedsYou, "", "The verifier used up its actions for this turn. Continue lets it go on.", "4 of 4 checks passed", "Continue"},
+		"check run: continued":                            {Checking, Running, "Opening the app", "", "4 of 4 checks passed", "Take control"},
+		"check run: finished as verified":                 {Passed, Done, "", "The coding agent accepted it; you have not reviewed it.", "4 of 4 checks", ""},
 	}
 	for _, st := range liveStages {
 		t.Run(st.name, func(t *testing.T) {
 			s := Derive(liveInput(t, st))
-			w := wants[st.name]
+			w, ok := wants[st.name]
+			if !ok {
+				t.Fatalf("no expectation for stage %q", st.name)
+			}
 			primary := ""
 			if s.PrimaryAction != nil {
 				primary = s.PrimaryAction.Label
@@ -190,5 +232,26 @@ func TestTheLiveRunsFailingCheck(t *testing.T) {
 	}
 	if done := Derive(liveInput(t, liveStages[8])); done.Outcome != "Abandoned" {
 		t.Errorf("outcome = %q", done.Outcome)
+	}
+}
+
+// The check run's finish: verified, the pass colour, and how its Mac went.
+func TestTheCheckRunFinishedVerified(t *testing.T) {
+	s := Derive(liveInput(t, liveStages[len(liveStages)-1]))
+	if s.Outcome != "Verified" || s.Tone != TonePass || s.Group != Done {
+		t.Errorf("outcome %q tone %s group %s", s.Outcome, s.Tone, s.Group)
+	}
+	if s.Machine.Status != "off" || s.Machine.Ended != "The coding agent shut down the Mac." {
+		t.Errorf("machine = %+v", s.Machine)
+	}
+	if s.Name != "Run summary: the recorded TipSplit\u2026" || s.Source != "Claude Code" {
+		t.Errorf("name %q source %q", s.Name, s.Source)
+	}
+	if len(s.SecondaryActions) != 0 || s.PrimaryAction != nil {
+		t.Errorf("a finished run offers %+v and %+v", s.PrimaryAction, s.SecondaryActions)
+	}
+	// A criterion cut inside a quoted phrase ends before the phrase.
+	if got := s.Checks.Items[1].Text; got != "In that summary checks.text is\u2026" {
+		t.Errorf("row = %q", got)
 	}
 }

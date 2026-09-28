@@ -222,9 +222,9 @@ Each layer depends only on the ones below. Keep it that way.
   "machine stopped", "machine destroyed" and "human destroyed" events, the
   "nobody will answer"/"nothing will answer" notices, and `machine.ScreenNotAnsweringError`'s
   "screen is not answering"; change them together. Golden: `testdata/board.golden.json`, the
-  runs docs/20's Figma screens show, and `testdata/live.golden.json`, a run recorded on a real
-  machine (`testdata/<runId>/`: manifest, conversation, steps, first frame lines) replayed at
-  nine moments; `go test ./internal/summary -update` rewrites both. `found_test.go` holds each
+  runs docs/20's Figma screens show, and `testdata/live.golden.json`, two runs recorded on a real
+  machine (`testdata/<runId>/`: manifest, conversation, steps, frame lines) replayed moment by
+  moment; `go test ./internal/summary -update` rewrites both. `found_test.go` holds each
   rule that run taught.
 - `internal/diskimage` - a stopped VM's raw disk read on the host (`MountReadOnly`): a
   clonefile copy attached read-only with `hdiutil -nomount`, only its APFS Data volume

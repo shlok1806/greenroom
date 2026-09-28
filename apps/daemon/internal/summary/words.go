@@ -36,7 +36,7 @@ func detail(in Input, f derived, st State) string {
 	case NotAnswering:
 		return "The Mac's screen stopped answering. Restart it? Your files are kept."
 	case Restarting:
-		return "Restarting the Mac. Your files are kept."
+		return "Your files are kept."
 	case Ready:
 		if in.Verdict.Status == session.Rejected {
 			return rejectedSentence(in)
@@ -182,15 +182,23 @@ func now(in Input, f derived, st State) string {
 		return "Idle for " + span(idle)
 	}
 	if f.owed != nil && (step == nil || step.At.Before(f.owed.At)) {
-		return "Reading the task"
+		return reading(*f.owed)
 	}
 	if step == nil {
-		if f.owed == nil {
-			return "Waiting for the coding agent"
-		}
-		return "Reading the task"
+		return "Waiting for the coding agent"
 	}
 	return capitalise(stepWords(actionOf(*step, in.Steps), in.Steps))
+}
+
+// reading says the verifier has a message and has not acted on it yet.
+func reading(m session.Message) string {
+	switch {
+	case m.Kind == session.Task:
+		return "Reading the task"
+	case m.From == session.Human:
+		return "Reading your message"
+	}
+	return "Reading the coding agent's message"
 }
 
 // actionOf is the input a verifier's effect read followed (machine.StepEffect.Of), else st: a
@@ -250,6 +258,8 @@ func stepWords(st machine.Step, steps []machine.Step) string {
 		return "starting the Mac"
 	case "machine_destroy":
 		return "shutting down the Mac"
+	case "machine_reboot":
+		return "restarting the Mac"
 	}
 	return "working"
 }
@@ -445,52 +455,59 @@ func keyName(key string, mods []string) string {
 // newest plan's, all pending.
 func tally(in Input, f derived, st State) Checks {
 	out := Checks{Items: []CheckRef{}}
-	switch st {
-	case Passed, Failed, Inconclusive:
-		for _, want := range []string{"fail", "pending", "pass"} {
-			for _, c := range in.Verdict.Checks {
-				if row := checkRow(c); row.State == want {
-					out.Items = append(out.Items, row)
-				}
+	outcome := st == Passed || st == Failed || st == Inconclusive
+	switch {
+	case outcome:
+	case f.plan != nil:
+		for _, c := range f.plan.Checks {
+			out.Items = append(out.Items, checkRow(c))
+		}
+		out.Total, out.Pending = len(f.plan.Checks), len(f.plan.Checks)
+		out.Text = fmt.Sprintf("%d %s planned", out.Total, plural(out.Total, "check"))
+		return out
+	case in.Verdict.Status == session.None || in.Verdict.Status == session.Rejected:
+		return out
+	case f.owed != nil && f.owed.Kind == session.Task:
+		return out // a new task asks for a new look; the old verdict's checks are not its answer
+	}
+	// The current verdict's checks, which stand while the Mac restarts, the verifier is
+	// paused or a note is being answered (live check, run 20260928-035231-77e16574bcfba03a).
+	for _, want := range []string{"fail", "pending", "pass"} {
+		for _, c := range in.Verdict.Checks {
+			if row := checkRow(c); row.State == want {
+				out.Items = append(out.Items, row)
 			}
 		}
-		for _, row := range out.Items {
-			out.Total++
-			switch row.State {
-			case "pass":
-				out.Passed++
-			case "fail":
-				out.Failed++
-			default:
-				out.Pending++
-			}
-		}
-		if out.Total == 0 {
-			return out
-		}
-		// The tally sits beside the status word, which says failed or passed once
-		// ("Failed, 2 of 4 checks"). Inconclusive says neither, so its tally does.
-		switch st {
-		case Failed:
-			out.Text = fmt.Sprintf("%d of %d %s", out.Failed, out.Total, plural(out.Total, "check"))
-		case Passed:
-			out.Text = fmt.Sprintf("%d of %d %s", out.Passed, out.Total, plural(out.Total, "check"))
+	}
+	for _, row := range out.Items {
+		out.Total++
+		switch row.State {
+		case "pass":
+			out.Passed++
+		case "fail":
+			out.Failed++
 		default:
-			out.Text = fmt.Sprintf("%d of %d %s passed", out.Passed, out.Total, plural(out.Total, "check"))
+			out.Pending++
 		}
-		if first := out.Items[0]; first.State != "pass" {
-			out.Current = &first
-		}
+	}
+	if out.Total == 0 {
 		return out
 	}
-	if f.plan == nil {
-		return out
+	// The tally sits beside the status word, which says failed or passed once ("Failed, 2 of
+	// 4 checks"). Beside any other word the tally says which.
+	switch {
+	case st == Failed:
+		out.Text = fmt.Sprintf("%d of %d %s", out.Failed, out.Total, plural(out.Total, "check"))
+	case st == Passed:
+		out.Text = fmt.Sprintf("%d of %d %s", out.Passed, out.Total, plural(out.Total, "check"))
+	case !outcome && out.Failed > 0:
+		out.Text = fmt.Sprintf("%d of %d %s failed", out.Failed, out.Total, plural(out.Total, "check"))
+	default:
+		out.Text = fmt.Sprintf("%d of %d %s passed", out.Passed, out.Total, plural(out.Total, "check"))
 	}
-	for _, c := range f.plan.Checks {
-		out.Items = append(out.Items, checkRow(c))
+	if first := out.Items[0]; first.State != "pass" {
+		out.Current = &first
 	}
-	out.Total, out.Pending = len(f.plan.Checks), len(f.plan.Checks)
-	out.Text = fmt.Sprintf("%d %s planned", out.Total, plural(out.Total, "check"))
 	return out
 }
 

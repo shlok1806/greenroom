@@ -204,7 +204,7 @@ func rowWords(s Summary) []string {
 // Figma's do fit it.
 func budget(s Summary) (string, int) {
 	switch {
-	case s.State == Starting || s.State == Restarting:
+	case (s.State == Starting || s.State == Restarting) && len(s.Checks.Items) == 0:
 		return "booting", 20
 	case len(s.Checks.Items) > 0 && (s.State == Passed || s.State == Failed || s.State == Inconclusive):
 		return "verdict", 70

@@ -147,6 +147,12 @@ func clipWords(s string, n int) string {
 		return strings.Join(words, " ")
 	}
 	kept := strings.Join(words[:n], " ")
+	// A cut inside a quoted phrase would leave its quote open: cut before the phrase.
+	if strings.Count(kept, `"`)%2 == 1 {
+		if i := strings.LastIndex(kept, `"`); i > 0 {
+			kept = strings.TrimSpace(kept[:i])
+		}
+	}
 	return strings.TrimRight(kept, ".,;:!?-") + "…"
 }
 

@@ -117,7 +117,10 @@ end inside one app.
    (`declare_checks`), all pending. `checks.text` sits beside the status word and does not
    repeat it: "2 of 4 checks" under Failed, "4 of 4 checks" under Passed, "1 of 2 checks
    passed" under Inconclusive, "4 checks planned" for a plan. The verifier does not report
-   per-check progress during a turn, so a live run shows its plan, not a running count.
+   per-check progress during a turn, so a live run shows its plan, not a running count. The
+   current verdict's checks stand under any other status too (Restarting, Paused, Checking a
+   note), where the tally says which way they went ("4 of 4 checks passed"); a new task
+   clears them until its plan or verdict arrives.
    - `checks.items` is every check as a row: failed first, then not checked, then passed. A
      row is eight words or fewer. A criterion that opens with its setup ("With Bill 120, 20%
      tip, People 3, Each pays reads $48.00") keeps its claim ("Each pays reads $48.00"); the
@@ -157,9 +160,13 @@ end inside one app.
   answering"), and Restarting from daemon ADR 0004's `rebooting` status, whose "machine
   rebooted and is ready" event ends a not-answering streak. The summary reads the bridge's
   event texts, so a change to one of them is a change here too.
-- A live check on a real machine shaped points 4 and 9: run
-  `20260928-000221-d9a2350ea69e1d91`, recorded in `internal/summary/testdata` and replayed by
-  the package's tests.
+- Two runs on a real machine shaped points 4 and 9, and both are recorded in
+  `internal/summary/testdata` and replayed by the package's tests:
+  `20260928-000221-d9a2350ea69e1d91` (TipSplit with a wrong Each pays: failed 2 of 4, the Mac
+  stopped on its own, a person accepted the fail) and `20260928-035231-77e16574bcfba03a`
+  (the branch's daemon inside the machine, its summary routes read by the verifier: passed 4
+  of 4, a restart from the API, the verifier paused at its limit twice, finished verified).
+  Not answering was not produced on a machine; its rule rests on unit tests.
 - docs/20's budget for a finished run's page (50 words) does not hold for a closed verdict of
   four checks in the verifier's own words (53); the verdict page's 70 does. Shorter criteria
   are the verifier's to write, not the summary's to cut further.
