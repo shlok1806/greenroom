@@ -288,17 +288,24 @@ struct TimelineTrack: View {
             } else {
                 context.fill(Path(roundedRect: CGRect(x: mx - 1, y: y - 7, width: 2, height: 14), cornerRadius: 1), with: .color(color))
             }
-            if let number = mark.check {
-                let numbers = mark.checks.isEmpty ? [number] : mark.checks
-                let label = Text(numbers.map(String.init).joined(separator: ",")).font(.system(size: 9, weight: .semibold)).foregroundStyle(color)
-                context.draw(label, at: CGPoint(x: mx, y: y - 12), anchor: .center)
-            }
         }
         // The playhead.
         let px = min(max(playedTo, 1), width - 1)
         context.fill(Path(roundedRect: CGRect(x: px - 1, y: y - 10, width: 2, height: 20), cornerRadius: 1), with: .color(Palette.text))
         context.fill(Path(ellipseIn: CGRect(x: px - 5, y: y - 5, width: 10, height: 10)), with: .color(Palette.text))
         context.stroke(Path(ellipseIn: CGRect(x: px - 5, y: y - 5, width: 10, height: 10)), with: .color(Palette.bgStage), lineWidth: 1.5)
+        // The checks' numbers last, on the stage's ground, so the playhead never runs through them.
+        for mark in marks where (mark.kind == .keyFrame || mark.kind == .failure) && mark.check != nil {
+            let numbers = mark.checks.isEmpty ? [mark.check ?? 0] : mark.checks
+            let color = mark.kind == .failure ? Palette.fail : Palette.textSecondary
+            let label = context.resolve(Text(numbers.map(String.init).joined(separator: ","))
+                .font(.system(size: 9, weight: .semibold)).foregroundStyle(color))
+            let size = label.measure(in: CGSize(width: 200, height: 20))
+            let center = CGPoint(x: x(mark.at), y: y - 13)
+            let ground = CGRect(x: center.x - size.width / 2 - 2, y: center.y - size.height / 2, width: size.width + 4, height: size.height)
+            context.fill(Path(roundedRect: ground, cornerRadius: 3), with: .color(Palette.bgStage))
+            context.draw(label, at: center, anchor: .center)
+        }
     }
 
     // MARK: - Hover

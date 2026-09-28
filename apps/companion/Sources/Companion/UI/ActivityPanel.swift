@@ -323,6 +323,8 @@ struct ConversationTab: View {
     /// Messages, groups and calls that arrive while the tab shows fade up.
     @State private var messageArrivals = Arrivals()
     @State private var chipArrivals = Arrivals()
+    /// Bumped as the newest message streams taller, to keep it in view.
+    @State private var streamGrowth = 0
 
     private func resetArrivals() {
         messageArrivals.reset(items.map(\.id))
@@ -362,6 +364,7 @@ struct ConversationTab: View {
                 proxy.scrollTo("end", anchor: .bottom)
             }
             .onChange(of: steps.count) { _, _ in followLive(proxy) }
+            .onChange(of: streamGrowth) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
             .onAppear { shell.noteMessages(messages, runId: summary.runId) }
         }
     }
@@ -379,7 +382,12 @@ struct ConversationTab: View {
         let isNew = messageArrivals.isNew(item.id)
         switch item {
         case .message(let message):
+            let streaming = shell.streamStart(runId: summary.runId, seq: message.seq) != nil
             messageBlock(message).fadeUp(isNew, duration: AgentMotion.toolChip).id(message.seq)
+                // A message streaming in grows line by line: the conversation follows it down.
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
+                    if streaming, message.seq == messages.last?.seq { streamGrowth += 1 }
+                }
         case .tools(_, let group, let live):
             // Beautiful UI's Thinking state; its trace, the calls as tool chips.
             trace(group, live: live).fadeUp(isNew, duration: AgentMotion.toolChip).id(item.id)
