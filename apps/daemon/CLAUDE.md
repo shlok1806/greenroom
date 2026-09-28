@@ -332,6 +332,13 @@ Boot and lifecycle
   lists the same set and deletes only with `-delete`.
 - `Create` holds `createMu` for its whole length, so the host-capacity check and the clone
   cannot interleave. Default limit 2 (Apple's), `-max-machines` changes it.
+- The daemon cannot tell one MCP caller from another (daemon ADR 0008: no session in the
+  stateless protocol, every Claude Code sends the same `clientInfo`), so no text may call a
+  run the caller's or offer a runId to destroy. `checkHostCapacity` describes each run by
+  `describeRun` (short runId, name, creator, age, idle, `Presence`) and says to wait.
+  `machine_destroy` and `run_finish` go through `DestroyBy` with `agentCaller(req)`: the step's
+  `by`, the `destroyed` event's `By`/`Via` (the bridge's `destroyedText`, which keeps the
+  "machine destroyed" prefix) and an info log line; `session.Finish.By` records the finisher.
 - `machine_create` takes an optional `name` (cut to five words by `summary.Name`) and records
   it with the calling client's name as the manifest's `name` and `source`
   (`Manager.RecordLabel`, ADR 0036). The server is stateless, so an older-protocol client's

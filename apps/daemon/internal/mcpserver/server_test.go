@@ -1410,26 +1410,96 @@ func TestHostLimitErrorNamesAnotherDaemonsMachinesAndSaysToWait(t *testing.T) {
 	}
 }
 
-// Issue #42: with one machine of ours at the limit, the agent may destroy its own or wait,
-// and is told not to stop the other daemon's.
-func TestHostLimitErrorWithOursAndAnotherDaemonsOffersDestroyOrWait(t *testing.T) {
+// Issues #42 and #217: with one machine of this daemon's at the limit, the error describes it by
+// name, creator, idle time and a short runId, and calls no run the caller's: greenroom cannot tell
+// callers apart (daemon ADR 0008). It never offers a runId to destroy, and says to wait.
+func TestHostLimitErrorCallsNoRunTheCallersAndOffersNoneToDestroy(t *testing.T) {
 	h := newHarness(t)
 	if err := os.WriteFile(filepath.Join(h.control, "vmnames"), []byte("greenroom-20260923-074607-27de2e9c17c3c976\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h.ready()
+	var mc machine.Machine
+	h.call("machine_create", map[string]any{"name": "Companion shell spike"}, &mc)
+	for i := 0; i < 40 && mc.Status == machine.Booting; i++ {
+		h.call("machine_wait", map[string]any{"runId": mc.RunID, "timeoutSeconds": 5}, &mc)
+	}
 	res := h.raw("machine_create", nil)
 	if !res.IsError {
 		t.Fatal("create succeeded although the host is at its machine limit")
 	}
 	msg := text(res)
-	for _, want := range []string{"machine_destroy", "runId ", "another greenroom daemon", "wait", "call machine_create again", "do not stop"} {
+	short := "run ..." + mc.RunID[len(mc.RunID)-8:] + ` "Companion shell spike" (created by test, started just now`
+	for _, want := range []string{short, "another greenroom daemon", "cannot tell which", "your own machine_create returned",
+		"wait", "call machine_create again", "do not stop"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the error does not say %q: %q", want, msg)
 		}
 	}
-	if strings.Contains(msg, "or stop ") {
-		t.Errorf("the error tells the agent to stop machines it did not create: %q", msg)
+	for _, never := range []string{mc.RunID, "yours are", "call machine_destroy", "or stop "} {
+		if strings.Contains(msg, never) {
+			t.Errorf("the error says %q, which offers a run to destroy as the caller's: %q", never, msg)
+		}
+	}
+}
+
+// Issue #217: a person driving a run shows in machine_list and in the limit error, so an idle
+// run a person is using does not read as abandoned.
+func TestAPersonAtARunShowsInTheListAndTheLimitError(t *testing.T) {
+	h := newHarness(t)
+	if err := os.WriteFile(filepath.Join(h.control, "vmnames"), []byte("someones-vm\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runID := h.ready()
+	if _, _, err := h.mgr.TakeControl(runID, "human", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	var list struct {
+		Machines []struct {
+			RunID    string `json:"runId"`
+			Watchers int    `json:"watchers"`
+			Driver   string `json:"driver"`
+		} `json:"machines"`
+	}
+	h.call("machine_list", nil, &list)
+	if len(list.Machines) != 1 || list.Machines[0].Driver != "human" || list.Machines[0].Watchers != 0 {
+		t.Errorf("machine_list = %+v, want the run with a person driving it and no watchers", list.Machines)
+	}
+	if msg := text(h.raw("machine_create", nil)); !strings.Contains(msg, "a person is driving it") {
+		t.Errorf("the limit error does not say a person is driving the run: %q", msg)
+	}
+}
+
+// Issue #217: machine_destroy and run_finish record who called them, in the step and the
+// finish.
+func TestDestroyAndFinishSayWhoCalledThem(t *testing.T) {
+	h := newHarness(t)
+	first := h.ready()
+	h.call("machine_destroy", map[string]any{"runId": first}, nil)
+	lastStep := func(h *harness, runID string) machine.Step {
+		t.Helper()
+		steps, err := h.mgr.Steps(runID)
+		if err != nil || len(steps) == 0 {
+			t.Fatalf("steps of %s: %v", runID, err)
+		}
+		return steps[len(steps)-1]
+	}
+	if last := lastStep(h, first); last.Tool != "machine_destroy" || last.By != "agent (test)" {
+		t.Errorf("last step = %+v, want machine_destroy by agent (test)", last)
+	}
+
+	h2 := newHarness(t)
+	second := h2.ready()
+	var out struct {
+		Finish struct {
+			By string `json:"by"`
+		} `json:"finish"`
+	}
+	h2.call("run_finish", map[string]any{"runId": second, "outcome": "abandoned", "summary": "Stopped."}, &out)
+	if out.Finish.By != "agent (test)" {
+		t.Errorf("finish by = %q, want agent (test)", out.Finish.By)
+	}
+	if last := lastStep(h2, second); last.Tool != "machine_destroy" || last.By != "agent (test)" {
+		t.Errorf("last step = %+v, want the finish's destroy by agent (test)", last)
 	}
 }
 

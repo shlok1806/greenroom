@@ -103,8 +103,9 @@ func TestLastActivityIsStepsAndMessagesNotFrames(t *testing.T) {
 	}
 }
 
-// When the host is full the error names each of our machines with how long it has
-// been idle, so the caller can tell a stale run from a busy one. Nothing is destroyed.
+// When the host is full the error describes each of our machines with how long it has
+// been idle, by a short runId, and calls none of them the caller's (daemon ADR 0008). Nothing
+// is destroyed.
 func TestCapacityErrorSaysHowLongEachMachineHasBeenIdle(t *testing.T) {
 	bin, _ := testsupport.FakeTart(t)
 	mgr, err := NewManager(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -120,9 +121,12 @@ func TestCapacityErrorSaysHowLongEachMachineHasBeenIdle(t *testing.T) {
 	if err == nil {
 		t.Fatal("a create past the host limit succeeded")
 	}
-	want := "runId " + mc.RunID + " (idle 3h12m)"
+	want := "run ..." + mc.RunID[len(mc.RunID)-8:] + " (started 3h12m ago, idle 3h12m)"
 	if !strings.Contains(err.Error(), want) {
 		t.Errorf("error = %q, want it to contain %q", err, want)
+	}
+	if strings.Contains(err.Error(), mc.RunID) || strings.Contains(err.Error(), "yours are") {
+		t.Errorf("error = %q, which hands out a full runId or calls a run the caller's", err)
 	}
 	if len(mgr.List()) != 1 {
 		t.Errorf("the manager holds %d machines after a refused create, want the idle one untouched", len(mgr.List()))

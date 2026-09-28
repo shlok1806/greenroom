@@ -153,6 +153,9 @@
                   "at": {
                     "type": "string"
                   },
+                  "by": {
+                    "type": "string"
+                  },
                   "outcome": {
                     "type": "string"
                   },
@@ -441,6 +444,9 @@
                 "additionalProperties": false,
                 "properties": {
                   "at": {
+                    "type": "string"
+                  },
+                  "by": {
                     "type": "string"
                   },
                   "outcome": {
@@ -1069,7 +1075,7 @@
     }
   },
   {
-    "description": "Stop and delete the machine. The run's recording stays on disk. To end a job, prefer run_finish: it records how the run ended and destroys the machine in one call.",
+    "description": "Stop and delete the machine. The run's recording stays on disk. To end a job, prefer run_finish: it records how the run ended and destroys the machine in one call. Only destroy a run your own machine_create returned: other agents and people share this daemon, and their runs are their work however idle they look. The run's record names who destroyed it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1470,7 +1476,7 @@
     }
   },
   {
-    "description": "List live machines with their runIds, status and how long each has been idle (idleSeconds: no tool step or message since lastActivity), for example to pick up a machine from an earlier session or to tell a stale run from a busy one when the host is at its machine limit.",
+    "description": "List live machines on this daemon with their runIds, status, how long each has been idle (idleSeconds: no tool step or message since lastActivity), and who is at it (watchers on its live screen, a person driving it), for example to pick up a machine from an earlier session. Other agents and people share this daemon, and greenroom cannot tell which runs you created: a run is yours only if your own machine_create returned its runId. Never destroy or finish another run, however idle it looks.",
     "inputSchema": {
       "additionalProperties": false,
       "type": "object"
@@ -1615,6 +1621,10 @@
               "dir": {
                 "type": "string"
               },
+              "driver": {
+                "description": "The person who holds the machine's screen control now, if a person does",
+                "type": "string"
+              },
               "error": {
                 "type": "string"
               },
@@ -1703,6 +1713,10 @@
               "toolchain": {
                 "additionalProperties": true,
                 "type": "object"
+              },
+              "watchers": {
+                "description": "How many viewers watch the machine's live screen now, such as a person in the greenroom companion app",
+                "type": "integer"
               }
             },
             "required": [
@@ -1713,7 +1727,8 @@
               "createdAt",
               "dir",
               "lastActivity",
-              "idleSeconds"
+              "idleSeconds",
+              "watchers"
             ],
             "type": "object"
           },
@@ -2935,7 +2950,7 @@
     }
   },
   {
-    "description": "End your job on this run and get its proof. Call it once, when the work is done or given up. outcome is verified, unverified or abandoned. verified is accepted only when the run's current verdict is a pass that was accepted (you accept it with agent_send kind accept); otherwise the call is refused with the reason, and you may finish as unverified, which says so. You cannot mark your own work verified. summary (one or two sentences of what changed) is required; ref (branch, commit, pr) is optional. A run finishes once; a second call is refused. While the verifier is in a turn or owes an answer, finishing is refused: call agent_wait until it replies. The finish is recorded in the conversation and the run manifest, then the machine is destroyed unless destroy is false. Returns the run's report, the same as run_report: Markdown to paste into a PR body, and the report as data.",
+    "description": "End your job on this run and get its proof. Call it once, when the work is done or given up. outcome is verified, unverified or abandoned. verified is accepted only when the run's current verdict is a pass that was accepted (you accept it with agent_send kind accept); otherwise the call is refused with the reason, and you may finish as unverified, which says so. You cannot mark your own work verified. summary (one or two sentences of what changed) is required; ref (branch, commit, pr) is optional. A run finishes once; a second call is refused. While the verifier is in a turn or owes an answer, finishing is refused: call agent_wait until it replies. The finish is recorded in the conversation and the run manifest, then the machine is destroyed unless destroy is false. Returns the run's report, the same as run_report: Markdown to paste into a PR body, and the report as data. Only finish a run your own machine_create returned: other agents share this daemon, and finishing their run writes your outcome into their proof. The finish records who called it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -3006,6 +3021,9 @@
             "at": {
               "type": "string"
             },
+            "by": {
+              "type": "string"
+            },
             "outcome": {
               "type": "string"
             },
@@ -3054,6 +3072,9 @@
               "additionalProperties": false,
               "properties": {
                 "at": {
+                  "type": "string"
+                },
+                "by": {
                   "type": "string"
                 },
                 "outcome": {
@@ -3381,6 +3402,9 @@
           "additionalProperties": false,
           "properties": {
             "at": {
+              "type": "string"
+            },
+            "by": {
               "type": "string"
             },
             "outcome": {

@@ -185,6 +185,10 @@ type LifecycleEvent struct {
 	Boot *BootPhase `json:"boot,omitempty"`
 	// Reboot marks the "ready" or "failed" that ends a machine_reboot (daemon ADR 0004).
 	Reboot bool `json:"reboot,omitempty"`
+	// By and Via say who destroyed the machine and through what, on a "destroyed" event
+	// (daemon ADR 0008); empty when the caller did not say.
+	By  string `json:"by,omitempty"`
+	Via string `json:"via,omitempty"`
 }
 
 // Option adjusts a Manager before it touches the disk or the host.
@@ -503,16 +507,16 @@ func (m *Manager) checkHostCapacity(ctx context.Context) error {
 		return fmt.Errorf("count running machines: %w", err)
 	}
 
-	held := map[string]string{} // VM name -> runId if ours, "" if foreign
+	held := map[string]*Machine{} // VM name -> this daemon's machine, nil if another's
 	for _, vm := range vms {
 		if vm.State == "running" && vm.Name != "" {
-			held[vm.Name] = ""
+			held[vm.Name] = nil
 		}
 	}
 	m.mu.Lock()
 	for _, mc := range m.machines {
 		if _, running := held[mc.Name]; mc.Status != Failed || running { // a failed reboot's VM may still run
-			held[mc.Name] = mc.RunID
+			held[mc.Name] = mc
 		}
 	}
 	m.mu.Unlock()
@@ -520,45 +524,41 @@ func (m *Manager) checkHostCapacity(ctx context.Context) error {
 	if len(held) < m.maxMachines {
 		return nil
 	}
-	// Name ours by runId, which is what machine_destroy takes.
-	var ours, foreign []string
-	for name, runID := range held {
+	// The daemon cannot tell one MCP caller from another (daemon ADR 0008), so no run is called
+	// the caller's and none is offered to destroy: each is described by its name, creator, age,
+	// idle time and who is at it, and named by a short runId an agent can match against a runId
+	// its own machine_create returned. greenroom never destroys a machine it was not asked to.
+	var runs []string
+	for name, mc := range held {
 		switch {
-		case runID != "":
-			// Idle time lets the caller tell a stale run from a busy one. Choosing is theirs:
-			// greenroom never destroys a machine it was not asked to.
-			ours = append(ours, fmt.Sprintf("runId %s (%s)", runID, describeIdle(m.IdleFor(runID))))
+		case mc != nil:
+			runs = append(runs, m.describeRun(mc))
 		case strings.HasPrefix(name, namePrefix):
 			// Another root or port: probably another agent's run in progress (issue #42).
-			foreign = append(foreign, name+" (another greenroom daemon's)")
+			runs = append(runs, name+" (another greenroom daemon's)")
 		default:
-			foreign = append(foreign, name+" (not greenroom's)")
+			runs = append(runs, name+" (not greenroom's)")
 		}
 	}
-	sort.Strings(ours)
-	sort.Strings(foreign)
-	// A machine this daemon did not create is someone else's work. Waiting is always safe:
-	// the limit usually clears on its own when their run ends.
-	const retry = "wait for one to finish and call machine_create again; do not stop machines you did not create"
-	switch {
-	case len(ours) > 0 && len(foreign) > 0:
-		return fmt.Errorf("host is at its limit of %d machines: yours are %s, and %s belong to someone else. "+
-			"Call machine_destroy on one of yours if you are done with it, or %s",
-			m.maxMachines, strings.Join(ours, ", "), strings.Join(foreign, ", "), retry)
-	case len(ours) > 0:
-		return fmt.Errorf("host is at its limit of %d machines; call machine_destroy on one of %s first",
-			m.maxMachines, strings.Join(ours, ", "))
-	default:
-		return fmt.Errorf("host is at its limit of %d machines, none of them this daemon's: %s. They are someone "+
-			"else's work, often a run that ends soon: %s",
-			m.maxMachines, strings.Join(foreign, ", "), retry)
-	}
+	sort.Strings(runs)
+	return fmt.Errorf("host is at its limit of %d machines. Running now: %s. greenroom cannot tell which of these, "+
+		"if any, you created: a run is yours only if your own machine_create returned its runId, and then you may "+
+		"end it with run_finish when you are done with it. Every other run is another agent's or a person's work, "+
+		"however idle it looks: do not stop, destroy or finish it; wait a few minutes for one to end and call "+
+		"machine_create again", m.maxMachines, strings.Join(runs, "; "))
 }
 
 // Destroy stops and deletes the machine. The run directory is kept. The
 // machine stays in state.json until its VM is gone, so a daemon that dies
 // midway leaves it for the next one to find.
 func (m *Manager) Destroy(ctx context.Context, runID string) error {
+	return m.DestroyBy(ctx, runID, "", "")
+}
+
+// DestroyBy is Destroy that says who asked (daemon ADR 0008): by is the caller, such as
+// "agent (claude-code)" or "human", and via the tool or route it used. The step records by,
+// the destroyed event carries both, and the daemon log names them.
+func (m *Manager) DestroyBy(ctx context.Context, runID, by, via string) error {
 	mc, err := m.get(runID)
 	if err != nil {
 		return err
@@ -605,8 +605,9 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 	}
 	m.persist()
 	mc.rec.markEnded()
-	m.emitStep(runID, mc.rec.step("machine_destroy", nil, nil, err, started))
-	m.emit(LifecycleEvent{Kind: "destroyed", RunID: runID, Machine: m.snapshot(mc)})
+	m.emitStep(runID, mc.rec.stepAs(by, "machine_destroy", nil, nil, err, started))
+	m.Log.Info("machine destroyed", "runId", runID, "by", by, "via", via, "err", err)
+	m.emit(LifecycleEvent{Kind: "destroyed", RunID: runID, Machine: m.snapshot(mc), By: by, Via: via})
 	return err
 }
 

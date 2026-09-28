@@ -52,8 +52,10 @@ func addFinishTools(s *mcp.Server, mgr *machine.Manager, reg *session.Registry, 
 			"optional. A run finishes once; a second call is refused. While the verifier is in a turn or owes an " +
 			"answer, finishing is refused: call agent_wait until it replies. The finish is recorded in the " +
 			"conversation and the run manifest, then the machine is destroyed unless destroy is false. Returns the " +
-			"run's report, the same as run_report: Markdown to paste into a PR body, and the report as data.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in finishIn) (*mcp.CallToolResult, finishOut, error) {
+			"run's report, the same as run_report: Markdown to paste into a PR body, and the report as data. Only " +
+			"finish a run your own machine_create returned: other agents share this daemon, and finishing their run " +
+			"writes your outcome into their proof. The finish records who called it.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in finishIn) (*mcp.CallToolResult, finishOut, error) {
 		store, err := reg.Get(in.RunID)
 		if err != nil {
 			return nil, finishOut{}, err
@@ -61,7 +63,8 @@ func addFinishTools(s *mcp.Server, mgr *machine.Manager, reg *session.Registry, 
 		if mgr.VerifierTurnOpen(in.RunID) {
 			return nil, finishOut{}, errTurnOpen
 		}
-		f := session.Finish{Outcome: strings.ToLower(strings.TrimSpace(in.Outcome)), Summary: strings.TrimSpace(in.Summary)}
+		f := session.Finish{Outcome: strings.ToLower(strings.TrimSpace(in.Outcome)), Summary: strings.TrimSpace(in.Summary),
+			By: agentCaller(req)}
 		if in.Ref != nil {
 			ref := session.Ref{Branch: strings.TrimSpace(in.Ref.Branch), Commit: strings.TrimSpace(in.Ref.Commit), PR: strings.TrimSpace(in.Ref.PR)}
 			if !ref.IsZero() {
@@ -75,12 +78,13 @@ func addFinishTools(s *mcp.Server, mgr *machine.Manager, reg *session.Registry, 
 			return nil, finishOut{}, err
 		}
 		out := finishOut{Finish: *m.Finish}
+		mgr.Log.Info("run finished", "runId", in.RunID, "by", f.By, "outcome", f.Outcome)
 		if err := mgr.RecordFinish(in.RunID, *m.Finish); err != nil {
 			slog.Warn("cannot record the finish in the run manifest", "runId", in.RunID, "err", err)
 		}
 		if (in.Destroy == nil || *in.Destroy) && mgr.Live(in.RunID) {
 			// main.go's lifecycle bridge announces the destroy, as for machine_destroy.
-			if err := mgr.Destroy(ctx, in.RunID); err != nil {
+			if err := mgr.DestroyBy(ctx, in.RunID, agentCaller(req), "run_finish"); err != nil {
 				out.DestroyError = err.Error()
 			} else {
 				out.Destroyed = true
