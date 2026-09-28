@@ -22,6 +22,7 @@ func addDesktopTools(s *mcp.Server, mgr *machine.Manager) {
 		return
 	}
 	addTreeTools(s, mgr)
+	addActionTools(s, mgr)
 }
 
 // deskText is a toolkit tool's result: its text under the step it recorded.

@@ -205,6 +205,19 @@ var tools = []nim.Tool{
 // when it is a click on a control that changed nothing before in this turn, says so (dead,
 // ADR 0029).
 func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall, dead *deadControls) (result string, step int) {
+	if v.mgr.DesktopToolkit() && isToolkitAction(call) {
+		// Its result is its own effect (daemon ADR 0006 point 8): no UI read follows it.
+		if why := unusable(ctx, v.mgr, runID); why != "" {
+			return "error: the machine is not usable: " + why, 0
+		}
+		result, step, kind, ref := deskAction(ctx, v.mgr, runID, call)
+		if step != 0 && !strings.HasPrefix(result, "error:") && call.Name == "machine_press" && ref != "" {
+			if hint := dead.record(&target{key: "ref\x00" + ref, name: ref, self: true}, kind, step); hint != "" {
+				result += "\n" + hint
+			}
+		}
+		return result, step
+	}
 	if !isInputTool(call.Name) {
 		return v.machineTool(ctx, runID, call)
 	}

@@ -22,6 +22,11 @@ import (
 const deadHint = "This is the %s time this control (%s) changed nothing. If the task says it should change " +
 	"something, that is evidence for fail: cite the effect reads (%s). Otherwise, try something different or ask."
 
+// deadHintSelf is deadHint for a toolkit press, which is its own effect read (daemon ADR 0006).
+const deadHintSelf = "This is the %s time this control (%s) changed nothing. If the task says it should change " +
+	"something, that is evidence for fail: cite those presses (%s), each of which is its own effect. Otherwise, try " +
+	"something different or ask."
+
 // pointNear is how close, as a fraction of the screen on each axis, two clicks aimed at no
 // known control must be to count as the same point.
 const pointNear = 0.02
@@ -36,6 +41,7 @@ type target struct {
 	key  string // identity of the element, or "" for a point
 	name string // what the hint calls it
 	x, y float64
+	self bool // a toolkit action: its step records its own effect
 }
 
 // same reports whether two clicks aimed at the same control.
@@ -146,7 +152,11 @@ func (d *deadControls) record(t *target, kind string, read int) string {
 	if len(reads) < 2 {
 		return ""
 	}
-	return fmt.Sprintf(deadHint, ordinal(len(reads)), t.name, stepList(reads))
+	hint := deadHint
+	if t.self {
+		hint = deadHintSelf
+	}
+	return fmt.Sprintf(hint, ordinal(len(reads)), t.name, stepList(reads))
 }
 
 // ordinal is "second", "third", and then "4th", "5th".

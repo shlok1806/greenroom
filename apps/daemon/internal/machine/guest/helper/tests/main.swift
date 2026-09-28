@@ -6,7 +6,7 @@ import Foundation
 var failures: [String] = []
 var current = ""
 
-func expect(_ condition: @autoclosure () -> Bool, _ message: @autoclosure () -> String,
+func expect(_ condition: @autoclosure () -> Bool, _ message: @autoclosure () -> String = "",
             file: String = #fileID, line: Int = #line) {
     if !condition() {
         failures.append("\(current): \(file):\(line): \(message())")
@@ -94,6 +94,48 @@ let tests: [(String, () -> Void)] = [
     ("find looks in every text field but a secret", testFindLooksInEveryTextFieldButASecret),
     ("a signature changes with what it read", testASignatureChangesWithWhatItRead),
     ("an element that does not show signs only its role", testAnElementThatDoesNotShowSignsOnlyItsRole),
+    ("action timeouts default and are capped", testActionTimeoutsDefaultAndAreCapped),
+    ("the backoff is Playwright's", testTheBackoffIsPlaywrights),
+    ("checks run in order for each kind of action", testChecksRunInOrderForEachKindOfAction),
+    ("every check refuses with its reason", testEveryCheckRefusesWithItsReason),
+    ("a frame is stable within half a point", testAFrameIsStableWithinHalfAPoint),
+    ("press points are the center then the grid", testPressPointsAreTheCenterThenTheGrid),
+    ("a sliver is not tried nine times", testASliverIsNotTriedNineTimes),
+    ("a hit reaches the element, its inside and for labels what holds them", testAHitReachesTheElementItsInsideAndForLabelsWhatHoldsThem),
+    ("a modal blocks what is not inside it", testAModalBlocksWhatIsNotInsideIt),
+    ("the check log charges waits to the check that held up", testTheCheckLogChargesWaitsToTheCheckThatHeldUp),
+    ("clicks carry state 1, 2, 3 in pairs", testClicksCarryStateOneTwoThreeInPairs),
+    ("modifiers are known by their names", testModifiersAreKnownByTheirNames),
+    ("the pace defaults to 20 ms and is bounded", testThePaceDefaultsTo20msAndIsBounded),
+    ("a US keyboard types letters, digits and shifted symbols", testAUSKeyboardTypesLettersDigitsAndShiftedSymbols),
+    ("a character with no key refuses the whole text", testACharacterWithNoKeyRefusesTheWholeText),
+    ("a replaced value must be the whole text", testAReplacedValueMustBeTheWholeText),
+    ("an appended value must contain the text", testAnAppendedValueMustContainTheText),
+    ("a secret is compared by length only", testASecretIsComparedByLengthOnly),
+    ("a row below the view scrolls down to show with a margin", testARowBelowTheViewScrollsDownToShowWithAMargin),
+    ("a row above the view scrolls up", testARowAboveTheViewScrollsUp),
+    ("a row in view needs no scroll", testARowInViewNeedsNoScroll),
+    ("an element taller than the view is brought to its start", testAnElementTallerThanTheViewIsBroughtToItsStart),
+    ("sideways distances too", testSidewaysDistancesToo),
+    ("wheel steps are short where the distance is and never jump a view", testWheelStepsAreShortWhereTheDistanceIsAndNeverJumpAView),
+    ("CGEvent's wheel is the other way round", testCGEventsWheelIsTheOtherWayRound),
+    ("a relative scroll is split into steps", testARelativeScrollIsSplitIntoSteps),
+    ("a scroll stops when the position stops moving for two steps", testAScrollStopsWhenThePositionStopsMovingForTwoSteps),
+    ("the end is where it can move no further", testTheEndIsWhereItCanMoveNoFurther),
+    ("a wheel point must reach the container itself", testAWheelPointMustReachTheContainerItself),
+    ("wheel points try the 3x3 grid then the 5x5", testWheelPointsTryTheThreeGridThenTheFive),
+    ("the last resort sets the bar to the fraction", testTheLastResortSetsTheBarToTheFraction),
+    ("wait timeouts default and are capped", testWaitTimeoutsDefaultAndAreCapped),
+    ("expect polls back off to every second", testExpectPollsBackOffToEverySecond),
+    ("text comparisons", testTextComparisons),
+    ("count comparisons", testCountComparisons),
+    ("wait states", testWaitStates),
+    ("a wait for change compares with the first poll", testAWaitForChangeComparesWithTheFirstPoll),
+    ("a wait for a value uses its matcher", testAWaitForAValueUsesItsMatcher),
+    ("expected values must fit their property", testExpectedValuesMustFitTheirProperty),
+    ("expectations pass on what was observed", testExpectationsPassOnWhatWasObserved),
+    ("a secret is never observed", testASecretIsNeverObserved),
+    ("observed is exact and null when absent", testObservedIsExactAndNullWhenAbsent),
 ]
 
 for (name, test) in tests {
