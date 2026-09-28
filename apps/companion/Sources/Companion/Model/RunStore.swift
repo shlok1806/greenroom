@@ -646,7 +646,9 @@ final class RunStore: PilotHost {
     /// later `now`.
     func sendHeldVerdictChoice(now: Date = Date()) async {
         guard let due = verdictUndo.takeDue(now: now) else { return }
-        undoTimer?.cancel()
+        // Never cancel the timer here: it is usually the task running this, and a cancelled
+        // task's request is cancelled too, which `report` keeps quiet about (#183). A timer
+        // that wakes later finds nothing due.
         undoTimer = nil
         await send(due)
     }
@@ -669,13 +671,18 @@ final class RunStore: PilotHost {
             lastError = "The verdict changed, so your choice did not go out."
             return
         }
+        let sent: Bool
         switch choice.kind {
         case .accept:
-            await acceptVerdict(runId: choice.runId)
+            sent = await acceptVerdict(runId: choice.runId)
         case .dispute(let reason):
-            if await send(runId: choice.runId, kind: .dispute, text: reason, replyTo: choice.verdictSeq) {
-                verdictDrafts[choice.runId] = nil
-            }
+            sent = await send(runId: choice.runId, kind: .dispute, text: reason, replyTo: choice.verdictSeq)
+            if sent { verdictDrafts[choice.runId] = nil }
+        }
+        // A held choice that did not go out always says so, even when the send was cancelled
+        // and nothing else did (#183).
+        if !sent, lastError == nil {
+            lastError = choice.kind == .accept ? "Your accept did not go out. Accept again." : "Your rejection did not go out. Reject again."
         }
     }
 
