@@ -31,4 +31,4 @@ func TestToolkitLooksAreRetriedAndActionsAreNot(t *testing.T) {
 }
 
 // toolkitLooks are the toolkit's tools that only read.
-var toolkitLooks = []string{"machine_snapshot", "machine_find"}
+var toolkitLooks = []string{"machine_snapshot", "machine_find", "machine_wait_for", "machine_expect"}

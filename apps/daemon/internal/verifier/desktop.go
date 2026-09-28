@@ -16,7 +16,7 @@ import (
 // those). Both brains run them through deskTool, so a Manual verifier makes the same calls.
 
 // toolkitLooks are the toolkit tools that only read: observations for the verdict review.
-var toolkitLooks = []string{"machine_snapshot", "machine_find"}
+var toolkitLooks = []string{"machine_snapshot", "machine_find", "machine_wait_for", "machine_expect"}
 
 // isToolkitTool reports whether name is one of the toolkit's tools.
 func isToolkitTool(name string) bool { return slices.Contains(toolkitLooks, name) }
@@ -57,7 +57,7 @@ func toolsFor(toolkit bool) []nim.Tool {
 	if !toolkit {
 		return tools
 	}
-	return withToolkitDefs(tools, toolkitToolDefs, toolkitActionDefs)
+	return withToolkitDefs(tools, toolkitToolDefs, toolkitActionDefs, toolkitWaitDefs)
 }
 
 // maxSnapshotOutput caps a snapshot's outline fed back to the model, cut on a line.
@@ -91,6 +91,9 @@ func deskTool(ctx context.Context, mgr *machine.Manager, runID string, call nim.
 			return "error: " + err.Error(), f.Step
 		}
 		return fmt.Sprintf("step %d\n%s", f.Step, f.Text), f.Step
+
+	case "machine_wait_for", "machine_expect":
+		return deskWait(ctx, mgr, runID, call)
 	}
 	return "error: no tool named " + call.Name, 0
 }
@@ -113,6 +116,8 @@ var toolkitPromptLines = []string{
 	"- An action's result is its effect. Do not take a snapshot or a screenshot to see whether it worked.",
 	"- A point needs a reason: press at x and y only for content with no ref, such as a canvas.",
 	"- machine_set_value is for setup only, never for the input a check is about.",
+	"- Use machine_expect for a check's evidence: it records what was expected and what was observed. Use machine_wait_for for anything that takes time; never sleep.",
+	"- Take screenshots only for visual checks, cropped to the element with ref, with a question for what the check needs.",
 }
 
 // systemPromptFor is the verifier's system prompt: with the toolkit, a section on its tools goes
