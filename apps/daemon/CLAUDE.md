@@ -930,7 +930,13 @@ UI tree (ADR 0012)
   `ElementCenter` without re-reading, so a verifier read never retargets a coder's ids
   (issue #35). `LastUI` returns that tree (the verifier's effect check diffs against it, ADR
   0024), and the verifier's effect read after each input replaces it. An optional `uiStep` refuses a click whose ids are not from the caller's
-  latest read. Nothing checks that the app is still frontmost, but a verifier click after a
+  latest read. A click by element (coder and verifier) is `FocusThenClick` (daemon ADR 0009):
+  a `focus` action on the tree's `PID` (the helper's `Focus.swift`: `AXFrontmost`, raise the
+  window under the point, wait up to 1 s), then a click carrying the pid and the element's size,
+  which the helper moves to the nearest point of the element that app owns (`clickPoints`) or
+  refuses naming the cover ("covered by Dock"). A click by x and y is never moved.
+  `machine_type`, `machine_key` and `machine_scroll` take `app` (`Focused`); input still goes to
+  the frontmost app without it. A verifier click after a
   screen handover is refused until it reads again (`ErrStaleLook`, issue #124). `UITree.Outline` is the text both
   surfaces show a model; keep it one element a line with its id and center.
 - The verifier's prompt makes the tree the way to aim and a coder's constraints hard rules

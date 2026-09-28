@@ -525,8 +525,9 @@ func click(ctx context.Context, mgr *machine.Manager, runID string, element int,
 		if err != nil {
 			return "error: " + err.Error(), 0
 		}
-		x, y = &e.X, &e.Y
 		done = fmt.Sprintf("clicked [%d] %s in %s at (%.3f, %.3f)", e.ID, e.Name(), e.App, e.X, e.Y)
+		// Its app first, then the part of it that shows (daemon ADR 0009).
+		return postInput(ctx, mgr, runID, done, machine.FocusThenClick(e, button, clicks)...)
 	}
 	if x == nil || y == nil {
 		return "error: machine_click needs an element id from machine_ui, or both x and y", 0

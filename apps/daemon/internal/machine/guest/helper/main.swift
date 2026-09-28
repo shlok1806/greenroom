@@ -39,7 +39,7 @@ import Foundation
 /// The version line: the helper version and the hash of its sources
 /// (SourceHash.swift, written by the install script), so a changed source is
 /// recompiled even when the version is the same (daemon ADR 0005).
-let version = "greenroom-input 9 \(helperSource)"
+let version = "greenroom-input 10 \(helperSource)"
 
 // --version answers before anything else runs. The globals the other modes use
 // (the main display, its bounds, the event source) talk to WindowServer as soon

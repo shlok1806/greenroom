@@ -35,7 +35,7 @@ var helperSources embed.FS
 // changes in a way a daemon relies on (a new mode or op), or running machines and prepared
 // images keep the old binary. Within a version, --version also carries the sources' hash
 // (helperVersionLine), so any change to them is recompiled by the install and boot checks.
-const inputHelperVersion = 9
+const inputHelperVersion = 10
 
 // ControlTTL is how long an unused screen-control lease lives unless the taker
 // asks otherwise. Every input renews it by its own ttl, so a crashed holder
@@ -75,7 +75,7 @@ type Screen struct {
 // InputAction is one thing to do to the screen. X and Y are fractions of the
 // display (0 to 1), never pixels; only the manager knows the resolution.
 type InputAction struct {
-	Type   string   `json:"type"` // move, click, down, up, scroll, type, key, sleep
+	Type   string   `json:"type"` // move, click, down, up, scroll, type, key, sleep, focus
 	X      *float64 `json:"x,omitempty"`
 	Y      *float64 `json:"y,omitempty"`
 	Button string   `json:"button,omitempty"` // left (default), right, middle
@@ -86,6 +86,32 @@ type InputAction struct {
 	Key    string   `json:"key,omitempty"`
 	Mods   []string `json:"mods,omitempty"` // cmd, shift, alt, ctrl, fn
 	MS     int      `json:"ms,omitempty"`
+	// App is focus's application, a name or bundle id (daemon ADR 0009).
+	App string `json:"app,omitempty"`
+	// PID is focus's application by process id, and on a click by element the element's
+	// application: the helper clicks a point of the element that app owns, W by H fractions of
+	// the screen around X and Y, or refuses the click when none shows.
+	PID int      `json:"pid,omitempty"`
+	W   *float64 `json:"w,omitempty"`
+	H   *float64 `json:"h,omitempty"`
+}
+
+// FocusThenClick is a click by element (daemon ADR 0009): the element's app brought to the front
+// with its window under the element raised, then a click on the part of the element that shows.
+func FocusThenClick(e ElementTarget, button string, clicks int) []InputAction {
+	x, y, w, h := e.X, e.Y, e.W, e.H
+	return []InputAction{
+		{Type: "focus", PID: e.PID, X: &x, Y: &y},
+		{Type: "click", X: &x, Y: &y, Button: button, Clicks: clicks, PID: e.PID, W: &w, H: &h},
+	}
+}
+
+// Focused is actions with a focus on app first, or actions as they are when app is empty.
+func Focused(app string, actions ...InputAction) []InputAction {
+	if strings.TrimSpace(app) == "" {
+		return actions
+	}
+	return append([]InputAction{{Type: "focus", App: strings.TrimSpace(app)}}, actions...)
 }
 
 // InputResult is what one batch of actions did.
@@ -520,7 +546,7 @@ func (e *ScreenTakenError) Is(target error) bool { return target == ErrScreenTak
 // refused here, before a batch posts anything: the helper drops an unknown modifier and makes an
 // unknown button a left click, so a typo in cmd-Q would type a q (issue #31).
 var (
-	actionTypes   = []string{"move", "click", "down", "up", "scroll", "type", "key", "sleep"}
+	actionTypes   = []string{"move", "click", "down", "up", "scroll", "type", "key", "sleep", "focus"}
 	modifierNames = map[string]bool{"cmd": true, "command": true, "meta": true, "shift": true, "alt": true,
 		"option": true, "opt": true, "ctrl": true, "control": true, "fn": true, "function": true}
 	buttonNames = map[string]bool{"": true, "left": true, "right": true, "middle": true, "center": true}
@@ -546,6 +572,10 @@ func validateActions(actions []InputAction) error {
 			// The helper types nothing and the call would report success (issue #126).
 			if a.Text == "" {
 				return fmt.Errorf("action %d: type needs text: pass the characters to type", i+1)
+			}
+		case "focus":
+			if strings.TrimSpace(a.App) == "" && a.PID <= 0 {
+				return fmt.Errorf("action %d: focus needs app, the name or bundle id of a running application", i+1)
 			}
 		case "click", "down", "up", "move":
 			// The helper posts at the pointer when a coordinate is missing (issue #85).
@@ -581,6 +611,14 @@ func pixels(a InputAction, s Screen) InputAction {
 	if a.Y != nil {
 		y := math.Round(clamp01(*a.Y) * float64(s.Height))
 		a.Y = &y
+	}
+	if a.W != nil {
+		w := clamp01(*a.W) * float64(s.Width)
+		a.W = &w
+	}
+	if a.H != nil {
+		h := clamp01(*a.H) * float64(s.Height)
+		a.H = &h
 	}
 	return a
 }
