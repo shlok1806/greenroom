@@ -2,8 +2,9 @@ import SwiftUI
 
 /// The runs sidebar (Figma Mockups 01 to 04, companion ADR 0019): runs grouped Needs you,
 /// Running and Done, one glyph, a name and one short meta each; "Show N more" under Done; the
-/// footer says how many Macs are free. A lazy `List` (an `NSTableView` underneath) builds only
-/// the rows on screen, so 2,000 runs scroll as smoothly as 20.
+/// footer says how many Macs are free. The rows are an `NSTableView` (`RunsTable`), which builds
+/// only the rows on screen, so 2,000 runs scroll as smoothly as 20. 248 wide (208 compact, 272
+/// wide), its 1 pt right border inside that width.
 struct RunsSidebar: View {
     var board: SummaryBoard?
     var connection: ConnectionState
@@ -25,49 +26,61 @@ struct RunsSidebar: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            titlebar
-            if searching { searchField }
-            list
-            Rectangle().fill(Palette.border).frame(height: 1)
-            footer
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                titlebar
+                if searching { searchField }
+                list.cloneScope("Runs")
+                footer
+            }
+            // The 1 pt border is inside the sidebar's width, as the design draws it.
+            Rectangle().fill(Palette.border).frame(width: 1)
         }
         .frame(width: width)
         .frame(maxHeight: .infinity)
         .background(Palette.bgSidebar)
-        .overlay(alignment: .trailing) { Rectangle().fill(Palette.border).frame(width: 1) }
+        .cloneScope("Sidebar")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Runs")
         .onAppear { expanded.formUnion(expandedAtStart) }
     }
 
-    /// The traffic lights sit here (the window's own); the search button on the right.
+    /// 52 tall. The traffic lights sit here (the window's own), 20 from the left; the search
+    /// button 12 from the right.
     private var titlebar: some View {
         HStack {
             Spacer()
-            IconButton(systemImage: "magnifyingglass", name: searching ? "Close search" : "Search runs") {
+            IconButton(icon: .search, name: searching ? "Close search" : "Search runs") {
                 searching.toggle()
                 if searching { searchFocused = true } else { query = "" }
             }
+            .cloneScope("Icon button")
         }
-        .padding(.leading, Gap.x16 + 4)
+        .padding(.leading, 20)
         .padding(.trailing, Gap.x12)
         .frame(height: Metrics.toolbarHeight)
+        .cloneScope("Titlebar")
     }
 
     private var searchField: some View {
-        TextField("Search runs", text: $query)
+        TextField("", text: $query, prompt: Text("Search runs").foregroundStyle(Palette.textSecondary))
             .textFieldStyle(.plain)
             .textStyle(.body)
+            .tint(Palette.accent)
             .focused($searchFocused)
             .padding(.horizontal, Gap.x8)
             .frame(height: Metrics.buttonHeight)
             .background(RoundedRectangle(cornerRadius: Corner.control).fill(Palette.bgRaised))
-            .overlay(RoundedRectangle(cornerRadius: Corner.control).strokeBorder(searchFocused ? Palette.focusRing : Palette.border, lineWidth: searchFocused ? 2 : 1))
+            .overlay(RoundedRectangle(cornerRadius: Corner.control).strokeBorder(Palette.border, lineWidth: 1))
+            .focusRing(searchFocused, radius: Corner.control)
             .padding(.horizontal, Gap.x8)
             .padding(.bottom, Gap.x4)
             .onSubmit {
                 if let first = items.first(where: { if case .run = $0 { true } else { false } }), case .run(let id) = first { select(id) }
+            }
+            .onExitCommand {
+                searching = false
+                query = ""
             }
     }
 
@@ -80,25 +93,34 @@ struct RunsSidebar: View {
         Dictionary(board?.runs.map { ($0.runId, $0) } ?? [], uniquingKeysWith: { first, _ in first })
     }
 
+    /// 44 tall with its 1 pt top border inside: the machine icon (14) 16 from the left, the
+    /// words 8 after it, the settings button 8 from the right.
     private var footer: some View {
-        HStack(spacing: Gap.x8) {
-            switch connection {
-            case .offline, .refused:
-                StatusGlyph(kind: .stopped, color: .secondary, size: 14)
-                Text("Not connected").textStyle(.caption).foregroundStyle(Palette.textSecondary)
-            case .connecting:
-                StatusGlyph(kind: .checking, color: .accent, size: 14)
-                Text("Connecting").textStyle(.caption).foregroundStyle(Palette.textSecondary)
-            case .online:
-                Image(systemName: "desktopcomputer").font(.system(size: 11)).foregroundStyle(Palette.textSecondary).frame(width: 14, height: 14)
-                Text(board?.macs.text ?? "").textStyle(.caption).foregroundStyle(Palette.textSecondary)
+        VStack(spacing: 0) {
+            Rectangle().fill(Palette.border).frame(height: 1)
+            HStack(spacing: Gap.x8) {
+                switch connection {
+                case .offline, .refused:
+                    StatusGlyph(kind: .stopped, color: .secondary, size: 14)
+                    Text("Not connected").textStyle(.caption).foregroundStyle(Palette.textSecondary).clonePart("Text")
+                case .connecting:
+                    StatusGlyph(kind: .checking, color: .accent, size: 14)
+                    Text("Connecting").textStyle(.caption).foregroundStyle(Palette.textSecondary).clonePart("Text")
+                case .online:
+                    IconView(icon: .machine, size: 14).foregroundStyle(Palette.textSecondary).clonePart("Icon/machine")
+                    Text(board?.macs.text ?? "").textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .clonePart("Text")
+                }
+                Spacer(minLength: 0)
+                IconButton(icon: .settings, name: "Settings", action: openSettings).cloneScope("Icon button")
             }
-            Spacer(minLength: 0)
-            IconButton(systemImage: "slider.horizontal.3", name: "Settings", action: openSettings)
+            .padding(.leading, Gap.x16)
+            .padding(.trailing, Gap.x8)
+            .frame(maxHeight: .infinity)
         }
-        .padding(.leading, Gap.x16)
-        .padding(.trailing, Gap.x8)
         .frame(height: Metrics.footerHeight)
+        .cloneScope("Footer")
     }
 }
 

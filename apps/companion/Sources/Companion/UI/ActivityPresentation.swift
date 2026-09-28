@@ -21,7 +21,7 @@ enum ActivityLayout {
 
         func chip(_ step: Step) -> ToolChipModel {
             let state: ToolChipModel.State = step.error.map { .error(short($0)) } ?? .done
-            return ToolChipModel(id: step.seq, systemImage: icon(step.tool), label: chipLabel(step, in: sortedSteps),
+            return ToolChipModel(id: step.seq, icon: icon(step.tool), label: chipLabel(step, in: sortedSteps),
                                  meta: String(format: "%.1fs", Double(step.durationMs) / 1000), state: state)
         }
 
@@ -91,15 +91,14 @@ enum ActivityLayout {
         return "failed"
     }
 
-    static func icon(_ tool: String) -> String {
+    static func icon(_ tool: String) -> Icon {
         switch tool {
-        case "machine_screenshot": "camera"
-        case "machine_ui": "eye"
-        case "machine_click", "machine_input": "cursorarrow"
-        case "machine_type", "machine_key": "keyboard"
-        case "machine_exec", "machine_exec_wait": "apple.terminal"
-        case "machine_scroll": "arrow.up.and.down"
-        default: "circle.dotted"
+        case "machine_screenshot": .camera
+        case "machine_ui": .eye
+        case "machine_click", "machine_input", "machine_scroll": .pointer
+        case "machine_type", "machine_key": .keyboard
+        case "machine_exec", "machine_exec_wait": .logs
+        default: .think
         }
     }
 

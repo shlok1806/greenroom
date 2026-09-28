@@ -1,9 +1,11 @@
 import SwiftUI
 
-// Buttons (Figma Components: Button 3:218, Toolbar button 3:219, Icon button 3:223). Kind x
-// state: hover, pressed (scale 0.97), focused (a 2 pt ring 2 pt outside, keyboard focus only,
-// never removed), disabled (45% opacity), loading (the label stays and the Checking spinner
-// joins it, so the width never jumps). 28 pt tall.
+// Buttons (Figma Components: Button 3:218, Toolbar button 3:219, Icon button 3:223, Keycap
+// 3:228). Kind x state, with the file's numbers: 28 tall, 12 at the sides, radius 6, Body
+// Emphasis; hover and pressed fills from the variants; pressed scales to 0.97 over 120 ms;
+// focused shows a 2 pt ring outside a 2 pt gap (keyboard focus only, never removed); disabled
+// is 45% opacity; loading keeps the label and adds the checking ring (14 pt, 6 before the
+// label) so the width does not jump while it sends.
 
 /// Primary (one per state, top right of the header), secondary, or plain.
 enum ActionKind: Sendable {
@@ -25,31 +27,38 @@ struct ActionButtonStyle: ButtonStyle {
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.isFocused) private var isFocused
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @Environment(\.colorScheme) private var scheme
         @State private var hovering = false
 
         var body: some View {
             HStack(spacing: 6) {
                 if loading {
-                    StatusGlyph(kind: .checking, color: kind == .primary ? .secondary : .accent, size: 14)
+                    StatusGlyph(kind: .checking, color: .accent, size: 14, onPrimary: kind == .primary)
                 }
                 configuration.label
                     .textStyle(.bodyEmphasis)
                     .foregroundStyle(foreground)
                     .lineLimit(1)
+                    .clonePart("Text")
             }
             .padding(.horizontal, Gap.x12)
             .frame(height: Metrics.buttonHeight)
-            .background(RoundedRectangle(cornerRadius: Corner.control).fill(fill))
+            .background {
+                RoundedRectangle(cornerRadius: Corner.control)
+                    .fill(fill)
+                    // Figma: drop shadow 0 1 blur 1 at 5%; SwiftUI's radius is half the blur.
+                    .shadow(color: kind == .secondary ? .black.opacity(0.05) : .clear, radius: 0.5, y: 1)
+            }
             .overlay {
                 if kind == .secondary {
                     RoundedRectangle(cornerRadius: Corner.control).strokeBorder(Palette.border, lineWidth: 1)
                 }
             }
-            .shadow(color: kind == .secondary ? .black.opacity(0.05) : .clear, radius: 0.5, y: 1)
             .focusRing(isFocused, radius: Corner.control)
             .opacity(isEnabled ? 1 : 0.45)
             .scaleEffect(configuration.isPressed && !reduceMotion ? Motion.pressedScale : 1)
             .animation(Motion.change(Motion.press, reduce: reduceMotion), value: configuration.isPressed)
+            .animation(Motion.change(Motion.press, reduce: reduceMotion), value: hovering)
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
         }
@@ -63,20 +72,43 @@ struct ActionButtonStyle: ButtonStyle {
         }
 
         private var fill: Color {
-            let active = isEnabled && (configuration.isPressed || hovering)
+            let pressed = configuration.isPressed && isEnabled
+            let hovered = hovering && isEnabled
             switch kind {
             case .primary:
-                return configuration.isPressed ? Palette.primary.opacity(0.85) : (active ? Palette.primary.opacity(0.9) : Palette.primary)
+                // Figma: black at 86% on hover and 76% pressed; in dark, the light fill the same way.
+                let base: Color = scheme == .dark ? Palette.primary : .black
+                if pressed { return base.opacity(0.76) }
+                return hovered ? base.opacity(0.86) : Palette.primary
             case .secondary:
-                return configuration.isPressed ? Palette.bgSelected : (active ? Palette.bgHover : Palette.bgRaised)
+                return pressed ? Palette.bgSelected : (hovered ? Palette.bgHover : Palette.bgRaised)
             case .plain:
-                return configuration.isPressed ? Palette.bgSelected : (active ? Palette.bgHover : .clear)
+                return pressed ? Palette.bgSelected : (hovered ? Palette.bgHover : .clear)
             }
         }
     }
 }
 
-/// A labeled toolbar action with its icon (Activity, Message, Recording). `on` while its panel is open.
+/// A labeled toolbar action with its icon (Activity, Message, Recording): 28 tall, 8 before
+/// the icon, 6 between icon and word, 10 after. `on` while its panel is open.
+struct ToolbarButton: View {
+    var icon: Icon
+    var title: String
+    var on = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                IconView(icon: icon).clonePart("Icon/\(icon.rawValue)")
+                Text(title).textStyle(.body).lineLimit(1).clonePart("Text")
+            }
+            .foregroundStyle(Palette.textSecondary)
+        }
+        .buttonStyle(ToolbarButtonStyle(on: on))
+    }
+}
+
 struct ToolbarButtonStyle: ButtonStyle {
     var on = false
 
@@ -93,7 +125,6 @@ struct ToolbarButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .labelStyle(ToolbarLabelStyle())
                 .padding(.leading, Gap.x8)
                 .padding(.trailing, 10)
                 .frame(height: Metrics.buttonHeight)
@@ -111,33 +142,16 @@ struct ToolbarButtonStyle: ButtonStyle {
     }
 }
 
-private struct ToolbarLabelStyle: LabelStyle {
-    @Environment(\.redactsGuestScreen) private var counting
-
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            // Hidden while the harness counts words: a text recogniser reads icons as letters.
-            configuration.icon.frame(width: 16, height: 16).font(.system(size: 13)).opacity(counting ? 0 : 1)
-            configuration.title.textStyle(.body)
-        }
-        .foregroundStyle(Palette.textSecondary)
-    }
-}
-
-/// An icon-only button for universally known actions (search, more, close, settings). Always
-/// has a tooltip with its name, and its name for VoiceOver.
+/// An icon-only button for universally known actions (search, more, close, settings): 28
+/// square, the icon 16. Always has a tooltip with its name, and its name for VoiceOver.
 struct IconButton: View {
-    var systemImage: String
+    var icon: Icon
     var name: String
     var action: () -> Void
-    @Environment(\.redactsGuestScreen) private var counting
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 13))
-                .frame(width: 16, height: 16)
-                .opacity(counting ? 0 : 1)
+            IconView(icon: icon).clonePart("Icon/\(icon.rawValue)")
         }
         .buttonStyle(IconButtonStyle())
         .help(name)
@@ -169,21 +183,28 @@ struct IconButtonStyle: ButtonStyle {
 }
 
 extension View {
-    /// The focus ring: 2 pt in the focus colour, 2 pt outside the control, shown only while
-    /// the keyboard focuses it.
+    /// The focus ring (Figma: a 2 pt spread in the surface colour, then 2 pt in the focus
+    /// colour): 2 pt outside a 2 pt gap, shown only while the keyboard focuses the control.
     func focusRing(_ shown: Bool, radius: CGFloat) -> some View {
         overlay {
             if shown {
-                RoundedRectangle(cornerRadius: radius + Metrics.focusRingGap)
-                    .strokeBorder(Palette.focusRing, lineWidth: Metrics.focusRingWidth)
-                    .padding(-(Metrics.focusRingGap + Metrics.focusRingWidth))
-                    .allowsHitTesting(false)
+                let gap = Metrics.focusRingGap, width = Metrics.focusRingWidth
+                ZStack {
+                    RoundedRectangle(cornerRadius: radius + gap)
+                        .strokeBorder(Palette.bg, lineWidth: gap)
+                        .padding(-gap)
+                    RoundedRectangle(cornerRadius: radius + gap + width)
+                        .strokeBorder(Palette.focusRing, lineWidth: width)
+                        .padding(-(gap + width))
+                }
+                .allowsHitTesting(false)
             }
         }
     }
 }
 
-/// A keycap: a shortcut shown only in menus, tooltips and the palette.
+/// A keycap: a shortcut shown only in menus, tooltips and the palette. 20 tall, 5 at the
+/// sides, radius 4, Caption.
 struct Keycap: View {
     var keys: String
 
@@ -192,7 +213,8 @@ struct Keycap: View {
             .textStyle(.caption)
             .foregroundStyle(Palette.textSecondary)
             .padding(.horizontal, 5)
-            .frame(minWidth: 20, minHeight: 20)
+            .frame(minWidth: 20)
+            .frame(height: 20)
             .background(RoundedRectangle(cornerRadius: Corner.keycap).fill(Palette.bgHover))
             .accessibilityLabel("shortcut \(keys)")
     }

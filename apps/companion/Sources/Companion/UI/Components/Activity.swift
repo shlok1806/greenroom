@@ -1,25 +1,27 @@
 import SwiftUI
 
-// Agent-state components, ported from Beautiful UI (MIT, Shane Levine,
-// github.com/slev12397/beautiful-ui): `components/primitives/TaskRows.tsx`,
-// `ThinkingState.tsx`, `ToolChips.tsx` and `components/atoms/Shimmer.tsx`. The structure and
-// motion follow the originals (a row that expands its detail with the grid-rows reveal and a
-// rotating chevron, a status badge that pops in, a shimmer across a working label, chips of
-// tool calls); the sizes, colours and durations are the Figma file's (Task row 6:72, Tool chip
-// 3:230, Thinking 6:31), which restyled them. See ACKNOWLEDGEMENTS.md.
+// Agent-state components, ported from Beautiful UI (slev12397/beautiful-ui at 44a274e, MIT,
+// (c) 2026 Shane Levine): `components/primitives/TaskRows.tsx`, `ThinkingState.tsx`,
+// `ToolChips.tsx` and `components/atoms/Shimmer.tsx`. Behaviour and motion are the originals'
+// (a row opens its detail in place, height and opacity together, under a turning chevron; a
+// working label shimmers; tool calls are chips), held to the browser's sampled frames by
+// `MotionTests`. Sizes, colours and the durations the design names are the Figma file's (Task
+// row 6:72, Tool chip 3:230, Thinking 6:31, Composer), which restyled them (docs/22 C08, C11,
+// C18, C31, C32). See ACKNOWLEDGEMENTS.md.
 
 /// One tool call in plain words: "Click 25%", "Screenshot", "Read "Each pays"".
 struct ToolChipModel: Hashable, Sendable, Identifiable {
     enum State: Hashable, Sendable { case running, done, error(String) }
 
     var id: Int
-    var systemImage: String
+    var icon: Icon
     var label: String
     /// "0.4s", "now".
     var meta: String
     var state: State
 }
 
+/// 24 tall, 8 at the sides, 6 between the pieces, radius 6, a 1 pt border, Caption.
 struct ToolChip: View {
     var chip: ToolChipModel
 
@@ -28,16 +30,15 @@ struct ToolChip: View {
             if chip.state == .running {
                 StatusGlyph(kind: .checking, color: .accent, size: 12)
             } else {
-                Image(systemName: chip.systemImage).font(.system(size: 10)).frame(width: 12, height: 12)
-                    .foregroundStyle(isError ? Palette.fail : Palette.textSecondary)
+                IconView(icon: chip.icon, size: 12).foregroundStyle(Palette.textSecondary)
             }
-            Text(chip.label).textStyle(.caption).foregroundStyle(isError ? Palette.fail : Palette.text).lineLimit(1)
+            Text(chip.label).textStyle(.caption).foregroundStyle(Palette.text).lineLimit(1)
             Text(metaText).textStyle(.caption).foregroundStyle(isError ? Palette.fail : Palette.textSecondary).lineLimit(1)
         }
         .padding(.horizontal, Gap.x8)
         .frame(height: 24)
         .background(RoundedRectangle(cornerRadius: Corner.control).fill(isError ? Palette.failSubtle : Palette.bgHover))
-        .overlay(RoundedRectangle(cornerRadius: Corner.control).strokeBorder(isError ? Palette.fail.opacity(0.4) : Palette.border, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: Corner.control).strokeBorder(isError ? Palette.fail.opacity(0.35) : Palette.border, lineWidth: 1))
         .accessibilityElement(children: .combine)
     }
 
@@ -45,7 +46,7 @@ struct ToolChip: View {
 
     private var metaText: String {
         if case .error(let why) = chip.state { return why }
-        return chip.meta
+        return chip.state == .running ? "now" : chip.meta
     }
 }
 
@@ -64,38 +65,41 @@ struct TaskRowModel: Hashable, Sendable, Identifiable {
     var opensItself: Bool
 }
 
-/// Beautiful UI's Task Rows: collapsed by default; the failing one opens itself.
+/// Beautiful UI's Task Rows, as the Figma file draws them: 8 all round, a 12 pt chevron, the
+/// glyph, the title and the time 8 apart; the detail 8 below, 44 in. Collapsed by default; the
+/// failing one opens itself.
 struct TaskRowView: View {
     var row: TaskRowModel
     @Binding var expanded: Bool
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
+
+    private var opens: Bool { !row.chips.isEmpty || row.note != nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: expanded ? Gap.x8 : 0) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 expanded.toggle()
             } label: {
                 HStack(spacing: Gap.x8) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                    IconView(icon: .chevronRight, size: 12)
                         .foregroundStyle(Palette.textSecondary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
-                        .frame(width: 12, height: 12)
-                        .opacity(row.chips.isEmpty && row.note == nil ? 0 : 1)
+                        .opacity(opens ? 1 : 0)
                     StatusGlyph(kind: row.glyph, color: row.color)
                     Text(row.title).textStyle(.body).foregroundStyle(Palette.text)
+                        .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text(row.meta).textStyle(.caption).foregroundStyle(Palette.textSecondary)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(row.chips.isEmpty && row.note == nil)
+            .disabled(!opens)
             .accessibilityLabel("\(row.title), \(row.meta)")
-            .accessibilityValue(expanded ? "expanded" : "collapsed")
+            .accessibilityValue(opens ? (expanded ? "expanded" : "collapsed") : "")
 
-            if expanded {
+            Reveal(open: expanded && opens) {
                 VStack(alignment: .leading, spacing: Gap.x8) {
                     if !row.chips.isEmpty {
                         ChipFlowLayout(spacing: 6) {
@@ -107,61 +111,110 @@ struct TaskRowView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 44)
-                .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: -4)))
+                .padding(.top, Gap.x8)
             }
         }
         .padding(Gap.x8)
-        .animation(Motion.change(Motion.settle, reduce: reduceMotion), value: expanded)
+        .background(RoundedRectangle(cornerRadius: Corner.control).fill(hovering && opens ? Palette.bgHover : .clear))
+        .onHover { hovering = $0 }
     }
 }
 
-/// Beautiful UI's Thinking state: "Thinking" with a slow shimmer while live; "Thought for 4s"
-/// once done, one click from its trace.
+/// Opens its content in place: the height goes from nothing to the content's own and the
+/// opacity with it, the content clipped (CSS `grid-template-rows: 0fr` to `1fr`, docs/22
+/// section 3.6), over the design's settle on its one curve. The content stays in the tree, so
+/// closing runs the same curve back. Instant under Reduce Motion.
+struct Reveal<Content: View>: View {
+    var open: Bool
+    var duration = Motion.settle
+    @ViewBuilder var content: () -> Content
+
+    @State private var height: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        content()
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            .frame(height: open ? height : 0, alignment: .top)
+            .clipped()
+            .opacity(open ? 1 : 0)
+            .allowsHitTesting(open)
+            .accessibilityHidden(!open)
+            .animation(Motion.change(duration, reduce: reduceMotion), value: open)
+    }
+}
+
+/// Beautiful UI's Thinking state: the word with a slow shimmer while live; "Thought for 4s"
+/// once done, one click from its trace. The icon 14, 6 before the word.
 struct ThinkingView: View {
     var live: Bool
+    var liveText = "Thinking"
     var doneText = "Thought"
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "sparkle").font(.system(size: 11)).foregroundStyle(Palette.textSecondary)
+            IconView(icon: .think, size: 14).foregroundStyle(Palette.textSecondary)
             if live {
-                ShimmerText(text: "Thinking")
+                ShimmerText(text: liveText)
             } else {
                 Text(doneText).textStyle(.body).foregroundStyle(Palette.textSecondary)
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.textSecondary)
+                IconView(icon: .chevronRight, size: 12).foregroundStyle(Palette.textSecondary)
             }
         }
         .accessibilityElement(children: .combine)
     }
 }
 
-/// Beautiful UI's Shimmer: a band of light that crosses a working label. Stops under Reduce
-/// Motion, leaving the word.
+/// Beautiful UI's Shimmer: the label drawn through a gradient twice its width that travels
+/// across it (`background-size: 200%`, `background-position` 150% to -50%, linear), dim at the
+/// ends and bright in the middle. The design's period is 1.6 s and its colours the secondary
+/// text at full and at 35%. Its place is worked out from the motion clock; under Reduce Motion
+/// the word stands still in the secondary colour.
 struct ShimmerText: View {
     var text: String
+    var style: TypeStyle = .body
+
+    @State private var width: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase: CGFloat = -1
 
     var body: some View {
         Text(text)
-            .textStyle(.body)
-            .foregroundStyle(Palette.textSecondary)
-            .overlay {
+            .textStyle(style)
+            .foregroundStyle(reduceMotion ? Palette.textSecondary : Color.clear)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .overlay(alignment: .leading) {
                 if !reduceMotion {
-                    GeometryReader { geo in
-                        LinearGradient(colors: [.clear, Palette.bg.opacity(0.65), .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: geo.size.width / 2)
-                            .offset(x: phase * geo.size.width)
+                    Clocked { seconds in
+                        LinearGradient(stops: ShimmerText.stops, startPoint: .leading, endPoint: .trailing)
+                            .frame(width: width * 2)
+                            .offset(x: ShimmerText.offset(at: seconds, width: width))
+                            .frame(width: width, alignment: .leading)
+                            .mask(alignment: .leading) { Text(text).textStyle(style) }
                     }
-                    .mask(Text(text).textStyle(.body))
                     .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 }
             }
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: Motion.shimmer).repeatForever(autoreverses: false)) { phase = 1.5 }
-            }
+            .accessibilityLabel(text)
+    }
+
+    /// The Figma file's gradient: the secondary text at 100%, 35% and 100%.
+    static var stops: [Gradient.Stop] {
+        [
+            .init(color: Palette.textSecondary, location: 0),
+            .init(color: Palette.textSecondary.opacity(0.35), location: 0.5),
+            .init(color: Palette.textSecondary, location: 1),
+        ]
+    }
+
+    /// Where the gradient's left edge sits: `background-position-x` p puts it at -W p, and p
+    /// runs 1.5 to -0.5 over the period, so the edge travels from -1.5 W to 0.5 W.
+    static func offset(at seconds: Double, width: CGFloat, period: Double = Motion.shimmer) -> CGFloat {
+        let p = 1.5 - 2 * MotionClock.phase(seconds, period: period)
+        return -width * p
     }
 }
 
@@ -202,10 +255,13 @@ struct ChipFlowLayout: Layout {
     }
 }
 
-/// The message composer: one field and Send. Disabled with its reason when nothing will answer.
+/// The message composer (Figma: Composer): one field and Send. 6 above, below and after, 12
+/// before, 8 between; radius 8, a 1 pt border; focused, the 2 pt focus ring; disabled with its
+/// reason, at 60%, when nothing will answer.
 struct ComposerView: View {
     @Binding var text: String
     var placeholder = "Message the verifier"
+    var sendTitle = "Send"
     var sending = false
     /// Why the composer cannot send now; nil when it can.
     var disabledReason: String?
@@ -215,27 +271,29 @@ struct ComposerView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: Gap.x8) {
-            TextField(disabledReason ?? placeholder, text: $text, axis: .vertical)
+        HStack(alignment: .bottom, spacing: Gap.x8) {
+            TextField("", text: $text, prompt: Text(disabledReason ?? placeholder).foregroundStyle(Palette.textSecondary), axis: .vertical)
                 .textFieldStyle(.plain)
                 .textStyle(.body)
                 .foregroundStyle(Palette.text)
-                .lineLimit(1...5)
+                .tint(Palette.accent)
+                .lineLimit(1...6)
                 .focused($focused)
                 .disabled(disabledReason != nil)
                 .onSubmit(sendIfReady)
-                .accessibilityLabel("Message the verifier")
-            Button(sending ? "Sending" : "Send", action: sendIfReady)
+                .accessibilityLabel(disabledReason ?? "Message the verifier")
+                .padding(.vertical, 5)
+            Button(sending ? "Sending" : sendTitle, action: sendIfReady)
                 .buttonStyle(ActionButtonStyle(kind: .primary, loading: sending))
                 .disabled(!canSend && !sending)
                 .allowsHitTesting(canSend)
         }
         .padding(.leading, Gap.x12)
-        .padding(.trailing, Gap.x4)
-        .padding(.vertical, Gap.x4)
+        .padding([.vertical, .trailing], 6)
         .background(RoundedRectangle(cornerRadius: Corner.row).fill(Palette.bgRaised))
-        .overlay(RoundedRectangle(cornerRadius: Corner.row)
-            .strokeBorder(focused ? Palette.focusRing : Palette.border, lineWidth: focused ? 2 : 1))
+        .overlay(RoundedRectangle(cornerRadius: Corner.row).strokeBorder(Palette.border, lineWidth: 1))
+        .focusRing(focused, radius: Corner.row)
+        .opacity(disabledReason == nil ? 1 : 0.6)
         .onChange(of: focusRequest) { _, _ in focused = true }
         .onAppear { if focusRequest > 0 { DispatchQueue.main.async { focused = true } } }
     }

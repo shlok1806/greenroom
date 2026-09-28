@@ -42,13 +42,11 @@ struct RunToolbar: View {
             Text(summary.name).textStyle(.bodyEmphasis).foregroundStyle(Palette.text).lineLimit(1)
             Text(origin).textStyle(.body).foregroundStyle(Palette.textSecondary).lineLimit(1)
             Spacer(minLength: Gap.x8)
-            Button { shell.toggleActivity() } label: { Label("Activity", systemImage: "list.bullet") }
-                .buttonStyle(ToolbarButtonStyle(on: shell.activityOpen))
+            ToolbarButton(icon: .activity, title: "Activity", on: shell.activityOpen) { shell.toggleActivity() }
                 .help("Activity (A)")
             // Only while something will answer: a Mac that is gone takes no messages.
             if summary.machine.isUp {
-                Button { shell.openComposer(.message) } label: { Label("Message", systemImage: "bubble.left") }
-                    .buttonStyle(ToolbarButtonStyle(on: shell.composer == .message))
+                ToolbarButton(icon: .message, title: "Message", on: shell.composer == .message) { shell.openComposer(.message) }
                     .help("Message the verifier (M)")
             }
             RunMoreMenu(shell: shell, summary: summary)
@@ -87,7 +85,7 @@ private struct RunMoreMenu: View {
                 NSPasteboard.general.setString(summary.runId, forType: .string)
             }
         } label: {
-            Image(systemName: "ellipsis").font(.system(size: 13)).foregroundStyle(Palette.textSecondary)
+            IconView(icon: .more).foregroundStyle(Palette.textSecondary)
                 .frame(width: Metrics.buttonHeight, height: Metrics.buttonHeight)
         }
         .menuStyle(.borderlessButton)
@@ -178,7 +176,7 @@ struct WarningBanner: View {
             if let restart {
                 Button("Restart the Mac", action: restart).buttonStyle(ActionButtonStyle(kind: .plain))
             }
-            IconButton(systemImage: "xmark", name: "Dismiss", action: dismiss)
+            IconButton(icon: .close, name: "Dismiss", action: dismiss)
         }
         .padding(.leading, Gap.x24)
         .padding(.trailing, Gap.x12)

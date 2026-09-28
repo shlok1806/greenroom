@@ -89,8 +89,7 @@ struct StageView: View {
                     Text("Live").textStyle(.captionEmphasis).foregroundStyle(Palette.accent)
                 }
             } else if summary.lastFrame != nil, summary.state != .starting, summary.state != .restarting {
-                Button { shell.evidenceOpen = true } label: { Label("Recording", systemImage: "video") }
-                    .buttonStyle(ToolbarButtonStyle())
+                ToolbarButton(icon: .video, title: "Recording") { shell.evidenceOpen = true }
                     .help("Open the evidence and the recording (E)")
             }
         }

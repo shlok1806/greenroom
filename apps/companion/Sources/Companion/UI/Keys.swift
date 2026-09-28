@@ -104,16 +104,15 @@ final class Keys {
         }
     }
 
-    static func icon(for action: SummaryAction) -> String {
+    static func icon(for action: SummaryAction) -> Icon {
         switch action.id {
-        case SummaryAction.accept: "checkmark"
-        case SummaryAction.reject: "xmark"
-        case SummaryAction.continue: "play"
-        case SummaryAction.restart: "arrow.clockwise"
-        case SummaryAction.takeControl, SummaryAction.giveBack: "cursorarrow"
-        case SummaryAction.answer: "bubble.left"
-        case SummaryAction.recheck: "arrow.triangle.2.circlepath"
-        default: "circle"
+        case SummaryAction.accept: .check
+        case SummaryAction.reject: .close
+        case SummaryAction.continue: .play
+        case SummaryAction.restart, SummaryAction.recheck: .restart
+        case SummaryAction.takeControl, SummaryAction.giveBack: .pointer
+        case SummaryAction.answer: .message
+        default: .check
         }
     }
 }

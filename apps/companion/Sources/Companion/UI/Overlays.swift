@@ -17,16 +17,15 @@ struct EvidenceViewer: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: Gap.x8) {
-                IconButton(systemImage: "xmark", name: "Close the evidence (esc)") { shell.evidenceOpen = false }
+                IconButton(icon: .close, name: "Close the evidence (esc)") { shell.evidenceOpen = false }
                 Text("Evidence").textStyle(.bodyEmphasis).foregroundStyle(Palette.text)
                 Text(summary.name).textStyle(.body).foregroundStyle(Palette.textSecondary).lineLimit(1)
                 Spacer()
                 if summary.lastFrame != nil {
-                    Button { Task { await playRecording() } } label: {
-                        Label(player == nil ? "Play recording, \(Clock.elapsed(summary.elapsedSeconds))" : "Back to the frame",
-                              systemImage: player == nil ? "play" : "photo")
+                    ToolbarButton(icon: player == nil ? .play : .expand,
+                                  title: player == nil ? "Play recording, \(Clock.elapsed(summary.elapsedSeconds))" : "Back to the frame") {
+                        Task { await playRecording() }
                     }
-                    .buttonStyle(ToolbarButtonStyle())
                     .disabled(loadingRecording)
                 }
             }
@@ -134,18 +133,18 @@ enum PaletteOptions {
             let (primary, secondary) = shell.actions(for: s)
             for action in [primary].compactMap({ $0 }) + secondary {
                 out.append(PaletteOption(id: "a-\(action.id)", title: action.label, section: "This run",
-                                         systemImage: Keys.icon(for: action),
+                                         icon: Keys.icon(for: action),
                                          keys: action == primary ? "⌘↩" : Keys.shortcut(for: action)) { shell.perform(action) })
             }
-            out.append(PaletteOption(id: "activity", title: "Open activity", section: "This run", systemImage: "list.bullet", keys: "A") { shell.activityOpen = true })
-            out.append(PaletteOption(id: "message", title: "Message the verifier", section: "This run", systemImage: "bubble.left", keys: "M") { shell.openComposer(.message) })
-            out.append(PaletteOption(id: "evidence", title: "Open the evidence", section: "This run", systemImage: "video", keys: "E") { shell.evidenceOpen = true })
-            out.append(PaletteOption(id: "copy", title: "Copy run ID", section: "This run", systemImage: "doc.on.doc") {
+            out.append(PaletteOption(id: "activity", title: "Open activity", section: "This run", icon: .activity, keys: "A") { shell.activityOpen = true })
+            out.append(PaletteOption(id: "message", title: "Message the verifier", section: "This run", icon: .message, keys: "M") { shell.openComposer(.message) })
+            out.append(PaletteOption(id: "evidence", title: "Open the evidence", section: "This run", icon: .video, keys: "E") { shell.evidenceOpen = true })
+            out.append(PaletteOption(id: "copy", title: "Copy run ID", section: "This run", icon: .copy) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(s.runId, forType: .string)
             })
         }
-        out.append(PaletteOption(id: "settings", title: "Settings", section: "Greenroom", systemImage: "slider.horizontal.3", keys: "⌘,") { shell.settingsOpen = true })
+        out.append(PaletteOption(id: "settings", title: "Settings", section: "Greenroom", icon: .settings, keys: "⌘,") { shell.settingsOpen = true })
         for run in shell.store.board?.runs ?? [] where run.runId != shell.runId {
             out.append(PaletteOption(id: "r-\(run.runId)", title: run.name, section: "Go to run",
                                      glyph: (run.state.glyph, run.tone.color)) { shell.select(run: run.runId) })
@@ -282,12 +281,11 @@ struct CenteredMessage<Footer: View>: View {
                     Text(command).font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.text)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Button {
+                    ToolbarButton(icon: copied ? .check : .copy, title: copied ? "Copied" : "Copy") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(command, forType: .string)
                         copied = true
-                    } label: { Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") }
-                        .buttonStyle(ToolbarButtonStyle())
+                    }
                 }
                 .padding(Gap.x12)
                 .background(RoundedRectangle(cornerRadius: Corner.row).fill(Palette.bgSelected))

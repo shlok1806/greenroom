@@ -64,37 +64,37 @@ struct ComponentGallery: View {
             }
             section("Toolbar button, icon button, keycap") {
                 HStack(spacing: Gap.x16) {
-                    Button {} label: { Label("Activity", systemImage: "list.bullet") }.buttonStyle(ToolbarButtonStyle())
-                    Button {} label: { Label("Activity", systemImage: "list.bullet") }.buttonStyle(ToolbarButtonStyle(on: true))
-                    Button {} label: { Label("Message", systemImage: "bubble.left") }.buttonStyle(ToolbarButtonStyle())
-                    Button {} label: { Label("Take control", systemImage: "cursorarrow") }.buttonStyle(ToolbarButtonStyle()).disabled(true)
-                    IconButton(systemImage: "magnifyingglass", name: "Search runs") {}
-                    IconButton(systemImage: "ellipsis", name: "More") {}
+                    ToolbarButton(icon: .activity, title: "Activity") {}
+                    ToolbarButton(icon: .activity, title: "Activity", on: true) {}
+                    ToolbarButton(icon: .message, title: "Message") {}
+                    ToolbarButton(icon: .pointer, title: "Take control") {}.disabled(true)
+                    IconButton(icon: .search, name: "Search runs") {}
+                    IconButton(icon: .more, name: "More") {}
                     Keycap(keys: "⌘K")
                     Keycap(keys: "A")
                 }
             }
             section("Palette row") {
                 HStack(spacing: Gap.x16) {
-                    labeled("Default") { PaletteRowView(systemImage: "list.bullet", label: "Open activity", keys: "A", selected: false).frame(width: 300) }
-                    labeled("Selected") { PaletteRowView(systemImage: "checkmark", label: "Accept fail", keys: "⌘↩", selected: true).frame(width: 300) }
-                    labeled("Disabled") { PaletteRowView(systemImage: "cursorarrow", label: "Take control", selected: false, enabled: false).frame(width: 300) }
+                    labeled("Default") { PaletteRowView(icon: .activity, label: "Open activity", keys: "A", selected: false).frame(width: 300) }
+                    labeled("Selected") { PaletteRowView(icon: .check, label: "Accept fail", keys: "⌘↩", selected: true).frame(width: 300) }
+                    labeled("Disabled") { PaletteRowView(icon: .pointer, label: "Take control", selected: false, enabled: false).frame(width: 300) }
                 }
             }
             section("Tool chip, task row, thinking") {
                 HStack(alignment: .top, spacing: Gap.x16) {
                     VStack(alignment: .leading, spacing: Gap.x8) {
-                        ToolChip(chip: .init(id: 1, systemImage: "camera", label: "Screenshot", meta: "now", state: .running))
-                        ToolChip(chip: .init(id: 2, systemImage: "cursorarrow", label: "Click 25%", meta: "0.4s", state: .done))
-                        ToolChip(chip: .init(id: 3, systemImage: "eye", label: "Read \"Summary\"", meta: "", state: .error("timed out")))
+                        ToolChip(chip: .init(id: 1, icon: .camera, label: "Screenshot", meta: "now", state: .running))
+                        ToolChip(chip: .init(id: 2, icon: .pointer, label: "Click 25%", meta: "0.4s", state: .done))
+                        ToolChip(chip: .init(id: 3, icon: .eye, label: "Read \"Summary\"", meta: "", state: .error("timed out")))
                     }
                     TaskRowView(row: .init(id: "a", title: "Opened TipSplit", glyph: .passed, color: .pass, meta: "0:18",
-                                           chips: [.init(id: 1, systemImage: "cursorarrow", label: "Click", meta: "0.2s", state: .done)], opensItself: false),
+                                           chips: [.init(id: 1, icon: .pointer, label: "Click", meta: "0.2s", state: .done)], opensItself: false),
                                 expanded: .constant(false)).frame(width: 360)
                     TaskRowView(row: .init(id: "b", title: "Each pays showed $10.00 at 25%", glyph: .failed, color: .fail, meta: "0:09",
-                                           chips: [.init(id: 1, systemImage: "cursorarrow", label: "Click 25%", meta: "0.4s", state: .done),
-                                                   .init(id: 2, systemImage: "camera", label: "Screenshot", meta: "0.9s", state: .done),
-                                                   .init(id: 3, systemImage: "eye", label: "Read \"Each pays\"", meta: "1.2s", state: .done)],
+                                           chips: [.init(id: 1, icon: .pointer, label: "Click 25%", meta: "0.4s", state: .done),
+                                                   .init(id: 2, icon: .camera, label: "Screenshot", meta: "0.9s", state: .done),
+                                                   .init(id: 3, icon: .eye, label: "Read \"Each pays\"", meta: "1.2s", state: .done)],
                                            opensItself: true),
                                 expanded: .constant(true)).frame(width: 360)
                     VStack(alignment: .leading, spacing: Gap.x8) {

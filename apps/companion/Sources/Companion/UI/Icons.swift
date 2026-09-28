@@ -78,11 +78,14 @@ enum Icon: String, CaseIterable, Sendable {
 struct IconView: View {
     var icon: Icon
     var size: CGFloat = 16
+    /// A text recogniser reads an icon as letters; the harness's word count hides them.
+    @Environment(\.redactsGuestScreen) private var counting
 
     var body: some View {
         IconShape(icon: icon)
             .stroke(style: StrokeStyle(lineWidth: Icon.strokeWidth * size / 16, lineCap: .round, lineJoin: .round))
             .frame(width: size, height: size)
+            .opacity(counting ? 0 : 1)
             .accessibilityHidden(true)
     }
 }

@@ -66,8 +66,10 @@ struct EvidenceFrame: View {
                     .overlay {
                         if let mark, !redacted {
                             GeometryReader { geo in
+                                // The value's own box; the mark draws outside it.
                                 EvidenceMarkView(color: markColor)
-                                    .frame(width: max(12, mark.w * geo.size.width) + 8, height: max(12, mark.h * geo.size.height) + 8)
+                                    .frame(width: max(12, mark.w * geo.size.width), height: max(12, mark.h * geo.size.height))
+                                    .clonePart("Evidence mark")
                                     .position(x: (mark.x + mark.w / 2) * geo.size.width, y: (mark.y + mark.h / 2) * geo.size.height)
                             }
                             .accessibilityHidden(true)
@@ -108,18 +110,15 @@ struct EvidenceFrame: View {
     }
 }
 
-/// The ring around a cited value: a 2 pt ring and a soft 4 pt halo outside it.
+/// The mark around a cited value (Figma: Evidence mark 6:83): a 4 pt band outside the value's
+/// box, its outer corners radius 9, so it never covers the value.
 struct EvidenceMarkView: View {
     var color: ToneColor = .fail
 
     var body: some View {
-        RoundedRectangle(cornerRadius: Corner.control)
-            .strokeBorder(color.token.color, lineWidth: 2)
-            .background {
-                RoundedRectangle(cornerRadius: Corner.control + 3)
-                    .strokeBorder(color.token.color.opacity(0.25), lineWidth: 4)
-                    .padding(-4)
-            }
+        RoundedRectangle(cornerRadius: 9)
+            .strokeBorder(color.token.color, lineWidth: 4)
+            .padding(-4)
             .allowsHitTesting(false)
     }
 }
@@ -147,12 +146,20 @@ struct FilmstripThumb: View {
             }
             .frame(width: width, height: width * 3 / 4)
             .clipShape(RoundedRectangle(cornerRadius: Corner.keycap))
-            .overlay(RoundedRectangle(cornerRadius: Corner.keycap)
-                .strokeBorder(selected ? Palette.text : Palette.border, lineWidth: selected ? 2 : 1))
+            .overlay {
+                // Figma: 1 pt inside at 85% by default; selected, 2 pt outside in the text colour.
+                if selected {
+                    RoundedRectangle(cornerRadius: Corner.keycap + 2).strokeBorder(Palette.text, lineWidth: 2).padding(-2)
+                } else {
+                    RoundedRectangle(cornerRadius: Corner.keycap).strokeBorder(Palette.border, lineWidth: 1)
+                }
+            }
             .opacity(selected ? 1 : 0.85)
+            .clonePart("Frame")
             RoundedRectangle(cornerRadius: 1.5)
                 .fill(markColor)
                 .frame(width: width, height: 3)
+                .clonePart("Mark")
             if let caption {
                 Text(caption).textStyle(.caption).foregroundStyle(selected ? Palette.text : Palette.textSecondary).lineLimit(1)
                     .frame(width: width, alignment: .leading)

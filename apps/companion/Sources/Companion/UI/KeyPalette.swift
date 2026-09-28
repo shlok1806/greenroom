@@ -13,7 +13,7 @@ struct PaletteOption: Identifiable {
     let title: String
     /// The section it is listed under.
     let section: String
-    var systemImage: String?
+    var icon: Icon?
     var glyph: (GlyphKind, ToneColor)?
     /// The key that does the same thing outside the palette, as a keycap shows it.
     var keys: String?
@@ -89,7 +89,7 @@ private struct PaletteQuery: View {
 
     var body: some View {
         HStack(spacing: Gap.x12) {
-            Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(Palette.textSecondary)
+            IconView(icon: .search).foregroundStyle(Palette.textSecondary)
             TextField("Search runs and actions", text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 15))
@@ -143,7 +143,7 @@ private struct PaletteTable: View {
                                     .accessibilityAddTraits(.isHeader)
                             }
                             Button { run(option) } label: {
-                                PaletteRowView(systemImage: option.systemImage, glyph: option.glyph, label: option.title,
+                                PaletteRowView(icon: option.icon, glyph: option.glyph, label: option.title,
                                                keys: option.keys, selected: index == selectedIndex || hoveredID == option.id,
                                                enabled: option.disabledReason == nil)
                             }

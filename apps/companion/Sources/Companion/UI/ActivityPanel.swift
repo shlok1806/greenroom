@@ -14,9 +14,8 @@ struct ActivityPanel: View {
             HStack(spacing: Gap.x8) {
                 Text("Activity").textStyle(.title).foregroundStyle(Palette.text).accessibilityAddTraits(.isHeader)
                 Spacer()
-                Button { raw.toggle() } label: { Label("Raw logs", systemImage: "apple.terminal") }
-                    .buttonStyle(ToolbarButtonStyle(on: raw))
-                IconButton(systemImage: "xmark", name: "Close Activity") { shell.toggleActivity() }
+                ToolbarButton(icon: .logs, title: "Raw logs", on: raw) { raw.toggle() }
+                IconButton(icon: .close, name: "Close Activity") { shell.toggleActivity() }
             }
             .padding(.leading, Gap.x24)
             .padding(.trailing, Gap.x12)

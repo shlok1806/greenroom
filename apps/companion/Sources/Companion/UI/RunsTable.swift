@@ -7,6 +7,9 @@ import SwiftUI
 /// cost of the thirty that show. Each cell hosts the SwiftUI row. Up and Down move the
 /// selection natively while the list has the keyboard.
 struct RunsTable: NSViewRepresentable {
+    /// The gap between the rows of the list.
+    static let gap: CGFloat = 2
+
     var items: [SidebarItem]
     var summaries: [String: Summary]
     var selected: String?
@@ -89,10 +92,11 @@ struct RunsTable: NSViewRepresentable {
         func numberOfRows(in tableView: NSTableView) -> Int { items.count }
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+            // The design stacks the list 2 apart: each row is its own height and the gap after it.
             switch items[row] {
-            case .heading: 30
-            case .run, .empty: Metrics.runRowHeight + 2
-            case .more: 26
+            case .heading: 30 + RunsTable.gap
+            case .run, .empty: Metrics.runRowHeight + RunsTable.gap
+            case .more: 26 + RunsTable.gap
             }
         }
 
@@ -108,28 +112,48 @@ struct RunsTable: NSViewRepresentable {
                 view.identifier = id
                 return view
             }()
-            cell.rootView = AnyView(content(for: items[row]).padding(.horizontal, Gap.x8).environment(\.frozenNow, frozenNow))
+            cell.rootView = AnyView(content(for: items[row], at: row)
+                .padding(.horizontal, Gap.x8)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .environment(\.frozenNow, frozenNow)
+                .environment(\.clonePath, "Sidebar/Runs"))
             return cell
         }
 
+        /// The part's name as the design's layers are named: "Run row[3]", with its place
+        /// among the rows of its kind when there is more than one.
+        private func partName(_ base: String, at row: Int, where matches: (SidebarItem) -> Bool) -> String {
+            let all = items.indices.filter { matches(items[$0]) }
+            guard all.count > 1, let index = all.firstIndex(of: row) else { return base }
+            return "\(base)[\(index)]"
+        }
+
         @ViewBuilder
-        private func content(for item: SidebarItem) -> some View {
+        private func content(for item: SidebarItem, at row: Int) -> some View {
             switch item {
             case .heading(let group):
-                GroupHeading(title: group.title).frame(maxHeight: .infinity, alignment: .bottom)
+                GroupHeading(title: group.title)
+                    .cloneScope(partName("Group", at: row) { if case .heading = $0 { true } else { false } })
             case .run(let id):
                 if let summary = summaries[id] {
-                    SidebarRunRow(summary: summary, selected: id == selected).padding(.vertical, 1)
+                    SidebarRunRow(summary: summary, selected: id == selected)
+                        .cloneScope(partName("Run row", at: row) { if case .run = $0 { true } else { false } })
                 }
             case .more(_, let hidden):
-                Text("Show \(hidden) more").textStyle(.caption).foregroundStyle(Palette.textSecondary)
-                    .padding(.leading, Gap.x24)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                // 6 above and below, 32 before: in line with the names.
+                Text("Show \(hidden.formatted()) more").textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                    .clonePart("Text")
+                    .padding(.leading, Gap.x32)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: 26)
+                    .contentShape(Rectangle())
+                    .cloneScope("More")
                     .accessibilityAddTraits(.isButton)
             case .empty:
                 Text("Nothing needs you").textStyle(.caption).foregroundStyle(Palette.textSecondary)
                     .padding(.horizontal, Gap.x8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: Metrics.runRowHeight)
             }
         }
 
@@ -157,16 +181,20 @@ struct SidebarRunRow: View {
     var summary: Summary
     var selected: Bool
     @Environment(\.frozenNow) private var frozenNow
+    @State private var hovering = false
 
     var body: some View {
-        if let frozenNow {
-            RunRowView(model: RunRowModel(summary, now: frozenNow), selected: selected)
-        } else if summary.group == .done {
-            RunRowView(model: RunRowModel(summary, now: Date()), selected: selected)
-        } else {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                RunRowView(model: RunRowModel(summary, now: context.date), selected: selected)
+        Group {
+            if let frozenNow {
+                RunRowView(model: RunRowModel(summary, now: frozenNow), selected: selected, hovered: hovering)
+            } else if summary.group == .done {
+                RunRowView(model: RunRowModel(summary, now: Date()), selected: selected, hovered: hovering)
+            } else {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    RunRowView(model: RunRowModel(summary, now: context.date), selected: selected, hovered: hovering)
+                }
             }
         }
+        .onHover { hovering = $0 }
     }
 }
