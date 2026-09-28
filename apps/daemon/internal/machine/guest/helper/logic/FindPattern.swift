@@ -53,3 +53,26 @@ func roleMatches(wanted: String?, role: String) -> Bool {
     guard let wanted = meaningful(wanted)?.trimmingCharacters(in: .whitespaces) else { return true }
     return wireRole(wanted).caseInsensitiveCompare(wireRole(role)) == .orderedSame
 }
+
+/// The fields of an element `find` looks in (daemon ADR 0006): its title, value, description,
+/// help, placeholder and identifier, with its role for the role filter.
+struct FindFields {
+    var role = ""
+    var title = ""
+    var value = ""
+    var desc = ""
+    var help = ""
+    var placeholder = ""
+    var identifier = ""
+    /// A secure text field: its value is never matched, or a pattern could read it out one
+    /// guess at a time.
+    var secret = false
+}
+
+/// Whether an element is one of `find`'s matches.
+func findMatches(_ pattern: TextPattern, role wanted: String?, _ fields: FindFields) -> Bool {
+    guard roleMatches(wanted: wanted, role: fields.role) else { return false }
+    var texts = [fields.title, fields.desc, fields.help, fields.placeholder, stableIdentifier(fields.identifier)]
+    if !fields.secret { texts.append(fields.value) }
+    return texts.contains { matches(pattern, $0) }
+}

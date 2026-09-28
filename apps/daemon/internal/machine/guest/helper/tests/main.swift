@@ -91,6 +91,7 @@ let tests: [(String, () -> Void)] = [
     ("text between slashes is a regular expression", testTextBetweenSlashesIsARegularExpression),
     ("a bad regular expression says so", testABadRegularExpressionSaysSo),
     ("a role matches with or without its prefix", testARoleMatchesWithOrWithoutItsPrefix),
+    ("find looks in every text field but a secret", testFindLooksInEveryTextFieldButASecret),
     ("a signature changes with what it read", testASignatureChangesWithWhatItRead),
 ]
 

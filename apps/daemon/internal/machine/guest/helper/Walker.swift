@@ -278,6 +278,8 @@ final class Walk {
         var windowSeen = -1
         var windowRef: String?
         var toolbar: (frame: CGRect?, overflow: Bool)?
+        /// Inside a toolbar item that sits behind the overflow chevron.
+        var overflow = false
     }
 
     private let call: Call?
@@ -403,7 +405,9 @@ final class Walk {
         if stopped { return }
         if options.nodes, nodes.count >= options.limit { return stop("limit") }
         if visited >= visitLimit { return stop("visited") }
-        if place.depth > depthLimit || place.level > levelLimit {
+        // `find` counts every level in `depth` (its matches have no listed parents between
+        // them), so only the level bound applies to it.
+        if (options.accept == nil && place.depth > depthLimit) || place.level > levelLimit {
             // Only this branch is cut: its siblings may be shallower.
             truncatedBy = truncatedBy ?? "depth"
             return
@@ -438,12 +442,19 @@ final class Walk {
 
         // What of it shows. An element with no frame at all is walked through; one with a frame
         // that has no area, or that lies outside its window, is hidden with all that is in it.
+        // A frame with no area is treated as no frame: SwiftUI and web content report zero-sized
+        // groups around children that do show, so only a frame with area can hide a subtree.
+        let hasArea = read.frame.map(rectShows) ?? false
         var shown = visibility(of: read.frame, in: clipAround(role: role, in: place.clip))
         var more: [String] = []
-        if let toolbar = place.toolbar, inOverflow(item: read.frame, toolbar: toolbar.frame, hasOverflowButton: toolbar.overflow) {
+        var behindChevron = place.overflow
+        if !behindChevron, let toolbar = place.toolbar {
+            behindChevron = inOverflow(item: read.frame, toolbar: toolbar.frame, hasOverflowButton: toolbar.overflow)
+        }
+        if behindChevron {
             more.append("overflow")
             shown = Visibility()
-        } else if read.frame != nil, !shown.listed, role != "AXApplication" {
+        } else if hasArea, !shown.listed, role != "AXApplication" {
             return
         }
         var facts: WindowFacts?
@@ -451,10 +462,9 @@ final class Walk {
             facts = windowFacts(element, focused: focusedWindow)
             if facts?.minimized == true { shown = Visibility() }
         }
-        let behindChevron = !more.isEmpty
         let minimized = facts?.minimized == true
 
-        var listed = shown.listed && (read.frame != nil || behindChevron)
+        var listed = shown.listed && (hasArea || behindChevron)
         if listed {
             if let accept = options.accept {
                 listed = accept(read)
@@ -488,14 +498,16 @@ final class Walk {
                 }
             }
         }
-        // Nothing in a minimized window or behind the chevron can be seen or pressed.
-        if minimized || behindChevron { return }
+        // Nothing in a minimized window can be seen or pressed. What is behind the chevron is
+        // walked, flagged, so the item's button is listed even when a group wraps it.
+        if minimized { return }
 
         var below = Place(parent: me, clip: place.clip, windowNumber: place.windowNumber,
                           windowSeen: isWindow ? me : place.windowSeen, windowRef: windowRef)
         below.parentPath = path
         below.level = place.level + 1
         below.depth = (listed || options.accept != nil) ? place.depth + 1 : place.depth
+        below.overflow = behindChevron
         below.clip = clipBelow(place.clip, role: role, frame: read.frame) { [self] in
             options.nodes ? ref(me) : "-"
         }
@@ -567,11 +579,8 @@ final class Walk {
         if let known = index[handle] {
             covered = ["by": ref(known), "role": wireRole(seen[known].role)]
             if !seen[known].name.isEmpty { covered["name"] = cut(seen[known].name).text }
-        } else if let stranger = strangers[handle] {
-            covered = stranger
         } else {
-            covered = stranger(handle.element)
-            strangers[handle] = covered
+            covered = stranger(Array(hit[at...]))
         }
         covered["where"] = coverWhere(sameProcess: sameProcess, sameWindow: sameWindow)
         if !sameProcess {
@@ -582,14 +591,21 @@ final class Walk {
     }
 
     /// An element this walk did not see (another app's, another window's), given a ref so the
-    /// reader can look at it or act on it.
-    private func stranger(_ element: AXUIElement) -> [String: Any] {
-        guard let context = elementContext(element).context else { return [:] }
+    /// reader can look at it or act on it. `hit` is the element and the parents the hit test
+    /// climbed. Another app's element is named by its window, which is what the reader has to
+    /// deal with (and what `attention` lists); the answer is kept for every element up to what
+    /// it names, so the other hits on that window cost no messages.
+    private func stranger(_ hit: [AXHandle]) -> [String: Any] {
+        if let known = hit.lazy.compactMap({ self.strangers[$0] }).first { return known }
+        guard let first = hit.first, let context = elementContext(first.element).context else { return [:] }
+        let at = context.pid != app.pid ? (context.windowIndex ?? 0) : 0
+        let read = context.reads[at]
         var covered: [String: Any] = [
-            "by": giveRef(element, context.fingerprint(), reader: reader),
-            "role": wireRole(context.role),
+            "by": giveRef(context.chain[at].element, context.fingerprint(at: at), reader: reader),
+            "role": wireRole(read.role.isEmpty ? "AXUnknown" : read.role),
         ]
-        if !context.read.name.isEmpty { covered["name"] = cut(context.read.name).text }
+        if !read.name.isEmpty { covered["name"] = cut(read.name).text }
+        for handle in context.chain.prefix(at + 1) { strangers[handle] = covered }
         return covered
     }
 }
