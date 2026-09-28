@@ -48,3 +48,42 @@ struct Signature: Equatable {
         }
     }
 }
+
+/// What of one element a walk signs.
+struct SignedElement {
+    var role = ""
+    var name = ""
+    var value = ""
+    var secret = false
+    var enabled: Bool?
+    var selected: Bool?
+    var focused: Bool?
+    var expanded: Bool?
+    var frame: CGRect?
+    var children = 0
+    /// Whether any of it shows.
+    var shows = true
+}
+
+extension Signature {
+    /// Adds what a person would see change of an element. Of one that does not show only the
+    /// role is signed, so rows coming and going still count: a table reports stale widths and
+    /// texts for the rows it has not drawn (Finder's "PDF" for "PDF Document"), which made an
+    /// idle window look busy to the settle. A secret adds only its length.
+    mutating func add(element: SignedElement) {
+        add(element.role)
+        guard element.shows else { return }
+        add(element.name)
+        if element.secret {
+            add(element.value.count)
+        } else {
+            add(element.value)
+        }
+        add(element.enabled)
+        add(element.selected)
+        add(element.focused)
+        add(element.expanded)
+        add(element.frame)
+        add(element.children)
+    }
+}
