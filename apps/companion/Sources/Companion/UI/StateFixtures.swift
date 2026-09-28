@@ -106,6 +106,46 @@ enum StateFixtures {
         }
     }
 
+    /// The board Figma frame 03 draws ("Run, failed, evidence"): TipSplit failed and open,
+    /// the sidebar's runs as the mockup names them, the checks in the mockup's order. For the
+    /// pixel comparison against the frame (docs/22 section 7), where content that differs from
+    /// the mockup's would count against the clone.
+    static func mockup(_ golden: SummaryBoard) -> SummaryBoard {
+        let now = start.addingTimeInterval(State.failed.at)
+        guard var tip = board(golden).summary(tipSplit) else { return golden }
+        let order = ["Each pays becomes", "Each pays is", "Tip is", "Window shows"]
+        tip.checks.items.sort { a, b in
+            (order.firstIndex { a.text.hasPrefix($0) } ?? order.count) < (order.firstIndex { b.text.hasPrefix($0) } ?? order.count)
+        }
+        func run(_ id: String, _ name: String, _ state: SummaryState, _ tone: SummaryTone, _ group: SummaryGroup,
+                 age: TimeInterval, elapsed: Int = 0) -> Summary {
+            var s = Summary(runId: id, name: name, state: state, status: "", tone: tone, group: group,
+                            since: now.addingTimeInterval(-age))
+            s.elapsedSeconds = elapsed
+            if group == .done { s.endedAt = now.addingTimeInterval(-age) }
+            return s
+        }
+        var word = run(wordCount, "WordCount: case buttons", .passed, .pass, .needsYou, age: 8 * 60)
+        word.checks = SummaryChecks(total: 4, passed: 4)
+        let hour: TimeInterval = 3600, day: TimeInterval = 86400
+        var done = [
+            run("m-done-0", "WordCount: longest word", .passed, .pass, .done, age: 2 * hour),
+            run("m-done-1", "TodoList: Clear done", .failed, .fail, .done, age: 5 * hour),
+            run("m-done-2", "UnitConvert: result size", .stopped, .quiet, .done, age: 1 * day + 60),
+            run("m-done-3", "TodoList: add item", .passed, .pass, .done, age: 1 * day + 120),
+            run("m-done-4", "WordCount: keeps text", .passed, .pass, .done, age: 2 * day),
+        ]
+        done += (0..<38).map { run("m-old-\($0)", "Older run \($0)", .passed, .pass, .done, age: 3 * day + TimeInterval($0) * hour) }
+        return SummaryBoard(groups: [
+            .init(id: .needsYou, runs: [tip, word]),
+            .init(id: .running, runs: [
+                run("m-run-0", "UnitConvert: Temperature", .checking, .live, .running, age: 72, elapsed: 72),
+                run("m-run-1", "TodoList: summary line", .starting, .live, .running, age: 24, elapsed: 24),
+            ]),
+            .init(id: .done, runs: done),
+        ], macs: golden.macs)
+    }
+
     static func edit(_ board: inout SummaryBoard, _ runId: String, _ change: (inout Summary) -> Void) {
         guard var s = board.summary(runId) else { return }
         change(&s)
