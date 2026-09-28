@@ -49,6 +49,9 @@ if CommandLine.arguments.dropFirst().first == "--version" {
     print(version)
     exit(0)
 }
+if CommandLine.arguments.dropFirst().first == "--agent" {
+    agent()
+}
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 if arguments.first == "--desktop" {

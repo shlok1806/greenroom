@@ -141,11 +141,17 @@ func settle(since base: UInt32, want: UInt32, limit: TimeInterval = 3) throws {
 /// Runs a batch and returns once the window server has applied all of it. A
 /// batch that fails part way still waits for what it posted, then reports the
 /// failure.
-func perform(_ actions: [Action]) throws {
+///
+/// `before`, when given, runs before each action with its index and may throw
+/// to stop the batch there (the agent's cancel and pause checks, daemon ADR
+/// 0005 point 14); what was already posted still settles. The one-shot modes
+/// pass none.
+func perform(_ actions: [Action], before: ((Int) throws -> Void)? = nil) throws {
     let base = sessionEvents()
     let first = posted
     do {
-        for action in actions {
+        for (index, action) in actions.enumerated() {
+            try before?(index)
             try run(action)
         }
     } catch {
