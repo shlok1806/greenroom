@@ -265,13 +265,19 @@ var (
 	buttonNames   = []string{"left", "right", "middle", "center"}
 )
 
-func validateMods(field string, mods []string) error {
+// normalizeMods validates modifier names and puts them in lower case, the form the agent reads.
+func normalizeMods(field string, mods []string) ([]string, error) {
+	if len(mods) == 0 {
+		return nil, nil
+	}
+	out := make([]string, len(mods))
 	for i, m := range mods {
-		if !slices.Contains(modifierNames, strings.ToLower(m)) {
-			return argErr(fmt.Sprintf("%s[%d]", field, i), "unknown modifier %q; use cmd, shift, alt, ctrl, fn (or command, meta, option, opt, control, function)", m)
+		out[i] = strings.ToLower(m)
+		if !slices.Contains(modifierNames, out[i]) {
+			return nil, argErr(fmt.Sprintf("%s[%d]", field, i), "unknown modifier %q; use cmd, shift, alt, ctrl, fn (or command, meta, option, opt, control, function)", m)
 		}
 	}
-	return nil
+	return out, nil
 }
 
 // Snapshot and find.
@@ -376,7 +382,8 @@ const (
 	ViaAX      = "ax"
 )
 
-// Normalize fills the defaults, clamps the timeout and validates.
+// Normalize fills the defaults, clamps the timeout, puts the button and modifiers in lower case
+// and validates.
 func (a *PressArgs) Normalize() error {
 	point := a.X != nil || a.Y != nil
 	switch {
@@ -396,13 +403,15 @@ func (a *PressArgs) Normalize() error {
 	if a.Button != "" && !slices.Contains(buttonNames, strings.ToLower(a.Button)) {
 		return argErr("button", "unknown button %q; use left, right or middle", a.Button)
 	}
+	a.Button = strings.ToLower(a.Button)
 	switch {
 	case a.Count == 0:
 		a.Count = 1
 	case a.Count < 0 || a.Count > 3:
 		return argErr("count", "%d is out of range; pass 1 (a click), 2 (a double click) or 3", a.Count)
 	}
-	if err := validateMods("mods", a.Mods); err != nil {
+	var err error
+	if a.Mods, err = normalizeMods("mods", a.Mods); err != nil {
 		return err
 	}
 	if a.Via == "" {
@@ -414,7 +423,6 @@ func (a *PressArgs) Normalize() error {
 	if a.Via == ViaAX && point {
 		return argErr("via", "\"ax\" presses an element and needs its ref; a point is pressed with the pointer")
 	}
-	var err error
 	a.TimeoutMs, err = ActionTimeout.Clamp(a.TimeoutMs)
 	return err
 }
@@ -435,7 +443,7 @@ type PressOp struct {
 
 // Op turns normalized arguments into the op's, placing a point on screen s.
 func (a PressArgs) Op(s Screen) PressOp {
-	op := PressOp{Ref: a.Ref, Reason: a.Reason, Force: a.Force, Button: strings.ToLower(a.Button),
+	op := PressOp{Ref: a.Ref, Reason: a.Reason, Force: a.Force, Button: a.Button,
 		Count: a.Count, Mods: a.Mods, Via: a.Via, TimeoutMs: a.TimeoutMs}
 	if a.X != nil && a.Y != nil {
 		p := s.Point(*a.X, *a.Y)
@@ -527,7 +535,8 @@ func (a *KeyArgs) Normalize() error {
 	if strings.TrimSpace(a.Key) == "" {
 		return argErr("key", "missing; pass a key such as \"return\", \"escape\", \"tab\" or \"s\" (with mods [\"cmd\"] for cmd-S)")
 	}
-	if err := validateMods("mods", a.Mods); err != nil {
+	var err error
+	if a.Mods, err = normalizeMods("mods", a.Mods); err != nil {
 		return err
 	}
 	if a.Ref != "" {
@@ -535,7 +544,6 @@ func (a *KeyArgs) Normalize() error {
 			return err
 		}
 	}
-	var err error
 	a.TimeoutMs, err = ActionTimeout.Clamp(a.TimeoutMs)
 	return err
 }
