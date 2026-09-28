@@ -66,6 +66,17 @@ final class SummaryTests: XCTestCase {
         XCTAssertEqual(s.since, .epoch)
     }
 
+    /// The setup clause of a failing check and how the Mac ended (root ADR 0036), and the Ready
+    /// state word, as #211 sends them.
+    func testTheFailingSetupTheMacsEndAndReadyDecode() throws {
+        let json = #"{"runId":"r","name":"X","state":"ready","status":"Ready","tone":"live","group":"running","failing":{"text":"Each pays reads $48.00","setup":"With Bill 120, 20% tip, People 3","saw":"$8.00"},"machine":{"status":"off","ended":"The Mac stopped on its own."}}"#
+        let s = try JSONDecoder.daemon().decode(Summary.self, from: Data(json.utf8))
+        XCTAssertEqual(s.state, .ready)
+        XCTAssertEqual(s.failing?.setup, "With Bill 120, 20% tip, People 3")
+        XCTAssertEqual(s.machine.ended, "The Mac stopped on its own.")
+        XCTAssertFalse(s.machine.isUp)
+    }
+
     func testTheSummaryEventParsesOffTheStream() throws {
         var parser = SSEParser()
         let payload = #"{"runId":"r1","summary":{"runId":"r1","name":"TipSplit","state":"checking","status":"Checking","tone":"live","group":"running"},"macs":{"free":1,"total":2,"text":"1 of 2 Macs free"}}"#
