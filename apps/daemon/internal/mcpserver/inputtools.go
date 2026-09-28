@@ -26,13 +26,17 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 		App   string `json:"app,omitempty" jsonschema:"Application name or bundle id to read, e.g. TipSplit. Default: the frontmost application."`
 		Limit int    `json:"limit,omitempty" jsonschema:"Most elements to list. Default 250, max 1000."`
 	}
+	uiDescription := "Read the accessibility tree of the frontmost application (or a named one): every on-screen " +
+		"control and text with its role, title, label, value, identifier, state, and its center and size as " +
+		"fractions of the screen, the space machine_click takes. Call it before clicking and aim at element " +
+		"centers (or pass machine_click an element id) instead of estimating from a screenshot. Read it again " +
+		"after the UI changes. It only reads; it needs no control of the screen."
+	if mgr.DesktopToolkit() {
+		uiDescription = uiDescriptionToolkit
+	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "machine_ui",
-		Description: "Read the accessibility tree of the frontmost application (or a named one): every on-screen " +
-			"control and text with its role, title, label, value, identifier, state, and its center and size as " +
-			"fractions of the screen, the space machine_click takes. Call it before clicking and aim at element " +
-			"centers (or pass machine_click an element id) instead of estimating from a screenshot. Read it again " +
-			"after the UI changes. It only reads; it needs no control of the screen.",
+		Name:        "machine_ui",
+		Description: uiDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in uiIn) (*mcp.CallToolResult, machine.UITree, error) {
 		tree, err := mgr.UI(ctx, in.RunID, machine.HolderCoder, in.App, in.Limit)
 		if err != nil {
@@ -57,12 +61,16 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 		App     string             `json:"app,omitempty" jsonschema:"The application the element's tree was read from"`
 		UIStep  int                `json:"uiStep,omitempty" jsonschema:"The machine_ui step the element came from"`
 	}
+	clickDescription := "Click the machine's screen. Pass element, an id from your latest machine_ui, to click that " +
+		"element's center (add uiStep, that read's step, to be refused rather than aimed at a newer read); or x " +
+		"and y as fractions of the screen (0 to 1), never pixels. Ids are yours alone: greenroom's verifier " +
+		"reading the UI never changes what they point at." + humanDriving
+	if mgr.DesktopToolkit() {
+		clickDescription = clickDescriptionToolkit
+	}
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "machine_click",
-		Description: "Click the machine's screen. Pass element, an id from your latest machine_ui, to click that " +
-			"element's center (add uiStep, that read's step, to be refused rather than aimed at a newer read); or x " +
-			"and y as fractions of the screen (0 to 1), never pixels. Ids are yours alone: greenroom's verifier " +
-			"reading the UI never changes what they point at." + humanDriving,
+		Name:        "machine_click",
+		Description: clickDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in clickIn) (*mcp.CallToolResult, clickOut, error) {
 		var out clickOut
 		x, y := in.X, in.Y
@@ -82,6 +90,51 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 		return nil, out, err
 	})
 
+	// With the toolkit, machine_type, machine_key and machine_scroll take its arguments too, and
+	// their old calls go this same way (desktopactions.go).
+	if !mgr.DesktopToolkit() {
+		addOldTypeKeyScroll(s, post)
+	}
+
+	// actionIn is machine.InputAction plus schema descriptions; the conversion below keeps the two in step.
+	type actionIn struct {
+		Type   string   `json:"type" jsonschema:"One of: move, click, down, up, scroll, type, key, sleep."`
+		X      *float64 `json:"x,omitempty" jsonschema:"Fraction of the screen, 0 to 1. For move, click, down and up."`
+		Y      *float64 `json:"y,omitempty" jsonschema:"Fraction of the screen, 0 to 1. For move, click, down and up."`
+		Button string   `json:"button,omitempty" jsonschema:"left (default), right, or middle. For click, down and up. Any other name is an error."`
+		Clicks int      `json:"clicks,omitempty" jsonschema:"2 for a double click. For click, down and up."`
+		DeltaX float64  `json:"deltaX,omitempty" jsonschema:"For scroll, in points. Positive scrolls right."`
+		DeltaY float64  `json:"deltaY,omitempty" jsonschema:"For scroll, in points. Positive scrolls down."`
+		Text   string   `json:"text,omitempty" jsonschema:"For type."`
+		Key    string   `json:"key,omitempty" jsonschema:"For key."`
+		Mods   []string `json:"mods,omitempty" jsonschema:"Modifiers held with key: cmd, shift, alt, ctrl, fn (also command, option, control, function). Any other name is an error."`
+		MS     int      `json:"ms,omitempty" jsonschema:"Milliseconds to wait. For sleep, capped at 5000."`
+	}
+	type inputIn struct {
+		RunID   string     `json:"runId" jsonschema:"runId from machine_create"`
+		Actions []actionIn `json:"actions" jsonschema:"Ordered actions to post in one batch, for example down, move, up to drag. Coordinates are fractions of the screen (0 to 1). The whole batch records as one step."`
+	}
+	inputDescription := "Post an ordered batch of actions (move, click, down, up, scroll, type, key, sleep) in one " +
+		"round trip; compose a drag from down, move and up. machine_click, machine_type, machine_key and " +
+		"machine_scroll are shortcuts for a single action." + humanDriving
+	if mgr.DesktopToolkit() {
+		inputDescription = inputDescriptionToolkit
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "machine_input",
+		Description: inputDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in inputIn) (*mcp.CallToolResult, machine.InputResult, error) {
+		actions := make([]machine.InputAction, len(in.Actions))
+		for i, a := range in.Actions {
+			actions[i] = machine.InputAction(a)
+		}
+		return post(ctx, in.RunID, actions...)
+	})
+}
+
+// addOldTypeKeyScroll adds machine_type, machine_key and machine_scroll as they are without the
+// desktop toolkit: single-action conveniences over machine_input.
+func addOldTypeKeyScroll(s *mcp.Server, post func(ctx context.Context, runID string, actions ...machine.InputAction) (*mcp.CallToolResult, machine.InputResult, error)) {
 	type typeIn struct {
 		RunID string `json:"runId" jsonschema:"runId from machine_create"`
 		Text  string `json:"text" jsonschema:"The text to type, one character event at a time, into whatever has focus. Click into a field first if nothing does."`
@@ -118,36 +171,5 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 		Description: "Scroll the machine's screen under the pointer's current position, or under x,y if given." + humanDriving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in scrollIn) (*mcp.CallToolResult, machine.InputResult, error) {
 		return post(ctx, in.RunID, machine.InputAction{Type: "scroll", X: in.X, Y: in.Y, DeltaX: in.DeltaX, DeltaY: in.DeltaY})
-	})
-
-	// actionIn is machine.InputAction plus schema descriptions; the conversion below keeps the two in step.
-	type actionIn struct {
-		Type   string   `json:"type" jsonschema:"One of: move, click, down, up, scroll, type, key, sleep."`
-		X      *float64 `json:"x,omitempty" jsonschema:"Fraction of the screen, 0 to 1. For move, click, down and up."`
-		Y      *float64 `json:"y,omitempty" jsonschema:"Fraction of the screen, 0 to 1. For move, click, down and up."`
-		Button string   `json:"button,omitempty" jsonschema:"left (default), right, or middle. For click, down and up. Any other name is an error."`
-		Clicks int      `json:"clicks,omitempty" jsonschema:"2 for a double click. For click, down and up."`
-		DeltaX float64  `json:"deltaX,omitempty" jsonschema:"For scroll, in points. Positive scrolls right."`
-		DeltaY float64  `json:"deltaY,omitempty" jsonschema:"For scroll, in points. Positive scrolls down."`
-		Text   string   `json:"text,omitempty" jsonschema:"For type."`
-		Key    string   `json:"key,omitempty" jsonschema:"For key."`
-		Mods   []string `json:"mods,omitempty" jsonschema:"Modifiers held with key: cmd, shift, alt, ctrl, fn (also command, option, control, function). Any other name is an error."`
-		MS     int      `json:"ms,omitempty" jsonschema:"Milliseconds to wait. For sleep, capped at 5000."`
-	}
-	type inputIn struct {
-		RunID   string     `json:"runId" jsonschema:"runId from machine_create"`
-		Actions []actionIn `json:"actions" jsonschema:"Ordered actions to post in one batch, for example down, move, up to drag. Coordinates are fractions of the screen (0 to 1). The whole batch records as one step."`
-	}
-	mcp.AddTool(s, &mcp.Tool{
-		Name: "machine_input",
-		Description: "Post an ordered batch of actions (move, click, down, up, scroll, type, key, sleep) in one " +
-			"round trip; compose a drag from down, move and up. machine_click, machine_type, machine_key and " +
-			"machine_scroll are shortcuts for a single action." + humanDriving,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in inputIn) (*mcp.CallToolResult, machine.InputResult, error) {
-		actions := make([]machine.InputAction, len(in.Actions))
-		for i, a := range in.Actions {
-			actions[i] = machine.InputAction(a)
-		}
-		return post(ctx, in.RunID, actions...)
 	})
 }

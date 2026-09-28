@@ -60,8 +60,9 @@ func (raw rawUITree) hasText(i int) bool {
 
 // markRendered captures the screen and the window list once and marks tree's text elements
 // that are not drawn. A read with no text element costs nothing; a capture that fails leaves
-// the tree unmarked and says why in Unrendered.
-func (m *Manager) markRendered(ctx context.Context, mc *Machine, raw rawUITree, tree *UITree) {
+// the tree unmarked and says why in Unrendered. degraded says a read went by one-shot exec
+// because the guest agent's channel was down.
+func (m *Manager) markRendered(ctx context.Context, mc *Machine, raw rawUITree, tree *UITree) (degraded bool) {
 	texts := make([]bool, len(raw.Elements))
 	some := false
 	for i := range raw.Elements {
@@ -69,26 +70,28 @@ func (m *Manager) markRendered(ctx context.Context, mc *Machine, raw rawUITree, 
 		some = some || texts[i]
 	}
 	if !some {
-		return
+		return false
 	}
 	var desk Desktop
 	var deskErr error
+	var deskDegraded bool
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		desk, deskErr = readDesktop(ctx, m.tart, mc.Name)
+		desk, deskDegraded, deskErr = m.desktopRead(ctx, mc)
 	}()
-	data, err := m.captureScreen(ctx, mc, true)
+	data, degraded, err := m.captureScreen(ctx, mc, true)
 	wg.Wait()
+	degraded = degraded || deskDegraded
 	if err != nil {
 		tree.Unrendered = "the screen capture failed: " + err.Error()
-		return
+		return degraded
 	}
 	img, err := imagepng.Decode(bytes.NewReader(data))
 	if err != nil {
 		tree.Unrendered = "the screen capture could not be decoded: " + err.Error()
-		return
+		return degraded
 	}
 	if deskErr != nil {
 		m.Log.Debug("no window list for the covered check", "runId", mc.RunID, "err", deskErr)
@@ -101,11 +104,12 @@ func (m *Manager) markRendered(ctx context.Context, mc *Machine, raw rawUITree, 
 	marks, problem := renderStates(img, raw.Screen, frames, texts, desk.Windows, raw.App.PID)
 	if problem != "" {
 		tree.Unrendered = problem
-		return
+		return degraded
 	}
 	for i, mark := range marks {
 		tree.Elements[i].Rendered = mark
 	}
+	return degraded
 }
 
 // renderStates marks each text element (texts[i]) of frames, in points of screen, against img,

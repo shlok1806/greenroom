@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/desktop"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
@@ -205,6 +206,19 @@ var tools = []nim.Tool{
 // when it is a click on a control that changed nothing before in this turn, says so (dead,
 // ADR 0029).
 func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall, dead *deadControls) (result string, step int) {
+	if v.mgr.DesktopToolkit() && isToolkitAction(call) {
+		// Its result is its own effect (daemon ADR 0006 point 8): no UI read follows it.
+		if why := unusable(ctx, v.mgr, runID); why != "" {
+			return "error: the machine is not usable: " + why, 0
+		}
+		result, step, kind, ref := deskAction(ctx, v.mgr, runID, call)
+		if step != 0 && !strings.HasPrefix(result, "error:") && call.Name == "machine_press" && ref != "" {
+			if hint := dead.record(&target{key: "ref\x00" + ref, name: ref, self: true}, kind, step); hint != "" {
+				result += "\n" + hint
+			}
+		}
+		return result, step
+	}
 	if !isInputTool(call.Name) {
 		return v.machineTool(ctx, runID, call)
 	}
@@ -232,6 +246,13 @@ func (v *Verifier) machineTool(ctx context.Context, runID string, call nim.ToolC
 		if why := unusable(ctx, v.mgr, runID); why != "" {
 			return "error: the machine is not usable: " + why, 0
 		}
+	default:
+		if isToolkitTool(call.Name) && v.mgr.DesktopToolkit() {
+			if why := unusable(ctx, v.mgr, runID); why != "" {
+				return "error: the machine is not usable: " + why, 0
+			}
+			return deskTool(ctx, v.mgr, runID, call)
+		}
 	}
 	args := []byte(call.Arguments)
 	switch call.Name {
@@ -251,6 +272,9 @@ func (v *Verifier) machineTool(ctx context.Context, runID string, call nim.ToolC
 		return execResultText(res), res.Step
 
 	case "machine_screenshot":
+		if v.mgr.DesktopToolkit() && desktop.ToolkitCall(call.Name, args) {
+			return v.toolkitScreenshot(ctx, runID, call)
+		}
 		png, shot, err := v.mgr.ScreenshotAs(ctx, runID, machine.HolderVerifier)
 		if err != nil {
 			return "error: " + err.Error(), shot.Step
@@ -384,6 +408,11 @@ func argsProblem(args []byte, err error) string {
 }
 
 func (v *Verifier) describe(ctx context.Context, png []byte) (string, error) {
+	return v.describeWith(ctx, png, visionPrompt)
+}
+
+// describeWith is describe with the describer asked prompt.
+func (v *Verifier) describeWith(ctx context.Context, png []byte, prompt string) (string, error) {
 	if v.cfg.VisionModel == "" {
 		return "", errors.New("no vision model configured")
 	}
@@ -395,7 +424,7 @@ func (v *Verifier) describe(ctx context.Context, png []byte) (string, error) {
 	// more try has been enough. A second such answer is an error, so the reasoning model is
 	// told it could not see rather than handed noise or an empty description.
 	for attempt := 0; ; attempt++ {
-		text, err := v.llm.Describe(ctx, v.cfg.VisionModel, jpeg, visionPrompt)
+		text, err := v.llm.Describe(ctx, v.cfg.VisionModel, jpeg, prompt)
 		if err != nil || readableDescription(text) {
 			return text, err
 		}

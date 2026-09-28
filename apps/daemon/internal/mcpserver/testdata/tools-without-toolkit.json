@@ -1,0 +1,3663 @@
+[
+  {
+    "description": "Post into the run's conversation, which is how you reach greenroom's verifier. Send a task to set it working, then call agent_wait in a loop until it replies. A note adds context it reads on its next turn; your note never starts a turn, so send a task when you want an answer. Answer a question with kind answer and replyTo set to the question's seq. A verdict is a proposal: accept it, or dispute it with replyTo and the reason, and the verifier takes another turn. After two disputes the verdict is contested and only a human can close it. A reply is a plain answer, not a verdict, so keep waiting if your task is not done. When the work is done: get a verdict, accept its pass, then call run_finish, which records the outcome and returns the run's report; only an accepted pass finishes as verified. Returns your message's seq.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "One of: task (work for the verifier), note (context you expect no reply to; a human's note in the companion app is answered by the verifier), answer (reply to a question), accept (the verdict in replyTo is final), dispute (why the verdict in replyTo is wrong).",
+          "type": "string"
+        },
+        "replyTo": {
+          "description": "The seq of the message this replies to. Required for answer, accept and dispute.",
+          "type": "integer"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "text": {
+          "description": "What you are saying. Required for every kind except accept.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "name": "agent_send",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq",
+        "at"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Read the run's conversation without waiting: every message from you, greenroom's verifier, a watching human and the daemon, plus the current verdict and its status. It includes what the verifier told a watching human. Use it to catch up, for example after picking a run back up with machine_list.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "Return messages with a seq above this. Omit for the whole transcript.",
+          "type": "integer"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "type": "object"
+    },
+    "name": "agent_transcript",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "last": {
+          "type": "integer"
+        },
+        "messages": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "at": {
+                "type": "string"
+              },
+              "checks": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actions": {
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": [
+                        "null",
+                        "array"
+                      ]
+                    },
+                    "criterion": {
+                      "type": "string"
+                    },
+                    "evidence": {
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": [
+                        "null",
+                        "array"
+                      ]
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "kinds": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "null",
+                        "array"
+                      ]
+                    },
+                    "observed": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "within": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "control": {
+                "type": "string"
+              },
+              "evidence": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "finish": {
+                "additionalProperties": false,
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "branch": {
+                        "type": "string"
+                      },
+                      "commit": {
+                        "type": "string"
+                      },
+                      "pr": {
+                        "type": "string"
+                      }
+                    },
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "summary": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "outcome",
+                  "summary",
+                  "at"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "from": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "replyTo": {
+                "type": "integer"
+              },
+              "seq": {
+                "type": "integer"
+              },
+              "step": {
+                "type": "integer"
+              },
+              "stop": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "verdict": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "seq",
+              "at",
+              "from",
+              "kind",
+              "text"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "verdict": {
+          "additionalProperties": false,
+          "properties": {
+            "acceptedBy": {
+              "type": "string"
+            },
+            "checks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "actions": {
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "criterion": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "kinds": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "observed": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "within": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "disputes": {
+              "type": "integer"
+            },
+            "evidence": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "seq": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "verdict": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "disputes"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "messages",
+        "last",
+        "verdict"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Block until the conversation has something newer than after, then return it. The verifier's progress lines (one per tool call it makes) do not end the wait: it returns when its turn ends with a reply, question or verdict, when anyone else posts, or at the timeout, with everything gathered so far. After sending a task, call this repeatedly with after set to last from the previous call until a verdict arrives. A verdict carries checks: each acceptance check the verifier declared, with status pass, fail or unchecked, the steps that show it (evidence, actions) and what it observed; a pass covers only those checks, so act on a failing or unchecked one directly. An empty messages list means nothing happened before the timeout; call again. A question needs an agent_send of kind answer before the verifier continues; a reply is the verifier answering in words with no verdict, so it does not end your task. A reply with stop set (steps or time) means the verifier's turn hit its tool-call or time limit before it gave a verdict and it is waiting: send a task (or a dispute of its standing verdict) to let it continue, or check the result yourself; your note does not start a turn. A watching human's actions show up here too, and the verifier answers a human's note, so a human's note or Continue in the companion app also continues it.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "description": "Return messages with a seq above this. Pass the last you have seen, or 0 for the whole transcript.",
+          "type": "integer"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "description": "How long to block before returning. Default 45, max 50.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "runId",
+        "after"
+      ],
+      "type": "object"
+    },
+    "name": "agent_wait",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "last": {
+          "type": "integer"
+        },
+        "messages": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "at": {
+                "type": "string"
+              },
+              "checks": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "actions": {
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": [
+                        "null",
+                        "array"
+                      ]
+                    },
+                    "criterion": {
+                      "type": "string"
+                    },
+                    "evidence": {
+                      "items": {
+                        "type": "integer"
+                      },
+                      "type": [
+                        "null",
+                        "array"
+                      ]
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "kinds": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "null",
+                        "array"
+                      ]
+                    },
+                    "observed": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "within": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "type": "object"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "control": {
+                "type": "string"
+              },
+              "evidence": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "finish": {
+                "additionalProperties": false,
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "branch": {
+                        "type": "string"
+                      },
+                      "commit": {
+                        "type": "string"
+                      },
+                      "pr": {
+                        "type": "string"
+                      }
+                    },
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "summary": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "outcome",
+                  "summary",
+                  "at"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "from": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "replyTo": {
+                "type": "integer"
+              },
+              "seq": {
+                "type": "integer"
+              },
+              "step": {
+                "type": "integer"
+              },
+              "stop": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "verdict": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "seq",
+              "at",
+              "from",
+              "kind",
+              "text"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "verdict": {
+          "additionalProperties": false,
+          "properties": {
+            "acceptedBy": {
+              "type": "string"
+            },
+            "checks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "actions": {
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "criterion": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "items": {
+                      "type": "integer"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "kinds": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "observed": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "within": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "disputes": {
+              "type": "integer"
+            },
+            "evidence": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "seq": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "verdict": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "disputes"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "messages",
+        "last",
+        "verdict"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Pre-approve an app under test that captures the screen itself (ScreenCaptureKit, a screen recorder), so macOS does not cover the screen with \"\u003cApp\u003e is requesting to bypass the system private window picker\" when it starts capturing. Call it after the app is built and before it first captures. Not needed for machine_screenshot or the live screen: greenroom approves its own capture. The approval is by bundle path; a bare executable outside an .app cannot be approved this way. It restarts macOS's capture service, which ends a running live screen stream; viewers reconnect to a fresh one.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "app": {
+          "description": "Guest path of the .app bundle to approve, absolute or relative to the guest home (~/ accepted), e.g. work/MyApp/MyApp.app",
+          "type": "string"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "app"
+      ],
+      "type": "object"
+    },
+    "name": "machine_approve_capture",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "client": {
+          "description": "The bundle URL macOS keys the approval by",
+          "type": "string"
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "client",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Click the machine's screen. Pass element, an id from your latest machine_ui, to click that element's center (add uiStep, that read's step, to be refused rather than aimed at a newer read); or x and y as fractions of the screen (0 to 1), never pixels. Ids are yours alone: greenroom's verifier reading the UI never changes what they point at. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "button": {
+          "description": "left (default), right, or middle. Any other name is an error.",
+          "type": "string"
+        },
+        "clicks": {
+          "description": "2 for a double click. Default 1.",
+          "type": "integer"
+        },
+        "element": {
+          "description": "An element id from your most recent machine_ui: clicks that element's center, and x and y are ignored.",
+          "type": "integer"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "uiStep": {
+          "description": "Optional: the step of the machine_ui read the element id comes from. The click is refused if that is not your latest read, so an id never lands on a newer tree.",
+          "type": "integer"
+        },
+        "x": {
+          "description": "Horizontal position as a fraction of the screen, 0 (left) to 1 (right): an element's center from machine_ui, or a fraction of a screenshot, never a guest pixel.",
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "y": {
+          "description": "Vertical position as a fraction of the screen, 0 (top) to 1 (bottom).",
+          "type": [
+            "null",
+            "number"
+          ]
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "type": "object"
+    },
+    "name": "machine_click",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "type": "integer"
+        },
+        "app": {
+          "description": "The application the element's tree was read from",
+          "type": "string"
+        },
+        "degraded": {
+          "type": "boolean"
+        },
+        "element": {
+          "additionalProperties": false,
+          "properties": {
+            "depth": {
+              "type": "integer"
+            },
+            "disabled": {
+              "type": "boolean"
+            },
+            "focused": {
+              "type": "boolean"
+            },
+            "h": {
+              "type": "number"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "type": "integer"
+            },
+            "identifier": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "rendered": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string"
+            },
+            "selected": {
+              "type": "boolean"
+            },
+            "subrole": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            },
+            "w": {
+              "type": "number"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "role",
+            "depth",
+            "x",
+            "y",
+            "w",
+            "h"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "screen": {
+          "additionalProperties": false,
+          "properties": {
+            "height": {
+              "type": "integer"
+            },
+            "width": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "seconds": {
+          "type": "number"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "uiStep": {
+          "description": "The machine_ui step the element came from",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "actions",
+        "screen",
+        "seconds",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Clone and start a fresh macOS machine. Returns at once with status booting and the runId every other tool needs. Call machine_wait next; boot takes 30 to 90 seconds. Machines run headless; a person watches the screen live in the greenroom companion app. Give the run a short name.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "description": "OCI image to clone. Defaults to the daemon's configured image.",
+          "type": "string"
+        },
+        "name": {
+          "description": "What this run checks, in five words or fewer, e.g. 'TipSplit: split the bill'. The person watching sees the run by this name; longer names are cut to five words.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "machine_create",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agentReconnects": {
+          "type": "integer"
+        },
+        "bootSeconds": {
+          "type": "number"
+        },
+        "control": {
+          "additionalProperties": false,
+          "properties": {
+            "actions": {
+              "type": "integer"
+            },
+            "expires": {
+              "type": "string"
+            },
+            "holder": {
+              "type": "string"
+            },
+            "since": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "holder",
+            "since",
+            "expires",
+            "actions"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "desktop": {
+          "additionalProperties": false,
+          "properties": {
+            "clean": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            },
+            "unexpectedApps": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "bundleId": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "bundleId",
+                  "pid"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "unexpectedWindows": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "alpha": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "layer": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "owner",
+                  "pid",
+                  "layer",
+                  "alpha",
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            }
+          },
+          "required": [
+            "clean"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "dir": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "files": {
+          "additionalProperties": false,
+          "properties": {
+            "checkedAt": {
+              "type": "string"
+            },
+            "limit": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "open": {
+              "type": "integer"
+            },
+            "pid": {
+              "type": "integer"
+            },
+            "warning": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pid",
+            "open",
+            "checkedAt"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "image": {
+          "type": "string"
+        },
+        "ip": {
+          "type": "string"
+        },
+        "models": {
+          "additionalProperties": false,
+          "properties": {
+            "brain": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "modelOptions": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "vision": {
+              "type": "string"
+            },
+            "visionOptions": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "brain"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "toolchain": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "runId",
+        "name",
+        "image",
+        "status",
+        "createdAt",
+        "dir"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Stop and delete the machine. The run's recording stays on disk. To end a job, prefer run_finish: it records how the run ended and destroys the machine in one call.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "type": "object"
+    },
+    "name": "machine_destroy",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Run a shell command inside the machine and return stdout, stderr and the exit code. The shell is a login zsh that is not interactive (zsh -lc). One call waits at most waitSeconds (default 45, max 50, under MCP clients' 60 s limit on a call): a command still going then comes back with running true, no exitCode, and an execId, and it keeps running; collect its result with machine_exec_wait. A command returns when its shell exits: it may leave a process running in the background (./App \u0026), whose later output is not returned. Output arrives when the command ends, never while it runs; to watch a build or type into a program, use machine_session_start. stdout and stderr each keep their first 8 KiB and last 24 KiB; when bytes were left out, stdoutTruncated or stderrTruncated is true, a marker line in the text says where, and stdoutBytes and stderrBytes give the full sizes. To see more of a big output, write it to a file in the guest and read parts of it (grep, tail, sed -n). Before running a project's tests, read toolchain in machine_wait's result: it says whether this machine's image can run XCTest and swift-testing. Never delete, skip or exclude a project's existing tests to get a green run; if the machine cannot run them, say so.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "Shell command, run with zsh -lc in the guest",
+          "type": "string"
+        },
+        "cwd": {
+          "description": "Working directory in the guest: relative to the home, absolute, or starting with ~/, e.g. work/myapp",
+          "type": "string"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "description": "Kill the command and its children in the guest after this many seconds. Default 600. The result then has timedOut true, exit code 124, and the output printed until then.",
+          "type": "integer"
+        },
+        "waitSeconds": {
+          "description": "How long this call waits for the command before returning running true with an execId. Default 45, max 50. The command keeps running either way; this is not its timeout.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "runId",
+        "command"
+      ],
+      "type": "object"
+    },
+    "name": "machine_exec",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "execId": {
+          "type": "string"
+        },
+        "exitCode": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "seconds": {
+          "type": "number"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "stderrBytes": {
+          "type": "integer"
+        },
+        "stderrTruncated": {
+          "type": "boolean"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stdoutBytes": {
+          "type": "integer"
+        },
+        "stdoutTruncated": {
+          "type": "boolean"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "execId",
+        "running",
+        "stdout",
+        "stderr",
+        "stdoutBytes",
+        "stderrBytes",
+        "seconds",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Wait for a command machine_exec started and returned with running true. Returns the same result machine_exec would have: running true (call again), or running false with exitCode, stdout and stderr. The command's step in the run record is the step machine_exec returned. Collecting a result again returns it again.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "execId": {
+          "description": "execId from a machine_exec that returned running true",
+          "type": "string"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "waitSeconds": {
+          "description": "How long to wait for the command to finish before answering running true again. Default 45, max 50.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "runId",
+        "execId"
+      ],
+      "type": "object"
+    },
+    "name": "machine_exec_wait",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "execId": {
+          "type": "string"
+        },
+        "exitCode": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "seconds": {
+          "type": "number"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "stderrBytes": {
+          "type": "integer"
+        },
+        "stderrTruncated": {
+          "type": "boolean"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stdoutBytes": {
+          "type": "integer"
+        },
+        "stdoutTruncated": {
+          "type": "boolean"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "timedOut": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "execId",
+        "running",
+        "stdout",
+        "stderr",
+        "stdoutBytes",
+        "stderrBytes",
+        "seconds",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Post an ordered batch of actions (move, click, down, up, scroll, type, key, sleep) in one round trip; compose a drag from down, move and up. machine_click, machine_type, machine_key and machine_scroll are shortcuts for a single action. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "description": "Ordered actions to post in one batch, for example down, move, up to drag. Coordinates are fractions of the screen (0 to 1). The whole batch records as one step.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "button": {
+                "description": "left (default), right, or middle. For click, down and up. Any other name is an error.",
+                "type": "string"
+              },
+              "clicks": {
+                "description": "2 for a double click. For click, down and up.",
+                "type": "integer"
+              },
+              "deltaX": {
+                "description": "For scroll, in points. Positive scrolls right.",
+                "type": "number"
+              },
+              "deltaY": {
+                "description": "For scroll, in points. Positive scrolls down.",
+                "type": "number"
+              },
+              "key": {
+                "description": "For key.",
+                "type": "string"
+              },
+              "mods": {
+                "description": "Modifiers held with key: cmd, shift, alt, ctrl, fn (also command, option, control, function). Any other name is an error.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
+              "ms": {
+                "description": "Milliseconds to wait. For sleep, capped at 5000.",
+                "type": "integer"
+              },
+              "text": {
+                "description": "For type.",
+                "type": "string"
+              },
+              "type": {
+                "description": "One of: move, click, down, up, scroll, type, key, sleep.",
+                "type": "string"
+              },
+              "x": {
+                "description": "Fraction of the screen, 0 to 1. For move, click, down and up.",
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "y": {
+                "description": "Fraction of the screen, 0 to 1. For move, click, down and up.",
+                "type": [
+                  "null",
+                  "number"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "actions"
+      ],
+      "type": "object"
+    },
+    "name": "machine_input",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "type": "integer"
+        },
+        "degraded": {
+          "type": "boolean"
+        },
+        "screen": {
+          "additionalProperties": false,
+          "properties": {
+            "height": {
+              "type": "integer"
+            },
+            "width": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "seconds": {
+          "type": "number"
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "actions",
+        "screen",
+        "seconds",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Press one key, optionally with modifiers held, for example key f with mods [cmd] for command-F. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "description": "A key name: a letter, digit or punctuation character, or one of return, enter, tab, space, delete, forwarddelete, escape, left, right, up, down, home, end, pageup, pagedown, capslock, help, f1-f12.",
+          "type": "string"
+        },
+        "mods": {
+          "description": "Modifiers held with the key: cmd, shift, alt, ctrl, fn (also command, option, control, function). Any other name is an error.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "key"
+      ],
+      "type": "object"
+    },
+    "name": "machine_key",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "type": "integer"
+        },
+        "degraded": {
+          "type": "boolean"
+        },
+        "screen": {
+          "additionalProperties": false,
+          "properties": {
+            "height": {
+              "type": "integer"
+            },
+            "width": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "seconds": {
+          "type": "number"
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "actions",
+        "screen",
+        "seconds",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "List live machines with their runIds, status and how long each has been idle (idleSeconds: no tool step or message since lastActivity), for example to pick up a machine from an earlier session or to tell a stale run from a busy one when the host is at its machine limit.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "name": "machine_list",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "machines": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "agentReconnects": {
+                "type": "integer"
+              },
+              "bootSeconds": {
+                "type": "number"
+              },
+              "control": {
+                "additionalProperties": false,
+                "properties": {
+                  "actions": {
+                    "type": "integer"
+                  },
+                  "expires": {
+                    "type": "string"
+                  },
+                  "holder": {
+                    "type": "string"
+                  },
+                  "since": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "holder",
+                  "since",
+                  "expires",
+                  "actions"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "desktop": {
+                "additionalProperties": false,
+                "properties": {
+                  "clean": {
+                    "type": "boolean"
+                  },
+                  "error": {
+                    "type": "string"
+                  },
+                  "unexpectedApps": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "bundleId": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "pid": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "bundleId",
+                        "pid"
+                      ],
+                      "type": "object"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "unexpectedWindows": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "alpha": {
+                          "type": "number"
+                        },
+                        "height": {
+                          "type": "number"
+                        },
+                        "layer": {
+                          "type": "integer"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "owner": {
+                          "type": "string"
+                        },
+                        "pid": {
+                          "type": "integer"
+                        },
+                        "width": {
+                          "type": "number"
+                        },
+                        "x": {
+                          "type": "number"
+                        },
+                        "y": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "owner",
+                        "pid",
+                        "layer",
+                        "alpha",
+                        "x",
+                        "y",
+                        "width",
+                        "height"
+                      ],
+                      "type": "object"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  }
+                },
+                "required": [
+                  "clean"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "dir": {
+                "type": "string"
+              },
+              "error": {
+                "type": "string"
+              },
+              "files": {
+                "additionalProperties": false,
+                "properties": {
+                  "checkedAt": {
+                    "type": "string"
+                  },
+                  "limit": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "open": {
+                    "type": "integer"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  },
+                  "warning": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "pid",
+                  "open",
+                  "checkedAt"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "idleSeconds": {
+                "description": "Seconds since lastActivity",
+                "type": "integer"
+              },
+              "image": {
+                "type": "string"
+              },
+              "ip": {
+                "type": "string"
+              },
+              "lastActivity": {
+                "description": "When a step or message last happened on this run. Screen frames do not count.",
+                "type": "string"
+              },
+              "models": {
+                "additionalProperties": false,
+                "properties": {
+                  "brain": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "modelOptions": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "vision": {
+                    "type": "string"
+                  },
+                  "visionOptions": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "brain"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "runId": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "toolchain": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            },
+            "required": [
+              "runId",
+              "name",
+              "image",
+              "status",
+              "createdAt",
+              "dir",
+              "lastActivity",
+              "idleSeconds"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "machines"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Copy a file or directory out of the machine to the host with rsync: build products, logs, test reports, an .app bundle. source is a guest path, relative to the home, with ~/, or absolute. A directory's contents land in dest; a file lands in dest under its own name (a symlink to a file is copied as the file). Without dest the copy goes to a new numbered directory in the run's directory, so it is also evidence. The result's dest is the absolute path on the host where the copy is.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dest": {
+          "description": "Absolute directory on the host to copy into, made if missing. Defaults to a new NNN-pull directory in the run's directory.",
+          "type": "string"
+        },
+        "exclude": {
+          "description": "rsync exclude patterns, e.g. node_modules, .git, build",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "source": {
+          "description": "Guest file or directory to copy out: relative to the guest home (work/myapp/build/report.xml), starting with ~/, or absolute (/tmp/app.log)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "machine_pull",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dest": {
+          "type": "string"
+        },
+        "seconds": {
+          "type": "number"
+        },
+        "source": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "dest",
+        "summary",
+        "seconds",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Restart the machine's macOS guest on the same disk, when its screen or guest stopped answering: screenshots or machine_ui time out or fail with \"screen not answering\" (WindowServer hung), or every guest call fails with \"is the Tart Guest Agent running?\" (the guest agent wedged). Not for an app that misbehaves: quit or kill it with machine_exec instead. Kept: the run and its record, the runId, everything on disk (~/work and every synced file, build products, installed tools, the input helper, the ssh key, screen-capture and privacy approvals). Lost: machine_session_* sessions, running machine_exec commands (they end with an error saying the machine rebooted), apps and background processes, /tmp, the live screen (viewers reconnect) and the control lease; UI element ids from earlier machine_ui reads no longer aim, so read again. The IP address may change. A reboot takes about as long as a boot, often more than one call may wait: this call waits at most waitSeconds (default 45, max 50), then returns with status rebooting; call machine_wait until status is ready. Meanwhile other machine tools fail at once with \"the machine is rebooting\". If the guest does not come back within 5 minutes the status is failed with the reason, and the disk is kept: call machine_reboot again, or machine_destroy. The result's step is the reboot's step in the run record.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "waitSeconds": {
+          "description": "How long this call waits for the reboot to finish before returning status rebooting. Default 45, max 50. The reboot goes on either way; machine_wait waits for the rest.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "type": "object"
+    },
+    "name": "machine_reboot",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agentReconnects": {
+          "type": "integer"
+        },
+        "bootSeconds": {
+          "type": "number"
+        },
+        "control": {
+          "additionalProperties": false,
+          "properties": {
+            "actions": {
+              "type": "integer"
+            },
+            "expires": {
+              "type": "string"
+            },
+            "holder": {
+              "type": "string"
+            },
+            "since": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "holder",
+            "since",
+            "expires",
+            "actions"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "desktop": {
+          "additionalProperties": false,
+          "properties": {
+            "clean": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            },
+            "unexpectedApps": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "bundleId": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "bundleId",
+                  "pid"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "unexpectedWindows": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "alpha": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "layer": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "owner",
+                  "pid",
+                  "layer",
+                  "alpha",
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            }
+          },
+          "required": [
+            "clean"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "dir": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "files": {
+          "additionalProperties": false,
+          "properties": {
+            "checkedAt": {
+              "type": "string"
+            },
+            "limit": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "open": {
+              "type": "integer"
+            },
+            "pid": {
+              "type": "integer"
+            },
+            "warning": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pid",
+            "open",
+            "checkedAt"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "image": {
+          "type": "string"
+        },
+        "ip": {
+          "type": "string"
+        },
+        "models": {
+          "additionalProperties": false,
+          "properties": {
+            "brain": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "modelOptions": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "vision": {
+              "type": "string"
+            },
+            "visionOptions": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "brain"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "step": {
+          "description": "The reboot's step in the run record, written when the reboot ends",
+          "type": "integer"
+        },
+        "toolchain": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "runId",
+        "name",
+        "image",
+        "status",
+        "createdAt",
+        "dir",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Capture the machine's screen. Returns a JPEG to look at, the path of the lossless PNG saved in the run directory, and the image's size in pixels. scale is image pixels per desktop point: 1 on the default image (1024x768), more on a HiDPI guest, where the image is larger than the desktop. Aim clicks as a fraction of this image (x divided by width, y divided by height), never in pixels: machine_click takes 0 to 1.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "type": "object"
+    },
+    "name": "machine_screenshot",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "type": "integer"
+        },
+        "degraded": {
+          "type": "boolean"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        },
+        "scale": {
+          "type": "number"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "width": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "bytes",
+        "width",
+        "height",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Scroll the machine's screen under the pointer's current position, or under x,y if given. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "deltaX": {
+          "description": "Horizontal scroll amount, in points. Positive scrolls right, negative scrolls left.",
+          "type": "number"
+        },
+        "deltaY": {
+          "description": "Vertical scroll amount, in points. Positive scrolls down, negative scrolls up.",
+          "type": "number"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "x": {
+          "description": "Optional fraction of the screen to move the pointer to first. A scroll goes to whatever is under the pointer, so set this when you have not just clicked or moved there.",
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "y": {
+          "description": "Optional fraction of the screen to move the pointer to first, paired with x.",
+          "type": [
+            "null",
+            "number"
+          ]
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "type": "object"
+    },
+    "name": "machine_scroll",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "type": "integer"
+        },
+        "degraded": {
+          "type": "boolean"
+        },
+        "screen": {
+          "additionalProperties": false,
+          "properties": {
+            "height": {
+              "type": "integer"
+            },
+            "width": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "seconds": {
+          "type": "number"
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "actions",
+        "screen",
+        "seconds",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "End a session and clean it up inside the machine; read anything you still want first, since its output goes with it. Destroying the machine closes all its sessions, so use this to finish one session while the machine carries on.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "sessionId from machine_session_start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "name": "machine_session_close",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sessionId",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Read a session's output since your last read. Output is never returned twice: each call continues where the last stopped, and pending says how many bytes are still waiting, so keep calling while it is above zero. While a command runs, pending can stay at a few bytes with no new output: a trailing carriage return or an unfinished terminal code is held until the next byte arrives, so an empty read with a small pending means nothing more is ready yet. running says whether the command is still going. Terminal colour and cursor codes are stripped, and the run record cites the byte range of every read. Only the last 1 MiB of output is kept for reading: if you fall behind, the oldest bytes are lost and dropped says how many. Once running is false, exitCode is how the command ended (0 for success), as in machine_exec; a command that exits non-zero is not an error. error says why tart itself ended a session, and then there is no exitCode.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "sessionId from machine_session_start",
+          "type": "string"
+        },
+        "waitSeconds": {
+          "description": "How long to wait for new output before answering with none. Default 5, max 50. Use a longer wait while a build runs rather than calling this in a loop.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "runId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "name": "machine_session_read",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dropped": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "exitCode": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "fromByte": {
+          "type": "integer"
+        },
+        "nextByte": {
+          "type": "integer"
+        },
+        "output": {
+          "type": "string"
+        },
+        "pending": {
+          "type": "integer"
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sessionId",
+        "output",
+        "fromByte",
+        "nextByte",
+        "pending",
+        "running",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Write to a session's input, exactly as given. End with a newline to run a command. Returns as soon as the text is delivered, without waiting for the command: call machine_session_read for the output.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "description": "Exactly what to write to the session's input. Include a trailing newline to run a command: without one the shell just holds the characters on its line, the same as typing without pressing return.",
+          "type": "string"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "sessionId from machine_session_start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "sessionId",
+        "data"
+      ],
+      "type": "object"
+    },
+    "name": "machine_session_send",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sessionId",
+        "bytes",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Start a command in the machine that stays alive between tool calls, with a real terminal behind it. Use this instead of machine_exec when state must survive: a shell that keeps its directory and variables, a REPL, a debugger, a build you want to watch, a server left running. Because there is a real tty, builds behave exactly as they do for a developer. Returns a sessionId; send input with machine_session_send, collect output with machine_session_read, and finish with machine_session_close.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "The command to run behind a pty. Defaults to an interactive login shell, which is what you want for a session you will type commands into.",
+          "type": "string"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "type": "object"
+    },
+    "name": "machine_session_start",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "tty": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sessionId",
+        "command",
+        "tty",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Copy a host directory into the machine with rsync. Fast on repeat calls; only changed files move. By default nothing in dest is ever deleted: files an earlier sync left there stay and get built. The result's strays counts them (paths in dest that source does not have and no exclude covers) and strayPaths lists the first 20. Pass mirror true to delete them, for example when you re-sync another branch or worktree into a machine you reuse; exclude build caches (.build, node_modules) to keep them. dest is relative to the guest home, and a leading ~/ is accepted (it means the same). The result's dest is the path relative to the home, which machine_exec's cwd takes as is.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dest": {
+          "description": "Guest directory, relative to the guest home: work/myapp and ~/work/myapp are the same place. Must stay inside the home: no absolute path, no .., not ~ itself. Defaults to work/\u003cbasename of source\u003e.",
+          "type": "string"
+        },
+        "exclude": {
+          "description": "rsync exclude patterns, e.g. node_modules, .git, build. An excluded path is neither copied nor deleted by mirror, and is never a stray.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "mirror": {
+          "description": "Delete what dest has and source does not (rsync --delete), so dest holds exactly the source. Deletes only inside dest, never an excluded path; refused for a dest less than two levels below the home, under Library or a hidden top-level directory, or reached through a symlink. Default false: nothing is deleted.",
+          "type": "boolean"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "source": {
+          "description": "Absolute path of a directory on the host to copy into the machine",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "machine_sync",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dest": {
+          "type": "string"
+        },
+        "mirror": {
+          "type": "boolean"
+        },
+        "seconds": {
+          "type": "number"
+        },
+        "strayPaths": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "strays": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dest",
+        "summary",
+        "seconds",
+        "mirror"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Type text into the machine, into whatever currently has keyboard focus. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "text": {
+          "description": "The text to type, one character event at a time, into whatever has focus. Click into a field first if nothing does.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "machine_type",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "type": "integer"
+        },
+        "degraded": {
+          "type": "boolean"
+        },
+        "screen": {
+          "additionalProperties": false,
+          "properties": {
+            "height": {
+              "type": "integer"
+            },
+            "width": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "seconds": {
+          "type": "number"
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "actions",
+        "screen",
+        "seconds",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Read the accessibility tree of the frontmost application (or a named one): every on-screen control and text with its role, title, label, value, identifier, state, and its center and size as fractions of the screen, the space machine_click takes. Call it before clicking and aim at element centers (or pass machine_click an element id) instead of estimating from a screenshot. Read it again after the UI changes. It only reads; it needs no control of the screen.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "app": {
+          "description": "Application name or bundle id to read, e.g. TipSplit. Default: the frontmost application.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Most elements to list. Default 250, max 1000.",
+          "type": "integer"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "type": "object"
+    },
+    "name": "machine_ui",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "app": {
+          "type": "string"
+        },
+        "apps": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "bundleId": {
+          "type": "string"
+        },
+        "degraded": {
+          "type": "boolean"
+        },
+        "elements": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "depth": {
+                "type": "integer"
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "focused": {
+                "type": "boolean"
+              },
+              "h": {
+                "type": "number"
+              },
+              "help": {
+                "type": "string"
+              },
+              "id": {
+                "type": "integer"
+              },
+              "identifier": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "rendered": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "selected": {
+                "type": "boolean"
+              },
+              "subrole": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              },
+              "w": {
+                "type": "number"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "id",
+              "role",
+              "depth",
+              "x",
+              "y",
+              "w",
+              "h"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "pid": {
+          "type": "integer"
+        },
+        "screen": {
+          "additionalProperties": false,
+          "properties": {
+            "height": {
+              "type": "integer"
+            },
+            "width": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "seconds": {
+          "type": "number"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "truncatedBy": {
+          "type": "string"
+        },
+        "unrendered": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "app",
+        "pid",
+        "apps",
+        "screen",
+        "elements",
+        "truncated",
+        "seconds",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Wait for a machine to finish booting, or rebooting after machine_reboot. Returns its status: booting or rebooting (call again), ready (ip and bootSeconds are set), or failed (error is set). A ready machine also reports toolchain, what its image measured when it was built (Xcode present or not and its version, whether XCTest and swift-testing packages run with swift test and whether xcodebuild builds, swift and Command Line Tools versions; known false when the image says nothing), and desktop, whether the screen showed anything besides the desktop and Finder at ready (clean false lists unexpectedWindows and unexpectedApps, such as a permission prompt; greenroom never closes them). models names who verifies the run: the brain (nim, manual or none), its reasoning model and its screenshot describer, with the options their requests carry.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "description": "How long to wait before returning the current status. Default 45, max 50.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "type": "object"
+    },
+    "name": "machine_wait",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agentReconnects": {
+          "type": "integer"
+        },
+        "bootSeconds": {
+          "type": "number"
+        },
+        "control": {
+          "additionalProperties": false,
+          "properties": {
+            "actions": {
+              "type": "integer"
+            },
+            "expires": {
+              "type": "string"
+            },
+            "holder": {
+              "type": "string"
+            },
+            "since": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "holder",
+            "since",
+            "expires",
+            "actions"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "desktop": {
+          "additionalProperties": false,
+          "properties": {
+            "clean": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            },
+            "unexpectedApps": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "bundleId": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "bundleId",
+                  "pid"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "unexpectedWindows": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "alpha": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "layer": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "owner",
+                  "pid",
+                  "layer",
+                  "alpha",
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            }
+          },
+          "required": [
+            "clean"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "dir": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "files": {
+          "additionalProperties": false,
+          "properties": {
+            "checkedAt": {
+              "type": "string"
+            },
+            "limit": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "open": {
+              "type": "integer"
+            },
+            "pid": {
+              "type": "integer"
+            },
+            "warning": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pid",
+            "open",
+            "checkedAt"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "image": {
+          "type": "string"
+        },
+        "ip": {
+          "type": "string"
+        },
+        "models": {
+          "additionalProperties": false,
+          "properties": {
+            "brain": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "modelOptions": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "vision": {
+              "type": "string"
+            },
+            "visionOptions": {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "brain"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "toolchain": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "runId",
+        "name",
+        "image",
+        "status",
+        "createdAt",
+        "dir"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "End your job on this run and get its proof. Call it once, when the work is done or given up. outcome is verified, unverified or abandoned. verified is accepted only when the run's current verdict is a pass that was accepted (you accept it with agent_send kind accept); otherwise the call is refused with the reason, and you may finish as unverified, which says so. You cannot mark your own work verified. summary (one or two sentences of what changed) is required; ref (branch, commit, pr) is optional. A run finishes once; a second call is refused. While the verifier is in a turn or owes an answer, finishing is refused: call agent_wait until it replies. The finish is recorded in the conversation and the run manifest, then the machine is destroyed unless destroy is false. Returns the run's report, the same as run_report: Markdown to paste into a PR body, and the report as data.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "destroy": {
+          "description": "Destroy the machine after recording the finish, as machine_destroy does. Default true.",
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "outcome": {
+          "description": "verified (the run's current verdict is a pass that was accepted; the daemon checks), unverified (finished without an accepted pass), or abandoned (the work was given up).",
+          "type": "string"
+        },
+        "ref": {
+          "additionalProperties": false,
+          "description": "What the work became, each field free text. Optional.",
+          "properties": {
+            "branch": {
+              "description": "The branch the work is on.",
+              "type": "string"
+            },
+            "commit": {
+              "description": "The commit sha the work became.",
+              "type": "string"
+            },
+            "pr": {
+              "description": "The pull request, as a URL or a number.",
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        },
+        "summary": {
+          "description": "One or two sentences of what changed. Required.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "outcome",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "name": "run_finish",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "destroyError": {
+          "description": "Why destroying the machine failed; the finish is recorded anyway. Call machine_destroy.",
+          "type": "string"
+        },
+        "destroyed": {
+          "description": "Whether this call destroyed the machine.",
+          "type": "boolean"
+        },
+        "finish": {
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "ref": {
+              "additionalProperties": false,
+              "properties": {
+                "branch": {
+                  "type": "string"
+                },
+                "commit": {
+                  "type": "string"
+                },
+                "pr": {
+                  "type": "string"
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "summary",
+            "at"
+          ],
+          "type": "object"
+        },
+        "report": {
+          "additionalProperties": false,
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "destroyedAt": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "finish": {
+              "additionalProperties": false,
+              "properties": {
+                "at": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "type": "string"
+                },
+                "ref": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "branch": {
+                      "type": "string"
+                    },
+                    "commit": {
+                      "type": "string"
+                    },
+                    "pr": {
+                      "type": "string"
+                    }
+                  },
+                  "type": [
+                    "null",
+                    "object"
+                  ]
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "outcome",
+                "summary",
+                "at"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "models": {
+              "additionalProperties": false,
+              "properties": {
+                "brain": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "vision": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            },
+            "steps": {
+              "type": "integer"
+            },
+            "task": {
+              "type": "string"
+            },
+            "taskSeq": {
+              "type": "integer"
+            },
+            "verdict": {
+              "additionalProperties": false,
+              "properties": {
+                "acceptedBy": {
+                  "type": "string"
+                },
+                "artifacts": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "file": {
+                        "type": "string"
+                      },
+                      "link": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "file"
+                    ],
+                    "type": "object"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                },
+                "checks": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "actions": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "at": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "by": {
+                              "type": "string"
+                            },
+                            "screenshot": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "file": {
+                                  "type": "string"
+                                },
+                                "link": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "file"
+                              ],
+                              "type": [
+                                "null",
+                                "object"
+                              ]
+                            },
+                            "step": {
+                              "type": "integer"
+                            },
+                            "tool": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "step"
+                          ],
+                          "type": "object"
+                        },
+                        "type": [
+                          "null",
+                          "array"
+                        ]
+                      },
+                      "criterion": {
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "at": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "by": {
+                              "type": "string"
+                            },
+                            "screenshot": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "file": {
+                                  "type": "string"
+                                },
+                                "link": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "file"
+                              ],
+                              "type": [
+                                "null",
+                                "object"
+                              ]
+                            },
+                            "step": {
+                              "type": "integer"
+                            },
+                            "tool": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "step"
+                          ],
+                          "type": "object"
+                        },
+                        "type": [
+                          "null",
+                          "array"
+                        ]
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "kinds": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": [
+                          "null",
+                          "array"
+                        ]
+                      },
+                      "observed": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "within": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "kinds",
+                      "status",
+                      "evidence",
+                      "actions"
+                    ],
+                    "type": "object"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "disputes": {
+                  "type": "integer"
+                },
+                "seq": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "verdict": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "seq",
+                "at",
+                "verdict",
+                "status",
+                "disputes",
+                "summary",
+                "checks"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            }
+          },
+          "required": [
+            "runId",
+            "finish",
+            "models",
+            "createdAt",
+            "steps",
+            "verdict",
+            "scope"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "finish",
+        "destroyed",
+        "report"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Read a run's proof, finished or not, live or destroyed: the task, how the run finished (outcome, summary, ref), the models that verified it, times, and the verdict with every check: its kinds, status, what was observed and its evidence steps, with a link to each evidence screenshot. Checks not checked are listed as such. A pass certifies that every listed check was observed on this build, not that the change works. Changes nothing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "embed": {
+          "description": "Put each evidence screenshot in the report as a data URI instead of a link, for a place that cannot reach this daemon. Large: about 0.7 MB per screenshot.",
+          "type": "boolean"
+        },
+        "format": {
+          "description": "md (default): the text is Markdown to paste into a PR body or comment. json: the text is the report as JSON. The structured result is the JSON report either way.",
+          "type": "string"
+        },
+        "runId": {
+          "description": "runId from machine_create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "type": "object"
+    },
+    "name": "run_report",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "destroyedAt": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "finish": {
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "ref": {
+              "additionalProperties": false,
+              "properties": {
+                "branch": {
+                  "type": "string"
+                },
+                "commit": {
+                  "type": "string"
+                },
+                "pr": {
+                  "type": "string"
+                }
+              },
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "summary",
+            "at"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "models": {
+          "additionalProperties": false,
+          "properties": {
+            "brain": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "vision": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "integer"
+        },
+        "task": {
+          "type": "string"
+        },
+        "taskSeq": {
+          "type": "integer"
+        },
+        "verdict": {
+          "additionalProperties": false,
+          "properties": {
+            "acceptedBy": {
+              "type": "string"
+            },
+            "artifacts": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "file": {
+                    "type": "string"
+                  },
+                  "link": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "at": {
+              "type": "string"
+            },
+            "checks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "actions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "at": {
+                          "type": [
+                            "null",
+                            "string"
+                          ]
+                        },
+                        "by": {
+                          "type": "string"
+                        },
+                        "screenshot": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "file": {
+                              "type": "string"
+                            },
+                            "link": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "file"
+                          ],
+                          "type": [
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "step": {
+                          "type": "integer"
+                        },
+                        "tool": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "step"
+                      ],
+                      "type": "object"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "criterion": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "at": {
+                          "type": [
+                            "null",
+                            "string"
+                          ]
+                        },
+                        "by": {
+                          "type": "string"
+                        },
+                        "screenshot": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "file": {
+                              "type": "string"
+                            },
+                            "link": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "file"
+                          ],
+                          "type": [
+                            "null",
+                            "object"
+                          ]
+                        },
+                        "step": {
+                          "type": "integer"
+                        },
+                        "tool": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "step"
+                      ],
+                      "type": "object"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "kinds": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "observed": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "within": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "id",
+                  "kinds",
+                  "status",
+                  "evidence",
+                  "actions"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "disputes": {
+              "type": "integer"
+            },
+            "seq": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "verdict": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "seq",
+            "at",
+            "verdict",
+            "status",
+            "disputes",
+            "summary",
+            "checks"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        }
+      },
+      "required": [
+        "runId",
+        "finish",
+        "models",
+        "createdAt",
+        "steps",
+        "verdict",
+        "scope"
+      ],
+      "type": "object"
+    }
+  }
+]

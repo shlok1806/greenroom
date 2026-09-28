@@ -86,8 +86,11 @@ func withStatus(msgs []nim.Message, status string) []nim.Message {
 // else speaks as user. A past verdict must never read as assistant prose: a
 // model imitates its history, and a verdict written as prose is posted as a
 // reply, so a new pass would never supersede an accepted fail.
-func project(msgs []session.Message) []nim.Message {
-	out := []nim.Message{{Role: "system", Content: systemPrompt}}
+func project(msgs []session.Message) []nim.Message { return projectWith(systemPrompt, msgs) }
+
+// projectWith is project under the system prompt prompt.
+func projectWith(prompt string, msgs []session.Message) []nim.Message {
+	out := []nim.Message{{Role: "system", Content: prompt}}
 	for _, m := range msgs {
 		switch m.Kind {
 		case session.Progress:

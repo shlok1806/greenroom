@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -100,7 +101,17 @@ func TestHelperCheckScriptTellsCurrentFromStale(t *testing.T) {
 	if got := run(); got != "stale greenroom-input-2" {
 		t.Errorf("an image with an old helper: %q, want stale greenroom-input-2", got)
 	}
-	if err := os.WriteFile(filepath.Join(home, helperName()), answer, 0o755); err != nil {
+	// This version built from other sources answers --version with another hash: stale, so the
+	// boot compiles it (daemon ADR 0005).
+	if err := os.WriteFile(filepath.Join(home, helperName()),
+		fmt.Appendf(nil, "#!/bin/sh\necho greenroom-input %d 000000000000\n", inputHelperVersion), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(); !strings.HasPrefix(got, "stale") {
+		t.Errorf("an image with this version built from other sources: %q, want stale", got)
+	}
+	if err := os.WriteFile(filepath.Join(home, helperName()),
+		fmt.Appendf(nil, "#!/bin/sh\necho '%s'\n", helperVersionLine()), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if got := run(); got != "current" {

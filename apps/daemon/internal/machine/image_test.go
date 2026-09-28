@@ -2,9 +2,12 @@ package machine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -63,7 +66,7 @@ func TestInstallHelperScriptSkipsTheCompileWhenTheBinaryAlreadyAnswers(t *testin
 	if err := os.MkdirAll(filepath.Dir(binPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(binPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(binPath, fmt.Appendf(nil, "#!/bin/sh\necho '%s'\n", helperVersionLine()), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -83,7 +86,7 @@ func TestInstallHelperScriptSkipsTheCompileWhenTheBinaryAlreadyAnswers(t *testin
 func TestInstallHelperScriptCompilesWhenNoBinaryIsThere(t *testing.T) {
 	home := t.TempDir()
 	cmd := exec.Command("/bin/sh", "-c", installHelperScript())
-	cmd.Env = []string{"HOME=" + home, "PATH=" + toolFarm(t, "mkdir", "dirname", "printf", "base64", "rm")}
+	cmd.Env = []string{"HOME=" + home, "PATH=" + toolFarm(t, "mkdir", "dirname", "printf", "base64", "rm", "tar", "gzip")}
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("installHelperScript succeeded with no swiftc on PATH\n%s", out)
@@ -92,8 +95,33 @@ func TestInstallHelperScriptCompilesWhenNoBinaryIsThere(t *testing.T) {
 		t.Errorf("the script's own message is missing; got:\n%s", out)
 	}
 	srcDir := filepath.Join(home, helperSourceDir())
-	if _, err := os.Stat(filepath.Join(srcDir, "main.swift")); err != nil {
-		t.Errorf("the script never wrote main.swift before failing to find swiftc: %v", err)
+	for _, name := range helperSourceFiles() {
+		if _, err := os.Stat(filepath.Join(srcDir, name)); err != nil {
+			t.Errorf("the script never wrote %s before failing to find swiftc: %v", name, err)
+		}
+	}
+	hash, err := os.ReadFile(filepath.Join(srcDir, sourceHashFile))
+	if err != nil || !strings.Contains(string(hash), strings.Fields(helperVersionLine())[2]) {
+		t.Errorf("%s does not name the sources' hash from %q: %q (%v)", sourceHashFile, helperVersionLine(), hash, err)
+	}
+}
+
+// The helper sources are several files; the embed must carry every one the compile needs, and
+// the tests directory stays on the host.
+func TestTheEmbeddedHelperHasItsSourcesAndNoTests(t *testing.T) {
+	files := helperSourceFiles()
+	for _, want := range []string{"main.swift", "Input.swift", "Tree.swift", "Serve.swift", "Desktop.swift"} {
+		if !slices.Contains(files, want) {
+			t.Errorf("the embedded helper lacks %s: %v", want, files)
+		}
+	}
+	for _, f := range files {
+		if strings.HasPrefix(f, "tests/") {
+			t.Errorf("the embedded helper carries a host test %s", f)
+		}
+	}
+	if !regexp.MustCompile(`^greenroom-input \d+ [0-9a-f]{12}$`).MatchString(helperVersionLine()) {
+		t.Errorf("version line %q", helperVersionLine())
 	}
 }
 

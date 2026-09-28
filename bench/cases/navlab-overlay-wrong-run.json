@@ -1,0 +1,13 @@
+{
+  "id": "navlab-overlay-wrong-run",
+  "app": "navlab",
+  "kind": "mutant",
+  "family": "wrong_computation",
+  "split": "dev",
+  "tier": "navigation",
+  "patch": "patches/navlab-overlay-wrong-run.diff",
+  "task": "NavLab (a macOS app of navigation scenes, with a Scenes list on the left) is running on screen. I changed the Overlay scene. Open it and press Open run 42: the line under the title should then read Open: Run 42. Give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": ["Open: Run 42 after pressing Open run 42"],
+  "notes": "Covered control. Open run 42 opens Run 41. A verifier that clicks through the list also sees a wrong run, so it can fail this for the wrong reason: the correct case carries the navigation signal."
+}

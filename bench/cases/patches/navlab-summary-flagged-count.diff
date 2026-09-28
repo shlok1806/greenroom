@@ -1,0 +1,11 @@
+--- a/Sources/NavLab/Scenes.swift	2026-09-27 19:06:39
++++ b/Sources/NavLab/Scenes.swift	2026-09-28 03:42:41
+@@ -130,7 +130,7 @@
+                 Text("Flagged rows are counted in the summary.")
+                 Color.clear
+                     .frame(height: 360)
+-                Text("Summary: \(rowCount) rows, \(flaggedRows.count) flagged")
++                Text("Summary: \(rowCount) rows, \(flaggedRows.count + 1) flagged")
+                     .font(.title3)
+                     .accessibilityIdentifier("summary")
+             }

@@ -37,10 +37,12 @@ const (
 	maxEffectValue   = 60
 )
 
-// isInputTool reports whether name is one of the verifier's input tools.
+// isInputTool reports whether name is one of the verifier's input tools, the toolkit's actions
+// included (daemon ADR 0006 point 12).
 func isInputTool(name string) bool {
 	switch name {
-	case "machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input":
+	case "machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input",
+		"machine_press", "machine_set_value":
 		return true
 	}
 	return false

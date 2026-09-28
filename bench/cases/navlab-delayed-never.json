@@ -1,0 +1,13 @@
+{
+  "id": "navlab-delayed-never",
+  "app": "navlab",
+  "kind": "mutant",
+  "family": "late_result",
+  "split": "holdout",
+  "tier": "navigation",
+  "patch": "patches/navlab-delayed-never.diff",
+  "task": "NavLab (a macOS app of navigation scenes, with a Scenes list on the left) is running on screen. I changed the Delayed result scene. Open it and press Compute: within 5 seconds the result should read Result: 42. Give a pass or fail verdict.",
+  "expected": "fail",
+  "must_check": ["Result: 42 within 5 seconds of pressing Compute"],
+  "notes": "Waiting. The result arrives after 45 s, far past the 5 s the task allows."
+}

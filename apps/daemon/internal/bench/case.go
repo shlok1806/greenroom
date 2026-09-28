@@ -34,6 +34,7 @@ const (
 	InfraTakeover      = "human_takeover"
 	InfraBooting       = "booting"
 	TierSimple         = "simple"
+	TierNavigation     = "navigation"
 )
 
 // Families are the mutant operator families of ADR 0025, in its order.
@@ -57,8 +58,12 @@ var InfraTypes = []string{InfraDialog, InfraAppNotRunning, InfraTakeover, InfraB
 
 // Tiers are the values a case's tier may take. A simple case checks one flow of one app with
 // explicit steps and an explicit, observable outcome: about 5 inputs or fewer and 1 to 4
-// checks (bench/README.md). A case with no tier is not tiered.
-var Tiers = []string{TierSimple}
+// checks. A navigation case runs on navlab and puts one desktop hazard of docs/21 section 1 in
+// the verifier's way (a covered control, the wrong scroll area, clipped text, a lost keystroke,
+// a late result, a late-enabled control, a window over another, an app to launch), so the
+// toolkit's effect on navigation is measured apart from judging (bench/README.md). A case with
+// no tier is not tiered.
+var Tiers = []string{TierSimple, TierNavigation}
 
 // Infra is a scripted disturbance.
 type Infra struct {
@@ -81,8 +86,14 @@ type Case struct {
 	Expected  string   `json:"expected"`
 	MustCheck []string `json:"must_check"`
 	Infra     *Infra   `json:"infra,omitempty"`
-	Notes     string   `json:"notes,omitempty"` // for people reading the case; never shown to the verifier
+	// Open is false for a case whose app is built and left not running, so launching it is part
+	// of the task (the navigation tier's app-launch hazard). Absent means the runner opens it.
+	Open  *bool  `json:"open,omitempty"`
+	Notes string `json:"notes,omitempty"` // for people reading the case; never shown to the verifier
 }
+
+// Opens reports whether the runner launches the app before posting the task.
+func (c Case) Opens() bool { return c.Open == nil || *c.Open }
 
 // PatchPath is the case's patch file, or "" when it has none.
 func (c Case) PatchPath(benchDir string) string {
@@ -231,6 +242,15 @@ func (c Case) Validate() error {
 	}
 	if c.Tier != "" && (c.Kind == KindInfra || c.Kind == KindAmbiguous) {
 		bad("%s cases take no tier: only a checkable single-flow task is simple", c.Kind)
+	}
+	if c.Tier == TierNavigation && c.App != "navlab" {
+		bad("a navigation case runs on navlab, not %q", c.App)
+	}
+	if c.Open != nil && *c.Open {
+		bad("open is only ever false (the app is left not running); leave it out to have the app opened")
+	}
+	if !c.Opens() && c.Kind != KindCorrect && c.Kind != KindMutant {
+		bad("open false is for correct and mutant cases, whose task says the app is built and not running")
 	}
 	if c.Family != "" && !slices.Contains(Families, c.Family) {
 		bad("family %q is not one of %s", c.Family, strings.Join(Families, ", "))

@@ -1,0 +1,12 @@
+{
+  "id": "navlab-amount-tax",
+  "app": "navlab",
+  "kind": "correct",
+  "split": "dev",
+  "tier": "navigation",
+  "patch": null,
+  "task": "NavLab (a macOS app of navigation scenes, with a Scenes list on the left) is running on screen. I changed the Amount field scene. Open it and type 120 into the Amount field: the lines below should read Amount: 120 and With 8% tax: 129.60. Give a pass or fail verdict.",
+  "expected": "pass",
+  "must_check": ["Amount: 120 after typing 120", "With 8% tax: 129.60"],
+  "notes": "Lost keystroke (docs/14 case 5, docs/21 1.4 case 8). The field drops a key that arrives within 15 ms of the one before, so typing as fast as a script can leaves 10; a verifier that trusts its typing fails a correct build."
+}

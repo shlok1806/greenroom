@@ -160,7 +160,7 @@ func (m *Manager) ensureCaptureApproval(ctx context.Context, mc *Machine) {
 	a.checked = now
 	a.mu.Unlock()
 	checkCtx, cancel := context.WithTimeout(ctx, captureApprovalCheckTimeout)
-	res, err := m.tart.Exec(checkCtx, mc.Name, "/bin/sh", "-c", captureApprovalsScript, "sh", "check")
+	res, err := m.checkCaptureApproval(checkCtx, mc)
 	cancel()
 	switch {
 	case err == nil && res.ExitCode == 0:
@@ -180,6 +180,18 @@ func (m *Manager) ensureCaptureApproval(ctx context.Context, mc *Machine) {
 	if warn {
 		m.Log.Warn("cannot refresh the screen-capture approvals; the guest may show a capture alert", "runId", mc.RunID, "err", err)
 	}
+}
+
+// checkCaptureApproval runs the approvals script's read-only check: over the guest agent's
+// channel (op sh) when the machine has one, else by tart exec. Only the check moves to the
+// channel; a write kills replayd, is rare, and stays an exec.
+func (m *Manager) checkCaptureApproval(ctx context.Context, mc *Machine) (tart.ExecResult, error) {
+	// The script's own limit sits inside the request's, which sits inside ctx's.
+	res, route, err := m.agentShell(ctx, mc, captureApprovalCheckTimeout*3/4, captureApprovalsScript, "check")
+	if route == routeAgent {
+		return res, err
+	}
+	return m.tart.Exec(ctx, mc.Name, "/bin/sh", "-c", captureApprovalsScript, "sh", "check")
 }
 
 // due reports whether the approvals were last checked long enough ago to check again.

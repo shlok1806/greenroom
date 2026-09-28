@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image/png"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/guestagent"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
 
@@ -300,6 +302,12 @@ func checkPass(ctx context.Context, c *tart.Client, vm, label string, o ImageChe
 		p.Findings = append(p.Findings, "the input helper could not post an event: "+err.Error())
 	}
 
+	// The guest agent (daemon ADR 0005), as a daemon with -desktop-toolkit drives the machine.
+	_ = timed("agent", func() error {
+		p.Findings = append(p.Findings, agentSmoke(ctx, c, vm)...)
+		return nil
+	})
+
 	for _, ex := range exercises {
 		secs := ex.seconds
 		if secs <= 0 {
@@ -352,6 +360,67 @@ func checkPass(ctx context.Context, c *tart.Client, vm, label string, o ImageChe
 		p.Findings = append(p.Findings, "the final screenshot failed: "+err.Error())
 	}
 	return p, nil
+}
+
+// agentSmokeLimit bounds the whole agent check: the start, HELLO and four requests.
+const agentSmokeLimit = 60 * time.Second
+
+// agentSmoke checks the guest agent the way the daemon uses it (daemon ADR 0005): it starts on
+// one tart exec pipe and says HELLO with all three permissions it inherits from
+// tart-guest-agent (Accessibility, screen capture, posting events), a snapshot of Finder lists
+// something, a capture over the channel is not one flat colour, and the frontmost app is found
+// idle. It returns a finding per failure; it never fails the check run itself.
+func agentSmoke(ctx context.Context, c *tart.Client, vm string) (findings []string) {
+	ctx, cancel := context.WithTimeout(ctx, agentSmokeLimit)
+	defer cancel()
+	pipe, err := c.StartPipe(vm, "/bin/sh", "-c", agentScript())
+	if err != nil {
+		return []string{"the guest agent did not start: " + err.Error()}
+	}
+	conn, err := guestagent.Open(ctx, pipe, guestagent.Options{})
+	if err != nil {
+		_ = pipe.Close()
+		return []string{"the guest agent did not say hello: " + err.Error()}
+	}
+	defer func() { _ = conn.Close() }()
+	h := conn.Hello()
+	for _, grant := range []struct {
+		ok   bool
+		name string
+	}{{h.Trusted.Accessibility, "Accessibility"}, {h.Trusted.Screen, "screen capture"}, {h.Trusted.PostEvent, "posting events"}} {
+		if !grant.ok {
+			findings = append(findings, "the guest agent is not trusted for "+grant.name+": tart-guest-agent's grant is missing from the image")
+		}
+	}
+	call := func(op string, args any) (guestagent.Response, error) {
+		return conn.Call(ctx, guestagent.Request{Op: op, Args: args, Reader: HolderVerifier, Deadline: 15 * time.Second})
+	}
+	if resp, err := call("snapshot", map[string]any{"app": "Finder", "mode": "all", "limit": 50}); err != nil {
+		findings = append(findings, "the guest agent could not snapshot Finder: "+err.Error())
+	} else {
+		var snap struct {
+			Nodes []json.RawMessage `json:"nodes"`
+		}
+		if err := json.Unmarshal(resp.Result, &snap); err != nil || len(snap.Nodes) == 0 {
+			findings = append(findings, "the guest agent's snapshot of Finder lists nothing")
+		}
+	}
+	if resp, err := call("capture", map[string]any{"format": "png"}); err != nil {
+		findings = append(findings, "the guest agent could not capture the screen: "+err.Error())
+	} else if uniform(resp.Blob) {
+		findings = append(findings, "the guest agent's capture is one flat colour (a missing screen-capture grant, or a sleeping display)")
+	}
+	if resp, err := call("waitFor", map[string]any{"target": map[string]any{"idle": true}, "timeoutMs": 10000}); err != nil {
+		findings = append(findings, "the guest agent's wait for idle failed: "+err.Error())
+	} else {
+		var w struct {
+			Satisfied bool `json:"satisfied"`
+		}
+		if err := json.Unmarshal(resp.Result, &w); err != nil || !w.Satisfied {
+			findings = append(findings, "the frontmost app never went idle within 10 s")
+		}
+	}
+	return findings
 }
 
 // softwareUpdateCheckScript prints one line per way Software Update is not off.
