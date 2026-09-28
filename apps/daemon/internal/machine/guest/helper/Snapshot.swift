@@ -362,7 +362,8 @@ private func surfaceAttention(_ app: AppTarget, windows: [AXUIElement], reader: 
     for window in windows {
         if let call, call.remaining < 0.3 || call.cancelled { break }
         let read = readElement(window)
-        guard read.ok else { continue }
+        // A minimized window says AXDialog (Preview's do), and wants nothing until it is back.
+        guard read.ok, flagAttribute(window, kAXMinimizedAttribute) != true else { continue }
         if let kind = attentionKind(role: read.role) ?? attentionKind(windowSubrole: read.subrole) { add(window, read, kind: kind) }
         for child in read.children.prefix(64) {
             let childRead = readElement(child)
