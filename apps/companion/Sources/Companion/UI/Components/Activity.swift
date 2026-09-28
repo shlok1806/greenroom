@@ -127,8 +127,7 @@ struct TaskRowView: View {
                         }
                     }
                     if let note = row.note {
-                        Text(note).textStyle(.body).foregroundStyle(Palette.text)
-                            .fixedSize(horizontal: false, vertical: true)
+                        AgentMarkdown(text: note)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

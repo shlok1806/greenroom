@@ -255,14 +255,7 @@ struct SettingsSheet: View {
             row {
                 Text("Appearance").textStyle(.body).foregroundStyle(Palette.text)
                 Spacer()
-                Picker("Appearance", selection: $appearance) {
-                    Text("System").tag("system")
-                    Text("Light").tag("light")
-                    Text("Dark").tag("dark")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
+                SegmentedControl(options: [("system", "System"), ("light", "Light"), ("dark", "Dark")], selection: $appearance)
             }
             row {
                 VStack(alignment: .leading, spacing: 2) {

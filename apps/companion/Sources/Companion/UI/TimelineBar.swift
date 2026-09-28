@@ -80,7 +80,11 @@ struct TimelineBar: View {
                     .frame(height: 24)
                     .background(RoundedRectangle(cornerRadius: Corner.control).fill(Palette.failSubtle))
                 }
-                Button { shell.toggleSpeed() } label: {
+                DropdownButton(center: shell.dropdowns, id: "speed", width: 150, items: {
+                    [1.0, 2, 4].map { value in
+                        DropdownItem(id: "speed-\(Int(value))", title: "\(Int(value))× speed", checked: shell.speed == value) { shell.setSpeed(value) }
+                    }
+                }) {
                     Text("\(Int(shell.speed))×").textStyle(.captionEmphasis).monospacedDigit()
                         .foregroundStyle(shell.speed == 1 ? Palette.textSecondary : Palette.accent)
                         .frame(width: 30, height: 22)

@@ -101,47 +101,54 @@ struct RunToolbar: View {
     }
 }
 
-/// The More menu: the system's menu, with what is not on screen.
+/// The More menu, in the app's own dropdown: what is not on screen.
 private struct RunMoreMenu: View {
     @Bindable var shell: ShellModel
     var summary: Summary
 
     var body: some View {
-        Menu {
-            Button("Open the evidence (E)") { shell.evidenceOpen = true }
-            Button(shell.zoomed ? "Show checks and Activity (Z)" : "Picture only (Z)") { shell.toggleZoom() }
-            if summary.machine.isUp {
-                Button("New task for the verifier") { shell.openComposer(.task) }
-            }
-            Button("Command palette (⌘K)") { shell.paletteOpen = true }
-            Divider()
-            if shell.canCapture {
-                Button("Capture a screenshot (C)") { shell.capture() }
-            }
-            if shell.canExport {
-                Button("Save the recording…") { shell.exportRecording() }
-            }
-            Button("Copy run ID") { shell.copyRunID() }
-            if summary.machine.status == "on" || shell.canDestroy {
-                Divider()
-            }
-            if summary.machine.status == "on" {
-                Button("Restart the Mac") { shell.perform(SummaryAction(id: SummaryAction.restart, label: "Restart the Mac")) }
-            }
-            if shell.canDestroy {
-                Button("Destroy the Mac…", role: .destructive) { shell.confirmingDestroy = true }
-            }
-        } label: {
+        DropdownButton(center: shell.dropdowns, id: "more", width: 260, items: items) {
             IconView(icon: .more).foregroundStyle(Palette.textSecondary)
                 .clonePart("Icon/more")
-                .frame(width: Metrics.buttonHeight, height: Metrics.buttonHeight)
         }
-        .menuStyle(.button)
         .buttonStyle(IconButtonStyle())
-        .menuIndicator(.hidden)
         .fixedSize()
         .help("More")
         .accessibilityLabel("More")
+        .accessibilityIdentifier("toolbar.more")
+    }
+
+    private func items() -> [DropdownItem] {
+        var out: [DropdownItem] = [
+            DropdownItem(id: "details", title: "Run details", icon: .info) { shell.detailsOpen = true },
+            DropdownItem(id: "evidence", title: "Open the evidence", icon: .video, keys: "E") { shell.evidenceOpen = true },
+            DropdownItem(id: "zoom", title: shell.zoomed ? "Show the inspector" : "Picture only", icon: .expand, keys: "Z") { shell.toggleZoom() },
+        ]
+        if summary.machine.isUp {
+            out.append(DropdownItem(id: "task", title: "New task for the verifier", icon: .message) { shell.openComposer(.task) })
+        }
+        out.append(DropdownItem(id: "palette", title: "Command palette", icon: .search, keys: "⌘K") { shell.paletteOpen = true })
+        var record: [DropdownItem] = []
+        if shell.canCapture {
+            record.append(DropdownItem(id: "capture", title: "Capture a screenshot", icon: .camera, keys: "C") { shell.capture() })
+        }
+        if shell.canExport {
+            record.append(DropdownItem(id: "export", title: "Save the recording…", icon: .download) { shell.exportRecording() })
+        }
+        record.append(DropdownItem(id: "copy", title: "Copy run ID", icon: .copy) { shell.copyRunID() })
+        record[0].separated = true
+        out += record
+        var mac: [DropdownItem] = []
+        if summary.machine.status == "on" {
+            mac.append(DropdownItem(id: "restart", title: "Restart the Mac", icon: .restart) {
+                shell.perform(SummaryAction(id: SummaryAction.restart, label: "Restart the Mac"))
+            })
+        }
+        if shell.canDestroy {
+            mac.append(DropdownItem(id: "destroy", title: "Destroy the Mac…", icon: .trash, destructive: true) { shell.confirmingDestroy = true })
+        }
+        if !mac.isEmpty { mac[0].separated = true }
+        return out + mac
     }
 }
 
@@ -153,9 +160,6 @@ private struct DetailsButton: View {
 
     var body: some View {
         IconButton(icon: .info, name: "Details") { shell.detailsOpen.toggle() }
-            .popover(isPresented: $shell.detailsOpen, arrowEdge: .bottom) {
-                RunDetailsView(shell: shell, summary: summary)
-            }
             .accessibilityIdentifier("toolbar.details")
     }
 }

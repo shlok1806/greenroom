@@ -24,6 +24,16 @@ struct CompanionShell: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            if shell.detailsOpen, let summary = shell.summary {
+                ZStack(alignment: .top) {
+                    Palette.scrim.opacity(0.18).onTapGesture { shell.detailsOpen = false }.accessibilityHidden(true)
+                    RunDetailsView(shell: shell, summary: summary)
+                        .background(RoundedRectangle(cornerRadius: Corner.sheet).fill(Palette.bgRaised))
+                        .overlay(RoundedRectangle(cornerRadius: Corner.sheet).strokeBorder(Palette.border, lineWidth: 1))
+                        .shadow(color: .black.opacity(Elevation.raisedOpacity), radius: Elevation.raisedRadius / 2, y: Elevation.raisedY)
+                        .padding(.top, 96)
+                }
+            }
             if shell.paletteOpen {
                 PaletteOverlay(shell: shell)
             }
@@ -36,6 +46,8 @@ struct CompanionShell: View {
                 }
             }
         }
+        .overlay { DropdownLayer(center: shell.dropdowns) }
+        .coordinateSpace(name: DropdownLayer.space)
         .ignoresSafeArea()
         .background(Palette.bg)
         .background(ShellWindowConfigurator())

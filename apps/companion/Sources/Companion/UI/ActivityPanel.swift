@@ -122,21 +122,24 @@ struct ActivitySteps: View {
         let failures = steps.filter { $0.error != nil }.count
         VStack(spacing: 0) {
             HStack(spacing: Gap.x8) {
-                Picker("Show", selection: $logs) {
-                    Text("Tasks").tag(false)
-                    Text("Log").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
+                SegmentedControl(options: [(false, "Tasks"), (true, "Log")], selection: $logs)
                 .help("Tasks: the verifier's work grouped by check. Log: every step, one line each")
                 Spacer()
-                Toggle(isOn: $failuresOnly) {
-                    Text(failures > 0 ? "Failed \(failures)" : "Failed").textStyle(.caption)
+                Button { failuresOnly.toggle() } label: {
+                    HStack(spacing: 4) {
+                        StatusGlyph(kind: .failed, color: failuresOnly ? .fail : .tertiary, size: 12)
+                        Text(failures > 0 ? "\(failures)" : "0").textStyle(.captionEmphasis).monospacedDigit()
+                            .foregroundStyle(failuresOnly ? Palette.fail : Palette.textSecondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .background(RoundedRectangle(cornerRadius: Corner.control).fill(failuresOnly ? Palette.failSubtle : .clear))
+                    .overlay(RoundedRectangle(cornerRadius: Corner.control).strokeBorder(failuresOnly ? .clear : Palette.border, lineWidth: 1))
+                    .contentShape(Rectangle())
                 }
-                .toggleStyle(.button)
-                .controlSize(.small)
-                .help("Only the steps that failed")
+                .buttonStyle(.plain)
+                .help(failuresOnly ? "Showing only the \(failures) failed steps. Show all" : "Show only the \(failures) failed steps")
+                .accessibilityLabel(failuresOnly ? "Only failed steps, on" : "Only failed steps, off")
                 .accessibilityIdentifier("activity.failuresOnly")
             }
             .padding(.horizontal, Gap.x12)
@@ -271,7 +274,16 @@ struct ConversationTab: View {
                             Text("No messages yet.").textStyle(.body).foregroundStyle(Palette.textSecondary)
                         }
                         ForEach(messages) { message in
-                            MessageBlock(message: message).id(message.seq)
+                            MessageBlock(message: message, start: shell.streamStart(runId: summary.runId, seq: message.seq),
+                                         steps: Set((shell.store.steps[summary.runId] ?? []).map(\.seq)),
+                                         onStep: { shell.seek(toStep: $0) },
+                                         finished: { shell.finishStream(runId: summary.runId, seq: message.seq) })
+                                .id(message.seq)
+                        }
+                        if summary.state == .checking {
+                            // Beautiful UI's Thinking state, with what the verifier does now.
+                            ThinkingView(live: true, liveText: summary.now ?? "Thinking")
+                                .accessibilityIdentifier("conversation.thinking")
                         }
                         Color.clear.frame(height: 1).id("end")
                     }
@@ -282,7 +294,11 @@ struct ConversationTab: View {
                 .visibleScroller { metrics in
                     metrics.content > metrics.viewport * 1.2 ? "\(messages.count) messages" : nil
                 }
-                .onChange(of: messages.count) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
+                .onChange(of: messages.count) { _, _ in
+                    shell.noteMessages(messages, runId: summary.runId)
+                    proxy.scrollTo("end", anchor: .bottom)
+                }
+                .onAppear { shell.noteMessages(messages, runId: summary.runId) }
             }
 
             composer
@@ -294,13 +310,8 @@ struct ConversationTab: View {
         let mode = shell.composer ?? .message
         VStack(alignment: .leading, spacing: Gap.x8) {
             if mode == .message || mode == .task {
-                Picker("Send as", selection: Binding(get: { mode }, set: { shell.openComposer($0) })) {
-                    Text("Message").tag(ComposerMode.message)
-                    Text("New task").tag(ComposerMode.task)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
+                SegmentedControl(options: [(ComposerMode.message, "Message"), (ComposerMode.task, "New task")],
+                                 selection: Binding(get: { mode }, set: { shell.openComposer($0) }))
                 .disabled(!summary.machine.isUp)
                 .help("A message is a note the verifier answers; a new task starts it on new work")
             } else {
@@ -330,9 +341,14 @@ struct ConversationTab: View {
     }
 }
 
-/// One message: who, when and what, with a 2 pt edge in the sender's colour.
+/// One message: who, when and what (Markdown), with a 2 pt edge in the sender's colour. A
+/// message that arrived while the conversation was open streams in once.
 struct MessageBlock: View {
     var message: Message
+    var start: Date?
+    var steps: Set<Int>?
+    var onStep: ((Int) -> Void)?
+    var finished: () -> Void = {}
 
     var body: some View {
         HStack(alignment: .top, spacing: Gap.x8) {
@@ -344,9 +360,7 @@ struct MessageBlock: View {
                     Spacer(minLength: 0)
                     Text(message.at.formatted(date: .omitted, time: .shortened)).textStyle(.caption).foregroundStyle(Palette.textSecondary)
                 }
-                Text(message.text).textStyle(.body).foregroundStyle(Palette.text)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                StreamingMarkdown(text: message.text, start: start, steps: steps, onStep: onStep, finished: finished)
             }
         }
         .accessibilityElement(children: .combine)

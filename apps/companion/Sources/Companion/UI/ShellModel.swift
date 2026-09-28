@@ -11,6 +11,8 @@ import UniformTypeIdentifiers
 @MainActor
 final class ShellModel {
     let store: RunStore
+    /// The app's own dropdowns (no NSMenu): the one open, drawn over the window.
+    let dropdowns = DropdownCenter()
 
     /// The selected check per run; nil picks `CheckSelection.initial`.
     private(set) var checkSelection: [String: String] = [:]
@@ -47,6 +49,12 @@ final class ShellModel {
     private(set) var dismissedWarnings: Set<String> = []
     /// The action on its way, so its button shows the spinner and cannot go twice.
     private(set) var busy: String?
+
+    /// Per run, the newest message already on screen when the conversation was first shown:
+    /// those show whole; newer ones stream in once.
+    private(set) var messageBaseline: [String: Int] = [:]
+    /// Messages streaming in now, by "run#seq", from when they arrived.
+    private(set) var streamStarts: [String: Date] = [:]
 
     @ObservationIgnored private var playTask: Task<Void, Never>?
     @ObservationIgnored private var timelineCache: (key: String, value: RecordingTimeline)?
@@ -255,9 +263,38 @@ final class ShellModel {
         playTask = nil
     }
 
+    func setSpeed(_ value: Double) {
+        speed = [1, 2, 4].contains(value) ? value : 1
+    }
+
     /// 1x, 2x, 4x, then 1x again.
     func toggleSpeed() {
         speed = speed >= 4 ? 1 : speed * 2
+    }
+
+    // MARK: - The conversation
+
+    /// Notes the messages the conversation shows: the first time for a run, all of them are
+    /// already seen; after that, an agent's new message streams in once.
+    func noteMessages(_ messages: [Message], runId: String, now: Date = Date()) {
+        let top = messages.map(\.seq).max() ?? 0
+        guard let base = messageBaseline[runId] else {
+            messageBaseline[runId] = top
+            return
+        }
+        for message in messages where message.seq > base && (message.from == .verifier || message.from == .coder) {
+            let key = "\(runId)#\(message.seq)"
+            if streamStarts[key] == nil { streamStarts[key] = now }
+        }
+        if top > base { messageBaseline[runId] = top }
+    }
+
+    /// When a message began streaming in; nil shows it whole.
+    func streamStart(runId: String, seq: Int) -> Date? { streamStarts["\(runId)#\(seq)"] }
+
+    /// Ends a message's reveal (it finished, or the person clicked it).
+    func finishStream(runId: String, seq: Int) {
+        streamStarts["\(runId)#\(seq)"] = nil
     }
 
     // MARK: - Panels
@@ -297,6 +334,8 @@ final class ShellModel {
     }
 
     func closeOverlays() -> Bool {
+        if dropdowns.isOpen { dropdowns.close(); return true }
+        if detailsOpen { detailsOpen = false; return true }
         if paletteOpen { paletteOpen = false; return true }
         if settingsOpen { settingsOpen = false; return true }
         if confirmingDestroy { confirmingDestroy = false; return true }

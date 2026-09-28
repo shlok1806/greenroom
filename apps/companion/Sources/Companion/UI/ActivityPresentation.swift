@@ -42,7 +42,7 @@ enum ActivityLayout {
                 let isLast = index == progress.count - 1
                 rows.append((TaskRowModel(id: "m\(message.seq)", title: title(message.text), glyph: failedStep ? .failed : .passed,
                                           color: failedStep ? .fail : .pass, meta: Clock.elapsed(Int(span.rounded())),
-                                          chips: mine.map(chip), note: nil, opensItself: failedStep, steps: mine.map(\.seq)),
+                                          chips: mine.map(chip), note: note(message.text), opensItself: failedStep, steps: mine.map(\.seq)),
                              Set(mine.map(\.seq))))
                 if isLast, working {
                     rows[rows.count - 1].0.glyph = .checking
@@ -80,6 +80,13 @@ enum ActivityLayout {
         let rows = sections.flatMap(\.rows)
         if let exact = rows.first(where: { $0.steps.contains(step) }) { return exact.id }
         return rows.last { ($0.steps.first ?? .max) <= step }?.id
+    }
+
+    /// A progress message's whole words, when the title shows only part of them.
+    static func note(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ToolCatalog.tool(ofProgress: trimmed) == nil, title(trimmed) != trimmed else { return nil }
+        return trimmed
     }
 
     /// A verifier's progress line as a row title: its first sentence, short.

@@ -39,6 +39,9 @@ final class Keys {
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         let typing = responder is NSText || responder is NSTextView
         if responder is InputSurfaceView, shell.driving { return false }
+        if shell.dropdowns.isOpen {
+            return shell.dropdowns.handle(keyCode: event.keyCode, characters: event.charactersIgnoringModifiers ?? "", flags: flags)
+        }
 
         if flags == .command, key == "k" {
             shell.paletteOpen.toggle()
