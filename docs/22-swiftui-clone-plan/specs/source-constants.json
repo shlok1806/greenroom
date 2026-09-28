@@ -1,0 +1,131 @@
+{
+ "about": "Constants read from source files (not rendered) for pieces whose render extraction is still to do (docs/22 section 4.4). Every value names its file.",
+ "sonner": {
+  "repo": "https://github.com/emilkowalski/sonner",
+  "sha": "8e4662b39255120b62138312058f5d77c0139a5e",
+  "licence": "MIT",
+  "src/index.tsx": {
+   "VISIBLE_TOASTS_AMOUNT": 3,
+   "VIEWPORT_OFFSET": "24px",
+   "MOBILE_VIEWPORT_OFFSET": "16px",
+   "TOAST_LIFETIME_MS": 4000,
+   "TOAST_WIDTH": 356,
+   "GAP": 14,
+   "SWIPE_THRESHOLD": 45,
+   "SWIPE_VELOCITY": 0.11,
+   "TIME_BEFORE_UNMOUNT_MS": 200
+  },
+  "src/styles.css": {
+   "toastRadius": 8,
+   "toastPadding": 16,
+   "fontSize": 13,
+   "shadow": "0px 4px 12px rgba(0,0,0,0.1)",
+   "toasterTransition": "transform 400ms ease",
+   "toastTransition": "transform 400ms, opacity 400ms, height 400ms, box-shadow 200ms (easing: CSS default ease)",
+   "enter": "--y: translateY(100%) for bottom, translateY(-100%) for top; opacity 0",
+   "stackedScale": "1 - 0.05 * toastsBefore (applied as scale(calc(-1 * var(--scale))) with --scale = toastsBefore*0.05+1 on the y-flipped stack)",
+   "stackedLift": "translateY(lift * gap * toastsBefore)",
+   "removed": "translateY(40%) opacity 0, transition transform 500ms, opacity 200ms",
+   "closeButtonTransition": "opacity 100ms, background 200ms, border-color 200ms"
+  }
+ },
+ "numberFlow": {
+  "repo": "https://github.com/barvian/number-flow",
+  "sha": "c5906cf35c86583e756a6b91e043291c10b416e0",
+  "licence": "MIT",
+  "packages/number-flow/src/lite.ts": {
+   "transformTiming": {
+    "durationMs": 900,
+    "easing": "linear(0,.005,.019,.039,.066,.096,.129,.165,.202,.24,.278,.316,.354,.39,.426,.461,.494,.526,.557,.586,.614,.64,.665,.689,.711,.731,.751,.769,.786,.802,.817,.831,.844,.856,.867,.877,.887,.896,.904,.912,.919,.925,.931,.937,.942,.947,.951,.955,.959,.962,.965,.968,.971,.973,.976,.978,.98,.981,.983,.984,.986,.987,.988,.989,.99,.991,.992,.992,.993,.994,.994,.995,.995,.996,.996,.9963,.9967,.9969,.9972,.9975,.9977,.9979,.9981,.9982,.9984,.9985,.9987,.9988,.9989,1)"
+   },
+   "spinTiming": "same as transformTiming",
+   "opacityTiming": {
+    "durationMs": 450,
+    "easing": "ease-out"
+   },
+   "trend": "sign(new - old)",
+   "respectMotionPreference": true
+  },
+  "packages/number-flow/src/styles.ts": {
+   "maskHeight": "0.25em (half rounded to 1px, doubled)",
+   "maskWidth": "0.5em"
+  }
+ },
+ "shadcnCommand": {
+  "repo": "https://github.com/shadcn-ui/ui",
+  "sha": "98a1fe67b439324ddc857f47fbdce056600a4329",
+  "licence": "MIT",
+  "apps/v4/registry/new-york-v4/ui/command.tsx": {
+   "root": "flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground",
+   "inputWrapper": "flex h-9 items-center gap-2 border-b px-3",
+   "input": "flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-hidden placeholder:text-muted-foreground",
+   "list": "max-h-[300px] scroll-py-1 overflow-x-hidden overflow-y-auto",
+   "empty": "py-6 text-center text-sm",
+   "group": "overflow-hidden p-1 text-foreground; heading px-2 py-1.5 text-xs font-medium text-muted-foreground",
+   "separator": "-mx-1 h-px bg-border",
+   "item": "relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none; selected bg-accent text-accent-foreground; disabled opacity-50; svg size-4 text-muted-foreground",
+   "shortcut": "ml-auto text-xs tracking-widest text-muted-foreground",
+   "dialogOverrides": "input wrapper h-12; items px-2 py-3; icons size-5"
+  },
+  "apps/v4/registry/new-york-v4/ui/kbd.tsx": "pointer-events-none inline-flex h-5 w-fit min-w-5 items-center justify-center gap-1 rounded-sm bg-muted px-1 font-sans text-xs font-medium text-muted-foreground select-none; svg size-3",
+  "apps/v4/registry/new-york-v4/ui/skeleton.tsx": "animate-pulse rounded-md bg-accent (Tailwind pulse: 2s cubic-bezier(0.4,0,0.6,1) infinite, 50% opacity 0.5)",
+  "apps/v4/registry/new-york-v4/ui/spinner.tsx": "Loader2Icon size-4 animate-spin (Tailwind spin: 1s linear infinite)",
+  "apps/v4/registry/new-york-v4/ui/empty.tsx": "root flex-col items-center justify-center gap-6 rounded-lg border-dashed p-6 md:p-12; header max-w-sm gap-2; media icon size-10 rounded-lg bg-muted; title text-lg font-medium tracking-tight; description text-sm/relaxed text-muted-foreground; content max-w-sm gap-4 text-sm"
+ },
+ "motionSprings": {
+  "repo": "https://github.com/motiondivision/motion",
+  "sha": "636e725fc71315ca91ff196eb09685017e2fe0c8",
+  "licence": "MIT",
+  "packages/motion-dom/src/animation/generators/spring.ts": {
+   "defaults": {
+    "stiffness": 100,
+    "damping": 10,
+    "mass": 1,
+    "velocity": 0,
+    "durationMs": 800,
+    "bounce": 0.3,
+    "visualDuration": 0.3,
+    "restSpeed": {
+     "granular": 0.01,
+     "default": 2
+    },
+    "restDelta": {
+     "granular": 0.005,
+     "default": 0.5
+    },
+    "minDamping": 0.05,
+    "maxDamping": 1
+   },
+   "visualDuration": "stiffness = (2*pi/(1.2*v))^2; damping = 2*clamp(0.05,1,1-bounce)*sqrt(stiffness); mass = 1",
+   "findSpring": "Newton iteration, 12 rounds, initial guess 5/duration, safeMin 0.001"
+  },
+  "packages/motion-dom/src/animation/utils/default-transitions.ts": {
+   "transforms": {
+    "type": "spring",
+    "stiffness": 500,
+    "damping": 25,
+    "restSpeed": 10
+   },
+   "scale": {
+    "type": "spring",
+    "stiffness": 550,
+    "damping": "30, or 2*sqrt(550) when the target is 0",
+    "restSpeed": 10
+   },
+   "threeOrMoreKeyframes": {
+    "type": "keyframes",
+    "durationMs": 800
+   },
+   "other": {
+    "type": "keyframes",
+    "ease": [
+     0.25,
+     0.1,
+     0.35,
+     1
+    ],
+    "durationMs": 300
+   }
+  }
+ }
+}

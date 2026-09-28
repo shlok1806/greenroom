@@ -1,0 +1,7649 @@
+{
+ "piece": "loading-state",
+ "source": "https://github.com/slev12397/beautiful-ui",
+ "sourceSha": "44a274e598395ab61e7c96c26fda2758780253b7",
+ "licence": "MIT, Copyright (c) 2026 Shane Levine",
+ "viewport": {
+  "width": 640,
+  "height": 480
+ },
+ "deviceScaleFactor": 2,
+ "frameMs": 16.6667,
+ "settleMs": 1300,
+ "variant": "Drive",
+ "runs": [
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "light",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "flex w-fit items-center gap-2.5",
+     "frame": [
+      0,
+      0,
+      119.47,
+      19.5
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "gap": "10px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]",
+     "frame": [
+      0,
+      2.25,
+      15,
+      15
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "gap": "1.5px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]/span[0]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[1]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[2]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[0]/span[3]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[4]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[5]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[6]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[7]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[8]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[1]",
+     "tag": "span",
+     "cls": "bg-clip-text text-[13px] font-medium text-transparent",
+     "text": "Churning",
+     "frame": [
+      25,
+      0,
+      56.22,
+      19.5
+     ],
+     "style": {
+      "color": "transparent",
+      "background": "transparent",
+      "backgroundImage": "linear-gradient(90deg, #9A9DA3 35%, #1F2124 50%, #9A9DA3 65%)",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[2]",
+     "tag": "span",
+     "cls": "font-mono text-[12px] text-ink-3 tabular-nums",
+     "text": "1.3s",
+     "frame": [
+      91.22,
+      0.75,
+      28.25,
+      18
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "\"JetBrains Mono\"",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "lineHeight": "18px",
+      "letterSpacing": "-0.14px",
+      "fontVariantNumeric": "tabular-nums",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "light",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "flex w-fit items-center gap-2.5",
+     "frame": [
+      0,
+      0,
+      118.86,
+      19.5
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "gap": "10px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]",
+     "frame": [
+      0,
+      2.25,
+      15,
+      15
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "gap": "1.5px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]/span[0]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[1]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[2]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[0]/span[3]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[4]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[5]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[6]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[7]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[8]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[1]",
+     "tag": "span",
+     "cls": "bg-clip-text text-[13px] font-medium text-transparent",
+     "text": "Churning",
+     "frame": [
+      25,
+      0,
+      55.61,
+      19.5
+     ],
+     "style": {
+      "color": "transparent",
+      "background": "transparent",
+      "backgroundImage": "linear-gradient(90deg, #9A9DA3 35%, #1F2124 50%, #9A9DA3 65%)",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[2]",
+     "tag": "span",
+     "cls": "font-mono text-[12px] text-ink-3 tabular-nums",
+     "text": "1.3s",
+     "frame": [
+      90.61,
+      0.75,
+      28.25,
+      18
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "ui-monospace",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "lineHeight": "18px",
+      "letterSpacing": "-0.14px",
+      "fontVariantNumeric": "tabular-nums",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    }
+   ],
+   "animations": [
+    {
+     "id": 1,
+     "kind": "CSSAnimation",
+     "name": "pixel-on",
+     "target": "div[0]/span[0]/span[0]",
+     "bornAtMs": 0,
+     "durationMs": 650,
+     "delayMs": 90,
+     "easing": "linear",
+     "iterations": "infinite",
+     "fill": "none",
+     "keyframes": [
+      {
+       "offset": 0,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 0.18,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.42,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.62,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 1,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      }
+     ]
+    },
+    {
+     "id": 2,
+     "kind": "CSSAnimation",
+     "name": "pixel-on",
+     "target": "div[0]/span[0]/span[1]",
+     "bornAtMs": 0,
+     "durationMs": 650,
+     "delayMs": 180,
+     "easing": "linear",
+     "iterations": "infinite",
+     "fill": "none",
+     "keyframes": [
+      {
+       "offset": 0,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 0.18,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.42,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.62,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 1,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      }
+     ]
+    },
+    {
+     "id": 3,
+     "kind": "CSSAnimation",
+     "name": "pixel-on",
+     "target": "div[0]/span[0]/span[2]",
+     "bornAtMs": 0,
+     "durationMs": 650,
+     "delayMs": 270,
+     "easing": "linear",
+     "iterations": "infinite",
+     "fill": "none",
+     "keyframes": [
+      {
+       "offset": 0,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 0.18,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.42,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.62,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 1,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      }
+     ]
+    },
+    {
+     "id": 4,
+     "kind": "CSSAnimation",
+     "name": "pixel-on",
+     "target": "div[0]/span[0]/span[3]",
+     "bornAtMs": 0,
+     "durationMs": 650,
+     "delayMs": 0,
+     "easing": "linear",
+     "iterations": "infinite",
+     "fill": "none",
+     "keyframes": [
+      {
+       "offset": 0,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 0.18,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.42,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.62,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 1,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      }
+     ]
+    },
+    {
+     "id": 5,
+     "kind": "CSSAnimation",
+     "name": "pixel-on",
+     "target": "div[0]/span[0]/span[4]",
+     "bornAtMs": 0,
+     "durationMs": 650,
+     "delayMs": 90,
+     "easing": "linear",
+     "iterations": "infinite",
+     "fill": "none",
+     "keyframes": [
+      {
+       "offset": 0,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 0.18,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.42,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.62,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 1,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      }
+     ]
+    },
+    {
+     "id": 6,
+     "kind": "CSSAnimation",
+     "name": "pixel-on",
+     "target": "div[0]/span[0]/span[5]",
+     "bornAtMs": 0,
+     "durationMs": 650,
+     "delayMs": 180,
+     "easing": "linear",
+     "iterations": "infinite",
+     "fill": "none",
+     "keyframes": [
+      {
+       "offset": 0,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 0.18,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.42,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.62,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 1,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      }
+     ]
+    },
+    {
+     "id": 7,
+     "kind": "CSSAnimation",
+     "name": "pixel-on",
+     "target": "div[0]/span[0]/span[6]",
+     "bornAtMs": 0,
+     "durationMs": 650,
+     "delayMs": 90,
+     "easing": "linear",
+     "iterations": "infinite",
+     "fill": "none",
+     "keyframes": [
+      {
+       "offset": 0,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 0.18,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.42,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.62,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 1,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      }
+     ]
+    },
+    {
+     "id": 8,
+     "kind": "CSSAnimation",
+     "name": "pixel-on",
+     "target": "div[0]/span[0]/span[7]",
+     "bornAtMs": 0,
+     "durationMs": 650,
+     "delayMs": 180,
+     "easing": "linear",
+     "iterations": "infinite",
+     "fill": "none",
+     "keyframes": [
+      {
+       "offset": 0,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 0.18,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.42,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.62,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 1,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      }
+     ]
+    },
+    {
+     "id": 9,
+     "kind": "CSSAnimation",
+     "name": "pixel-on",
+     "target": "div[0]/span[0]/span[8]",
+     "bornAtMs": 0,
+     "durationMs": 650,
+     "delayMs": 270,
+     "easing": "linear",
+     "iterations": "infinite",
+     "fill": "none",
+     "keyframes": [
+      {
+       "offset": 0,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 0.18,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.42,
+       "easing": "ease-in-out",
+       "opacity": "1"
+      },
+      {
+       "offset": 0.62,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      },
+      {
+       "offset": 1,
+       "easing": "ease-in-out",
+       "opacity": "0.15"
+      }
+     ]
+    },
+    {
+     "id": 10,
+     "kind": "CSSAnimation",
+     "name": "shimmer-text",
+     "target": "div[0]/span[1]",
+     "bornAtMs": 0,
+     "durationMs": 1400,
+     "delayMs": 0,
+     "easing": "linear",
+     "iterations": "infinite",
+     "fill": "none",
+     "keyframes": [
+      {
+       "offset": 0,
+       "easing": "linear",
+       "backgroundPositionX": "150%",
+       "backgroundPositionY": "50%"
+      },
+      {
+       "offset": 1,
+       "easing": "linear",
+       "backgroundPositionX": "-50%",
+       "backgroundPositionY": "50%"
+      }
+     ]
+    }
+   ],
+   "curves": [
+    {
+     "tMs": 0,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "150% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 17,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.186,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "147.571% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 33,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2905,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "145.286% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 50,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.4699,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "142.857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 67,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.6801,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "140.429% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 83,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.8507,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "138.143% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 100,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.1622,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.964,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1622,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.1622,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "135.714% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 117,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2432,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2432,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2432,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "133.286% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 133,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.3892,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.3892,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.3892,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "131% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 150,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.5938,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.5938,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.5938,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "128.571% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 167,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.7928,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.7928,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.7928,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "126.143% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 183,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9269,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.1511,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9269,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1511,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9269,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.1511,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "123.857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 200,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9941,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2003,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9941,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2003,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9941,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2003,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "121.429% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 217,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.3272,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.3272,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.3272,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "119% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 233,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.5065,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.5065,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.5065,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "116.714% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 250,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.7156,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.7156,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.7156,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "114.286% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 267,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.8844,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.8844,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.8844,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "111.857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 283,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9758,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.1708,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9902,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9758,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9758,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.1708,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "109.571% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 300,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2656,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.925,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2656,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "107.143% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 317,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.4344,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.7969,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.4344,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "104.714% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 333,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.6312,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.6312,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.6312,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "102.429% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 350,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.8228,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.4426,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.8228,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "100% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 367,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9985,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9497,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2853,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9985,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9985,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9497,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "97.5714% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 383,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9595,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9981,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1905,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9595,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9595,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9981,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "95.2857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 400,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.8569,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1509,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.8569,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.8569,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "92.8571% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 417,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.6968,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.6968,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.6968,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "90.4286% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 433,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.5188,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.5188,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.5188,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "88.1429% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 450,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.344,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.344,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.344,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "85.7143% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 467,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2194,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9805,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2194,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9805,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2194,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9805,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "83.2857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 483,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.1598,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9068,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1598,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9068,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.1598,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9068,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "81% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 500,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.7684,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.7684,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.7684,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "78.5714% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 517,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.5863,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.5863,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.5863,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "76.1429% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 533,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.4115,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.4115,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.4115,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "73.8571% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 550,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2633,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9952,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2633,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2633,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9952,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "71.4286% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 567,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.1756,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9411,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1756,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.1756,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9411,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "69% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 583,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.8323,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.8323,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "66.7143% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 600,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.6643,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.6643,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "64.2857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 617,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.4748,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.4748,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "61.8571% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 633,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.3177,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.3177,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "59.5714% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 650,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2039,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2039,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "57.1429% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 667,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.1535,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.186,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.1535,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "54.7143% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 683,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2905,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "52.4286% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 700,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.4699,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "50% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 717,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.6801,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "47.5714% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 733,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.8507,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "45.2857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 750,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.1622,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.964,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1622,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.1622,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "42.8571% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 767,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2432,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2432,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2432,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "40.4286% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 783,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.3892,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.3892,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.3892,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "38.1429% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 800,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.5938,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.5938,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.5938,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "35.7143% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 817,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.7928,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.7928,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.7928,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "33.2857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 833,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9269,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.1511,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9269,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1511,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9269,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.1511,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "31% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 850,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9941,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2003,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9941,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2003,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9941,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2003,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "28.5714% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 867,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.3272,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.3272,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.3272,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "26.1429% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 883,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.5065,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.5065,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.5065,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "23.8571% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 900,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.7156,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.7156,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.7156,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "21.4286% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 917,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.8844,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.8844,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.8844,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "19% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 933,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9758,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.1708,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9902,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9758,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9758,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.1708,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "16.7143% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 950,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2656,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.925,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2656,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "14.2857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 967,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.4344,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.7969,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.4344,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "11.8571% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 983,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.6312,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.6312,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.6312,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "9.57143% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1000,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.8228,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.4426,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.8228,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "7.14286% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1017,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9985,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9497,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2853,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9985,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9985,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9497,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "4.71429% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1033,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9595,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9981,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1905,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9595,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9595,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9981,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "2.42857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1050,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.8569,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1509,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.8569,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.8569,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 1,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-2.84217e-14% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1067,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.6968,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[3]",
+       "frame": [
+        0,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.6968,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.6968,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-2.42857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1083,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.5188,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.5188,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.5188,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-4.71429% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1100,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.344,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.344,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.344,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-7.14286% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1117,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2194,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9805,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2194,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9805,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2194,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9805,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-9.57143% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1133,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.1598,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9068,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1598,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.9068,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.1598,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9068,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-11.8571% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1150,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[0]",
+       "frame": [
+        0,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.7684,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[4]",
+       "frame": [
+        5.5,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.7684,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[6]",
+       "frame": [
+        0,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.7684,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-14.2857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1167,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.5863,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.5863,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.5863,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-16.7143% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1183,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.4115,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.4115,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.4115,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-19% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1200,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2633,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9952,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.2633,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2633,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9952,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-21.4286% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1217,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.1756,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.9411,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.1756,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.1756,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.9411,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-23.8571% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1233,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[1]",
+       "frame": [
+        5.5,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.8323,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[5]",
+       "frame": [
+        11,
+        7.75,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[7]",
+       "frame": [
+        5.5,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.15,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.8323,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-26.1429% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1250,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.6643,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.6643,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-28.5714% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1267,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.4748,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.4748,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-31% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1283,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.3177,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.3177,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-33.2857% 50%"
+      }
+     ]
+    },
+    {
+     "tMs": 1300,
+     "sample": [
+      {
+       "target": "div[0]/span[0]/span[2]",
+       "frame": [
+        11,
+        2.25,
+        4,
+        4
+       ],
+       "opacity": 0.2039,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[0]/span[8]",
+       "frame": [
+        11,
+        13.25,
+        4,
+        4
+       ],
+       "opacity": 0.2039,
+       "transform": "none"
+      },
+      {
+       "target": "div[0]/span[1]",
+       "frame": [
+        25,
+        0,
+        55.61,
+        19.5
+       ],
+       "opacity": 1,
+       "transform": "none",
+       "backgroundPosition": "-35.7143% 50%"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "dark",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "flex w-fit items-center gap-2.5",
+     "frame": [
+      0,
+      0,
+      119.47,
+      19.5
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "gap": "10px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]",
+     "frame": [
+      0,
+      2.25,
+      15,
+      15
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "gap": "1.5px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]/span[0]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[1]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[2]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[0]/span[3]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[4]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[5]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[6]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[7]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[8]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[1]",
+     "tag": "span",
+     "cls": "bg-clip-text text-[13px] font-medium text-transparent",
+     "text": "Churning",
+     "frame": [
+      25,
+      0,
+      56.22,
+      19.5
+     ],
+     "style": {
+      "color": "transparent",
+      "background": "transparent",
+      "backgroundImage": "linear-gradient(90deg, #6C6F75 35%, #F2F3F4 50%, #6C6F75 65%)",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[2]",
+     "tag": "span",
+     "cls": "font-mono text-[12px] text-ink-3 tabular-nums",
+     "text": "1.3s",
+     "frame": [
+      91.22,
+      0.75,
+      28.25,
+      18
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "\"JetBrains Mono\"",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "lineHeight": "18px",
+      "letterSpacing": "-0.14px",
+      "fontVariantNumeric": "tabular-nums",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "dark",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "flex w-fit items-center gap-2.5",
+     "frame": [
+      0,
+      0,
+      118.86,
+      19.5
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "gap": "10px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]",
+     "frame": [
+      0,
+      2.25,
+      15,
+      15
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "gap": "1.5px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]/span[0]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[1]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[2]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[0]/span[3]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[4]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[5]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[6]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[7]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[8]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[1]",
+     "tag": "span",
+     "cls": "bg-clip-text text-[13px] font-medium text-transparent",
+     "text": "Churning",
+     "frame": [
+      25,
+      0,
+      55.61,
+      19.5
+     ],
+     "style": {
+      "color": "transparent",
+      "background": "transparent",
+      "backgroundImage": "linear-gradient(90deg, #6C6F75 35%, #F2F3F4 50%, #6C6F75 65%)",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[2]",
+     "tag": "span",
+     "cls": "font-mono text-[12px] text-ink-3 tabular-nums",
+     "text": "1.3s",
+     "frame": [
+      90.61,
+      0.75,
+      28.25,
+      18
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "ui-monospace",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "lineHeight": "18px",
+      "letterSpacing": "-0.14px",
+      "fontVariantNumeric": "tabular-nums",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "light",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "flex w-fit items-center gap-2.5",
+     "frame": [
+      0,
+      0,
+      119.47,
+      19.5
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "gap": "10px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]",
+     "frame": [
+      0,
+      2.25,
+      15,
+      15
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "gap": "1.5px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]/span[0]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[1]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[2]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[0]/span[3]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[4]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[5]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[6]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[7]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[8]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[1]",
+     "tag": "span",
+     "cls": "bg-clip-text text-[13px] font-medium text-transparent",
+     "text": "Churning",
+     "frame": [
+      25,
+      0,
+      56.22,
+      19.5
+     ],
+     "style": {
+      "color": "transparent",
+      "background": "transparent",
+      "backgroundImage": "linear-gradient(90deg, #9A9DA3 35%, #1F2124 50%, #9A9DA3 65%)",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[2]",
+     "tag": "span",
+     "cls": "font-mono text-[12px] text-ink-3 tabular-nums",
+     "text": "1.3s",
+     "frame": [
+      91.22,
+      0.75,
+      28.25,
+      18
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "JetBrains Mono",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "lineHeight": "18px",
+      "letterSpacing": "-0.14px",
+      "fontVariantNumeric": "tabular-nums",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "light",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "flex w-fit items-center gap-2.5",
+     "frame": [
+      0,
+      0,
+      119.73,
+      19.5
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "gap": "10px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]",
+     "frame": [
+      0,
+      2.25,
+      15,
+      15
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "gap": "1.5px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]/span[0]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[1]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[2]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[0]/span[3]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[4]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[5]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[6]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[7]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[8]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#1F2124",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[1]",
+     "tag": "span",
+     "cls": "bg-clip-text text-[13px] font-medium text-transparent",
+     "text": "Churning",
+     "frame": [
+      25,
+      0,
+      55.61,
+      19.5
+     ],
+     "style": {
+      "color": "transparent",
+      "background": "transparent",
+      "backgroundImage": "linear-gradient(90deg, #9A9DA3 35%, #1F2124 50%, #9A9DA3 65%)",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[2]",
+     "tag": "span",
+     "cls": "font-mono text-[12px] text-ink-3 tabular-nums",
+     "text": "1.3s",
+     "frame": [
+      90.61,
+      0.75,
+      29.13,
+      18
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "ui-monospace",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "lineHeight": "18px",
+      "letterSpacing": "-0.14px",
+      "fontVariantNumeric": "tabular-nums",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "dark",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "flex w-fit items-center gap-2.5",
+     "frame": [
+      0,
+      0,
+      119.47,
+      19.5
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "gap": "10px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]",
+     "frame": [
+      0,
+      2.25,
+      15,
+      15
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "gap": "1.5px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]/span[0]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[1]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[2]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[0]/span[3]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[4]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[5]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[6]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[7]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[8]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[1]",
+     "tag": "span",
+     "cls": "bg-clip-text text-[13px] font-medium text-transparent",
+     "text": "Churning",
+     "frame": [
+      25,
+      0,
+      56.22,
+      19.5
+     ],
+     "style": {
+      "color": "transparent",
+      "background": "transparent",
+      "backgroundImage": "linear-gradient(90deg, #6C6F75 35%, #F2F3F4 50%, #6C6F75 65%)",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[2]",
+     "tag": "span",
+     "cls": "font-mono text-[12px] text-ink-3 tabular-nums",
+     "text": "1.3s",
+     "frame": [
+      91.22,
+      0.75,
+      28.25,
+      18
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "JetBrains Mono",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "lineHeight": "18px",
+      "letterSpacing": "-0.14px",
+      "fontVariantNumeric": "tabular-nums",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "dark",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "flex w-fit items-center gap-2.5",
+     "frame": [
+      0,
+      0,
+      119.73,
+      19.5
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "gap": "10px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]",
+     "frame": [
+      0,
+      2.25,
+      15,
+      15
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "gap": "1.5px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[0]/span[0]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[1]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[2]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      2.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[0]/span[3]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[4]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[5]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      7.75,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[6]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      0,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[7]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      5.5,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.15"
+     }
+    },
+    {
+     "path": "div/span[0]/span[8]",
+     "tag": "span",
+     "cls": "size-[4px] bg-ink rounded-[1px]",
+     "frame": [
+      11,
+      13.25,
+      4,
+      4
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#F2F3F4",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "1px 1px 1px 1px",
+      "opacity": "0.203942"
+     }
+    },
+    {
+     "path": "div/span[1]",
+     "tag": "span",
+     "cls": "bg-clip-text text-[13px] font-medium text-transparent",
+     "text": "Churning",
+     "frame": [
+      25,
+      0,
+      55.61,
+      19.5
+     ],
+     "style": {
+      "color": "transparent",
+      "background": "transparent",
+      "backgroundImage": "linear-gradient(90deg, #6C6F75 35%, #F2F3F4 50%, #6C6F75 65%)",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    },
+    {
+     "path": "div/span[2]",
+     "tag": "span",
+     "cls": "font-mono text-[12px] text-ink-3 tabular-nums",
+     "text": "1.3s",
+     "frame": [
+      90.61,
+      0.75,
+      29.13,
+      18
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "ui-monospace",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "lineHeight": "18px",
+      "letterSpacing": "-0.14px",
+      "fontVariantNumeric": "tabular-nums",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "0px 0px 0px 0px"
+     }
+    }
+   ]
+  }
+ ]
+}
