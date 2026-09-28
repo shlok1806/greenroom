@@ -25,7 +25,7 @@ enum ActivityLayout {
             // No words from the verifier: one row per step.
             for step in sortedSteps {
                 rows.append((TaskRowModel(id: "s\(step.seq)", title: StepSummary.phrase(for: step, in: sortedSteps),
-                                          glyph: step.error == nil ? .passed : .failed, color: step.error == nil ? .pass : .fail,
+                                          glyph: step.failed ? .failed : .passed, color: step.failed ? .fail : .pass,
                                           meta: String(format: "%.1fs", Double(step.durationMs) / 1000), chips: [], note: nil,
                                           opensItself: false, steps: [step.seq]), [step.seq]))
             }
@@ -33,7 +33,7 @@ enum ActivityLayout {
             for (index, message) in progress.enumerated() {
                 let end = index + 1 < progress.count ? progress[index + 1].at : Date.distantFuture
                 let mine = sortedSteps.filter { $0.at >= message.at && $0.at < end }
-                let failedStep = mine.contains { $0.error != nil }
+                let failedStep = mine.contains(where: \.failed)
                 let span = (mine.last?.at ?? message.at).timeIntervalSince(message.at) + Double(mine.last?.durationMs ?? 0) / 1000
                 let isLast = index == progress.count - 1
                 rows.append((TaskRowModel(id: "m\(message.seq)", title: title(message.text), glyph: failedStep ? .failed : .passed,
@@ -72,9 +72,14 @@ enum ActivityLayout {
 
     /// A step as a tool chip: its tool's icon, two or three words, how long, or why it failed.
     static func chip(_ step: Step, in steps: [Step]) -> ToolChipModel {
-        let state: ToolChipModel.State = step.error.map { .error(short($0)) } ?? .done
+        let state: ToolChipModel.State
+        switch step.outcome {
+        case .ok: state = .done
+        case .exit(let code): state = .error("exit \(code)")
+        case .error(let words): state = .error(short(words))
+        }
         return ToolChipModel(id: step.seq, icon: icon(step.tool), label: chipLabel(step, in: steps),
-                             meta: String(format: "%.1fs", Double(step.durationMs) / 1000), state: state)
+                             meta: String(format: "%.1fs", Double(step.durationMs) / 1000), state: state, risky: step.isRisky)
     }
 
     /// The row a step belongs to: the one holding it, else the last row that began before it.

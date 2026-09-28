@@ -19,6 +19,8 @@ struct ToolChipModel: Hashable, Sendable, Identifiable {
     /// "0.4s", "now".
     var meta: String
     var state: State
+    /// A command that can destroy data or change the Mac for good.
+    var risky = false
 }
 
 /// 24 tall, 8 at the sides, 6 between the pieces, radius 6, a 1 pt border, Caption.
@@ -34,6 +36,10 @@ struct ToolChip: View {
             }
             Text(chip.label).textStyle(.caption).foregroundStyle(Palette.text).lineLimit(1)
             Text(metaText).textStyle(.caption).foregroundStyle(isError ? Palette.fail : Palette.textSecondary).lineLimit(1)
+            if chip.risky {
+                StatusGlyph(kind: .warning, color: .wait, size: 12)
+                    .accessibilityLabel("risky command")
+            }
         }
         .padding(.horizontal, Gap.x8)
         .frame(height: 24)

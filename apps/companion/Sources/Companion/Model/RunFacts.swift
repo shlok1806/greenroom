@@ -305,6 +305,18 @@ extension Step {
         return .ok
     }
 
+    /// Whether the step failed: its tool errored or its command exited non-zero.
+    var failed: Bool { outcome.isFailure }
+
+    /// Why it failed, in full: the tool's error, or "exited with code 1".
+    var failure: String? {
+        switch outcome {
+        case .ok: nil
+        case .exit(let code): "exited with code \(code)"
+        case .error(let words): words
+        }
+    }
+
     /// A command that can destroy data or change the machine for good.
     var isRisky: Bool {
         guard tool == "machine_exec", let command = input?["command"]?.stringValue else { return false }

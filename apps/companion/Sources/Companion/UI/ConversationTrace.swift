@@ -49,7 +49,7 @@ enum ConversationLayout {
 
     /// The header once the calls are done: "12 tool calls, 2 failed, 0:42".
     static func doneLabel(_ steps: [Step]) -> String {
-        let failed = steps.filter { $0.error != nil }.count
+        let failed = steps.filter(\.failed).count
         var words = steps.count == 1 ? "1 tool call" : "\(steps.count) tool calls"
         if failed > 0 { words += ", \(failed) failed" }
         if let first = steps.first, let last = steps.last {
@@ -76,7 +76,7 @@ struct ToolTraceView: View {
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var failed: Int { steps.filter { $0.error != nil }.count }
+    private var failed: Int { steps.filter(\.failed).count }
     private var open: Bool { userOpen ?? (live || failed > 0) }
 
     var body: some View {

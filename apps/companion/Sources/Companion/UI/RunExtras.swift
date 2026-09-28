@@ -16,6 +16,8 @@ struct RunDetailsView: View {
         let detail = store.details[summary.runId]
         let task = (store.messages[summary.runId] ?? []).first { $0.kind == .task }?.text
         let finish = detail?.finish
+        let facts = RunDetailFacts(detail: detail, listed: store.run(summary.runId),
+                                   messages: store.messages[summary.runId], frames: store.frames[summary.runId])
         ScrollView {
             VStack(alignment: .leading, spacing: Gap.x12) {
                 Text("Details").textStyle(.title).foregroundStyle(Palette.text)
@@ -24,12 +26,14 @@ struct RunDetailsView: View {
                     if let ended = summary.endedAt { row("Ended", ended.formatted(date: .abbreviated, time: .shortened)) }
                     row("Duration", Clock.elapsed(summary.elapsed(now: Date())))
                     row("Steps", "\((store.steps[summary.runId] ?? []).count)")
-                    row("Frames", "\((store.frames[summary.runId] ?? []).count)")
-                    row("Verifier", detail?.models?.verifier ?? "Not recorded for this run")
-                    if let describer = detail?.models?.describer { row("Describer", describer) }
-                    if let image = detail?.image, !image.isEmpty { row("Image", image) }
+                    row("Frames", facts.frames.formatted())
+                    row("Messages", facts.messages.formatted())
+                    row("Verifier", facts.models?.verifier ?? "Not recorded for this run")
+                    if let describer = facts.models?.describer { row("Describer", describer) }
+                    if let image = facts.image { row("Image", image) }
                     if let name = detail?.machineName, !name.isEmpty { row("Mac", name) }
                     if let ip = detail?.address { row("Address", ip) }
+                    if let boot = facts.boot { row("Boot", boot) }
                     if let ended = summary.machine.ended { row("Mac ended", ended) }
                     if let finish {
                         row("Finished", finish.outcome.text + (finish.summary.isEmpty ? "" : ". \(finish.summary)"))
@@ -77,6 +81,25 @@ struct RunDetailsView: View {
             Text(value).textStyle(.body).foregroundStyle(Palette.text).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// What Details says beyond the summary, as the old window's RunInfo worked it out: the run's
+/// own detail first, else what the run list carries (an older detail, or none read yet).
+struct RunDetailFacts: Equatable {
+    var image: String?
+    var models: VerifierModels?
+    /// How long the Mac took to boot: "12.4 s".
+    var boot: String?
+    var frames: Int
+    var messages: Int
+
+    init(detail: RunDetail?, listed: RunSummary?, messages held: [Message]?, frames heldFrames: [Frame]?) {
+        image = [detail?.image, listed?.image].compactMap { $0 }.first { !$0.isEmpty }
+        models = detail?.models ?? listed?.models
+        boot = detail?.machine?.bootSeconds.map { String(format: "%.1f s", $0) }
+        frames = heldFrames?.count ?? listed?.frames ?? 0
+        messages = held?.count ?? listed?.messages ?? 0
     }
 }
 

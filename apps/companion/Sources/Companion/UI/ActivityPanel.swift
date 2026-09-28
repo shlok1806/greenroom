@@ -126,7 +126,7 @@ struct ActivitySteps: View {
             return rows.isEmpty ? nil : ActivityLayout.Section(title: section.title, rows: rows)
         } : sections
         let currentRow = logs ? currentStep.map { "l\($0)" } : ActivityLayout.row(holding: currentStep, in: shownSections)
-        let failures = steps.filter { $0.error != nil }.count
+        let failures = steps.filter(\.failed).count
         VStack(spacing: 0) {
             HStack(spacing: Gap.x8) {
                 SegmentedControl(options: [(false, "Tasks"), (true, "Log")], selection: $logs)
@@ -168,7 +168,7 @@ struct ActivitySteps: View {
                 }
                 .onChange(of: currentRow) { _, row in
                     guard let row else { return }
-                    withAnimation(.easeOut(duration: Motion.settle)) { proxy.scrollTo(row) }
+                    withAnimation(Motion.easeOut(Motion.settle)) { proxy.scrollTo(row) }
                 }
                 .onChange(of: steps.count) { _, _ in
                     if shell.playhead == nil, shell.showsLive { proxy.scrollTo("end", anchor: .bottom) }
@@ -176,6 +176,11 @@ struct ActivitySteps: View {
                 .onAppear {
                     if let currentRow { proxy.scrollTo(currentRow, anchor: .center) }
                 }
+            }
+
+            // The raw record of the step at the playhead, one click away.
+            if let seq = currentStep, let step = steps.first(where: { $0.seq == seq }) {
+                StepRecordFold(step: step, total: steps.count)
             }
         }
         .onAppear { resetArrivals(sections) }
@@ -230,7 +235,7 @@ struct ActivitySteps: View {
     }
 
     private func logLines(current: Int?) -> some View {
-        let shown = failuresOnly ? steps.filter { $0.error != nil } : steps
+        let shown = failuresOnly ? steps.filter(\.failed) : steps
         return LazyVStack(alignment: .leading, spacing: 0) {
             if shown.isEmpty {
                 Text(failuresOnly ? "No step failed." : "No steps yet.")
@@ -241,9 +246,9 @@ struct ActivitySteps: View {
                     HStack(alignment: .firstTextBaseline, spacing: Gap.x8) {
                         Text("\(step.seq)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.textSecondary)
                             .frame(width: 30, alignment: .trailing)
-                        Text(StepSummary.phrase(for: step, in: steps) + (step.error.map { ", failed: \($0)" } ?? ""))
+                        Text(StepSummary.phrase(for: step, in: steps) + (step.failure.map { ", failed: \($0)" } ?? ""))
                             .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(step.error == nil ? Palette.text : Palette.fail)
+                            .foregroundStyle(step.failed ? Palette.fail : Palette.text)
                             .lineLimit(2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Text(String(format: "%.1fs", Double(step.durationMs) / 1000))
@@ -274,8 +279,9 @@ enum StepHelp {
         guard let step = steps.first(where: { $0.seq == seq }) else { return "Step \(seq)" }
         var words = "Step \(seq): \(StepSummary.phrase(for: step, in: steps)). \(ToolCatalog.entry(for: step.tool).title), "
             + "\(step.at.formatted(date: .omitted, time: .standard)), \(String(format: "%.1f s", Double(step.durationMs) / 1000))"
-        if let error = step.error { words += ". Failed: \(error)" }
-        return words + ". Click to show it on the player."
+        if let failure = step.failure { words += ". Failed: \(failure)" }
+        if step.isRisky { words += ". A command that can destroy data or change the Mac for good" }
+        return words + ". Click to show it on the player; its raw call opens at the foot of Activity."
     }
 }
 
@@ -388,6 +394,14 @@ struct ConversationTab: View {
     }
 
     private func disabledReason(_ mode: ComposerMode) -> String? {
+        if mode == .recheck, let verdict = shell.store.verdict(summary.runId),
+           let newer = VerdictReview.newerTask(than: verdict.seq, in: shell.store.messages[summary.runId] ?? []) {
+            // A newer task makes this verdict stale: a re-check would answer the wrong task (#89).
+            return VerdictReview.staleNote(newerTask: newer, verifierListens: summary.machine.isUp)
+        }
+        if mode == .message || mode == .task || mode == .answer, shell.store.connection != .online {
+            return "Greenroom is not answering. Nothing will be sent."
+        }
         guard mode == .message || mode == .answer || mode == .task else { return nil }
         if summary.state == .paused, mode == .message, summary.primaryAction?.id == SummaryAction.continue {
             return nil
@@ -413,7 +427,12 @@ struct MessageBlock: View {
                     Text(sender).textStyle(.captionEmphasis).foregroundStyle(Palette.text)
                     Text(kind).textStyle(.caption).foregroundStyle(Palette.textSecondary)
                     Spacer(minLength: 0)
-                    Text(message.at.formatted(date: .omitted, time: .shortened)).textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                    // Today's messages say the time; older ones the day too. The whole stamp on hover.
+                    Text(Calendar.current.isDateInToday(message.at)
+                         ? message.at.formatted(date: .omitted, time: .shortened)
+                         : message.at.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
+                        .textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                        .help("\(message.at.formatted(date: .complete, time: .standard)), message \(message.seq)")
                 }
                 StreamingMarkdown(text: message.text, start: start, steps: steps, onStep: onStep, finished: finished)
             }

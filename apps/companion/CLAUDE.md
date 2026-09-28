@@ -55,6 +55,26 @@ no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
   the style's line height, so a row of text is as tall as the design's.
 - `UI/Components/` is the Figma Components page with every state; `UI/KeyPalette.swift` is
   Ghostty's palette adapted (MIT). Copied or ported code is credited in `ACKNOWLEDGEMENTS.md`.
+- Redesign 7 (the run window around a player; `UI/Stage.swift`, `UI/TimelineBar.swift`,
+  `UI/ActivityPanel.swift` holding the inspector's Checks, Activity and Message tabs):
+  - Agent text renders as Markdown everywhere it shows: blocks through `AgentMarkdown`,
+    one-line places (a check's claim and what it observed, expected and saw, the Now line,
+    task row and section titles) through `AgentMarkdown.inline`, which sets presentation
+    intents only, so the place keeps its own type. Never `Text(check.text)` for agent words.
+  - Beautiful UI's agent entrances use `AgentMotion` (the originals' timings, held to the
+    specs by `AgentAnimationTests`) through `.fadeUp`, and `Arrivals` decides what is new:
+    only what arrives while a view shows moves; what was there when it opened never does.
+  - The Message tab reads `ConversationLayout.items`: messages with the verifier's calls
+    between them as `ToolTraceView` (the Thinking state whose trace is tool chips).
+  - A step failed when `Step.failed` (a tool error or a non-zero exit, `Step.outcome`);
+    never test `step.error` alone. `Step.failure` is the words.
+  - In-window menus are `Components/Dropdown.swift` (`DropdownCenter`, keys while open go to
+    it first in `Keys.handle`); choices are `SegmentedControl`. No `Menu`, `Picker`,
+    `.contextMenu` or `NSMenu` in `UI/`; the macOS menu bar (`ShellCommands`) is the one
+    place a system `Picker` may appear.
+  - Runs list: `SidebarSearch` matches name, status, id, start and task; `TwinCache` keeps
+    ADR 0018's twin marks off the scroll path; hiding the list (`runsSidebarHidden`, Ctrl-Cmd-S)
+    leaves `RunsRail` holding the traffic lights.
 - `GREENROOM_REDESIGN_SNAPSHOTS=<dir> .build/out/Products/Debug/CompanionSnapshots` renders
   the redesign's scenarios at 2x and writes what Apple's text recogniser reads beside each
   (`VisibleWords`, `WordBudget`). Needs no daemon for the component board.

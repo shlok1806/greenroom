@@ -14,25 +14,42 @@ struct RunsSidebar: View {
     var openSettings: () -> Void
     /// Groups shown whole from the start (the harness and the performance test).
     var expandedAtStart: Set<SummaryGroup> = []
+    /// Each run's task text, for the search (read only while there is a query).
+    var tasks: () -> [String: String] = { [:] }
+    /// Bumped (`/`) to open the search and give it the keyboard.
+    var searchRequest = 0
+    /// News about Greenroom's builds, badged on the settings button.
+    var updateBadge: MoreBadge?
 
     @State private var expanded: Set<SummaryGroup> = []
     @State private var searching = false
     @State private var query = ""
     @FocusState private var searchFocused: Bool
     @State private var scroll = ScrollTracker()
+    @State private var twinCache = TwinCache()
     @Environment(\.frozenNow) private var frozenNow
 
     private var items: [SidebarItem] {
         let doneShown = (WindowClass.allCases.first { $0.sidebar == width } ?? .regular).doneShown
-        return board.map { SidebarLayout.items($0, expanded: expanded, selected: selected, query: query, doneShown: doneShown) } ?? []
+        return board.map {
+            SidebarLayout.items($0, expanded: expanded, selected: selected, query: query, doneShown: doneShown, tasks: tasks)
+        } ?? []
     }
 
     var body: some View {
+        let shown = items
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 titlebar
-                if searching { searchField }
-                list.cloneScope("Runs")
+                if searching { searchField(shown) }
+                list(shown).cloneScope("Runs")
+                    .overlay(alignment: .topLeading) {
+                        if board != nil, !query.trimmingCharacters(in: .whitespaces).isEmpty, shown.isEmpty {
+                            Text(SidebarSearch.empty(query)).textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                                .padding(.horizontal, Gap.x16)
+                                .padding(.top, Gap.x12)
+                        }
+                    }
                 footer
             }
             // The 1 pt border is inside the sidebar's width, as the design draws it.
@@ -45,6 +62,10 @@ struct RunsSidebar: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Runs")
         .onAppear { expanded.formUnion(expandedAtStart) }
+        .onChange(of: searchRequest) { _, _ in
+            searching = true
+            searchFocused = true
+        }
     }
 
     /// 52 tall. The traffic lights sit here (the window's own), 20 from the left; the search
@@ -64,7 +85,7 @@ struct RunsSidebar: View {
         .cloneScope("Titlebar")
     }
 
-    private var searchField: some View {
+    private func searchField(_ items: [SidebarItem]) -> some View {
         TextField("", text: $query, prompt: Text("Search runs").foregroundStyle(Palette.textSecondary))
             .textFieldStyle(.plain)
             .textStyle(.body)
@@ -86,9 +107,10 @@ struct RunsSidebar: View {
             }
     }
 
-    private var list: some View {
+    private func list(_ items: [SidebarItem]) -> some View {
         RunsTable(items: items, summaries: summaries, selected: selected, select: select,
-                  expand: { expanded.insert($0) }, frozenNow: frozenNow, tracker: scroll)
+                  expand: { expanded.insert($0) }, frozenNow: frozenNow, tracker: scroll,
+                  twins: twinCache.marks(board))
             .overlay(alignment: .trailing) { TrackedScroller(tracker: scroll) }
     }
 
@@ -116,7 +138,18 @@ struct RunsSidebar: View {
                         .clonePart("Text")
                 }
                 Spacer(minLength: 0)
-                IconButton(icon: .settings, name: "Settings", action: openSettings).cloneScope("Icon button")
+                IconButton(icon: .settings, name: updateBadge.map { "Settings, \($0.spoken)" } ?? "Settings", action: openSettings)
+                    .overlay(alignment: .topTrailing) {
+                        if updateBadge != nil {
+                            // News about the builds (the old More menu's badge): one accent dot.
+                            Circle().fill(Palette.accent).frame(width: Gap.x8, height: Gap.x8)
+                                .overlay(Circle().strokeBorder(Palette.bgSidebar, lineWidth: 1))
+                                .offset(x: -Gap.x4, y: Gap.x4)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .cloneScope("Icon button")
             }
             .padding(.leading, Gap.x16)
             .padding(.trailing, Gap.x8)
@@ -124,6 +157,28 @@ struct RunsSidebar: View {
         }
         .frame(height: Metrics.footerHeight)
         .cloneScope("Footer")
+    }
+}
+
+/// The sidebar's twin marks, worked out again only when a run's id, name or start changes:
+/// the board changes on every summary event and the sidebar redraws on every selection.
+@MainActor
+final class TwinCache {
+    private var key: Int?
+    private var held: [String: TwinMark] = [:]
+
+    func marks(_ board: SummaryBoard?) -> [String: TwinMark] {
+        var hasher = Hasher()
+        for run in board?.runs ?? [] {
+            hasher.combine(run.runId)
+            hasher.combine(run.name)
+            hasher.combine(run.startedAt)
+        }
+        let key = hasher.finalize()
+        guard key != self.key else { return held }
+        self.key = key
+        held = board.map { RunRowModel.twinMarks($0.runs) } ?? [:]
+        return held
     }
 }
 

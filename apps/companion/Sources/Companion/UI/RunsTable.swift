@@ -19,6 +19,8 @@ struct RunsTable: NSViewRepresentable {
     /// How far the list is scrolled and the runs showing ("25-48 of 2,000"), for the visible
     /// scroller; it also scrolls the table.
     var tracker: ScrollTracker?
+    /// What tells apart runs with the same name, by run id (companion ADR 0018).
+    var twins: [String: TwinMark] = [:]
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -66,12 +68,13 @@ struct RunsTable: NSViewRepresentable {
         if scroll.scrollerStyle != .overlay { scroll.scrollerStyle = .overlay }
         let c = context.coordinator
         c.parent = self
-        let changed = c.items != items || c.summaries != summaries || c.frozenNow != frozenNow
+        let changed = c.items != items || c.summaries != summaries || c.frozenNow != frozenNow || c.twins != twins
         let selectionChanged = c.selected != selected
         c.items = items
         c.summaries = summaries
         c.selected = selected
         c.frozenNow = frozenNow
+        c.twins = twins
         guard let table = c.table else { return }
         if changed {
             table.reloadData()
@@ -104,6 +107,7 @@ struct RunsTable: NSViewRepresentable {
         var summaries: [String: Summary] = [:]
         var selected: String?
         var frozenNow: Date?
+        var twins: [String: TwinMark] = [:]
         weak var table: NSTableView?
         weak var scrollView: NSScrollView?
         var syncingSelection = false
@@ -184,7 +188,7 @@ struct RunsTable: NSViewRepresentable {
                     .cloneScope(partName("Group", at: row) { if case .heading = $0 { true } else { false } })
             case .run(let id):
                 if let summary = summaries[id] {
-                    SidebarRunRow(summary: summary, selected: id == selected)
+                    SidebarRunRow(summary: summary, selected: id == selected, twin: twins[id])
                         .cloneScope(partName("Run row", at: row) { if case .run = $0 { true } else { false } })
                 }
             case .more(_, let hidden):
@@ -242,21 +246,24 @@ private final class KeyTable: NSTableView {
 struct SidebarRunRow: View {
     var summary: Summary
     var selected: Bool
+    var twin: TwinMark?
     @Environment(\.frozenNow) private var frozenNow
     @State private var hovering = false
 
     var body: some View {
         Group {
             if let frozenNow {
-                RunRowView(model: RunRowModel(summary, now: frozenNow, selected: selected), selected: selected, hovered: hovering)
+                RunRowView(model: RunRowModel(summary, now: frozenNow, selected: selected, twin: twin), selected: selected, hovered: hovering)
             } else if summary.group == .done {
-                RunRowView(model: RunRowModel(summary, now: Date(), selected: selected), selected: selected, hovered: hovering)
+                RunRowView(model: RunRowModel(summary, now: Date(), selected: selected, twin: twin), selected: selected, hovered: hovering)
             } else {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    RunRowView(model: RunRowModel(summary, now: context.date, selected: selected), selected: selected, hovered: hovering)
+                    RunRowView(model: RunRowModel(summary, now: context.date, selected: selected, twin: twin), selected: selected, hovered: hovering)
                 }
             }
         }
         .onHover { hovering = $0 }
+        // The whole name (the row may clip it), the status and when it started.
+        .help(RunRowModel.tooltip(summary))
     }
 }

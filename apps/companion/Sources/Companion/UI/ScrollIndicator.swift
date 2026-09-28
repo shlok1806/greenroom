@@ -98,7 +98,7 @@ struct VisibleScroller: View {
         .padding(.trailing, 2)
         .opacity(metrics.scrollable ? 1 : 0)
         .allowsHitTesting(metrics.scrollable)
-        .animation(.easeOut(duration: Motion.press), value: hovering)
+        .animation(Motion.easeOut(Motion.press), value: hovering)
         .onChange(of: metrics.offset) { _, _ in
             recentlyMoved = true
             fade?.cancel()

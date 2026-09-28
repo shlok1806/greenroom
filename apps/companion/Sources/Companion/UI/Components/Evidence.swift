@@ -48,6 +48,9 @@ struct EvidenceFrame: View {
     /// Where the value sits, as fractions of the picture.
     var mark: SummaryBox?
     var markColor: ToneColor = .fail
+    /// Text the check rests on that a person cannot see on this picture (companion ADR
+    /// 0014): each outlined, dashed, with why in words.
+    var unseen: [UnseenText] = []
     /// Dims the picture: the screen stopped answering, or the Mac is restarting.
     var dimmed = false
     /// Offered on a missing frame.
@@ -73,6 +76,11 @@ struct EvidenceFrame: View {
                                     .position(x: (mark.x + mark.w / 2) * geo.size.width, y: (mark.y + mark.h / 2) * geo.size.height)
                             }
                             .accessibilityHidden(true)
+                        }
+                    }
+                    .overlay {
+                        if !unseen.isEmpty, !redacted {
+                            UnseenMarks(marks: unseen)
                         }
                     }
                     .overlay { if dimmed { Palette.bg.opacity(0.55) } }
@@ -107,6 +115,39 @@ struct EvidenceFrame: View {
             .aspectRatio(aspect, contentMode: .fit)
             .overlay(inner())
             .overlay(RoundedRectangle(cornerRadius: Corner.row).strokeBorder(Palette.border, lineWidth: 1))
+    }
+}
+
+/// Where a UI read reports text a person cannot see: the element's frame dashed in the
+/// waiting colour, with what is wrong ("not drawn") above it (the old window's evidence
+/// marks, companion ADR 0014). Takes no clicks; the check's row says the same in words.
+struct UnseenMarks: View {
+    var marks: [UnseenText]
+
+    var body: some View {
+        GeometryReader { geo in
+            ForEach(Array(marks.enumerated()), id: \.offset) { _, mark in
+                if let frame = mark.frame {
+                    let box = CGRect(x: frame.minX * geo.size.width, y: frame.minY * geo.size.height,
+                                     width: max(12, frame.width * geo.size.width), height: max(12, frame.height * geo.size.height))
+                        .insetBy(dx: -Gap.x4, dy: -Gap.x4)
+                    RoundedRectangle(cornerRadius: Corner.control)
+                        .stroke(Palette.wait, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                        .frame(width: box.width, height: box.height)
+                        .position(x: box.midX, y: box.midY)
+                    Text(mark.why.words)
+                        .textStyle(.captionEmphasis)
+                        .foregroundStyle(Palette.text)
+                        .padding(.horizontal, Gap.x4)
+                        .background(RoundedRectangle(cornerRadius: Corner.control).fill(Palette.bgRaised))
+                        .overlay(RoundedRectangle(cornerRadius: Corner.control).strokeBorder(Palette.wait, lineWidth: 1))
+                        .fixedSize()
+                        .position(x: box.minX + 40, y: box.minY >= 18 ? box.minY - 10 : box.maxY + 10)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

@@ -22,6 +22,12 @@ struct RunPane: View {
         VStack(spacing: 0) {
             RunToolbar(shell: shell, summary: summary, windowClass: windowClass)
             StatusHeader(shell: shell, summary: summary)
+            if shell.confirmingAccept {
+                AcceptConfirmBanner(busy: shell.busy == SummaryAction.accept, look: {
+                    shell.cancelAccept()
+                    if let first = summary.checks.items.first(where: { $0.step != nil }) { shell.select(check: first.id) }
+                }, accept: shell.acceptAnyway)
+            }
             if shell.confirmingDestroy {
                 DestroyConfirmBanner(busy: shell.busy == "destroy", keep: { shell.confirmingDestroy = false }, destroy: shell.destroy)
             }
@@ -44,7 +50,7 @@ struct RunPane: View {
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { bodyWidth = $0 }
-            .animation(.easeOut(duration: Motion.settle), value: shell.zoomed)
+            .animation(Motion.easeOut(Motion.settle), value: shell.zoomed)
             .cloneScope("Body")
         }
         .background(Palette.bg)
@@ -68,6 +74,15 @@ struct RunToolbar: View {
                 .help("\(summary.name), \(origin)")
                 .clonePart("Run name")
             Spacer(minLength: Gap.x8)
+            if shell.busy == "capture" || shell.busy == "export" {
+                // What the More menu started, until it is done.
+                HStack(spacing: 6) {
+                    StatusGlyph(kind: .checking, color: .accent, size: 12)
+                    Text(shell.busy == "capture" ? "Capturing" : "Saving the recording").textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                }
+                .accessibilityElement(children: .combine)
+                .transition(.opacity)
+            }
             if shell.canTakeControl(summary) {
                 ToolbarButton(icon: .pointer, title: "Take control") {
                     shell.perform(SummaryAction(id: SummaryAction.takeControl, label: "Take control"))
@@ -189,6 +204,12 @@ struct StatusHeader: View {
         .padding(.bottom, 1)
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.border).frame(height: 1) }
         .cloneScope("Header")
+        // The verdict landing, said to VoiceOver as the old window said it ("Verdict: Failed, 2 of 4").
+        .onChange(of: RunStateKey(runId: summary.runId, state: summary.state)) { old, new in
+            guard old.runId == new.runId, !old.state.isOutcome, new.state.isOutcome else { return }
+            let model = HeaderModel(summary, now: Date())
+            AccessibilityNotification.Announcement("Verdict: \(model.status)\(model.tally.isEmpty ? "" : ", \(model.tally)")").post()
+        }
     }
 
     private func content(now: Date) -> some View {
@@ -287,6 +308,11 @@ struct ChecksColumn: View {
                     ForEach(BootRow.rows(phases)) { row in
                         BootRowView(row: row, current: row.glyph == .checking)
                     }
+                } else if summary.checks.items.isEmpty, !citedSteps.isEmpty {
+                    // A verdict without checks: the steps it cites, each one click from the player.
+                    heading("Cited steps")
+                    CitedStepsView(cited: citedSteps, steps: shell.store.steps[summary.runId] ?? [],
+                                   shown: shell.currentStep(shell.timeline()), seek: { shell.seek(toStep: $0) })
                 } else if summary.checks.items.isEmpty {
                     Text(emptyText).textStyle(.body).foregroundStyle(Palette.textSecondary)
                         .padding(.horizontal, Gap.x12)
@@ -301,6 +327,10 @@ struct ChecksColumn: View {
                             .onTapGesture { shell.select(check: check.id) }
                             .accessibilityAction { shell.select(check: check.id) }
                             .cloneScope(many ? "Check row[\(index)]" : "Check row")
+                        if check.id == shell.selectedCheckID, let record = shell.acceptanceCheck(check.id) {
+                            CheckProofView(check: record, steps: shell.store.steps[summary.runId] ?? [],
+                                           shown: shell.currentStep(shell.timeline()), seek: { shell.seek(toStep: $0) })
+                        }
                     }
                 }
             }
@@ -313,6 +343,8 @@ struct ChecksColumn: View {
         }
         .background(Palette.bg)
     }
+
+    private var citedSteps: [Int] { shell.store.citedSteps(summary.runId) }
 
     private var emptyText: String {
         switch summary.state {
@@ -366,5 +398,143 @@ private struct BootRowView: View {
         .frame(minHeight: Metrics.checkRowMinHeight)
         .background(RoundedRectangle(cornerRadius: Corner.row).fill(current ? Palette.bgSelected : .clear))
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Accepting with none of the cited proof looked at, asked inline under the header (the old
+/// verdict card asked the same): look at it, or accept anyway.
+struct AcceptConfirmBanner: View {
+    var busy: Bool
+    var look: () -> Void
+    var accept: () -> Void
+
+    var body: some View {
+        HStack(spacing: Gap.x8) {
+            StatusGlyph(kind: .warning, color: .wait)
+            Text("You have not looked at any proof yet. Accepting is final once the undo ends.")
+                .textStyle(.body).foregroundStyle(Palette.text).lineLimit(1)
+            Spacer(minLength: Gap.x8)
+            Button("Show the proof", action: look).buttonStyle(ActionButtonStyle(kind: .secondary))
+            Button("Accept anyway", action: accept).buttonStyle(ActionButtonStyle(kind: .primary, loading: busy))
+                .accessibilityIdentifier("accept.anyway")
+        }
+        .padding(.leading, Gap.x24)
+        .padding(.trailing, Gap.x12)
+        .frame(height: 44)
+        .background(Palette.waitSubtle)
+        .overlay(alignment: .bottom) { Rectangle().fill(Palette.border).frame(height: 1) }
+    }
+}
+
+/// A run and its state: what changes when a verdict lands on the run that shows.
+struct RunStateKey: Equatable {
+    var runId: String
+    var state: SummaryState
+}
+
+/// Under the selected check, what its record says beyond the row: its kind ("visual",
+/// "timing, within 2 s"), every step it cites (each seeks the player), and the text its UI
+/// reads say a person cannot see (the old checklist's detail).
+struct CheckProofView: View {
+    var check: AcceptanceCheck
+    var steps: [Step]
+    /// The step the player shows.
+    var shown: Int?
+    var seek: (Int) -> Void
+
+    var body: some View {
+        let warnings = check.unseenWarnings(in: steps)
+        let cited = check.evidence
+        if check.kindTag != nil || cited.count > 1 || !warnings.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                if check.kindTag != nil || cited.count > 1 {
+                    ChipFlowLayout(spacing: 6) {
+                        if let tag = check.kindTag {
+                            Text(tag).textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                                .frame(height: 22)
+                                .help("The kind of check: a visual one is judged from the picture, a timing one by when it happened")
+                        }
+                        if cited.count > 1 {
+                            ForEach(cited, id: \.self) { seq in
+                                StepLink(seq: seq, known: steps.contains { $0.seq == seq }, current: seq == shown) { seek(seq) }
+                                    .help(steps.first { $0.seq == seq }.map { "Step \(seq): \(StepSummary.phrase(for: $0, in: steps)). Show it on the player" }
+                                          ?? "Step \(seq) is not in the record")
+                            }
+                        }
+                    }
+                }
+                ForEach(warnings, id: \.self) { warning in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        StatusGlyph(kind: .warning, color: .wait, size: 12)
+                        Text(warning).textStyle(.caption).foregroundStyle(Palette.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .help("The verifier's UI read says this text is not visible, so the picture cannot prove it")
+                }
+            }
+            .padding(.leading, 38)
+            .padding(.trailing, Gap.x12)
+            .padding(.bottom, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// A step a verdict cites, as a small chip that seeks the player.
+struct StepLink: View {
+    var seq: Int
+    var known: Bool
+    var current: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text("Step \(seq)")
+                .textStyle(.caption)
+                .monospacedDigit()
+                .foregroundStyle(known ? Palette.text : Palette.textSecondary)
+                .strikethrough(!known)
+                .padding(.horizontal, 6)
+                .frame(height: 22)
+                .background(RoundedRectangle(cornerRadius: Corner.control).fill(current ? Palette.bgSelected : Palette.bgHover))
+                .overlay(RoundedRectangle(cornerRadius: Corner.control).strokeBorder(current ? Palette.text : Palette.border, lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!known)
+        .accessibilityLabel(known ? "Step \(seq)" : "Step \(seq), not in the record")
+    }
+}
+
+/// A verdict's cited steps when it has no checks: each in words, one click from the player.
+struct CitedStepsView: View {
+    var cited: [Int]
+    var steps: [Step]
+    var shown: Int?
+    var seek: (Int) -> Void
+
+    var body: some View {
+        ForEach(cited, id: \.self) { seq in
+            let step = steps.first { $0.seq == seq }
+            Button { seek(seq) } label: {
+                HStack(spacing: 10) {
+                    StatusGlyph(kind: step?.failed == true ? .failed : .passed,
+                                color: step == nil ? .tertiary : (step?.failed == true ? .fail : .pass))
+                    Text(step.map { StepSummary.phrase(for: $0, in: steps) } ?? "Not in the record")
+                        .textStyle(.body)
+                        .foregroundStyle(step == nil ? Palette.textSecondary : Palette.text)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("\(seq)").textStyle(.caption).monospacedDigit().foregroundStyle(Palette.textSecondary)
+                }
+                .padding(.horizontal, Gap.x12)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: Corner.row).fill(seq == shown ? Palette.bgSelected : .clear))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(step == nil)
+            .help(step == nil ? "The verdict cites step \(seq), which is not in the record" : StepHelp.text(seq, in: steps))
+        }
     }
 }

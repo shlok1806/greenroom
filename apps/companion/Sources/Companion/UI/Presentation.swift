@@ -141,13 +141,40 @@ struct RunRowModel: Equatable, Sendable, Identifiable {
     /// What VoiceOver reads: "TipSplit: split the bill, Failed, 2 failed".
     var accessibilityLabel: String
 
-    init(_ summary: Summary, now: Date, selected: Bool = false) {
+    /// `twin` tells this run from others with the same name (companion ADR 0018, kept by ADR
+    /// 0019): it leads the meta, which never truncates, so the mark always shows.
+    init(_ summary: Summary, now: Date, selected: Bool = false, twin: TwinMark? = nil) {
         id = summary.runId
-        name = summary.name.isEmpty ? "Run \(summary.runId.suffix(6))" : summary.name
+        name = RunRowModel.name(summary)
         glyph = summary.state.glyph
         glyphColor = summary.tone.color
         (meta, metaColor) = RunRowModel.meta(summary, now: now, selected: selected)
+        if let twin { meta = meta.isEmpty ? twin.text : "\(twin.text) · \(meta)" }
         accessibilityLabel = [name, summary.status, meta].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    /// The name a row shows: the daemon's, else the run's id tag.
+    static func name(_ summary: Summary) -> String {
+        summary.name.isEmpty ? "Run \(summary.runId.suffix(6))" : summary.name
+    }
+
+    /// The row's tooltip: the whole name (the row may clip it), the status and when it started.
+    static func tooltip(_ summary: Summary) -> String {
+        let status = summary.status.isEmpty ? "Unknown" : summary.status
+        guard summary.startedAt > .epoch else { return "\(name(summary))\n\(status)" }
+        return "\(name(summary))\n\(status), started \(summary.startedAt.formatted(date: .abbreviated, time: .shortened))"
+    }
+
+    /// What tells apart runs that share a name: `RunTitle.twinMarks` over the daemon's names
+    /// and start times. Taken over every run held, never a search's matches, so a mark stays
+    /// put while typing.
+    static func twinMarks(_ runs: [Summary]) -> [String: TwinMark] {
+        RunTitle.twinMarks(runs, id: \.runId, title: { name($0) }, started: \.startedAt)
+    }
+
+    /// A run's name with its twin mark, where no meta carries it (the palette's Go to run).
+    static func distinctName(_ summary: Summary, twin: TwinMark?) -> String {
+        twin.map { "\(name(summary)), \($0.text)" } ?? name(summary)
     }
 
     /// As the Figma mockups word it: a fail that needs you says what failed ("2 failed"); a pass
@@ -192,13 +219,15 @@ enum SidebarLayout {
     /// The rows in list order. Needs you and Running show every run; Done shows its newest
     /// `doneShown` unless expanded, plus the selected run wherever it is. An empty Needs you
     /// says so; an empty Running or Done group has no heading. A search shows every match.
+    /// `tasks` gives each run's task text for the search; it is read only when there is a query.
     static func items(_ board: SummaryBoard, expanded: Set<SummaryGroup>, selected: String?, query: String = "",
-                      doneShown: Int = doneShown) -> [SidebarItem] {
+                      doneShown: Int = doneShown, tasks: () -> [String: String] = { [:] }) -> [SidebarItem] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let taskTexts = needle.isEmpty ? [:] : tasks()
         var out: [SidebarItem] = []
         for group in SummaryGroup.allCases {
             let runs = (board.groups.first { $0.id == group }?.runs ?? [])
-                .filter { needle.isEmpty || $0.name.lowercased().contains(needle) || $0.status.lowercased().contains(needle) }
+                .filter { needle.isEmpty || SidebarSearch.matches($0, needle: needle, task: taskTexts[$0.runId]) }
             if runs.isEmpty {
                 if group == .needsYou, needle.isEmpty, !board.runs.isEmpty {
                     out.append(.heading(group))
@@ -227,6 +256,32 @@ enum SidebarLayout {
         guard !runs.isEmpty else { return nil }
         guard let current, let index = runs.firstIndex(of: current) else { return delta >= 0 ? runs.first : runs.last }
         return runs[min(max(0, index + delta), runs.count - 1)]
+    }
+}
+
+/// What the sidebar's search matches (the old sidebar's search, kept by companion ADR 0019):
+/// the name, the status, the run id, when it started (as the tooltip and Details word it, and
+/// as "16:04") and the task.
+enum SidebarSearch {
+    /// `needle` is already trimmed and lowercased.
+    static func matches(_ s: Summary, needle: String, task: String? = nil) -> Bool {
+        if s.name.lowercased().contains(needle) || s.status.lowercased().contains(needle)
+            || s.runId.lowercased().contains(needle) {
+            return true
+        }
+        if let task, task.lowercased().contains(needle) { return true }
+        guard s.startedAt > .epoch else { return false }
+        return startTexts(s.startedAt).contains { $0.lowercased().contains(needle) }
+    }
+
+    /// When a run started, as a person may type it: "Sep 28, 2026 at 4:04 PM" and "16:04".
+    static func startTexts(_ date: Date) -> [String] {
+        [date.formatted(date: .abbreviated, time: .shortened), Chrome.shortTime(date)]
+    }
+
+    /// The line an empty search shows.
+    static func empty(_ query: String) -> String {
+        "No run matches \u{201C}\(query.trimmingCharacters(in: .whitespaces))\u{201D}"
     }
 }
 

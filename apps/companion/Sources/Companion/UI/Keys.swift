@@ -5,9 +5,10 @@ import SwiftUI
 /// runs, J and K between checks, Left and Right between frames, Space plays the recording,
 /// F plays it at 1x or 4x, N jumps to the next failure (Shift-N the one before), Z shows the
 /// picture alone, A opens Activity, M the composer, E the evidence, C captures a screenshot,
-/// T takes control, U undoes an accept or reject, ? and Cmd-K the palette, Cmd-L back to live,
-/// Cmd-R reads everything again, Cmd-Return the primary action, Cmd-Delete Reject, Esc closes
-/// what is open. Every one is also a labeled button and a menu item or palette row. While a
+/// T takes control, U undoes an accept or reject, ? and Cmd-K the palette, / searches the runs,
+/// Ctrl-Cmd-S hides or shows the runs, Cmd-L back to live, Cmd-R reads everything again,
+/// Cmd-Return the primary action, Cmd-Delete Reject, Cmd-Shift-S saves the recording (a menu
+/// item's key), Esc closes what is open. Every one is also a labeled button and a menu item or palette row. While a
 /// text field has the keyboard only Esc and Cmd-K are ours; while the person drives the Mac,
 /// every key goes to the Mac.
 @MainActor
@@ -77,6 +78,10 @@ final class Keys {
             shell.refresh()
             return true
         }
+        if flags == [.control, .command], key == "s" {
+            shell.toggleSidebar()
+            return true
+        }
         if flags == .shift, key == "n" {
             shell.jumpToFailure(forward: false)
             return true
@@ -101,6 +106,7 @@ final class Keys {
         case "m": shell.openComposer(.message); return true
         case "e": shell.evidenceOpen.toggle(); return true
         case "n": shell.jumpToFailure(); return true
+        case "/": shell.focusSearch(); return true
         case "l": shell.goLive(); return true
         case "z": shell.toggleZoom(); return true
         case "f": shell.toggleSpeed(); return true
@@ -162,11 +168,25 @@ final class Keys {
 /// keys are not given to menu items (they would fire while a person types); the palette shows them.
 struct ShellCommands: Commands {
     let shell: ShellModel
+    /// The same setting the Settings sheet's Appearance control writes.
+    @AppStorage("appearance", store: AppDefaults.shared) private var appearance = "system"
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { shell.settingsOpen = true }
                 .keyboardShortcut(",", modifiers: .command)
+        }
+        CommandGroup(replacing: .sidebar) {
+            Button(shell.sidebarHidden ? "Show Runs" : "Hide Runs") { shell.toggleSidebar() }
+                .keyboardShortcut("s", modifiers: [.control, .command])
+            Button("Search Runs") { shell.focusSearch() }
+            // macOS's own menu bar: a picker here is a submenu of checkmarked items.
+            Picker("Appearance", selection: $appearance) {
+                Text("System").tag("system")
+                Text("Light").tag("light")
+                Text("Dark").tag("dark")
+            }
+            Divider()
         }
         CommandMenu("Run") {
             if let s = shell.summary {
@@ -175,7 +195,8 @@ struct ShellCommands: Commands {
                     Button(primary.label) { shell.perform(primary) }
                         .keyboardShortcut(.return, modifiers: .command)
                 }
-                ForEach(secondary, id: \.id) { action in
+                // Take control has its own item below, always there.
+                ForEach(secondary.filter { $0.id != SummaryAction.takeControl }, id: \.id) { action in
                     if action.id == SummaryAction.reject {
                         Button(action.label) { shell.perform(action) }.keyboardShortcut(.delete, modifiers: .command)
                     } else {
@@ -184,14 +205,28 @@ struct ShellCommands: Commands {
                 }
                 Divider()
             }
+            Button(undoTitle) { shell.undoVerdictChoice() }
+                .disabled(shell.store.verdictUndo.pending == nil)
+            if shell.driving {
+                if shell.summary.map({ shell.actions(for: $0).primary?.id != SummaryAction.giveBack }) ?? true {
+                    Button("Give Back Control") { shell.perform(SummaryAction(id: SummaryAction.giveBack, label: "Give control back")) }
+                }
+            } else if shell.summary.map({ shell.actions(for: $0).primary?.id != SummaryAction.takeControl }) ?? true {
+                Button("Take Control") { shell.perform(SummaryAction(id: SummaryAction.takeControl, label: "Take control")) }
+                    .disabled(!canTakeControl)
+            }
+            Divider()
             Button("Activity") { shell.toggleActivity() }
             Button("Message the Verifier") { shell.openComposer(.message) }
             Button("New Task") { shell.openComposer(.task) }
             Button("Evidence") { shell.evidenceOpen.toggle() }
             Button(shell.zoomed ? "Show Checks and Activity" : "Picture Only") { shell.toggleZoom() }
             Divider()
+            Button("Next Check") { shell.moveCheck(by: 1) }.disabled(shell.checks.isEmpty)
+            Button("Previous Check") { shell.moveCheck(by: -1) }.disabled(shell.checks.isEmpty)
+            Divider()
             Button(shell.playing ? "Pause Recording" : "Play Recording") { shell.togglePlay() }
-            Button(shell.speed == 1 ? "Play at 4×" : "Play at 1×") { shell.toggleSpeed() }
+            Button("Play at \(shell.speed >= 4 ? 1 : Int(shell.speed) * 2)×") { shell.toggleSpeed() }
             Button("Next Failure") { shell.jumpToFailure() }
             Button("Previous Failure") { shell.jumpToFailure(forward: false) }
             Button("Back to Live") { shell.goLive() }
@@ -199,6 +234,7 @@ struct ShellCommands: Commands {
             Divider()
             Button("Capture Screenshot") { shell.capture() }.disabled(!shell.canCapture)
             Button("Save Recording…") { shell.exportRecording() }.disabled(!shell.canExport)
+                .keyboardShortcut("s", modifiers: [.command, .shift])
             Button("Copy Run ID") { shell.copyRunID() }.disabled(shell.runId == nil)
             Button("Destroy the Mac…") { shell.confirmingDestroy = true }.disabled(!shell.canDestroy)
             Divider()
@@ -208,5 +244,22 @@ struct ShellCommands: Commands {
             Button("Command Palette") { shell.paletteOpen.toggle() }
                 .keyboardShortcut("k", modifiers: .command)
         }
+    }
+
+    /// Names what U would take back.
+    private var undoTitle: String {
+        switch shell.store.verdictUndo.pending?.payload.kind {
+        case .accept?: "Undo Accept"
+        case .dispute?: "Undo Reject"
+        case nil: "Undo Accept or Reject"
+        }
+    }
+
+    /// Take control, whether the header offers it or only the toolbar does.
+    private var canTakeControl: Bool {
+        guard let s = shell.summary else { return false }
+        if shell.canTakeControl(s) { return true }
+        let (primary, secondary) = shell.actions(for: s)
+        return ([primary].compactMap { $0 } + secondary).contains { $0.id == SummaryAction.takeControl }
     }
 }

@@ -120,7 +120,7 @@ struct RecordingTimeline: Equatable, Sendable {
             let at = max(0, step.at.timeIntervalSince(origin))
             let proof = proofs[step.seq]
             let kind: Mark.Kind
-            if step.error != nil || proof?.failed == true {
+            if step.failed || proof?.failed == true {
                 kind = .failure
             } else if isHuman(step) {
                 kind = .human
@@ -339,7 +339,7 @@ enum TimelineWords {
     static func label(_ mark: RecordingTimeline.Mark, steps: [Step], checks: [SummaryCheck]) -> String {
         let step = steps.first { $0.seq == mark.step }
         var line = step.map { "Step \(mark.step) · \(StepSummary.phrase(for: $0, in: steps))" } ?? "Step \(mark.step)"
-        if let error = step?.error {
+        if let error = step?.failure {
             line += " · failed: \(error.split(whereSeparator: \.isNewline).first.map(String.init) ?? error)"
         } else if mark.kind == .human {
             line += " · you had control"

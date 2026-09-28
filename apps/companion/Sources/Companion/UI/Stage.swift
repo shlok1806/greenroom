@@ -70,6 +70,15 @@ struct StageView: View {
         return SummaryBox(x: target.fraction.x - size / 2, y: target.fraction.y - size * 2 / 3, w: size, h: size * 4 / 3)
     }
 
+    /// What the selected check's UI reads say a person cannot see on the picture at `step`.
+    private func unseenMarks(at step: Int?) -> [UnseenText] {
+        let steps = shell.store.steps[summary.runId] ?? []
+        let t = shell.timeline()
+        let shown = shell.selectedFrame != nil ? t.step(at: shell.currentSeconds(t)) : (step ?? shell.selectedCheck?.step)
+        guard let shown, let check = shell.acceptanceCheck(shell.selectedCheckID) else { return [] }
+        return check.unseenMarks(atStep: shown, in: steps)
+    }
+
     @ViewBuilder
     private func picture(_ content: StageContent) -> some View {
         switch content {
@@ -78,7 +87,8 @@ struct StageView: View {
         case .picture(let picture, let mark, let color, let dimmed):
             let click = mark == nil ? clickMark : nil
             StorePicture(store: shell.store, runId: summary.runId, picture: picture) { frame in
-                EvidenceFrame(content: frame, mark: mark ?? click, markColor: click == nil ? color : .accent, dimmed: dimmed,
+                EvidenceFrame(content: frame, mark: mark ?? click, markColor: click == nil ? color : .accent,
+                              unseen: unseenMarks(at: picture.step), dimmed: dimmed,
                               openRecording: { shell.evidenceOpen = true })
             }
             .accessibilityElement(children: .contain)
@@ -160,7 +170,7 @@ struct StageView: View {
                     return Text("Before the first step").foregroundStyle(Palette.textSecondary)
                 }
                 let phrase = StepSummary.phrase(for: step, in: steps)
-                if step.error != nil {
+                if step.failed {
                     return Text("Step \(seq) ").foregroundStyle(Palette.textSecondary) + Text(phrase).foregroundStyle(Palette.text)
                         + Text(", failed").foregroundStyle(Palette.fail)
                 }

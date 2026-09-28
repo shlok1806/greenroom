@@ -166,7 +166,7 @@ enum PaletteOptions {
                 out.append(PaletteOption(id: "capture", title: "Capture a screenshot", section: "This run", icon: .camera, keys: "C") { shell.capture() })
             }
             if shell.canExport {
-                out.append(PaletteOption(id: "export", title: "Save the recording", section: "This run", icon: .download) { shell.exportRecording() })
+                out.append(PaletteOption(id: "export", title: "Save the recording", section: "This run", icon: .download, keys: "⇧⌘S") { shell.exportRecording() })
             }
             if shell.canDestroy {
                 out.append(PaletteOption(id: "destroy", title: "Destroy the Mac", section: "This run", icon: .trash) { shell.confirmingDestroy = true })
@@ -193,16 +193,25 @@ enum PaletteOptions {
                 shell.toggleZoom()
             })
         }
-        for run in shell.store.board?.runs ?? [] where run.runId != shell.runId {
-            out.append(PaletteOption(id: "r-\(run.runId)", title: run.name, section: "Go to run",
+        let runs = shell.store.board?.runs ?? []
+        // Runs with the same name carry what tells them apart (companion ADR 0018).
+        let twins = RunRowModel.twinMarks(runs)
+        for run in runs where run.runId != shell.runId {
+            out.append(PaletteOption(id: "r-\(run.runId)", title: RunRowModel.distinctName(run, twin: twins[run.runId]), section: "Go to run",
                                      glyph: (run.state.glyph, run.tone.color)) { shell.select(run: run.runId) })
         }
         // After the runs, as Figma 12 lists this run's actions, then the runs to go to.
         if shell.store.verdictUndo.pending != nil {
             out.append(PaletteOption(id: "undo", title: "Undo the accept or reject", section: "Greenroom", icon: .restart, keys: "U") { shell.undoVerdictChoice() })
         }
+        out.append(PaletteOption(id: "sidebar", title: shell.sidebarHidden ? "Show the runs" : "Hide the runs", section: "Greenroom",
+                                 icon: .sidebar, keys: "⌃⌘S") { shell.toggleSidebar() })
+        out.append(PaletteOption(id: "search", title: "Search runs", section: "Greenroom", icon: .search, keys: "/") { shell.focusSearch() })
         out.append(PaletteOption(id: "refresh", title: "Refresh", section: "Greenroom", icon: .restart, keys: "⌘R") { shell.refresh() })
-        out.append(PaletteOption(id: "settings", title: "Settings, builds and updates", section: "Greenroom", icon: .settings, keys: "⌘,") { shell.settingsOpen = true })
+        // News about the builds rides on the row's title (the old More menu's badge).
+        let badge = MoreBadge.of(shell.store.updates.summary)
+        out.append(PaletteOption(id: "settings", title: "Settings, builds and updates" + (badge.map { ", \($0.text)" } ?? ""),
+                                 section: "Greenroom", icon: .settings, keys: "⌘,") { shell.settingsOpen = true })
         return out
     }
 }
@@ -223,6 +232,11 @@ struct SettingsSheet: View {
                     Text("Updates").textStyle(.body).foregroundStyle(Palette.text)
                     Text(summary.detail ?? summary.title).textStyle(.caption).foregroundStyle(Palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if case .checked(_, let at) = updates.check {
+                        TimelineView(.periodic(from: .now, by: 30)) { context in
+                            Text("Checked \(Clock.ago(at, now: context.date))").textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                        }
+                    }
                     if summary.mismatch {
                         Text("The app and greenroom were built from different commits.").textStyle(.caption).foregroundStyle(Palette.wait)
                     }
@@ -390,19 +404,38 @@ struct NoRunsView: View {
 /// reconnects by itself.
 struct DaemonOfflineView: View {
     var refusal: String?
+    /// Reads everything again now, rather than waiting for the next try.
+    var retry: () async -> Void = {}
+    @State private var retrying = false
 
     var body: some View {
         CenteredMessage(title: refusal == nil ? "Greenroom isn't running" : "Greenroom refused the connection",
                         text: refusal ?? "Start it, and this window reconnects by itself.",
                         command: refusal == nil ? "launchctl kickstart gui/$(id -u)/com.greenroom.daemon" : nil) {
-            HStack(spacing: Gap.x8) {
-                StatusGlyph(kind: .checking, color: .accent, size: 14)
-                Text("Trying again").textStyle(.caption).foregroundStyle(Palette.textSecondary)
-                Spacer()
-                Button("Open log") {
-                    NSWorkspace.shared.open(FileManager.default.homeDirectoryForCurrentUser.appending(path: ".greenroom/daemon.log"))
+            VStack(alignment: .leading, spacing: Gap.x12) {
+                // What to do about a refusal its words alone do not explain (the old RefusedView).
+                if let advice = refusal.flatMap(ConnectionState.advice(for:)) {
+                    Text(advice).textStyle(.body).foregroundStyle(Palette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .buttonStyle(ActionButtonStyle(kind: .plain))
+                HStack(spacing: Gap.x8) {
+                    StatusGlyph(kind: .checking, color: .accent, size: 14)
+                    Text("Trying again").textStyle(.caption).foregroundStyle(Palette.textSecondary)
+                    Spacer()
+                    Button("Open log") {
+                        NSWorkspace.shared.open(FileManager.default.homeDirectoryForCurrentUser.appending(path: ".greenroom/daemon.log"))
+                    }
+                    .buttonStyle(ActionButtonStyle(kind: .plain))
+                    Button("Try again") {
+                        retrying = true
+                        Task {
+                            await retry()
+                            retrying = false
+                        }
+                    }
+                    .buttonStyle(ActionButtonStyle(kind: .secondary, loading: retrying))
+                    .disabled(retrying)
+                }
             }
         }
     }

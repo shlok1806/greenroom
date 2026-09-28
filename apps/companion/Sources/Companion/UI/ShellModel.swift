@@ -14,6 +14,25 @@ final class ShellModel {
     /// The app's own dropdowns (no NSMenu): the one open, drawn over the window.
     let dropdowns = DropdownCenter()
 
+    // MARK: - Sidebar parity (runs sidebar shown or hidden, the search's `/`)
+
+    /// The runs sidebar folded away (Ctrl-Cmd-S, View > Hide Runs, the palette); remembered.
+    var sidebarHidden: Bool = AppDefaults.shared.bool(forKey: ShellModel.sidebarHiddenKey) {
+        didSet { AppDefaults.shared.set(sidebarHidden, forKey: ShellModel.sidebarHiddenKey) }
+    }
+    static let sidebarHiddenKey = "runsSidebarHidden"
+    /// Bumped by `/` to open the sidebar's search and give it the keyboard.
+    private(set) var searchRequest = 0
+
+    func toggleSidebar() { sidebarHidden.toggle() }
+
+    func focusSearch() {
+        sidebarHidden = false
+        searchRequest += 1
+    }
+
+    // MARK: -
+
     /// The selected check per run; nil picks `CheckSelection.initial`.
     private(set) var checkSelection: [String: String] = [:]
     /// The recording's playhead per run, in seconds from the run's start; nil shows what the
@@ -80,6 +99,13 @@ final class ShellModel {
 
     var selectedCheck: SummaryCheck? { checks.first { $0.id == selectedCheckID } }
 
+    /// The verifier's own record of a check (its kinds, every step it cites, what its UI reads
+    /// could not see), from the verdict message; the summary's row carries one picture.
+    func acceptanceCheck(_ id: String?) -> AcceptanceCheck? {
+        guard let runId, let id else { return nil }
+        return store.checklist(runId).check(id)
+    }
+
     /// The playhead the person set, in seconds.
     var playhead: TimeInterval? { runId.flatMap { playheads[$0] } }
 
@@ -132,6 +158,33 @@ final class ShellModel {
         checkSelection[runId] = id
         playheads[runId] = nil
         liveRequested.remove(runId)
+        noteEvidenceOpened(runId)
+    }
+
+    /// The person looked at proof (a check's picture or a step on the player), so Accept
+    /// goes without asking.
+    private func noteEvidenceOpened(_ runId: String) {
+        if !store.verdictDraft(runId).openedEvidence { store.updateVerdictDraft(runId) { $0.openedEvidence = true } }
+    }
+
+    /// Accept is being asked about: nothing cited was looked at yet.
+    var confirmingAccept: Bool {
+        guard let runId else { return false }
+        return store.verdictDraft(runId).confirmingAccept
+    }
+
+    func cancelAccept() {
+        guard let runId else { return }
+        store.updateVerdictDraft(runId) { $0.confirmingAccept = false }
+    }
+
+    /// Accept anyway, from the question under the header.
+    func acceptAnyway() {
+        guard let runId, busy == nil else { return }
+        run(SummaryAction.accept) {
+            await self.store.holdAccept(runId: runId)
+            if self.store.heldVerdictChoice(runId) != nil { self.advanceAfterDecision(from: runId) }
+        }
     }
 
     func moveCheck(by delta: Int) {
@@ -185,6 +238,7 @@ final class ShellModel {
 
     /// Shows a step: the picture at its start, paused. Activity's rows and the bar's marks.
     func seek(toStep step: Int) {
+        if let runId { noteEvidenceOpened(runId) }
         pause()
         if let at = timeline().seconds(ofStep: step) { seek(to: at) }
     }
@@ -339,6 +393,7 @@ final class ShellModel {
         if paletteOpen { paletteOpen = false; return true }
         if settingsOpen { settingsOpen = false; return true }
         if confirmingDestroy { confirmingDestroy = false; return true }
+        if confirmingAccept { cancelAccept(); return true }
         if evidenceOpen { evidenceOpen = false; return true }
         if zoomed { zoomed = false; return true }
         if composer != nil, composer != .message { composer = .message; composerDraft = ""; return true }
@@ -354,8 +409,11 @@ final class ShellModel {
         guard let runId, busy == nil else { return }
         switch action.id {
         case SummaryAction.accept:
+            // Asked first when none of the cited proof was looked at (the old card's rule). A
+            // check's picture on the player is proof in view.
+            if !showsLive, selectedCheck?.picture != nil { noteEvidenceOpened(runId) }
             run(action.id) {
-                await self.store.holdAccept(runId: runId)
+                await self.store.requestAccept(runId: runId)
                 if self.store.heldVerdictChoice(runId) != nil { self.advanceAfterDecision(from: runId) }
             }
         case SummaryAction.reject:

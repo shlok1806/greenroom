@@ -124,6 +124,31 @@ enum RunScenarios {
                     shell.store.lastError = "greenroom answered 409: the Mac is busy restarting"
                 })
             },
+            // The conversation with the verifier's calls between messages, done (folded, one
+            // opened) and, live, the Thinking state with its trace open.
+            S(name: "r25-message-tools", sizes: [.regular], dark: true, countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in
+                    shell.show(.message)
+                })
+            },
+            S(name: "r26-message-thinking", sizes: [.regular], countFrom: 248) { size in
+                await window(size, base: base, state: .live, now: at(.live), prepare: { shell in
+                    shell.show(.message)
+                })
+            },
+            // Accept asked about when no proof was looked at, and the raw call at the playhead.
+            S(name: "r27-accept-ask", sizes: [.regular], countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in
+                    shell.store.updateVerdictDraft(F.tipSplit) { $0.confirmingAccept = true }
+                })
+            },
+            S(name: "r28-step-record", sizes: [.regular], dark: true, countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in
+                    AppDefaults.shared.set(true, forKey: "activityRecordOpen")
+                    shell.activityOpen = true
+                    shell.seek(toStep: 13)
+                })
+            },
         ]
     }
 
