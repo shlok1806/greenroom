@@ -250,7 +250,9 @@ struct DropdownPanel: View {
         .onHover { inside in if inside { center.highlighted = index } else if center.highlighted == index { center.highlighted = nil } }
         .onTapGesture { center.run(index) }
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
+        // The row the keys are on reads as selected, so VoiceOver (and a UI read) follows them.
+        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+        .accessibilityValue(item.checked ? "chosen" : "")
         .accessibilityLabel(item.title)
         .accessibilityAction { center.run(index) }
     }
