@@ -114,10 +114,11 @@ var sharedToolkitDefs = []nim.Tool{
 // withToolkitDefs is the old tools with the shared ones replaced by their toolkit definitions, and
 // the toolkit's own tools added.
 func withToolkitDefs(old []nim.Tool, own ...[]nim.Tool) []nim.Tool {
+	shared := append(slices.Clone(sharedToolkitDefs), screenshotToolkitDef)
 	out := make([]nim.Tool, 0, len(old))
 	for _, t := range old {
-		if i := slices.IndexFunc(sharedToolkitDefs, func(s nim.Tool) bool { return s.Name == t.Name }); i >= 0 {
-			t = sharedToolkitDefs[i]
+		if i := slices.IndexFunc(shared, func(s nim.Tool) bool { return s.Name == t.Name }); i >= 0 {
+			t = shared[i]
 		}
 		out = append(out, t)
 	}

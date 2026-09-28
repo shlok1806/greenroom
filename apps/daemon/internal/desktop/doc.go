@@ -21,6 +21,11 @@
 //   - effect.go: EffectOf, ActionText and its lead lines, RefusalText.
 //   - findtext.go, waittext.go: FindText, ScrollText, WaitText, ExpectText.
 //   - args.go: the argument types with Normalize, and DecodeArgs.
+//   - shot.go: ShotArgs, machine_screenshot's crops, and the capture op they become.
+//   - actionop.go: the wire form that differs from a tool's arguments (TypeOp), and a scroll's
+//     effect.
+//   - redact.go: what a step may record of a wait or an expectation on a secure field.
+//   - route.go: ToolkitCall, which calls of the tools shared with the old ones are the toolkit's.
 //
 // Two rules hold for every text here, and a new renderer must keep them:
 //

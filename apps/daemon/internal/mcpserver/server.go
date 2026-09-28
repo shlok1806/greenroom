@@ -254,29 +254,10 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		client, step, err := mgr.ApproveCapture(ctx, in.RunID, in.App)
 		return nil, approveOut{Client: client, Step: step}, err
 	})
-	mcp.AddTool(s, &mcp.Tool{
-		Name: "machine_screenshot",
-		Description: "Capture the machine's screen. Returns a JPEG to look at, the path of the lossless PNG saved in " +
-			"the run directory, and the image's size in pixels. scale is image pixels per desktop point: 1 on the " +
-			"default image (1024x768), more on a HiDPI guest, where the image is larger than the desktop. Aim clicks as a fraction of this image " +
-			"(x divided by width, y divided by height), never in pixels: machine_click takes 0 to 1.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, machine.Shot, error) {
-		pngBytes, out, err := mgr.Screenshot(ctx, in.RunID)
-		if err != nil {
-			return nil, machine.Shot{}, err
-		}
-		jpg, err := toJPEG(pngBytes)
-		if err != nil {
-			return nil, machine.Shot{}, err
-		}
-		meta, _ := json.Marshal(out)
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.ImageContent{Data: jpg, MIMEType: "image/jpeg"},
-				&mcp.TextContent{Text: string(meta)},
-			},
-		}, out, nil
-	})
+	// With the toolkit, machine_screenshot also crops (desktopwaits.go); its old call is this one.
+	if !mgr.DesktopToolkit() {
+		addScreenshotTool(s, mgr)
+	}
 
 	type destroyOut struct {
 		OK bool `json:"ok"`
@@ -301,6 +282,33 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 	addSessionTools(s, mgr)
 	s.AddReceivingMiddleware(recoverPanics)
 	return s
+}
+
+// addScreenshotTool adds machine_screenshot as it is without the desktop toolkit.
+func addScreenshotTool(s *mcp.Server, mgr *machine.Manager) {
+	type runIn struct {
+		RunID string `json:"runId" jsonschema:"runId from machine_create"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "machine_screenshot",
+		Description: screenshotDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, machine.Shot, error) {
+		pngBytes, out, err := mgr.Screenshot(ctx, in.RunID)
+		if err != nil {
+			return nil, machine.Shot{}, err
+		}
+		jpg, err := toJPEG(pngBytes)
+		if err != nil {
+			return nil, machine.Shot{}, err
+		}
+		meta, _ := json.Marshal(out)
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.ImageContent{Data: jpg, MIMEType: "image/jpeg"},
+				&mcp.TextContent{Text: string(meta)},
+			},
+		}, out, nil
+	})
 }
 
 // instructions is what the server tells an agent at the start. With the desktop toolkit its
