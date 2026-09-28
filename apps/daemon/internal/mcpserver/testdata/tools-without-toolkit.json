@@ -824,12 +824,16 @@
     }
   },
   {
-    "description": "Clone and start a fresh macOS machine. Returns at once with status booting and the runId every other tool needs. Call machine_wait next; boot takes 30 to 90 seconds. Machines run headless; a person watches the screen live in the greenroom companion app.",
+    "description": "Clone and start a fresh macOS machine. Returns at once with status booting and the runId every other tool needs. Call machine_wait next; boot takes 30 to 90 seconds. Machines run headless; a person watches the screen live in the greenroom companion app. Give the run a short name.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "image": {
           "description": "OCI image to clone. Defaults to the daemon's configured image.",
+          "type": "string"
+        },
+        "name": {
+          "description": "What this run checks, in five words or fewer, e.g. 'TipSplit: split the bill'. The person watching sees the run by this name; longer names are cut to five words.",
           "type": "string"
         }
       },
