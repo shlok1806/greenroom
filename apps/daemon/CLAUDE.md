@@ -901,7 +901,9 @@ Screen looks (daemon ADR 0003, issue #187)
 
 Live screen (ADR 0011)
 
-- Every VM boots `tart run --no-graphics`. Graphics mode (`--vnc-experimental`, the old
+- Every VM boots `tart run --no-graphics --no-audio --no-clipboard` (image builds too). Without
+  the last two, tart gives the guest the host's microphone and a two-way clipboard, so code
+  under test could read what the person copied. Never drop them. Graphics mode (`--vnc-experimental`, the old
   `watch`) is retired (ADR 0016, issue #7: the guest GPU restarts and a crash dialog
   covers the screen). Do not add a graphics or VNC path; a person watches through this
   stream in the companion.
