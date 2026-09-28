@@ -757,6 +757,10 @@ final class RunStore: PilotHost {
             guard let image = await Self.decode(data) else { return nil }
             frameCache.store(image, runId: runId, file: file)
             return image
+        } catch DaemonError.status(code: 404, _) {
+            // The picture says "This frame is missing" in place; a banner would repeat it on
+            // every step of a scrub.
+            return nil
         } catch {
             report(error)
             return nil

@@ -194,6 +194,21 @@ final class AgentAnimationTests: XCTestCase {
 
     // MARK: - The app's own dropdown
 
+    /// A menu from a trigger at the window's foot (the speed button) opens above it, whole.
+    func testTheDropdownOpensAboveATriggerWithNoRoomBelow() {
+        let items = ["1×", "2×", "4×"].map { DropdownItem(id: $0, title: $0) {} }
+        let window = CGSize(width: 1024, height: 660)
+        let foot = DropdownCenter.Open(id: "speed", anchor: CGRect(x: 540, y: 620, width: 30, height: 22), items: items,
+                                       width: 150, alignTrailing: true)
+        let place = DropdownLayer.placement(foot, in: window)
+        XCTAssertTrue(place.above)
+        XCTAssertEqual(place.y + DropdownLayer.height(items), 616)
+        let top = DropdownCenter.Open(id: "more", anchor: CGRect(x: 980, y: 40, width: 28, height: 28), items: items,
+                                      width: 260, alignTrailing: true)
+        XCTAssertEqual(DropdownLayer.placement(top, in: window).y, 72)
+        XCTAssertFalse(DropdownLayer.placement(top, in: window).above)
+    }
+
     func testTheDropdownMovesWithArrowsHomeAndEndAndSkipsDisabledRows() {
         let center = DropdownCenter()
         var ran: [String] = []

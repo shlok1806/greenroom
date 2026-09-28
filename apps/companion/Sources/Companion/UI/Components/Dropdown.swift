@@ -150,17 +150,46 @@ struct DropdownLayer: View {
                     Color.black.opacity(0.001)
                         .onTapGesture { center.close() }
                         .accessibilityHidden(true)
+                    let place = DropdownLayer.placement(open, in: geo.size)
                     DropdownPanel(center: center, open: open)
                         .frame(width: open.width)
-                        .offset(x: x(open, in: geo.size), y: min(open.anchor.maxY + 4, geo.size.height - 40))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .offset(x: x(open, in: geo.size), y: place.y)
                         .transition(reduceMotion ? .identity : .asymmetric(
-                            insertion: .opacity.combined(with: .scale(scale: 0.95, anchor: open.alignTrailing ? .topTrailing : .topLeading))
+                            insertion: .opacity.combined(with: .scale(scale: 0.95, anchor: DropdownLayer.origin(open, above: place.above)))
                                 .animation(Motion.easeOut(0.16)),
                             removal: .opacity.animation(Motion.easeOut(0.1))))
                 }
             }
         }
         .allowsHitTesting(center.isOpen)
+    }
+
+    /// The menu's height as `DropdownPanel` draws it: 4 inside, rows 28, a rule 9.
+    static func height(_ items: [DropdownItem]) -> CGFloat {
+        let rules = items.enumerated().filter { $0.offset > 0 && $0.element.separated }.count
+        return 8 + CGFloat(items.count) * 28 + CGFloat(rules) * 9
+    }
+
+    /// Under the trigger, or above it when the window has no room below (a trigger on the
+    /// transport bar at the window's foot), as Radix flips a menu that would collide.
+    static func placement(_ open: DropdownCenter.Open, in size: CGSize) -> (y: CGFloat, above: Bool) {
+        let height = height(open.items)
+        let below = open.anchor.maxY + 4
+        if below + height <= size.height - 8 { return (below, false) }
+        let above = open.anchor.minY - 4 - height
+        if above >= 8 { return (above, true) }
+        return (max(8, size.height - 8 - height), false)
+    }
+
+    /// Where the pop-in grows from: the corner nearest the trigger.
+    static func origin(_ open: DropdownCenter.Open, above: Bool) -> UnitPoint {
+        switch (above, open.alignTrailing) {
+        case (false, true): .topTrailing
+        case (false, false): .topLeading
+        case (true, true): .bottomTrailing
+        case (true, false): .bottomLeading
+        }
     }
 
     private func x(_ open: DropdownCenter.Open, in size: CGSize) -> CGFloat {
