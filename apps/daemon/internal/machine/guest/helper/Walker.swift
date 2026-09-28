@@ -442,7 +442,6 @@ final class Walk {
         seen.append(Seen(handle: handle, parent: place.parent, role: role, name: name, fingerprint: fingerprint,
                          window: isWindow ? me : place.windowSeen))
         index[handle] = me
-        sign(read, role: role, name: name)
 
         // What of it shows. An element with no frame at all is walked through; one with a frame
         // that has no area, or that lies outside its window, is hidden with all that is in it.
@@ -455,6 +454,7 @@ final class Walk {
         if !behindChevron, let toolbar = place.toolbar {
             behindChevron = inOverflow(item: read.frame, toolbar: toolbar.frame, hasOverflowButton: toolbar.overflow)
         }
+        sign(read, role: role, name: name, shows: shown.vis != nil)
         if behindChevron {
             more.append("overflow")
             shown = Visibility()
@@ -528,9 +528,13 @@ final class Walk {
         }
     }
 
-    /// What a walk adds to the signature of each element: what a person would see change.
-    private func sign(_ read: AXRead, role: String, name: String) {
+    /// What a walk adds to the signature of each element: what a person would see change. Of
+    /// an element that does not show only its role is signed, so rows coming and going still
+    /// count: a table reports stale widths and texts for the rows it has not drawn (Finder's
+    /// "PDF" for "PDF Document"), which made an idle window look busy to the settle.
+    private func sign(_ read: AXRead, role: String, name: String, shows: Bool) {
         signature.add(role)
+        guard shows else { return }
         signature.add(name)
         if read.secret {
             signature.add(read.value?.count ?? 0)
