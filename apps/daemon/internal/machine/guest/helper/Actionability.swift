@@ -37,9 +37,9 @@ struct ActionTarget {
     let waitedMs: Int
     /// The element had the keyboard focus already.
     let focused: Bool
-    /// The checks scrolled something or brought an app to the front, so the before tree the
-    /// caller read is out of date.
-    let changedUI: Bool
+    /// The ref's own element was gone and its fingerprint found this one, in any try of the
+    /// checks (a later try finds the ref already rebound).
+    let reResolved: Bool
 }
 
 private enum TryOutcome {
@@ -62,6 +62,7 @@ func actionable(_ ref: String, call: Call, timeoutMs: Int, plan: CheckPlan, rese
     var log = CheckLog()
     var notes: [String] = []
     var changedUI = false
+    var reResolved = false
     var attempt = 0
     var lastLook: Look?
     var lastFailure: (check: ActionCheck, reason: String, detail: [String: Any]?, cause: [String: Any]?, message: String)?
@@ -98,7 +99,10 @@ func actionable(_ ref: String, call: Call, timeoutMs: Int, plan: CheckPlan, rese
             pid = look.pid
             watch(look.pid)
         }
-        if look.reResolved { log.note(.attached, ["reResolved": true]) }
+        if look.reResolved {
+            reResolved = true
+            log.note(.attached, ["reResolved": true])
+        }
 
         let outcome = busy("ax") {
             tryChecks(look, call: call, plan: plan, log: &log, notes: &notes, changedUI: &changedUI, until: end)
@@ -109,7 +113,7 @@ func actionable(_ ref: String, call: Call, timeoutMs: Int, plan: CheckPlan, rese
             // action reports as its target.
             let final = changedUI ? ((try? busy("ax") { try lookForAction(ref, call: call, until: call.deadline) }) ?? look) : look
             return ActionTarget(look: final, point: point, tried: tried, log: log, notes: notes,
-                                waitedMs: elapsedMs(), focused: focused, changedUI: changedUI)
+                                waitedMs: elapsedMs(), focused: focused, reResolved: reResolved)
         case let .failed(check, reason, detail, cause, message):
             log.note(check, detail)
             lastFailure = (check, reason, detail, cause, message)
@@ -171,8 +175,12 @@ private func tryChecks(_ look: Look, call: Call, plan: CheckPlan, log: inout Che
                 return .failed(check: .visible, reason: "hidden", detail: ["overflow": true], cause: nil,
                                message: "\(label) is in its toolbar's overflow; press the toolbar's >> button first")
             }
-            // Out of view in a scroll area: scrolled in, as `scroll {to: ref}` does.
-            if look.shown.vis == nil, look.shown.offscreen != nil, let scrollerRef = look.shown.scroller {
+            // Out of view in a scroll area, or in its view but wholly under the Dock or the menu
+            // bar: scrolled in, as `scroll {to: ref}` does. Only partly under them, the hit
+            // check finds a point that shows (or names the Dock as what covers it).
+            let underScreenEdge = look.shown.vis.map { reachableView($0, screenVisible: screenVisibleFrame()) == nil } ?? false
+            if let scrollerRef = look.shown.scroller,
+               (look.shown.vis == nil && look.shown.offscreen != nil) || underScreenEdge {
                 let scrolled = scrollTargetIntoView(look, scrollerRef: scrollerRef, call: call, until: end)
                 if scrolled.steps > 0 || scrolled.via != nil {
                     changedUI = true
@@ -180,6 +188,10 @@ private func tryChecks(_ look: Look, call: Call, plan: CheckPlan, log: inout Che
                     if let via = scrolled.via { note += " (\(via), \(scrolled.steps) steps)" }
                     if !notes.contains(note) { notes.append(note) }
                     log.note(.visible, ["scrolled": scrollerRef, "steps": scrolled.steps, "via": scrolled.via ?? "wheel"])
+                }
+                if scrolled.pastScreenEdge {
+                    let note = "\(look.ref) is inside \(scrollerRef)'s view, but under the Dock or the menu bar, and scrolling cannot bring it out (the window extends past the screen's visible area)"
+                    if !notes.contains(note) { notes.append(note) }
                 }
                 if let again = try? lookForAction(look.ref, call: call, until: min(end, call.deadline)) { look = again }
             }

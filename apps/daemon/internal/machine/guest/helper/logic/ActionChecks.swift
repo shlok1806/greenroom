@@ -140,6 +140,29 @@ func hitReaches(_ relation: HitRelation, role: String) -> Bool {
     }
 }
 
+/// Controls that a press by ref reaches the same way as a press at any point of them: one thing
+/// to press, whatever point of it takes the click. A press at a point of one of these is refused
+/// with "use eN" (daemon ADR 0006 point 6). A point inside anything else (a text area's line, a
+/// web area, a canvas group, an image) aims at something its ref cannot name.
+let pointAliasRoles: Set<String> = [
+    "AXButton", "AXCheckBox", "AXRadioButton", "AXSwitch", "AXToggle", "AXLink", "AXMenuItem",
+    "AXMenuBarItem", "AXMenuButton", "AXPopUpButton", "AXComboBox", "AXTab", "AXDisclosureTriangle",
+    "AXTextField", "AXSecureTextField", "AXSearchField", "AXSlider", "AXIncrementor", "AXStepper",
+    "AXColorWell", "AXDockItem",
+]
+
+/// Which element of a hit's chain (the hit first, then its parents) makes a press at the point
+/// ambiguous: the first control of `pointAliasRoles` that has a ref, looking up from the hit
+/// until the first element that holds others. A label inside a button names the button; a line
+/// of a text area names nothing, even though the text area has a ref. Nil when nothing does.
+func pointAliasIndex(roles: [String], hasRef: [Bool]) -> Int? {
+    for (index, role) in roles.enumerated() {
+        if holderRoles.contains(role) { return nil }
+        if index < hasRef.count, hasRef[index], pointAliasRoles.contains(role) { return index }
+    }
+    return nil
+}
+
 /// The first of the modal surfaces (sheets, alerts, open menus) that an element is not inside,
 /// given the element's chain of parents: the one that blocks it. Nil when there is none, or the
 /// element is inside one of them.

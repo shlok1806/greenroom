@@ -210,6 +210,11 @@ Each layer depends only on the ones below. Keep it that way.
   backoff, generations, reconnect count, a standing PAUSE). Imports only the standard library:
   it knows nothing of machines, tart or tools. `machine` decides when it runs and what goes over
   it (`agent.go`); a `*tart.Pipe` is its `Transport`.
+- `internal/desktop` - the desktop toolkit's meaning layer (daemon ADR 0006): the ops' wire types,
+  `Outline`, `Diff`, `EffectOf` and every text a model reads of a toolkit call, and the tool
+  arguments MCP and the verifier share (`Normalize`, `DecodeArgs`, `ToolkitCall`). No I/O, the
+  standard library only, nothing of the daemon's. Every guest string is rendered quoted (`%q`),
+  and a secure field's value is never rendered: lengths only (`SecretText`, `Redacted`).
 - `internal/tarball` - unpacking an untrusted gzipped tar (`Untar`); used by `api` and
   `remote`, imports nothing of the daemon's.
 - `internal/report` - a run's proof (ADR 0034): `Build` reads the run directory (manifest,
@@ -1025,6 +1030,63 @@ Guest agent (daemon ADR 0005, `agent.go`, `internal/guestagent`)
   still checked before any input; PAUSE only stops one already in flight.
 - `Machine.AgentReconnects` is set only on copies (`publicLocked`), like `Files`: never in
   `state.json`.
+- The helper's queues (`AgentCalls.swift`, `OpKind`): reads run on a serial queue per app
+  (`pid:<pid>`), so one hung app blocks only its own reads; inputs on the one input queue;
+  captures on the capture queue. `OpKind.wait` (`waitFor`, `expect`) runs off every read queue
+  and sleeps between polls, running each poll on its app's read queue through `onReadQueue`, so
+  a 40 s wait never holds up that app's snapshots. A new op that reads an app from off the read
+  queues and must not overlap its walks (a wait's poll, a capture by ref) goes through
+  `onReadQueue` too; it gives up at its deadline with `not_responding` and drops the late answer.
+- The settle's tree signature (`logic/Signature.swift`) signs only what shows: an element that
+  does not show adds only its role. Tables report stale widths and texts for rows they have not
+  drawn, and signing those made an idle window look busy, so the settle never settled. Keep new
+  signed fields inside the `shows` guard unless their change is visible when hidden.
+
+Desktop toolkit (daemon ADR 0006, `desktop*.go`, `internal/desktop`)
+
+- Tools only with `-desktop-toolkit` (`mgr.DesktopToolkit()`): MCP (`desktop*.go` in mcpserver)
+  and the verifier (`toolsFor`, `systemPromptFor`) add `machine_snapshot`, `machine_find`,
+  `machine_press`, `machine_set_value`, `machine_wait_for`, `machine_expect`, and give
+  `machine_type`, `machine_key`, `machine_scroll` and `machine_screenshot` new arguments. Off, the
+  MCP tool list is byte for byte `mcpserver/testdata/tools-without-toolkit.json`
+  (`TestTheToolListWithoutTheToolkitIsUnchanged`; regenerate with `-update` only for a change
+  meant for every daemon) and the verifier's tools and prompt are the old ones.
+- A shared tool's old call goes the old way unchanged: `desktop.ToolkitCall` routes by the
+  arguments (any new one makes it the toolkit's), the same rule on both surfaces. The verifier's
+  old tools keep their effect read; a toolkit action has none.
+- Every toolkit op goes through `deskCall` (over `agentCall`, never `viaAgent`, never an exec)
+  capped at `looks().cap` whatever ctx allows, with the agent deadline under the cap
+  (`deskDeadline`). Agent errors become `DesktopError` (or `ScreenTakenError` for `paused`,
+  `ScreenNotAnsweringError` for `deadline`), worded for a model; a refusal carries the structured
+  `desktop.Refusal`, which the step's output keeps for the bench.
+- Refs are scoped to their connection: `inputState.desk` remembers per reader the supervisor and
+  generation its refs came from, and a call naming a ref from another one is refused before
+  anything is sent. A reboot's new supervisor makes every old ref refused the same way.
+- Ref numbers never repeat for a reader on a machine (the fix for B10 of the first live run). A
+  new agent starts its tables at `e1`, and once a fresh snapshot moves the reader's origin to the
+  new connection, the connection check above no longer catches an `e39` the caller kept from
+  before, which then named another element. So `deskCall` records the highest ref of every
+  result and error detail (`desktop.HighestRef`, which reads only the ref fields, never a name)
+  in `inputState.desk`, and `raiseRefs` sends op `refs {reader, next}` on each new connection
+  before that reader's first toolkit call (`agentCallPrepared`'s prepare, so it goes on the same
+  connection as the call). The agent only raises its counter, never lowers it, capped at
+  `e999999999` (the daemon's ref pattern). A daemon restart loses the high-water mark: the input
+  state is not in `state.json`.
+- Looks (`deskLook`: snapshot, find, wait_for, expect, cropped screenshot) take no lease and are
+  looks for #124 (`noteLook`). Actions (`act`, `Scroll`) take the per-call lease in `deskLease`,
+  exactly as `InputAs` (the coder refused in a verifier turn, `ScreenTakenError`, the verifier's
+  stale look), send `input: true` with the holder as reader, and record their effect on their own
+  step (`Step.Effect.Of` is the step itself; `quit` for an app that went away), which the
+  verdict review reads (`stepFact.self`).
+- Takeover (ADR 0006 point 11): with an agent, a human's `TakeControl` preempts the coder's or
+  the verifier's lease; the action ends with `paused` and returns `ScreenTakenError`; its release
+  (`ReleaseControl` by its own holder) cannot release the human's lease.
+- Steps never hold a secret: an action's request is recorded redacted (`Action.Redacted`, and
+  lengths only when there is no result to say the field was not secure), waits and expectations
+  through `Redacted`. A snapshot step holds the whole structured snapshot; an expectation saves a
+  best-effort JPEG crop `NNN-expect.jpg` (a failed crop is `cropError`, never a failed step).
+- The snapshot runs the ink test on its text (`inkTest`, `render.go`'s pixel logic on each
+  node's `vis`) and marks `notDrawn`; a capture that fails leaves it unmarked with `unrendered`.
 
 Sync
 
@@ -1245,7 +1307,10 @@ mode, each read back with the copy's signature).
   `agent-requests`, `agent-control` (PAUSE, RESUME, CANCEL), `agent-input`, `agent-starts` and
   `agent-exits`; the full list is its header comment. `testsupport.AgentStarts` counts starts in
   calls.log. calls.log prints a script argument over several lines: count invocations
-  (`tartCalls` in `agent_test.go`), not lines.
+  (`tartCalls` in `agent_test.go`), not lines. An `input: true` request of another holder than a
+  PAUSE's is answered `paused`, before it starts and during its `agent-<op>-sleep`: that is how
+  the takeover tests stop an action in flight. Toolkit tests can the answer (`can` in
+  `desktopsnap_test.go`, `harness.can` in mcpserver, `can` in the verifier) and read the requests.
 - `withAgentTimes` shortens the agent's `degradeAfter`, `bootWait` and the channel's own timings
   (`guestagent.SupervisorOptions`: heartbeat, grace, backoff); `agent_test.go`'s `fastAgent` finds
   a dead channel in 300 ms. `internal/guestagent`'s tests run `Conn` and `Supervisor` against an

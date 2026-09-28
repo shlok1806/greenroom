@@ -41,6 +41,31 @@ func testContentThatFitsDoesNotScroll() {
     expect(!scrollPosition(vertical: nil, horizontal: nil, view: view, content: nil).scrolls, "nothing is known")
 }
 
+func testAnAxisAtItsEndCannotMoveOn() {
+    // A scroll view at its bottom whose bar says 0.9976: the outline shows 100%, and down is off.
+    expectEqual(scrollPosition(vertical: 0.9976, horizontal: nil, view: view, content: nil),
+                ScrollPosition(y: 0.9976, up: true), "at the bottom within the rounding of a percent")
+    expectEqual(scrollPosition(vertical: 0.003, horizontal: nil, view: view, content: nil),
+                ScrollPosition(y: 0.003, down: true), "at the top within the rounding of a percent")
+    expectEqual(scrollPosition(vertical: 0.99, horizontal: nil, view: view, content: nil),
+                ScrollPosition(y: 0.99, up: true, down: true), "a percent from the end still moves on")
+}
+
+func testADisabledScrollBarDoesNotScroll() {
+    // A text area's scroll area whose text fits: AppKit disables the bar and leaves its value 0.
+    expectEqual(scrollPosition(vertical: 0, horizontal: nil, view: view, content: nil, verticalEnabled: false),
+                ScrollPosition(), "a disabled bar says the axis does not scroll")
+    expect(!scrollPosition(vertical: 0, horizontal: nil, view: view, content: nil, verticalEnabled: false).scrolls,
+           "no position at all")
+    // The other axis still reads its own bar.
+    expectEqual(scrollPosition(vertical: 0, horizontal: 0.5, view: view, content: nil, verticalEnabled: false),
+                ScrollPosition(x: 0.5, left: true, right: true))
+    // A disabled bar does not fall back to the content's frame either.
+    let tall = CGRect(x: 120, y: 160, width: 400, height: 900)
+    expectEqual(scrollPosition(vertical: nil, horizontal: nil, view: view, content: tall, verticalEnabled: false),
+                ScrollPosition())
+}
+
 func testTheScrollBarWinsOverTheRowsALazyListHasMade() {
     // A list of thousands of rows that has made only those near its view: the content's frame
     // starts at the view, the scroll bar says it is half way.

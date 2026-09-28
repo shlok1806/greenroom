@@ -20,6 +20,7 @@ func expectEqual<T: Equatable>(_ got: T, _ want: T, _ what: String = "", file: S
 }
 
 let tests: [(String, () -> Void)] = [
+    ("a label mostly above the Dock shows", testALabelMostlyAboveTheDockShows),
     ("cut keeps a short string whole", testCutKeepsAShortStringWhole),
     ("cut marks a long string", testCutMarksALongString),
     ("a frame round trips", testAFrameRoundTrips),
@@ -44,6 +45,7 @@ let tests: [(String, () -> Void)] = [
     ("a tail buffer keeps the end", testATailBufferKeepsTheEnd),
     ("an element keeps its ref across walks", testAnElementKeepsItsRefAcrossWalks),
     ("a ref is never reused", testARefIsNeverReused),
+    ("a raised counter never gives an old ref again", testARaisedCounterNeverGivesAnOldRefAgain),
     ("the least recently seen refs go first", testTheLeastRecentlySeenRefsGoFirst),
     ("a table never holds more than its capacity", testATableNeverHoldsMoreThanItsCapacity),
     ("readers have tables of their own", testReadersHaveTablesOfTheirOwn),
@@ -70,6 +72,8 @@ let tests: [(String, () -> Void)] = [
     ("a scroll bar's value is the position", testAScrollBarsValueIsThePosition),
     ("without scroll bars the content's frame is the position", testWithoutScrollBarsTheContentsFrameIsThePosition),
     ("content that fits does not scroll", testContentThatFitsDoesNotScroll),
+    ("an axis at its end cannot move on", testAnAxisAtItsEndCannotMoveOn),
+    ("a disabled scroll bar does not scroll", testADisabledScrollBarDoesNotScroll),
     ("the scroll bar wins over the rows a lazy list has made", testTheScrollBarWinsOverTheRowsALazyListHasMade),
     ("a scroll area's content is the union of its children", testAScrollAreasContentIsTheUnionOfItsChildren),
     ("a name is the title, then the description, then the placeholder", testANameIsTheTitleThenTheDescriptionThenThePlaceholder),
@@ -103,6 +107,7 @@ let tests: [(String, () -> Void)] = [
     ("a sliver is not tried nine times", testASliverIsNotTriedNineTimes),
     ("a hit reaches the element, its inside and for labels what holds them", testAHitReachesTheElementItsInsideAndForLabelsWhatHoldsThem),
     ("a modal blocks what is not inside it", testAModalBlocksWhatIsNotInsideIt),
+    ("a point is ambiguous only on a control with a ref", testAPointIsAmbiguousOnlyOnAControlWithARef),
     ("the check log charges waits to the check that held up", testTheCheckLogChargesWaitsToTheCheckThatHeldUp),
     ("clicks carry state 1, 2, 3 in pairs", testClicksCarryStateOneTwoThreeInPairs),
     ("modifiers are known by their names", testModifiersAreKnownByTheirNames),
@@ -116,6 +121,7 @@ let tests: [(String, () -> Void)] = [
     ("a row above the view scrolls up", testARowAboveTheViewScrollsUp),
     ("a row in view needs no scroll", testARowInViewNeedsNoScroll),
     ("an element taller than the view is brought to its start", testAnElementTallerThanTheViewIsBroughtToItsStart),
+    ("into view stops above the Dock", testIntoViewStopsAboveTheDock),
     ("sideways distances too", testSidewaysDistancesToo),
     ("wheel steps are short where the distance is and never jump a view", testWheelStepsAreShortWhereTheDistanceIsAndNeverJumpAView),
     ("CGEvent's wheel is the other way round", testCGEventsWheelIsTheOtherWayRound),

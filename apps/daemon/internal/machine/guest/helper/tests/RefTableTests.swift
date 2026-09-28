@@ -35,6 +35,22 @@ func testARefIsNeverReused() {
     expectEqual(table.issued, 4)
 }
 
+func testARaisedCounterNeverGivesAnOldRefAgain() {
+    // A new agent after a reconnect: the daemon saw refs up to e39 on the old one.
+    var table = RefTable<String>()
+    expectEqual(table.raise(next: 40), 40)
+    expectEqual(table.see("show runs", mark("Show runs"), at: 1), "e40", "the first ref is past every old one")
+    expect(table.entry("e39") == nil, "e39 names nothing here")
+    // Never lowered: a raise below the counter leaves it.
+    expectEqual(table.raise(next: 10), 41)
+    expectEqual(table.see("inspect", mark("Inspect", path: "AXGroup[0]/AXButton[1]"), at: 2), "e41")
+    // Capped, so a ref stays one refNumber reads.
+    expectEqual(table.raise(next: Int.max), maxRefNumber)
+    let far = table.see("far", mark("Far", path: "AXGroup[0]/AXButton[2]"), at: 3)
+    expectEqual(far, "e\(maxRefNumber)")
+    expectEqual(refNumber(far), maxRefNumber)
+}
+
 func testTheLeastRecentlySeenRefsGoFirst() {
     var table = RefTable<String>(capacity: 3)
     _ = table.see("a", mark("A"), at: 1)

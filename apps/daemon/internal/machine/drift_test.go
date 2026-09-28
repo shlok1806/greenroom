@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -47,18 +48,18 @@ func TestAnImageFromBeforeTheHelperAndRecipeIsStale(t *testing.T) {
 		t.Fatalf("status = %+v, want stale with both reasons and the lean rebuild", st)
 	}
 	if !strings.Contains(st.Reasons[0], "its input helper is 6, this daemon's is "+strconv.Itoa(inputHelperVersion)) ||
-		!strings.Contains(st.Reasons[1], "it records no image recipe, this daemon's is 2") {
+		!strings.Contains(st.Reasons[1], "it records no image recipe, this daemon's is "+strconv.Itoa(imageRecipeVersion)) {
 		t.Errorf("reasons = %q", st.Reasons)
 	}
 }
 
 func TestAnImageWithThisDaemonsHelperAndRecipeIsCurrent(t *testing.T) {
-	root := guestRoot(t, []string{"greenroom-input-6", "greenroom-input-" + strconv.Itoa(inputHelperVersion)}, `{"known":true,"imageRecipe":2}`)
+	root := guestRoot(t, []string{"greenroom-input-6", "greenroom-input-" + strconv.Itoa(inputHelperVersion)}, fmt.Sprintf(`{"known":true,"imageRecipe":%d}`, imageRecipeVersion))
 	helpers, manifest, err := ReadImageFacts(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st := JudgeImage("greenroom-base", helpers, manifest); st.State != ImageCurrent || st.Recipe != 2 || st.Rebuild != "" {
+	if st := JudgeImage("greenroom-base", helpers, manifest); st.State != ImageCurrent || st.Recipe != imageRecipeVersion || st.Rebuild != "" {
 		t.Errorf("status = %+v, want current", st)
 	}
 	// An older recipe alone is stale too.

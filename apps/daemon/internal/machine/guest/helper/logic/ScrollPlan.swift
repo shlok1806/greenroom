@@ -43,12 +43,43 @@ func intoViewDistance(frame: CGRect, view: CGRect, margin: CGFloat = intoViewMar
         dy: axisDistance(start: frame.minY, end: frame.maxY, viewStart: view.minY, viewEnd: view.maxY, margin: margin))
 }
 
+/// A frame of AppKit's (bottom-left origin, y up) in top-left points, given the height of the
+/// primary screen, whose bottom-left corner is AppKit's origin.
+func topLeftFrame(_ appKit: CGRect, primaryHeight: CGFloat) -> CGRect {
+    CGRect(x: appKit.minX, y: primaryHeight - appKit.maxY, width: appKit.width, height: appKit.height)
+}
+
+/// Where an element scrolled into view must come to: the part of its container's view inside
+/// the screen's visible frame (the screen less the menu bar and the Dock), where a person sees
+/// it and a press lands on it and not on the Dock. A window can extend under the Dock, and the
+/// bottom of its scroll area with it. Nil when no part of the view is in the visible frame.
+func reachableView(_ view: CGRect, screenVisible: CGRect) -> CGRect? {
+    let reach = view.intersection(screenVisible)
+    guard !reach.isNull, reach.width >= 1, reach.height >= 1 else { return nil }
+    return reach
+}
+
 /// Whether `frame` shows inside `view` as far as it can: wholly, or filling the view when it is
 /// longer than the view. Half a point of slack, as scroll views rest.
 func insideView(_ frame: CGRect, _ view: CGRect) -> Bool {
     let d = intoViewDistance(frame: frame, view: view.insetBy(dx: -0.5, dy: -0.5), margin: 0)
     return d.dx == 0 && d.dy == 0
 }
+
+/// Whether `frame` shows in `reach` well enough to read and press: wholly inside, or its center
+/// inside with most of it (`readableShare` of its area) in. A label whose bottom point or two
+/// sits under the Dock's top edge is readable, and a scroll to the end cannot bring it higher;
+/// calling it not visible sent a model to move the window for nothing (live run, e195).
+func showsInView(_ frame: CGRect, _ reach: CGRect) -> Bool {
+    if insideView(frame, reach) { return true }
+    guard frame.width >= 1, frame.height >= 1, reach.contains(CGPoint(x: frame.midX, y: frame.midY)) else { return false }
+    let seen = frame.intersection(reach)
+    guard !seen.isNull else { return false }
+    return seen.width * seen.height >= readableShare * frame.width * frame.height
+}
+
+/// The share of an element's area that must be in view for `showsInView`.
+let readableShare: CGFloat = 0.6
 
 /// The next wheel step for a distance left to scroll, in Greenroom's sign: all of it when it is
 /// short, else most of a view, so an element never jumps past the view in one step.

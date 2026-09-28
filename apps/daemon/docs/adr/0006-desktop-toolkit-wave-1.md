@@ -112,6 +112,37 @@ Additions from the control catalog (docs/21a, its comment on #212):
   post; taps cannot read). Its result and step never carry the typed text or the value: `typed`
   is `<secret, N chars>`, and the read-back compares lengths only.
 
+Fixes from the first live run (navlab in a real VM, run `20260928-094238-2b407db80be568e5`):
+
+- **Refs never repeat (B10).** A new agent connection starts its tables at `e1`, so a ref the
+  caller kept from before a reconnect could name another element once a new snapshot passed
+  the connection check. The daemon keeps, per machine and reader, the highest ref it has seen in
+  any result, and before a reader's first toolkit call on a new connection sends the op `refs
+  {reader, next}`, which raises that reader's counter (never lowers it; at most `e999999999`).
+  An old ref is then one this reader does not hold. An agent without `refs` in its caps is
+  refused as an older helper.
+- **Before is read after the checks (B5).** An action's `before` tree is read once the checks
+  pass, right before the input, so what changed during the auto-wait (a button becoming
+  enabled) is not its effect.
+- **Into view means where the screen shows it (B3).** Scrolling an element into view (the
+  `scroll` op's `to: {ref}` and the visible check's) aims at the part of the container's view
+  inside the screen's visible frame (no menu bar, no Dock), with the usual margin. When the
+  container cannot bring it there (its window runs under the Dock), `visible` is false and
+  `notes` says why; the press's hit test still decides.
+- **Points on content are not refused (B8).** Point 6's "use e41" applies only when the hit is a
+  control a press by ref reaches the same way (button, checkbox, radio, link, menu item,
+  pop-up, tab, text field, slider, stepper, and a label inside one). A point on a line of a text
+  area, a web area, a group or an image is pressed.
+- **A rebuilt target is named by its current ref (B9).** When the agent re-resolves a ref to an
+  element the walks know by another ref, the target node carries that ref, the lead line names
+  it and a note says `e101 was re-resolved to e143`. When the old element still answers but the
+  before tree lists the one element of its window with its role, name and frame under another
+  ref, the note says to use that ref.
+- **Scroll bars are the scroll area's (B4).** `AXScrollBar` is listed only in `all` mode, and its
+  value never counts as a change: the area's `scroll` carries the position. A disabled scroll bar
+  means its axis does not scroll, and a position within half a percent of an end cannot move on
+  that way (B2, B6).
+
 ### Actionability
 
 4. **Checks, in order, retried until the timeout**: attached (4.3's resolution), not behind a
@@ -157,10 +188,14 @@ Additions from the control catalog (docs/21a, its comment on #212):
 9. **Behind `serve -desktop-toolkit`**, MCP gains `machine_snapshot`, `machine_find`,
    `machine_press`, `machine_set_value`, `machine_wait_for` and `machine_expect`, and
    `machine_type`, `machine_key`, `machine_scroll` and `machine_screenshot` gain their new
-   arguments while their old calls keep working: `machine_type` without `ref` types into the
-   focus, with read-back of the focused element; `machine_key` without `ref` presses into the
-   frontmost app; `machine_scroll` with `x`, `y`, `deltaX`, `deltaY` and no `ref` is the old raw
-   scroll; `machine_screenshot` without `ref`, `window` or `region` is the whole screen.
+   arguments while their old calls keep working: a call with only the arguments the tool took
+   before (`machine_type` with `text`, `machine_key` with `key` and `mods`, `machine_scroll` with
+   `x`, `y`, `deltaX`, `deltaY`, `machine_screenshot` with none) is the old call and behaves
+   exactly as before, with no read-back and no effect; any new argument makes it a toolkit call
+   (`desktop.ToolkitCall`). So `machine_type` without `ref` but with a new argument (`replace`,
+   `submit`, `via`, `paceMs`, `timeoutMs`) types into the focus with read-back of the focused
+   element, and `machine_key` without `ref` but with `timeoutMs` presses into the frontmost app
+   with its effect; `machine_screenshot` with `ref`, `window` or `region` is a crop.
    `machine_ui`, `machine_click` and `machine_input` are unchanged. Without the flag nothing
    changes. The verifier gets the same set in its tool list (plus `question` on
    `machine_screenshot`, for its describer) and a prompt section on using it; wave 4 removes

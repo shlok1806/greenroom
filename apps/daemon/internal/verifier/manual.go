@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/desktop"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/machine"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
@@ -36,10 +37,30 @@ With the desktop toolkit:
   snapshot [app]                            read the frontmost (or named) app as refs
   find <text>                               find elements by text
   press <ref>                               press an element by ref
-  setvalue <ref> <value>                    set an element's value through accessibility (setup only)`
+  setvalue <ref> <value>                    set an element's value through accessibility (setup only)
+  waitfor <ref> [state]                     wait until an element appears, or reaches a state
+  expect <ref> <property> [expected]        assert a property, e.g. expect e62 value $48.00
+  screenshot <ref>                          capture a crop of one element`
 
 // manualToolkitVerbs are the verbs only a toolkit daemon has.
-var manualToolkitVerbs = map[string]bool{"snapshot": true, "find": true, "press": true, "setvalue": true}
+var manualToolkitVerbs = map[string]bool{"snapshot": true, "find": true, "press": true, "setvalue": true,
+	"waitfor": true, "expect": true}
+
+// manualExpected is what an expect instruction expects: a count is a number, a flag true or false,
+// anything else the text as typed.
+func manualExpected(property, text string) any {
+	switch property {
+	case "count":
+		if n, err := strconv.Atoi(text); err == nil {
+			return n
+		}
+	case "exists", "visible", "enabled", "selected":
+		if b, err := strconv.ParseBool(text); err == nil {
+			return b
+		}
+	}
+	return text
+}
 
 // help is the grammar this brain takes.
 func (m *Manual) help() string {
@@ -110,7 +131,7 @@ func (m *Manual) follow(ctx context.Context, runID string, store *session.Store,
 		case "ask":
 			m.post(store, session.Message{Kind: session.Question, Text: orElse(strings.TrimSpace(arg), "(empty question)")})
 			return steps, session.Question
-		case "run", "screenshot", "ui", "click", "type", "key", "scroll", "snapshot", "find", "press", "setvalue":
+		case "run", "screenshot", "ui", "click", "type", "key", "scroll", "snapshot", "find", "press", "setvalue", "waitfor", "expect":
 			if manualToolkitVerbs[verb] && !m.mgr.DesktopToolkit() {
 				m.post(store, session.Message{Kind: session.Reply, Text: verb + " needs a daemon run with -desktop-toolkit\n\n" + m.help()})
 				return steps, session.Reply
@@ -152,6 +173,14 @@ func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (
 		return call, execResultText(res), res.Step
 
 	case "screenshot":
+		if ref := strings.TrimSpace(arg); ref != "" && m.mgr.DesktopToolkit() {
+			call = callOf("machine_screenshot", map[string]string{"ref": ref})
+			_, shot, err := m.mgr.ScreenshotOf(ctx, runID, machine.HolderVerifier, desktop.ShotArgs{Ref: ref})
+			if err != nil {
+				return call, "error: " + err.Error(), shot.Step
+			}
+			return call, fmt.Sprintf("step %d\n%s\nThe crop is saved at %s", shot.Step, shotGeometry(shot.Shot), shot.Path), shot.Step
+		}
 		call = nim.ToolCall{Name: "machine_screenshot", Arguments: "{}"}
 		_, shot, err := m.mgr.ScreenshotAs(ctx, runID, machine.HolderVerifier)
 		if err != nil {
@@ -206,6 +235,32 @@ func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (
 
 	case "find":
 		call = callOf("machine_find", map[string]string{"text": arg})
+		result, step = deskTool(ctx, m.mgr, runID, call)
+		return call, result, step
+
+	case "waitfor":
+		ref, state := splitInstruction(arg)
+		args := map[string]string{"target": ref}
+		if state != "" {
+			args["state"] = state
+		}
+		call = callOf("machine_wait_for", args)
+		result, step = deskTool(ctx, m.mgr, runID, call)
+		return call, result, step
+
+	case "expect":
+		fields := strings.Fields(arg)
+		args := map[string]any{}
+		if len(fields) > 0 {
+			args["target"] = fields[0]
+		}
+		if len(fields) > 1 {
+			args["property"] = fields[1]
+		}
+		if len(fields) > 2 {
+			args["expected"] = manualExpected(fields[1], strings.Join(fields[2:], " "))
+		}
+		call = callOf("machine_expect", args)
 		result, step = deskTool(ctx, m.mgr, runID, call)
 		return call, result, step
 

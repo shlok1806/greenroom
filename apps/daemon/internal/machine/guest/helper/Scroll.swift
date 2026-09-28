@@ -159,24 +159,76 @@ private func wheelPoint(for container: AXUIElement, view: CGRect, reader: String
 
 // MARK: - Into view
 
+/// The screen's visible frame in top-left points: the main display less the menu bar and the
+/// Dock (AppKit's `visibleFrame`, read on the main thread, whose run loop the agent runs). The
+/// whole display when AppKit does not answer in time. Kept for a second: the checks ask on every
+/// try, and the Dock seldom moves.
+func screenVisibleFrame() -> CGRect {
+    visibleFrameLock.lock()
+    if let cached = visibleFrameCache, DispatchTime.now() < cached.until {
+        visibleFrameLock.unlock()
+        return cached.frame
+    }
+    visibleFrameLock.unlock()
+
+    func read() -> CGRect? {
+        guard let primary = NSScreen.screens.first else { return nil }
+        return topLeftFrame(primary.visibleFrame, primaryHeight: primary.frame.height)
+    }
+    var frame: CGRect?
+    if Thread.isMainThread {
+        frame = read()
+    } else {
+        final class Box: @unchecked Sendable { var frame: CGRect? }
+        let box = Box()
+        let done = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            box.frame = read()
+            done.signal()
+        }
+        if done.wait(timeout: .now() + .milliseconds(500)) == .success { frame = box.frame }
+    }
+    guard let frame, !frame.isEmpty else { return bounds }
+    visibleFrameLock.lock()
+    visibleFrameCache = (frame, .now() + .seconds(1))
+    visibleFrameLock.unlock()
+    return frame
+}
+
+private let visibleFrameLock = NSLock()
+private var visibleFrameCache: (frame: CGRect, until: DispatchTime)?
+
 struct IntoView {
     var steps = 0
     /// `axScrollToVisible`, `wheel` or `scrollBar`; nil when nothing was done.
     var via: String?
     var visible = false
+    /// The element is inside the container's view but not where the screen shows it: the part
+    /// of the view it could come to is under the Dock or the menu bar (its window extends past
+    /// the screen's visible frame), so no scroll of this container shows it.
+    var pastScreenEdge = false
     /// What stopped the wheel from reaching the container, when nothing could.
     var blocker: [String: Any]?
 }
 
-/// Scrolls `container` until `target` shows inside it, bounded by `end` and `maxScrollSteps`.
+/// Scrolls `container` until `target` shows inside it and inside the screen's visible frame
+/// (`reachableView`), bounded by `end` and `maxScrollSteps`.
 func scrollIntoView(_ target: AXUIElement, container: AXUIElement, reader: String, call: Call, until end: DispatchTime) -> IntoView {
     var out = IntoView()
     AXUIElementSetMessagingTimeout(target, actionMessagingTimeout)
     AXUIElementSetMessagingTimeout(container, actionMessagingTimeout)
     guard var view = viewRect(of: container, reader: reader) else { return out }
+    let screen = screenVisibleFrame()
+    // Where the element must come to. A view wholly under the Dock has nowhere to bring it; the
+    // view itself is then the goal, and `pastScreenEdge` says that is not enough.
+    var reach = reachableView(view, screenVisible: screen) ?? view
     func shows() -> Bool {
         guard let frame = readElement(target).frame else { return false }
-        return insideView(frame, view)
+        return showsInView(frame, reach) && reach.intersects(screen)
+    }
+    func finish() -> IntoView {
+        if !out.visible, let frame = readElement(target).frame, insideView(frame, view) { out.pastScreenEdge = true }
+        return out
     }
     if shows() {
         out.visible = true
@@ -194,19 +246,19 @@ func scrollIntoView(_ target: AXUIElement, container: AXUIElement, reader: Strin
         }
     }
 
-    let found = wheelPoint(for: container, view: view, reader: reader, until: end)
+    let found = wheelPoint(for: container, view: reach, reader: reader, until: end)
     if let point = found.point {
         var progress = ScrollProgress()
         _ = progress.record(scrollMarker(container))
         while out.steps < maxScrollSteps, DispatchTime.now() < end, !call.cancelled, pausedBy(call) == nil {
-            guard let frame = readElement(target).frame else { break }
-            if insideView(frame, view) {
+            if shows() {
                 out.visible = true
                 break
             }
-            let distance = intoViewDistance(frame: frame, view: view)
-            let dy = wheelStep(distance: distance.dy, viewLength: view.height)
-            let dx = wheelStep(distance: distance.dx, viewLength: view.width)
+            guard let frame = readElement(target).frame else { break }
+            let distance = intoViewDistance(frame: frame, view: reach)
+            let dy = wheelStep(distance: distance.dy, viewLength: reach.height)
+            let dx = wheelStep(distance: distance.dx, viewLength: reach.width)
             if dx == 0, dy == 0 { break }
             postWheel(at: point, dx: dx, dy: dy)
             out.steps += 1
@@ -228,18 +280,21 @@ func scrollIntoView(_ target: AXUIElement, container: AXUIElement, reader: Strin
             cache[AXHandle(child)] = read
             return read.ok && read.role != "AXScrollBar" ? read.frame : nil
         }
-        let distance = intoViewDistance(frame: frame, view: view).dy
+        let distance = intoViewDistance(frame: frame, view: reach).dy
         if let content = contentFrame(of: Array(children)),
            let value = scrollBarValue(current: current, distance: distance, contentLength: content.height, viewLength: view.height) {
             if AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, NSNumber(value: value)) == .success {
                 out.via = "scrollBar"
                 usleep(50_000)
-                if let again = viewRect(of: container, reader: reader) { view = again }
+                if let again = viewRect(of: container, reader: reader) {
+                    view = again
+                    reach = reachableView(view, screenVisible: screen) ?? view
+                }
                 out.visible = shows()
             }
         }
     }
-    return out
+    return finish()
 }
 
 /// The actionability checks' scroll: brings a target a scroll area hides into its view.
@@ -295,6 +350,7 @@ private func scroll(_ args: ScrollArgs, call: Call) throws -> [String: Any] {
     var via: String?
     var down = true
     var visible: Bool?
+    var notes: [String] = []
     try call.check()
 
     switch args.to {
@@ -304,6 +360,9 @@ private func scroll(_ args: ScrollArgs, call: Call) throws -> [String: Any] {
         steps = done.steps
         via = done.via
         visible = done.visible
+        if done.pastScreenEdge {
+            notes.append("\(target.ref) is inside \(containerRef)'s view, but that part of the view is under the Dock or the menu bar (the window extends past the screen's visible area), so no scroll of \(containerRef) shows it; move or resize the window first")
+        }
         if let holder = pausedBy(call) { throw pausedAfter(holder, steps: steps) }
         if let frame = target.read.frame, let view = viewRect(of: container, reader: call.reader) {
             down = intoViewDistance(frame: frame, view: view).dy >= 0
@@ -373,11 +432,14 @@ private func scroll(_ args: ScrollArgs, call: Call) throws -> [String: Any] {
         let after = busy("ax") { look(element: target.element, reader: call.reader) }
         if let after {
             result["target"] = after.node
-            result["visible"] = after.shown.vis != nil
+            // Visible where the screen shows it (not only inside the container, which may run
+            // under the Dock); what covers it is in the node, for the daemon to say.
+            result["visible"] = (visible ?? false) && after.shown.vis != nil
         } else {
             result["visible"] = visible ?? false
         }
     }
+    if !notes.isEmpty { result["notes"] = notes }
     return result
 }
 

@@ -32,6 +32,37 @@ func testAnElementTallerThanTheViewIsBroughtToItsStart() {
     expect(insideView(filling, view))
 }
 
+func testALabelMostlyAboveTheDockShows() {
+    let reach = CGRect(x: 0, y: 30, width: 1024, height: 660)   // the Dock's top at 690
+    expect(showsInView(CGRect(x: 267, y: 673, width: 202, height: 19), reach), "a label two points under the Dock's edge shows")
+    expect(!showsInView(CGRect(x: 267, y: 685, width: 202, height: 19), reach), "a label mostly under the Dock does not")
+    expect(!showsInView(CGRect(x: 267, y: 700, width: 202, height: 19), reach), "a label wholly under the Dock does not")
+    expect(showsInView(CGRect(x: 10, y: 100, width: 50, height: 20), reach), "a label well inside shows")
+}
+
+func testIntoViewStopsAboveTheDock() {
+    // A 1024x768 screen with a 24 point menu bar and a 70 point Dock: AppKit's visible frame is
+    // y 70 to 744 from the bottom, 24 to 698 from the top.
+    let screen = topLeftFrame(CGRect(x: 0, y: 70, width: 1024, height: 674), primaryHeight: 768)
+    expectEqual(screen, CGRect(x: 0, y: 24, width: 1024, height: 674))
+    // A scroll area from y 400 to 760: its bottom 62 points are under the Dock.
+    let area = CGRect(x: 100, y: 400, width: 400, height: 360)
+    guard let reach = reachableView(area, screenVisible: screen) else {
+        expect(false, "part of the area is in the visible frame")
+        return
+    }
+    expectEqual(reach, CGRect(x: 100, y: 400, width: 400, height: 298))
+    // A row that would come to rest just inside the area's bottom is under the Dock; the reach
+    // brings it above the Dock with the margin.
+    let row = CGRect(x: 110, y: 900, width: 380, height: 24)
+    expect(insideView(row.offsetBy(dx: 0, dy: -intoViewDistance(frame: row, view: area).dy), area), "inside the area")
+    expect(!insideView(row.offsetBy(dx: 0, dy: -intoViewDistance(frame: row, view: area).dy), reach), "but under the Dock")
+    let d = intoViewDistance(frame: row, view: reach)
+    expectEqual(d.dy, 924 - (698 - 8), "down until its bottom is 8 points above the Dock")
+    // An area wholly under the Dock has nothing to bring an element to.
+    expect(reachableView(CGRect(x: 100, y: 700, width: 400, height: 60), screenVisible: screen) == nil, "under the Dock")
+}
+
 func testSidewaysDistancesToo() {
     let cell = CGRect(x: 700, y: 300, width: 50, height: 20)
     expectEqual(intoViewDistance(frame: cell, view: view).dx, 750 - (500 - 8))
