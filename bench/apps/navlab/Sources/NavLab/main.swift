@@ -22,6 +22,7 @@ enum LabScene: String, CaseIterable, Identifiable {
     case splitter = "Splitter"
     case dialogs = "Dialogs and menus"
     case secondWindow = "Second window"
+    case text = "Text and password"
 
     var id: String { rawValue }
 }
@@ -33,6 +34,7 @@ final class LabModel: ObservableObject {
     @Published var scene = LabScene.overlay
     @Published var projectName = "Untitled"
     @Published var reviewed = false
+    @Published var toolbarPressed = "none"
 }
 
 @main
@@ -42,6 +44,7 @@ final class NavLabApp: NSObject, NSApplicationDelegate {
     var splash: NSWindow?
     var mainWindow: NSWindow?
     var inspector: NSPanel?
+    var toolbarDelegate: LabToolbar?
 
     static func main() {
         let app = NSApplication.shared
@@ -84,6 +87,12 @@ final class NavLabApp: NSObject, NSApplicationDelegate {
         window.title = "NavLab"
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: ShellView(model: model, lab: self))
+        let toolbar = NSToolbar(identifier: "NavLabToolbar")
+        let toolbarDelegate = LabToolbar(model: model)
+        toolbar.delegate = toolbarDelegate
+        toolbar.displayMode = .iconAndLabel
+        window.toolbar = toolbar
+        self.toolbarDelegate = toolbarDelegate
         window.center()
         window.makeKeyAndOrderFront(nil)
         mainWindow = window
@@ -238,6 +247,13 @@ struct ShellView: View {
             DialogsScene(model: model, lab: lab)
         case .secondWindow:
             SecondWindowScene(model: model, lab: lab)
+        case .text:
+            VStack(alignment: .leading, spacing: 0) {
+                TextScene()
+                Text("Toolbar: \(model.toolbarPressed)")
+                    .padding(.horizontal, 24)
+                    .accessibilityIdentifier("toolbarPressed")
+            }
         }
     }
 }

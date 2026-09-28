@@ -1,0 +1,14 @@
+{
+  "id": "navlab-scroll-details",
+  "app": "navlab",
+  "kind": "correct",
+  "split": "dev",
+  "tier": "navigation",
+  "patch": null,
+  "task": "NavLab (a macOS app of navigation scenes, with a Scenes list on the left) is running on screen. I changed the Nested scroll scene. Open it and press the Details button at the end of the Rows list: the line above the list should then read Details: 17 items. Give a pass or fail verdict.",
+  "expected": "pass",
+  "must_check": [
+    "Details: 17 items after pressing Details"
+  ],
+  "notes": "Wrong scroll area (#190, docs/21 1.4 case 2). Details is below the fold of the inner Rows area; wheel events over the page move the outer page, not the rows."
+}
