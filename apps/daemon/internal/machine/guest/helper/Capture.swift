@@ -12,9 +12,14 @@ private struct CaptureArgs: Decodable {
     var quality: Double?
     var maxWidth: Int?
     var rect: [Double]?
-    // `ref` and `margin` come with the snapshot station: it resolves the ref to its visible
-    // rect, grows it by the margin and passes the result to captureScreen as `region`.
+    /// An element to crop to: its visible rect grown by `margin` points (24 unless given),
+    /// clipped to the screen.
+    var ref: String?
+    var margin: Double?
 }
+
+/// The margin around an element a capture by ref keeps unless the request says.
+private let defaultCaptureMargin = 24.0
 
 /// How an image is encoded and sized; the op's arguments after validation.
 struct CaptureFormat {
@@ -43,7 +48,16 @@ func registerCaptureOp() {
             format.maxWidth = maxWidth
         }
         var region: CGRect?
-        if let rect = args.rect {
+        if let ref = meaningful(args.ref) {
+            guard args.rect == nil else {
+                throw AgentFailure("bad_request", "capture: pass rect or ref, not both")
+            }
+            let margin = args.margin ?? defaultCaptureMargin
+            guard margin.isFinite, margin >= 0 else {
+                throw AgentFailure("bad_request", "capture: margin must be zero or more points")
+            }
+            region = try captureRegion(of: ref, margin: CGFloat(margin), call: call)
+        } else if let rect = args.rect {
             guard let r = rectArgument(rect) else {
                 throw AgentFailure("bad_request", "capture: rect must be [x, y, w, h] in points with a positive width and height")
             }
@@ -51,6 +65,31 @@ func registerCaptureOp() {
         }
         return try captureScreen(call, region: region, format: format)
     }
+}
+
+/// The region a capture by ref crops to: what shows of the element, grown by `margin` and clipped
+/// to the screen. The ref is resolved on its app's read queue, in turn with that app's other
+/// reads, while the capture itself stays on the capture queue.
+private func captureRegion(of ref: String, margin: CGFloat, call: Call) throws -> CGRect {
+    guard refNumber(ref) != nil else {
+        throw AgentFailure("bad_request", "capture: \(ref) is not a ref; refs look like e17 and come from machine_snapshot or machine_find")
+    }
+    let key = refPid(ref, reader: call.reader).map { "pid:\($0)" } ?? "app:"
+    let limit = min(call.deadline - .milliseconds(500), .now() + .seconds(5))
+    let found = try onReadQueue(key, until: limit) {
+        try busy("ax") { try look(ref: ref, reader: call.reader, hitTest: false, until: limit) }
+    }
+    guard let vis = found.shown.vis else {
+        let reason = visibilityReason(offscreen: found.shown.offscreen)
+        throw AgentFailure("refused", "\(targetLabel(found)) shows nothing on screen, so there is nothing to capture", detail: [
+            "reason": reason, "target": found.node,
+        ])
+    }
+    let region = vis.insetBy(dx: -margin, dy: -margin).intersection(bounds)
+    guard rectShows(region) else {
+        throw AgentFailure("refused", "\(targetLabel(found)) is not on the screen", detail: ["reason": "hidden", "target": found.node])
+    }
+    return region
 }
 
 /// Captures the main display, crops it to `region` (points; nil is the whole screen), scales
