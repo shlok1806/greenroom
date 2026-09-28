@@ -29,16 +29,16 @@ final class UIWaker {
     func bump(_ pid: pid_t) {
         condition.lock()
         perApp[pid, default: 0] &+= 1
-        condition.unlock()
         condition.broadcast()
+        condition.unlock()
     }
 
     /// Something happened to the desktop: an app launched, quit or came to the front.
     func bumpDesktop() {
         condition.lock()
         desktop &+= 1
-        condition.unlock()
         condition.broadcast()
+        condition.unlock()
     }
 
     /// A number that grows whenever something happens in the app (or on the desktop): two equal
@@ -176,30 +176,31 @@ struct Settled {
 }
 
 /// Waits until an app's UI settles: no AX notification and no change of its tree's signature for
-/// 300 ms, at most 2 s. Notifications wake a 150 ms poll of the signature. Never throws: an input
-/// already posted is answered with its effect, so a cancel or the call's deadline only ends the
-/// settle early (`reserve` is kept for the after tree).
+/// 300 ms, at most 2 s. A notification restarts the quiet time at once; the signature, which
+/// catches what SwiftUI does not notify, is read after every 150 ms without one. Never throws: an
+/// input already posted is answered with its effect, so a cancel or the call's deadline only
+/// ends the settle early (`reserve` is kept for the after tree).
 func settleUI(_ app: AppTarget, call: Call, limitMs: Int = settleLimitMs, reserve: TimeInterval = 1) -> Settled {
     let start = DispatchTime.now()
-    func elapsed() -> Int { Int((DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000) }
-    var stamp = UIWaker.shared.stamp(app.pid)
+    func ms(since time: DispatchTime) -> Int { Int((DispatchTime.now().uptimeNanoseconds - time.uptimeNanoseconds) / 1_000_000) }
+    var seen = UIWaker.shared.stamp(app.pid)
     var signature = busy("ax") { treeSignature(app, call: call, budget: 0.5) }
     var quietSince = DispatchTime.now()
     while true {
-        if !processLives(pid: app.pid, started: app.started) { return Settled(settled: false, ms: elapsed(), gone: true) }
-        let quiet = Int((DispatchTime.now().uptimeNanoseconds - quietSince.uptimeNanoseconds) / 1_000_000)
-        if quiet >= settleQuietMs, signature != nil { return Settled(settled: true, ms: elapsed(), gone: false) }
-        if elapsed() >= limitMs || call.cancelled || call.remaining <= reserve {
-            return Settled(settled: false, ms: elapsed(), gone: false)
+        if !processLives(pid: app.pid, started: app.started) { return Settled(settled: false, ms: ms(since: start), gone: true) }
+        let quiet = ms(since: quietSince)
+        if quiet >= settleQuietMs, signature != nil { return Settled(settled: true, ms: ms(since: start), gone: false) }
+        if ms(since: start) >= limitMs || call.cancelled || call.remaining <= reserve {
+            return Settled(settled: false, ms: ms(since: start), gone: false)
         }
-        let wake = min(waitPollMs, max(settleQuietMs - quiet, 10), max(limitMs - elapsed(), 1))
-        nap(wake, for: app.pid, since: stamp)
-        let nowStamp = UIWaker.shared.stamp(app.pid)
-        let nowSignature = busy("ax") { treeSignature(app, call: call, budget: 0.5) }
-        if nowStamp != stamp || nowSignature == nil || nowSignature != signature {
+        let wake = min(waitPollMs, max(settleQuietMs - quiet, 10), max(limitMs - ms(since: start), 1))
+        if UIWaker.shared.wait(app.pid, since: seen, until: .now() + .milliseconds(wake)) {
+            seen = UIWaker.shared.stamp(app.pid)
             quietSince = DispatchTime.now()
+            continue
         }
-        stamp = nowStamp
-        signature = nowSignature
+        let now = busy("ax") { treeSignature(app, call: call, budget: 0.5) }
+        if now == nil || now != signature { quietSince = DispatchTime.now() }
+        signature = now
     }
 }

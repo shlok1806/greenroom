@@ -70,8 +70,11 @@ func actionable(_ ref: String, call: Call, timeoutMs: Int, plan: CheckPlan, rese
 
     while let wait = nextActionWait(attempt: attempt, elapsedMs: elapsedMs(), timeoutMs: budgetMs) {
         if wait > 0 {
-            let stamp = UIWaker.shared.stamp(pid)
-            nap(wait, for: pid, since: stamp, until: end)
+            // Slept as scheduled, not cut short by notifications: an app that animates notifies
+            // all the time, and every try costs it a round of AX messages.
+            let until = min(DispatchTime.now() + .milliseconds(wait), end)
+            let now = DispatchTime.now()
+            if until > now { usleep(UInt32((until.uptimeNanoseconds - now.uptimeNanoseconds) / 1000)) }
         }
         try call.check()
         if let failed = lastFailure {
