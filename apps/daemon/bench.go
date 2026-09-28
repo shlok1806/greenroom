@@ -158,7 +158,7 @@ func benchRun(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	runner := bench.New(bench.Config{
-		BenchDir: dir, Cases: cases, Trials: o.trials, Out: o.out, Image: o.image, Model: v.Model(), Models: &models,
+		BenchDir: dir, Cases: cases, Trials: o.trials, Out: o.out, Image: o.image, Model: v.Model(), Models: &models, Toolkit: o.desktopToolkit,
 		Parallel: o.parallel, TurnTimeout: o.turnTimeout, Log: log, Progress: os.Stderr,
 		MinFreeDisk: uint64(max(o.minFreeGB, 0) * (1 << 30)), DiskWait: o.diskWait,
 	}, mgr, reg, v)

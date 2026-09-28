@@ -41,6 +41,7 @@ type Config struct {
 	Image    string
 	Model    string          // the reasoning model, recorded with each result
 	Models   *machine.Models // the brain, describer and request options, recorded with each result (issue #154)
+	Toolkit  bool            // the machines run the desktop toolkit (-desktop-toolkit), recorded with each result
 
 	Parallel int // machines at once; default 2, Apple's limit
 
@@ -464,7 +465,7 @@ func (r *Runner) runTrial(ctx context.Context, c Case, trial int) (res Result) {
 func (r *Runner) newResult(c Case, trial int) Result {
 	return Result{Case: c.ID, Trial: trial, App: c.App, Kind: c.Kind, Family: c.Family, Split: c.Split, Tier: c.Tier,
 		Expected: c.Expected, MustCheck: c.MustCheck, Infra: c.InfraType(), Image: r.cfg.Image, Model: r.cfg.Model,
-		Models: r.cfg.Models, StartedAt: time.Now().UTC()}
+		Models: r.cfg.Models, Toolkit: r.cfg.Toolkit, StartedAt: time.Now().UTC()}
 }
 
 // create makes a machine, waiting while the host is at its VM limit (another run, or the
@@ -518,6 +519,10 @@ func (r *Runner) setUp(ctx context.Context, c Case, app App, runID, hostApp stri
 	case InfraAppNotRunning:
 		// Built, never launched, and gone: nothing the verifier could start either.
 		return r.exec(ctx, runID, "rm -rf "+shellQuote(c.App), "~/"+machine.GuestWorkDir, time.Minute, "remove app")
+	}
+	if !c.Opens() {
+		// Built and not running: launching it is the verifier's job (the app-launch hazard).
+		return nil
 	}
 	if err := r.exec(ctx, runID, launchScript(app), cwd, 2*time.Minute, "launch"); err != nil {
 		return err

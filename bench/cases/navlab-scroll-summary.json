@@ -1,0 +1,12 @@
+{
+  "id": "navlab-scroll-summary",
+  "app": "navlab",
+  "kind": "correct",
+  "split": "holdout",
+  "tier": "navigation",
+  "patch": null,
+  "task": "NavLab (a macOS app of navigation scenes, with a Scenes list on the left) is running on screen. I changed the Nested scroll scene. Open it: the Summary line at the bottom of the page should read Summary: 40 rows, 3 flagged. Give a pass or fail verdict.",
+  "expected": "pass",
+  "must_check": ["Summary: 40 rows, 3 flagged"],
+  "notes": "Wrong scroll area, the other way round: the Summary is below the outer page's fold, and wheel events over the Rows area move only the rows."
+}
