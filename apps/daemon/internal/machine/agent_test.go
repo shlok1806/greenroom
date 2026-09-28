@@ -214,6 +214,11 @@ func TestKillingTheAgentMidRequestFailsTheCallAndTheChannelComesBack(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The screen size is read before the first input; read it now, so the request the agent
+	// dies on is the input itself.
+	if _, err := mgr.ScreenOf(context.Background(), mc.RunID); err != nil {
+		t.Fatal(err)
+	}
 	mark := callCount(t, control)
 	testsupport.Flag(t, control, "agent-exit")
 	x, y := 0.5, 0.5
@@ -466,10 +471,10 @@ func TestAnAgentCaptureDeadlineIsAScreenThatDidNotAnswer(t *testing.T) {
 	if n := mustGet(t, mgr, mc.RunID).input.capture.timeoutStreak(); n != 1 {
 		t.Fatalf("timeout streak %d, want 1", n)
 	}
-	cancels := strings.Join(testsupport.ControlLines(t, control, "agent-control"), "\n")
-	if !strings.Contains(cancels, "cancel ") {
-		t.Fatalf("no CANCEL for the abandoned capture: %q", cancels)
-	}
+	// The CANCEL is on its way when the call returns; the fake agent records it once it arrives.
+	waitUntil(t, 2*time.Second, "a CANCEL for the abandoned capture", func() bool {
+		return strings.Contains(strings.Join(testsupport.ControlLines(t, control, "agent-control"), "\n"), "cancel ")
+	})
 }
 
 // The capture-approval check goes over the channel as the sh op; only a stale record's rewrite,
