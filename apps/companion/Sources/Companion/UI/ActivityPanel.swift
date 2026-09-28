@@ -127,57 +127,11 @@ struct ActivitySteps: View {
         } : sections
         let currentRow = logs ? currentStep.map { "l\($0)" } : ActivityLayout.row(holding: currentStep, in: shownSections)
         let failures = steps.filter(\.failed).count
+        let rowIDs = sections.flatMap(\.rows).map(\.id)
+        let seqs = steps.map(\.seq)
         VStack(spacing: 0) {
-            HStack(spacing: Gap.x8) {
-                SegmentedControl(options: [(false, "Tasks"), (true, "Log")], selection: $logs)
-                .help("Tasks: the verifier's work grouped by check. Log: every step, one line each")
-                Spacer()
-                Button { failuresOnly.toggle() } label: {
-                    HStack(spacing: 4) {
-                        StatusGlyph(kind: .failed, color: failuresOnly ? .fail : .tertiary, size: 12)
-                        Text(failures > 0 ? "\(failures)" : "0").textStyle(.captionEmphasis).monospacedDigit()
-                            .foregroundStyle(failuresOnly ? Palette.fail : Palette.textSecondary)
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: 24)
-                    .background(RoundedRectangle(cornerRadius: Corner.control).fill(failuresOnly ? Palette.failSubtle : .clear))
-                    .overlay(RoundedRectangle(cornerRadius: Corner.control).strokeBorder(failuresOnly ? .clear : Palette.border, lineWidth: 1))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(failuresOnly ? "Showing only the \(failures) failed steps. Show all" : "Show only the \(failures) failed steps")
-                .accessibilityLabel(failuresOnly ? "Only failed steps, on" : "Only failed steps, off")
-                .accessibilityIdentifier("activity.failuresOnly")
-            }
-            .padding(.horizontal, Gap.x12)
-            .padding(.vertical, 6)
-            .overlay(alignment: .bottom) { Rectangle().fill(Palette.border).frame(height: 1) }
-
-            ScrollViewReader { proxy in
-                ScrollView {
-                    if logs {
-                        logLines(current: currentStep)
-                    } else {
-                        taskRows(shownSections, current: currentRow)
-                    }
-                }
-                .visibleScroller { metrics in
-                    guard metrics.content > metrics.viewport * 1.2, !steps.isEmpty else { return nil }
-                    let step = currentStep.map { "step \($0) of \(steps.count)" }
-                    return step ?? "\(steps.count) steps"
-                }
-                .onChange(of: currentRow) { _, row in
-                    guard let row else { return }
-                    withAnimation(Motion.easeOut(Motion.settle)) { proxy.scrollTo(row) }
-                }
-                .onChange(of: steps.count) { _, _ in
-                    if shell.playhead == nil, shell.showsLive { proxy.scrollTo("end", anchor: .bottom) }
-                }
-                .onAppear {
-                    if let currentRow { proxy.scrollTo(currentRow, anchor: .center) }
-                }
-            }
-
+            header(failures: failures)
+            list(shownSections, current: currentRow, step: currentStep)
             // The raw record of the step at the playhead, one click away.
             if let seq = currentStep, let step = steps.first(where: { $0.seq == seq }) {
                 StepRecordFold(step: step, total: steps.count)
@@ -185,8 +139,71 @@ struct ActivitySteps: View {
         }
         .onAppear { resetArrivals(sections) }
         .onChange(of: summary.runId) { _, _ in resetArrivals(sections) }
-        .onChange(of: sections.flatMap(\.rows).map(\.id)) { _, ids in rowArrivals.note(ids) }
-        .onChange(of: steps.map(\.seq)) { _, seqs in chipArrivals.note(seqs.map(String.init)) }
+        .onChange(of: rowIDs) { _, ids in rowArrivals.note(ids) }
+        .onChange(of: seqs) { _, seqs in chipArrivals.note(seqs.map(String.init)) }
+    }
+
+    private func header(failures: Int) -> some View {
+        HStack(spacing: Gap.x8) {
+            SegmentedControl(options: [(false, "Tasks"), (true, "Log")], selection: $logs)
+                .help("Tasks: the verifier's work grouped by check. Log: every step, one line each")
+            Spacer()
+            failuresToggle(failures)
+        }
+        .padding(.horizontal, Gap.x12)
+        .padding(.vertical, 6)
+        .overlay(alignment: .bottom) { Rectangle().fill(Palette.border).frame(height: 1) }
+    }
+
+    private func failuresToggle(_ failures: Int) -> some View {
+        Button { failuresOnly.toggle() } label: {
+            HStack(spacing: 4) {
+                StatusGlyph(kind: .failed, color: failuresOnly ? .fail : .tertiary, size: 12)
+                Text("\(failures)").textStyle(.captionEmphasis).monospacedDigit()
+                    .foregroundStyle(failuresOnly ? Palette.fail : Palette.textSecondary)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: Corner.control).fill(failuresOnly ? Palette.failSubtle : .clear))
+            .overlay(RoundedRectangle(cornerRadius: Corner.control).strokeBorder(failuresOnly ? .clear : Palette.border, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(failuresOnly ? "Showing only the \(failures) failed steps. Show all" : "Show only the \(failures) failed steps")
+        .accessibilityLabel(failuresOnly ? "Only failed steps, on" : "Only failed steps, off")
+        .accessibilityIdentifier("activity.failuresOnly")
+    }
+
+    private func scrollerLabel(_ metrics: ScrollMetrics, step: Int?) -> String? {
+        let total = steps.count
+        guard metrics.content > metrics.viewport * 1.2, total > 0 else { return nil }
+        if let step { return "step \(step) of \(total)" }
+        return "\(total) steps"
+    }
+
+    private func list(_ sections: [ActivityLayout.Section], current: String?, step: Int?) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                if logs {
+                    logLines(current: step)
+                } else {
+                    taskRows(sections, current: current)
+                }
+            }
+            .visibleScroller { metrics in scrollerLabel(metrics, step: step) }
+            .onChange(of: current) { _, row in
+                guard let row else { return }
+                withAnimation(Motion.easeOut(Motion.settle)) { proxy.scrollTo(row) }
+            }
+            .onChange(of: steps.count) { _, _ in followLive(proxy) }
+            .onAppear {
+                if let current { proxy.scrollTo(current, anchor: .center) }
+            }
+        }
+    }
+
+    private func followLive(_ proxy: ScrollViewProxy) {
+        if shell.playhead == nil, shell.showsLive { proxy.scrollTo("end", anchor: .bottom) }
     }
 
     private func resetArrivals(_ sections: [ActivityLayout.Section]) {
@@ -313,57 +330,74 @@ struct ConversationTab: View {
     }
 
     var body: some View {
+        let ids = items.map(\.id)
+        let seqs = steps.map(\.seq)
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: Gap.x12) {
-                        if items.isEmpty {
-                            Text("No messages yet.").textStyle(.body).foregroundStyle(Palette.textSecondary)
-                        }
-                        ForEach(items) { item in
-                            switch item {
-                            case .message(let message):
-                                MessageBlock(message: message, start: shell.streamStart(runId: summary.runId, seq: message.seq),
-                                             steps: Set(steps.map(\.seq)),
-                                             onStep: { shell.seek(toStep: $0) },
-                                             finished: { shell.finishStream(runId: summary.runId, seq: message.seq) })
-                                    .fadeUp(messageArrivals.isNew(item.id), duration: AgentMotion.toolChip)
-                                    .id(message.seq)
-                            case .tools(_, let group, let live):
-                                // Beautiful UI's Thinking state; its trace, the calls as tool chips.
-                                ToolTraceView(steps: group, allSteps: steps, live: live, now: summary.now ?? "Thinking",
-                                              arrivals: chipArrivals,
-                                              onChip: { shell.seek(toStep: $0) },
-                                              chipHelp: { StepHelp.text($0, in: steps) })
-                                    .fadeUp(messageArrivals.isNew(item.id), duration: AgentMotion.toolChip)
-                                    .id(item.id)
-                            }
-                        }
-                        Color.clear.frame(height: 1).id("end")
-                    }
-                    .padding(Gap.x16)
-                    .padding(.trailing, Gap.x8)
-                }
-                .defaultScrollAnchor(.bottom)
-                .visibleScroller { metrics in
-                    metrics.content > metrics.viewport * 1.2 ? "\(messages.count) messages" : nil
-                }
-                .onChange(of: messages.count) { _, _ in
-                    shell.noteMessages(messages, runId: summary.runId)
-                    proxy.scrollTo("end", anchor: .bottom)
-                }
-                .onChange(of: steps.count) { _, _ in
-                    if shell.playhead == nil { proxy.scrollTo("end", anchor: .bottom) }
-                }
-                .onAppear { shell.noteMessages(messages, runId: summary.runId) }
-            }
-            .onAppear { resetArrivals() }
-            .onChange(of: summary.runId) { _, _ in resetArrivals() }
-            .onChange(of: items.map(\.id)) { _, ids in messageArrivals.note(ids) }
-            .onChange(of: steps.map(\.seq)) { _, seqs in chipArrivals.note(seqs.map(String.init)) }
-
+            conversation
+                .onAppear { resetArrivals() }
+                .onChange(of: summary.runId) { _, _ in resetArrivals() }
+                .onChange(of: ids) { _, ids in messageArrivals.note(ids) }
+                .onChange(of: seqs) { _, seqs in chipArrivals.note(seqs.map(String.init)) }
             composer
         }
+    }
+
+    private var conversation: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: Gap.x12) {
+                    if items.isEmpty {
+                        Text("No messages yet.").textStyle(.body).foregroundStyle(Palette.textSecondary)
+                    }
+                    ForEach(items) { item in row(item) }
+                    Color.clear.frame(height: 1).id("end")
+                }
+                .padding(Gap.x16)
+                .padding(.trailing, Gap.x8)
+            }
+            .defaultScrollAnchor(.bottom)
+            .visibleScroller { metrics in scrollerLabel(metrics) }
+            .onChange(of: messages.count) { _, _ in
+                shell.noteMessages(messages, runId: summary.runId)
+                proxy.scrollTo("end", anchor: .bottom)
+            }
+            .onChange(of: steps.count) { _, _ in followLive(proxy) }
+            .onAppear { shell.noteMessages(messages, runId: summary.runId) }
+        }
+    }
+
+    private func scrollerLabel(_ metrics: ScrollMetrics) -> String? {
+        metrics.content > metrics.viewport * 1.2 ? "\(messages.count) messages" : nil
+    }
+
+    private func followLive(_ proxy: ScrollViewProxy) {
+        if shell.playhead == nil { proxy.scrollTo("end", anchor: .bottom) }
+    }
+
+    @ViewBuilder
+    private func row(_ item: ConversationLayout.Item) -> some View {
+        let isNew = messageArrivals.isNew(item.id)
+        switch item {
+        case .message(let message):
+            messageBlock(message).fadeUp(isNew, duration: AgentMotion.toolChip).id(message.seq)
+        case .tools(_, let group, let live):
+            // Beautiful UI's Thinking state; its trace, the calls as tool chips.
+            trace(group, live: live).fadeUp(isNew, duration: AgentMotion.toolChip).id(item.id)
+        }
+    }
+
+    private func messageBlock(_ message: Message) -> MessageBlock {
+        let runId = summary.runId
+        let known = Set(steps.map(\.seq))
+        return MessageBlock(message: message, start: shell.streamStart(runId: runId, seq: message.seq), steps: known,
+                            onStep: { shell.seek(toStep: $0) },
+                            finished: { shell.finishStream(runId: runId, seq: message.seq) })
+    }
+
+    private func trace(_ group: [Step], live: Bool) -> ToolTraceView {
+        let all = steps
+        return ToolTraceView(steps: group, allSteps: all, live: live, now: summary.now ?? "Thinking", arrivals: chipArrivals,
+                             onChip: { shell.seek(toStep: $0) }, chipHelp: { StepHelp.text($0, in: all) })
     }
 
     @ViewBuilder
