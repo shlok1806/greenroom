@@ -22,7 +22,8 @@ type State string
 // The status vocabulary (root ADR 0036). Every run is in exactly one.
 const (
 	Starting     State = "starting"      // the Mac is booting
-	Checking     State = "checking"      // the run is live and has no outcome yet
+	Ready        State = "ready"         // the Mac is up and nobody is checking: the coding agent works or waits
+	Checking     State = "checking"      // the verifier owes an answer: it is checking
 	Paused       State = "paused"        // the verifier waits for a person: its limit, or a question
 	NotAnswering State = "not-answering" // the Mac's screen stopped answering
 	Restarting   State = "restarting"    // the Mac is rebooting on the same disk
@@ -37,6 +38,8 @@ func (s State) Word() string {
 	switch s {
 	case Starting:
 		return "Starting"
+	case Ready:
+		return "Ready"
 	case Checking:
 		return "Checking"
 	case Paused:
@@ -58,7 +61,7 @@ func (s State) Word() string {
 }
 
 // States is the whole vocabulary, in the order a run usually meets it.
-var States = []State{Starting, Checking, Paused, NotAnswering, Restarting, Passed, Failed, Inconclusive, Stopped}
+var States = []State{Starting, Ready, Checking, Paused, NotAnswering, Restarting, Passed, Failed, Inconclusive, Stopped}
 
 // Group is where a run sits in a list (root ADR 0036).
 type Group string
@@ -194,7 +197,7 @@ type Picture struct {
 	Kind string    `json:"kind"`
 	File string    `json:"file"`
 	URL  string    `json:"url"`
-	At   time.Time `json:"at,omitempty"`
+	At   time.Time `json:"at,omitzero"`
 	Step int       `json:"step,omitempty"`
 }
 
@@ -504,7 +507,7 @@ func state(in Input, f derived) (State, time.Time) {
 		if f.verdict != nil { // a rejected verdict: the run is back to having no outcome
 			since = laterOf(since, lastAt(in.Messages))
 		}
-		return Checking, since
+		return Ready, since
 	}
 	return Stopped, stoppedSince(in)
 }
@@ -550,7 +553,7 @@ func group(in Input, st State) Group {
 
 func tone(in Input, st State) Tone {
 	switch st {
-	case Starting, Checking, Restarting:
+	case Starting, Ready, Checking, Restarting:
 		return ToneLive
 	case Paused, NotAnswering:
 		return ToneWait
@@ -599,7 +602,7 @@ func actions(in Input, f derived, st State) (*Action, []Action) {
 		return &Action{ActContinue, "Continue"}, secondary
 	case NotAnswering:
 		return &Action{ActRestart, "Restart the Mac"}, append(secondary, Action{ActKeepWaiting, "Keep waiting"})
-	case Checking:
+	case Ready, Checking:
 		if in.Machine.LowOnFiles {
 			secondary = append(secondary, Action{ActRestart, "Restart the Mac"})
 		}
