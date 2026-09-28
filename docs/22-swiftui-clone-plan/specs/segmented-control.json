@@ -1,0 +1,1041 @@
+{
+ "piece": "segmented-control",
+ "source": "https://github.com/slev12397/beautiful-ui",
+ "sourceSha": "44a274e598395ab61e7c96c26fda2758780253b7",
+ "licence": "MIT, Copyright (c) 2026 Shane Levine",
+ "viewport": {
+  "width": 640,
+  "height": 480
+ },
+ "deviceScaleFactor": 2,
+ "frameMs": 16.6667,
+ "settleMs": 400,
+ "runs": [
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "light",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "relative inline-grid h-8 select-none rounded-full bg-line/60 p-0.5 ",
+     "frame": [
+      0,
+      0,
+      214.33,
+      32
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#EDEDEE@0.600",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "2px 2px 2px 2px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "absolute inset-y-0.5 rounded-full bg-surface shadow-hairline transition-transform duration-200",
+     "frame": [
+      72.09,
+      2,
+      70.09,
+      28
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#FFFFFF",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px",
+      "shadow": "transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, #ECEDEF 0px 0px 0px 1px",
+      "transform": "matrix(1, 0, 0, 1, 70.0938, 0)"
+     }
+    },
+    {
+     "path": "div/button[1]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Checks",
+     "frame": [
+      2,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/button[2]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink",
+     "text": "Activity",
+     "frame": [
+      72.11,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/button[3]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Logs",
+     "frame": [
+      142.22,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "light",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "relative inline-grid h-8 select-none rounded-full bg-line/60 p-0.5 ",
+     "frame": [
+      0,
+      0,
+      212.73,
+      32
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#EDEDEE@0.600",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "2px 2px 2px 2px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "absolute inset-y-0.5 rounded-full bg-surface shadow-hairline transition-transform duration-200",
+     "frame": [
+      71.56,
+      2,
+      69.56,
+      28
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#FFFFFF",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px",
+      "shadow": "transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, #ECEDEF 0px 0px 0px 1px",
+      "transform": "matrix(1, 0, 0, 1, 69.5625, 0)"
+     }
+    },
+    {
+     "path": "div/button[1]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Checks",
+     "frame": [
+      2,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/button[2]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink",
+     "text": "Activity",
+     "frame": [
+      71.58,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/button[3]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Logs",
+     "frame": [
+      141.16,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    }
+   ],
+   "animations": [],
+   "curves": []
+  },
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "dark",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "relative inline-grid h-8 select-none rounded-full bg-line/60 p-0.5 ",
+     "frame": [
+      0,
+      0,
+      214.33,
+      32
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#2F3034@0.600",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "2px 2px 2px 2px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "absolute inset-y-0.5 rounded-full bg-surface shadow-hairline transition-transform duration-200",
+     "frame": [
+      72.09,
+      2,
+      70.09,
+      28
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#232427",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px",
+      "shadow": "transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, #2E3033 0px 0px 0px 1px",
+      "transform": "matrix(1, 0, 0, 1, 70.0938, 0)"
+     }
+    },
+    {
+     "path": "div/button[1]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Checks",
+     "frame": [
+      2,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/button[2]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink",
+     "text": "Activity",
+     "frame": [
+      72.11,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/button[3]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Logs",
+     "frame": [
+      142.22,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "chromium",
+   "version": "149.0.7827.55",
+   "theme": "dark",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "relative inline-grid h-8 select-none rounded-full bg-line/60 p-0.5 ",
+     "frame": [
+      0,
+      0,
+      212.73,
+      32
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#2F3034@0.600",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "2px 2px 2px 2px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "absolute inset-y-0.5 rounded-full bg-surface shadow-hairline transition-transform duration-200",
+     "frame": [
+      71.56,
+      2,
+      69.56,
+      28
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#232427",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px",
+      "shadow": "transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, #2E3033 0px 0px 0px 1px",
+      "transform": "matrix(1, 0, 0, 1, 69.5625, 0)"
+     }
+    },
+    {
+     "path": "div/button[1]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Checks",
+     "frame": [
+      2,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/button[2]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink",
+     "text": "Activity",
+     "frame": [
+      71.58,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    },
+    {
+     "path": "div/button[3]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Logs",
+     "frame": [
+      141.16,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "3.35544e+07px 3.35544e+07px 3.35544e+07px 3.35544e+07px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "light",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "relative inline-grid h-8 select-none rounded-full bg-line/60 p-0.5 ",
+     "frame": [
+      0,
+      0,
+      214.33,
+      32
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#EDEDEE@0.600",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "2px 2px 2px 2px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "absolute inset-y-0.5 rounded-full bg-surface shadow-hairline transition-transform duration-200",
+     "frame": [
+      72,
+      2,
+      70.09,
+      28
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#FFFFFF",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px",
+      "shadow": "transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, #ECEDEF 0px 0px 0px 1px",
+      "transform": "matrix(1, 0, 0, 1, 70.09375, 0)"
+     }
+    },
+    {
+     "path": "div/button[1]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Checks",
+     "frame": [
+      2,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/button[2]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink",
+     "text": "Activity",
+     "frame": [
+      72.11,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/button[3]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Logs",
+     "frame": [
+      142.22,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "light",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "relative inline-grid h-8 select-none rounded-full bg-line/60 p-0.5 ",
+     "frame": [
+      0,
+      0,
+      212.73,
+      32
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#EDEDEE@0.600",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "2px 2px 2px 2px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "absolute inset-y-0.5 rounded-full bg-surface shadow-hairline transition-transform duration-200",
+     "frame": [
+      71.5,
+      2,
+      69.56,
+      28
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "#FFFFFF",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px",
+      "shadow": "transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, #ECEDEF 0px 0px 0px 1px",
+      "transform": "matrix(1, 0, 0, 1, 69.5625, 0)"
+     }
+    },
+    {
+     "path": "div/button[1]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Checks",
+     "frame": [
+      2,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/button[2]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink",
+     "text": "Activity",
+     "frame": [
+      71.58,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#1F2124",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/button[3]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Logs",
+     "frame": [
+      141.16,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#9A9DA3",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "dark",
+   "font": "inter",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "relative inline-grid h-8 select-none rounded-full bg-line/60 p-0.5 ",
+     "frame": [
+      0,
+      0,
+      214.33,
+      32
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#2F3034@0.600",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "2px 2px 2px 2px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "absolute inset-y-0.5 rounded-full bg-surface shadow-hairline transition-transform duration-200",
+     "frame": [
+      72,
+      2,
+      70.09,
+      28
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#232427",
+      "fontFamily": "Inter",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 0px 0px 0px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px",
+      "shadow": "transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, #2E3033 0px 0px 0px 1px",
+      "transform": "matrix(1, 0, 0, 1, 70.09375, 0)"
+     }
+    },
+    {
+     "path": "div/button[1]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Checks",
+     "frame": [
+      2,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/button[2]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink",
+     "text": "Activity",
+     "frame": [
+      72.11,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/button[3]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Logs",
+     "frame": [
+      142.22,
+      2,
+      70.11,
+      28
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "Inter",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "\"cv11\", \"ss01\"",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    }
+   ]
+  },
+  {
+   "engine": "webkit",
+   "version": "26.5",
+   "theme": "dark",
+   "font": "sf",
+   "settled": [
+    {
+     "path": "div",
+     "tag": "div",
+     "cls": "relative inline-grid h-8 select-none rounded-full bg-line/60 p-0.5 ",
+     "frame": [
+      0,
+      0,
+      212.73,
+      32
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#2F3034@0.600",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "2px 2px 2px 2px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/span[0]",
+     "tag": "span",
+     "cls": "absolute inset-y-0.5 rounded-full bg-surface shadow-hairline transition-transform duration-200",
+     "frame": [
+      71.5,
+      2,
+      69.56,
+      28
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "#232427",
+      "fontFamily": "-apple-system",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "21px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 0px 0px 0px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px",
+      "shadow": "transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, transparent 0px 0px 0px 0px, #2E3033 0px 0px 0px 1px",
+      "transform": "matrix(1, 0, 0, 1, 69.5625, 0)"
+     }
+    },
+    {
+     "path": "div/button[1]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Checks",
+     "frame": [
+      2,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/button[2]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink",
+     "text": "Activity",
+     "frame": [
+      71.58,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#F2F3F4",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    },
+    {
+     "path": "div/button[3]",
+     "tag": "button",
+     "cls": "relative z-10 rounded-full px-3 text-[13px] font-medium\n            transition-colors duration-150\n            text-ink-3 hover:text-ink-2",
+     "text": "Logs",
+     "frame": [
+      141.16,
+      2,
+      69.58,
+      28
+     ],
+     "style": {
+      "color": "#6C6F75",
+      "background": "transparent",
+      "fontFamily": "-apple-system",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "19.5px",
+      "letterSpacing": "-0.14px",
+      "fontFeatureSettings": "normal",
+      "padding": "0px 12px 0px 12px",
+      "radius": "340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px 340282346638528859811704183484516925440px"
+     }
+    }
+   ]
+  }
+ ]
+}

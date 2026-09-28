@@ -10,7 +10,8 @@
       "!docs/image-experiment/raw",
       "!apps/daemon/internal/report/testdata",
       "!apps/daemon/internal/summary/testdata",
-      "!apps/daemon/internal/mcpserver/testdata"
+      "!apps/daemon/internal/mcpserver/testdata",
+      "!docs/22-swiftui-clone-plan/specs"
     ]
   },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
