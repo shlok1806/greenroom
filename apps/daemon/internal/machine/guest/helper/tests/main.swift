@@ -119,6 +119,7 @@ let tests: [(String, () -> Void)] = [
     ("a row above the view scrolls up", testARowAboveTheViewScrollsUp),
     ("a row in view needs no scroll", testARowInViewNeedsNoScroll),
     ("an element taller than the view is brought to its start", testAnElementTallerThanTheViewIsBroughtToItsStart),
+    ("into view stops above the Dock", testIntoViewStopsAboveTheDock),
     ("sideways distances too", testSidewaysDistancesToo),
     ("wheel steps are short where the distance is and never jump a view", testWheelStepsAreShortWhereTheDistanceIsAndNeverJumpAView),
     ("CGEvent's wheel is the other way round", testCGEventsWheelIsTheOtherWayRound),

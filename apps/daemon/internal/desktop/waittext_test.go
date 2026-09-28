@@ -45,6 +45,15 @@ func TestScrollText(t *testing.T) {
 		{"the element is in view but covered", ScrollResult{Container: items, From: axes(nil, ptr(0.0)), To: axes(nil, ptr(1.0)), Via: "wheel",
 			Target: with2(details, func(n *Node) { n.Covered = &Covered{By: "e70", Role: "Toolbar", Where: "window"} })},
 			`scrolled e20 ScrollArea "Items" y 0% -> 100% (wheel); e45 Button "Details" is still not visible [covered by e70 Toolbar (in this window)]`},
+		// The live run's e92: inside the scroll area's view, but that part of it is under the Dock.
+		{"the element is in the container's view but under the Dock", ScrollResult{Container: items, From: axes(nil, ptr(0.0)), To: axes(nil, ptr(1.0)), AtEnd: true, Via: "wheel", Steps: 3,
+			Target: with2(details, func(n *Node) {
+				n.Covered = &Covered{By: "e94", Role: "DockItem", Name: "System Settings", Where: "other", App: "Dock"}
+			}),
+			Visible: true,
+			Notes:   []string{"e45 is inside e20's view, but that part of the view is under the Dock or the menu bar"}},
+			`scrolled e20 ScrollArea "Items" y 0% -> 100% (at the end, 3 steps, wheel); e45 Button "Details" is still not visible [covered by e94 DockItem "System Settings" (a window of "Dock")]
+note: e45 is inside e20's view, but that part of the view is under the Dock or the menu bar`},
 		{"what else changed is said, what scrolled in and out is not", ScrollResult{Container: items, From: axes(nil, ptr(0.0)), To: axes(nil, ptr(1.0)), AtEnd: true, Steps: 6, Via: "wheel", Target: &details, Visible: true, Before: &loadedBefore, After: &loaded},
 			`scrolled e20 ScrollArea "Items" y 0% -> 100% (at the end, 6 steps, wheel); e45 Button "Details" is now visible
 effect: 2 changes in "TipSplit" besides what scrolled into and out of view
