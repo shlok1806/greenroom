@@ -193,11 +193,14 @@ enum TypeStyle: String, CaseIterable, Sendable {
         return NSFont.systemFont(ofSize: size, weight: weight)
     }
 
-    /// The face's own line: ascender, descender and leading.
-    var naturalLineHeight: CGFloat {
-        let font = nsFont
-        return font.ascender - font.descender + font.leading
-    }
+    /// The face's own line: ascender, descender and leading. Worked out once per style: text
+    /// is measured on every layout, and a new `NSFont` each time showed in every sample (#219).
+    var naturalLineHeight: CGFloat { Self.naturalLineHeights[self] ?? 0 }
+
+    private static let naturalLineHeights: [TypeStyle: CGFloat] = Dictionary(uniqueKeysWithValues: allCases.map { style in
+        let font = style.nsFont
+        return (style, font.ascender - font.descender + font.leading)
+    })
 
     /// The gap between lines that makes each line `lineHeight` tall.
     var lineSpacing: CGFloat { max(0, lineHeight - naturalLineHeight) }

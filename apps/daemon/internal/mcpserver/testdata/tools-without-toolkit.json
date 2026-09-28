@@ -29,7 +29,6 @@
     },
     "name": "agent_send",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "at": {
           "type": "string"
@@ -66,21 +65,18 @@
     },
     "name": "agent_transcript",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "last": {
           "type": "integer"
         },
         "messages": {
           "items": {
-            "additionalProperties": false,
             "properties": {
               "at": {
                 "type": "string"
               },
               "checks": {
                 "items": {
-                  "additionalProperties": false,
                   "properties": {
                     "actions": {
                       "items": {
@@ -148,7 +144,6 @@
                 ]
               },
               "finish": {
-                "additionalProperties": false,
                 "properties": {
                   "at": {
                     "type": "string"
@@ -160,7 +155,6 @@
                     "type": "string"
                   },
                   "ref": {
-                    "additionalProperties": false,
                     "properties": {
                       "branch": {
                         "type": "string"
@@ -231,14 +225,12 @@
           ]
         },
         "verdict": {
-          "additionalProperties": false,
           "properties": {
             "acceptedBy": {
               "type": "string"
             },
             "checks": {
               "items": {
-                "additionalProperties": false,
                 "properties": {
                   "actions": {
                     "items": {
@@ -359,21 +351,18 @@
     },
     "name": "agent_wait",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "last": {
           "type": "integer"
         },
         "messages": {
           "items": {
-            "additionalProperties": false,
             "properties": {
               "at": {
                 "type": "string"
               },
               "checks": {
                 "items": {
-                  "additionalProperties": false,
                   "properties": {
                     "actions": {
                       "items": {
@@ -441,7 +430,6 @@
                 ]
               },
               "finish": {
-                "additionalProperties": false,
                 "properties": {
                   "at": {
                     "type": "string"
@@ -453,7 +441,6 @@
                     "type": "string"
                   },
                   "ref": {
-                    "additionalProperties": false,
                     "properties": {
                       "branch": {
                         "type": "string"
@@ -524,14 +511,12 @@
           ]
         },
         "verdict": {
-          "additionalProperties": false,
           "properties": {
             "acceptedBy": {
               "type": "string"
             },
             "checks": {
               "items": {
-                "additionalProperties": false,
                 "properties": {
                   "actions": {
                     "items": {
@@ -648,7 +633,6 @@
     },
     "name": "machine_approve_capture",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "client": {
           "description": "The bundle URL macOS keys the approval by",
@@ -712,7 +696,6 @@
     },
     "name": "machine_click",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "actions": {
           "type": "integer"
@@ -725,7 +708,6 @@
           "type": "boolean"
         },
         "element": {
-          "additionalProperties": false,
           "properties": {
             "depth": {
               "type": "integer"
@@ -794,7 +776,6 @@
           ]
         },
         "screen": {
-          "additionalProperties": false,
           "properties": {
             "height": {
               "type": "integer"
@@ -847,7 +828,6 @@
     },
     "name": "machine_create",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "agentReconnects": {
           "type": "integer"
@@ -856,7 +836,6 @@
           "type": "number"
         },
         "control": {
-          "additionalProperties": false,
           "properties": {
             "actions": {
               "type": "integer"
@@ -886,7 +865,6 @@
           "type": "string"
         },
         "desktop": {
-          "additionalProperties": false,
           "properties": {
             "clean": {
               "type": "boolean"
@@ -896,7 +874,6 @@
             },
             "unexpectedApps": {
               "items": {
-                "additionalProperties": false,
                 "properties": {
                   "bundleId": {
                     "type": "string"
@@ -922,7 +899,6 @@
             },
             "unexpectedWindows": {
               "items": {
-                "additionalProperties": false,
                 "properties": {
                   "alpha": {
                     "type": "number"
@@ -985,7 +961,6 @@
           "type": "string"
         },
         "files": {
-          "additionalProperties": false,
           "properties": {
             "checkedAt": {
               "type": "string"
@@ -1021,7 +996,6 @@
           "type": "string"
         },
         "models": {
-          "additionalProperties": false,
           "properties": {
             "brain": {
               "type": "string"
@@ -1091,7 +1065,6 @@
     },
     "name": "machine_destroy",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "ok": {
           "type": "boolean"
@@ -1137,7 +1110,6 @@
     },
     "name": "machine_exec",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "execId": {
           "type": "string"
@@ -1218,7 +1190,6 @@
     },
     "name": "machine_exec_wait",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "execId": {
           "type": "string"
@@ -1363,7 +1334,6 @@
     },
     "name": "machine_input",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "actions": {
           "type": "integer"
@@ -1372,7 +1342,6 @@
           "type": "boolean"
         },
         "screen": {
-          "additionalProperties": false,
           "properties": {
             "height": {
               "type": "integer"
@@ -1435,7 +1404,6 @@
     },
     "name": "machine_key",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "actions": {
           "type": "integer"
@@ -1444,7 +1412,6 @@
           "type": "boolean"
         },
         "screen": {
-          "additionalProperties": false,
           "properties": {
             "height": {
               "type": "integer"
@@ -1483,11 +1450,9 @@
     },
     "name": "machine_list",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "machines": {
           "items": {
-            "additionalProperties": false,
             "properties": {
               "agentReconnects": {
                 "type": "integer"
@@ -1496,7 +1461,6 @@
                 "type": "number"
               },
               "control": {
-                "additionalProperties": false,
                 "properties": {
                   "actions": {
                     "type": "integer"
@@ -1526,7 +1490,6 @@
                 "type": "string"
               },
               "desktop": {
-                "additionalProperties": false,
                 "properties": {
                   "clean": {
                     "type": "boolean"
@@ -1536,7 +1499,6 @@
                   },
                   "unexpectedApps": {
                     "items": {
-                      "additionalProperties": false,
                       "properties": {
                         "bundleId": {
                           "type": "string"
@@ -1562,7 +1524,6 @@
                   },
                   "unexpectedWindows": {
                     "items": {
-                      "additionalProperties": false,
                       "properties": {
                         "alpha": {
                           "type": "number"
@@ -1629,7 +1590,6 @@
                 "type": "string"
               },
               "files": {
-                "additionalProperties": false,
                 "properties": {
                   "checkedAt": {
                     "type": "string"
@@ -1673,7 +1633,6 @@
                 "type": "string"
               },
               "models": {
-                "additionalProperties": false,
                 "properties": {
                   "brain": {
                     "type": "string"
@@ -1780,7 +1739,6 @@
     },
     "name": "machine_pull",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "dest": {
           "type": "string"
@@ -1829,7 +1787,6 @@
     },
     "name": "machine_reboot",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "agentReconnects": {
           "type": "integer"
@@ -1838,7 +1795,6 @@
           "type": "number"
         },
         "control": {
-          "additionalProperties": false,
           "properties": {
             "actions": {
               "type": "integer"
@@ -1868,7 +1824,6 @@
           "type": "string"
         },
         "desktop": {
-          "additionalProperties": false,
           "properties": {
             "clean": {
               "type": "boolean"
@@ -1878,7 +1833,6 @@
             },
             "unexpectedApps": {
               "items": {
-                "additionalProperties": false,
                 "properties": {
                   "bundleId": {
                     "type": "string"
@@ -1904,7 +1858,6 @@
             },
             "unexpectedWindows": {
               "items": {
-                "additionalProperties": false,
                 "properties": {
                   "alpha": {
                     "type": "number"
@@ -1967,7 +1920,6 @@
           "type": "string"
         },
         "files": {
-          "additionalProperties": false,
           "properties": {
             "checkedAt": {
               "type": "string"
@@ -2003,7 +1955,6 @@
           "type": "string"
         },
         "models": {
-          "additionalProperties": false,
           "properties": {
             "brain": {
               "type": "string"
@@ -2078,7 +2029,6 @@
     },
     "name": "machine_screenshot",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "bytes": {
           "type": "integer"
@@ -2151,7 +2101,6 @@
     },
     "name": "machine_scroll",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "actions": {
           "type": "integer"
@@ -2160,7 +2109,6 @@
           "type": "boolean"
         },
         "screen": {
-          "additionalProperties": false,
           "properties": {
             "height": {
               "type": "integer"
@@ -2213,7 +2161,6 @@
     },
     "name": "machine_session_close",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "sessionId": {
           "type": "string"
@@ -2255,7 +2202,6 @@
     },
     "name": "machine_session_read",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "dropped": {
           "type": "integer"
@@ -2330,7 +2276,6 @@
     },
     "name": "machine_session_send",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "bytes": {
           "type": "integer"
@@ -2371,7 +2316,6 @@
     },
     "name": "machine_session_start",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "command": {
           "type": "string"
@@ -2435,7 +2379,6 @@
     },
     "name": "machine_sync",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "dest": {
           "type": "string"
@@ -2496,7 +2439,6 @@
     },
     "name": "machine_type",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "actions": {
           "type": "integer"
@@ -2505,7 +2447,6 @@
           "type": "boolean"
         },
         "screen": {
-          "additionalProperties": false,
           "properties": {
             "height": {
               "type": "integer"
@@ -2561,7 +2502,6 @@
     },
     "name": "machine_ui",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "app": {
           "type": "string"
@@ -2583,7 +2523,6 @@
         },
         "elements": {
           "items": {
-            "additionalProperties": false,
             "properties": {
               "depth": {
                 "type": "integer"
@@ -2657,7 +2596,6 @@
           "type": "integer"
         },
         "screen": {
-          "additionalProperties": false,
           "properties": {
             "height": {
               "type": "integer"
@@ -2722,7 +2660,6 @@
     },
     "name": "machine_wait",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "agentReconnects": {
           "type": "integer"
@@ -2731,7 +2668,6 @@
           "type": "number"
         },
         "control": {
-          "additionalProperties": false,
           "properties": {
             "actions": {
               "type": "integer"
@@ -2761,7 +2697,6 @@
           "type": "string"
         },
         "desktop": {
-          "additionalProperties": false,
           "properties": {
             "clean": {
               "type": "boolean"
@@ -2771,7 +2706,6 @@
             },
             "unexpectedApps": {
               "items": {
-                "additionalProperties": false,
                 "properties": {
                   "bundleId": {
                     "type": "string"
@@ -2797,7 +2731,6 @@
             },
             "unexpectedWindows": {
               "items": {
-                "additionalProperties": false,
                 "properties": {
                   "alpha": {
                     "type": "number"
@@ -2860,7 +2793,6 @@
           "type": "string"
         },
         "files": {
-          "additionalProperties": false,
           "properties": {
             "checkedAt": {
               "type": "string"
@@ -2896,7 +2828,6 @@
           "type": "string"
         },
         "models": {
-          "additionalProperties": false,
           "properties": {
             "brain": {
               "type": "string"
@@ -3005,7 +2936,6 @@
     },
     "name": "run_finish",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "destroyError": {
           "description": "Why destroying the machine failed; the finish is recorded anyway. Call machine_destroy.",
@@ -3016,7 +2946,6 @@
           "type": "boolean"
         },
         "finish": {
-          "additionalProperties": false,
           "properties": {
             "at": {
               "type": "string"
@@ -3028,7 +2957,6 @@
               "type": "string"
             },
             "ref": {
-              "additionalProperties": false,
               "properties": {
                 "branch": {
                   "type": "string"
@@ -3057,7 +2985,6 @@
           "type": "object"
         },
         "report": {
-          "additionalProperties": false,
           "properties": {
             "createdAt": {
               "type": "string"
@@ -3069,7 +2996,6 @@
               ]
             },
             "finish": {
-              "additionalProperties": false,
               "properties": {
                 "at": {
                   "type": "string"
@@ -3081,7 +3007,6 @@
                   "type": "string"
                 },
                 "ref": {
-                  "additionalProperties": false,
                   "properties": {
                     "branch": {
                       "type": "string"
@@ -3113,7 +3038,6 @@
               ]
             },
             "models": {
-              "additionalProperties": false,
               "properties": {
                 "brain": {
                   "type": "string"
@@ -3143,14 +3067,12 @@
               "type": "integer"
             },
             "verdict": {
-              "additionalProperties": false,
               "properties": {
                 "acceptedBy": {
                   "type": "string"
                 },
                 "artifacts": {
                   "items": {
-                    "additionalProperties": false,
                     "properties": {
                       "file": {
                         "type": "string"
@@ -3174,11 +3096,9 @@
                 },
                 "checks": {
                   "items": {
-                    "additionalProperties": false,
                     "properties": {
                       "actions": {
                         "items": {
-                          "additionalProperties": false,
                           "properties": {
                             "at": {
                               "type": [
@@ -3190,7 +3110,6 @@
                               "type": "string"
                             },
                             "screenshot": {
-                              "additionalProperties": false,
                               "properties": {
                                 "file": {
                                   "type": "string"
@@ -3229,7 +3148,6 @@
                       },
                       "evidence": {
                         "items": {
-                          "additionalProperties": false,
                           "properties": {
                             "at": {
                               "type": [
@@ -3241,7 +3159,6 @@
                               "type": "string"
                             },
                             "screenshot": {
-                              "additionalProperties": false,
                               "properties": {
                                 "file": {
                                   "type": "string"
@@ -3387,7 +3304,6 @@
     },
     "name": "run_report",
     "outputSchema": {
-      "additionalProperties": false,
       "properties": {
         "createdAt": {
           "type": "string"
@@ -3399,7 +3315,6 @@
           ]
         },
         "finish": {
-          "additionalProperties": false,
           "properties": {
             "at": {
               "type": "string"
@@ -3411,7 +3326,6 @@
               "type": "string"
             },
             "ref": {
-              "additionalProperties": false,
               "properties": {
                 "branch": {
                   "type": "string"
@@ -3443,7 +3357,6 @@
           ]
         },
         "models": {
-          "additionalProperties": false,
           "properties": {
             "brain": {
               "type": "string"
@@ -3473,14 +3386,12 @@
           "type": "integer"
         },
         "verdict": {
-          "additionalProperties": false,
           "properties": {
             "acceptedBy": {
               "type": "string"
             },
             "artifacts": {
               "items": {
-                "additionalProperties": false,
                 "properties": {
                   "file": {
                     "type": "string"
@@ -3504,11 +3415,9 @@
             },
             "checks": {
               "items": {
-                "additionalProperties": false,
                 "properties": {
                   "actions": {
                     "items": {
-                      "additionalProperties": false,
                       "properties": {
                         "at": {
                           "type": [
@@ -3520,7 +3429,6 @@
                           "type": "string"
                         },
                         "screenshot": {
-                          "additionalProperties": false,
                           "properties": {
                             "file": {
                               "type": "string"
@@ -3559,7 +3467,6 @@
                   },
                   "evidence": {
                     "items": {
-                      "additionalProperties": false,
                       "properties": {
                         "at": {
                           "type": [
@@ -3571,7 +3478,6 @@
                           "type": "string"
                         },
                         "screenshot": {
-                          "additionalProperties": false,
                           "properties": {
                             "file": {
                               "type": "string"

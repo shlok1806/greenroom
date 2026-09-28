@@ -120,6 +120,110 @@ final class AgentAnimationTests: XCTestCase {
         XCTAssertTrue(AgentMarkdown.caret.isTemplate)
     }
 
+    // MARK: - A message streaming in (companion ADR 0020)
+
+    typealias Block = MarkdownText.Block
+    typealias Span = MarkdownText.Span
+
+    /// The words shown, as plain text, once `shown` words are revealed.
+    private func shown(_ text: String, _ count: Int) -> String {
+        MarkdownText.plain(StreamReveal.cut(MarkdownText.blocks(text), shown: count, settled: count))
+    }
+
+    func testAShortReplyStreamsAtThirtyWordsASecondFirstWordAtOnce() {
+        XCTAssertEqual(StreamReveal.rate(20), 30)
+        XCTAssertEqual(StreamReveal.revealed(20, elapsed: 0), 1, "the first word shows at once")
+        XCTAssertEqual(StreamReveal.revealed(20, elapsed: 0.1), 4)
+        XCTAssertEqual(StreamReveal.revealed(20, elapsed: 0.5), 16)
+        XCTAssertEqual(StreamReveal.revealed(20, elapsed: 5), 20)
+        XCTAssertEqual(StreamReveal.revealed(0, elapsed: 1), 0)
+        XCTAssertEqual(StreamReveal.duration(20), 19.0 / 30 + 0.18, accuracy: 1e-9)
+    }
+
+    func testALongMessageCatchesUpAndNeverTakesMoreThanTwoSeconds() {
+        for words in [60, 61, 200, 1_000, 10_000] {
+            XCTAssertLessThanOrEqual(StreamReveal.duration(words), StreamReveal.longestReveal + StreamReveal.wordFade, "\(words)")
+            XCTAssertEqual(StreamReveal.revealed(words, elapsed: StreamReveal.longestReveal), words, "\(words)")
+        }
+        XCTAssertEqual(StreamReveal.rate(600), 300)
+    }
+
+    func testRevealIsMonotonicAsTheClockRuns() {
+        var last = 0
+        for frame in 0...200 {
+            let count = StreamReveal.revealed(90, elapsed: Double(frame) / 60)
+            XCTAssertGreaterThanOrEqual(count, last)
+            last = count
+        }
+        XCTAssertEqual(last, 90)
+    }
+
+    func testEachWordFadesUpOverItsOwnFewHundredthsOfASecond() {
+        let landing = StreamReveal.landing(5, of: 20)
+        XCTAssertEqual(StreamReveal.motion(5, of: 20, elapsed: landing).opacity, 0)
+        XCTAssertEqual(StreamReveal.motion(5, of: 20, elapsed: landing).offset, StreamReveal.wordRise)
+        let middle = StreamReveal.motion(5, of: 20, elapsed: landing + StreamReveal.wordFade / 2)
+        XCTAssertGreaterThan(middle.opacity, 0.5, "the design's out curve is past half by halfway")
+        XCTAssertLessThan(middle.opacity, 1)
+        XCTAssertEqual(StreamReveal.motion(5, of: 20, elapsed: landing + StreamReveal.wordFade).opacity, 1)
+        XCTAssertEqual(StreamReveal.motion(5, of: 20, elapsed: landing + StreamReveal.wordFade).offset, 0)
+        XCTAssertTrue((0.15...0.2).contains(StreamReveal.wordFade))
+    }
+
+    func testTheCutFallsBetweenWordsNeverInsideOneOrAMarkdownToken() {
+        let text = "The **tip reads** `$24.00`, not _twenty_ dollars."
+        XCTAssertEqual(StreamReveal.words(MarkdownText.blocks(text)), 7)
+        XCTAssertEqual(shown(text, 1), "The ")
+        XCTAssertEqual(shown(text, 2), "The tip ")
+        XCTAssertEqual(shown(text, 3), "The tip reads ")
+        XCTAssertEqual(shown(text, 4), "The tip reads $24.00, ", "a word runs across styles to the next space")
+        XCTAssertEqual(shown(text, 7), "The tip reads $24.00, not twenty dollars.")
+        guard case .paragraph(let spans)? = StreamReveal.cut(MarkdownText.blocks(text), shown: 2, settled: 2).first else {
+            return XCTFail("a paragraph")
+        }
+        XCTAssertEqual(spans.map(\.text), ["The ", "tip "])
+        XCTAssertEqual(spans[1].style, .strong, "bold shows bold at once, never as stars")
+    }
+
+    func testBlocksRevealInOrderListsByItemCodeByLine() {
+        let text = "Found:\n\n- one two\n- three\n\n```\nline a\nline b\n```\n\nDone."
+        let blocks = MarkdownText.blocks(text)
+        XCTAssertEqual(StreamReveal.words(blocks), 1 + 3 + 2 + 1)
+        XCTAssertEqual(StreamReveal.cut(blocks, shown: 2, settled: 2).count, 2)
+        guard case .list(_, _, let items)? = StreamReveal.cut(blocks, shown: 2, settled: 2).last else { return XCTFail("a list") }
+        XCTAssertEqual(items.count, 1)
+        guard case .code(_, let code)? = StreamReveal.cut(blocks, shown: 5, settled: 5).last else { return XCTFail("code") }
+        XCTAssertEqual(code, "line a")
+        XCTAssertEqual(StreamReveal.cut(blocks, shown: 7, settled: 7), blocks)
+    }
+
+    func testOnlyWordsStillFadingAreMarkedArriving() {
+        let blocks = MarkdownText.blocks("one two three four")
+        guard case .paragraph(let spans)? = StreamReveal.cut(blocks, shown: 4, settled: 2).first else { return XCTFail("a paragraph") }
+        XCTAssertEqual(spans.map(\.text), ["one two ", "three ", "four"])
+        XCTAssertEqual(spans.map(\.arriving), [nil, 2, 3])
+    }
+
+    /// The arriving words really are drawn faded inside the paragraph's one `Text`.
+    func testArrivingWordsDrawFadedThenWhole() async throws {
+        let blocks = MarkdownText.blocks("Settled words then **ARRIVING** words")
+        let cut = StreamReveal.cut(blocks, shown: 5, settled: 3)
+        func ink(_ elapsed: Double) async throws -> Int {
+            let host = ParkedHost(AgentMarkdown(blocks: cut).textRenderer(ArrivingWords(words: 5, elapsed: elapsed))
+                .frame(width: 400, height: 60, alignment: .topLeading).background(Color.white), size: CGSize(width: 400, height: 60))
+            defer { host.close() }
+            await host.settle(0.2)
+            let image = try XCTUnwrap(host.image())
+            let data = try XCTUnwrap(image.dataProvider?.data as Data?)
+            var dark = 0
+            for index in stride(from: 0, to: data.count - 3, by: 4) where data[index] < 128 { dark += 1 }
+            return dark
+        }
+        let early = try await ink(StreamReveal.landing(3, of: 5))
+        let late = try await ink(10)
+        XCTAssertGreaterThan(late, early + 50, "the arriving words drew at full ink only once their fade ended")
+    }
+
     // MARK: - Arrivals
 
     func testOnlyWhatArrivesWhileTheViewIsOpenFadesUpInOrder() {

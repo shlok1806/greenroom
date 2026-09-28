@@ -72,7 +72,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		Image string `json:"image,omitempty" jsonschema:"OCI image to clone. Defaults to the daemon's configured image."`
 		Name  string `json:"name,omitempty" jsonschema:"What this run checks, in five words or fewer, e.g. 'TipSplit: split the bill'. The person watching sees the run by this name; longer names are cut to five words."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_create",
 		Description: "Clone and start a fresh macOS machine. Returns at once with status booting and the runId every " +
 			"other tool needs. Call machine_wait next; boot takes 30 to 90 seconds. Machines run headless; " +
@@ -97,7 +97,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		RunID          string `json:"runId" jsonschema:"runId from machine_create"`
 		TimeoutSeconds int    `json:"timeoutSeconds,omitempty" jsonschema:"How long to wait before returning the current status. Default 45, max 50."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_wait",
 		Description: "Wait for a machine to finish booting, or rebooting after machine_reboot. Returns its status: booting or rebooting (call again), ready (ip and " +
 			"bootSeconds are set), or failed (error is set). A ready machine also reports toolchain, what its image " +
@@ -120,7 +120,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 	type listOut struct {
 		Machines []listedMachine `json:"machines"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_list",
 		Description: "List live machines on this daemon with their runIds, status, how long each has been idle " +
 			"(idleSeconds: no tool step or message since lastActivity), and who is at it (watchers on its live screen, " +
@@ -145,7 +145,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		Exclude []string `json:"exclude,omitempty" jsonschema:"rsync exclude patterns, e.g. node_modules, .git, build. An excluded path is neither copied nor deleted by mirror, and is never a stray."`
 		Mirror  bool     `json:"mirror,omitempty" jsonschema:"Delete what dest has and source does not (rsync --delete), so dest holds exactly the source. Deletes only inside dest, never an excluded path; refused for a dest less than two levels below the home, under Library or a hidden top-level directory, or reached through a symlink. Default false: nothing is deleted."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_sync",
 		Description: "Copy a host directory into the machine with rsync. Fast on repeat calls; only changed files move. " +
 			"By default nothing in dest is ever deleted: files an earlier sync left there stay and get built. The " +
@@ -166,7 +166,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		Dest    string   `json:"dest,omitempty" jsonschema:"Absolute directory on the host to copy into, made if missing. Defaults to a new NNN-pull directory in the run's directory."`
 		Exclude []string `json:"exclude,omitempty" jsonschema:"rsync exclude patterns, e.g. node_modules, .git, build"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_pull",
 		Description: "Copy a file or directory out of the machine to the host with rsync: build products, logs, test " +
 			"reports, an .app bundle. source is a guest path, relative to the home, with ~/, or absolute. A " +
@@ -189,7 +189,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		TimeoutSeconds int    `json:"timeoutSeconds,omitempty" jsonschema:"Kill the command and its children in the guest after this many seconds. Default 600. The result then has timedOut true, exit code 124, and the output printed until then."`
 		WaitSeconds    int    `json:"waitSeconds,omitempty" jsonschema:"How long this call waits for the command before returning running true with an execId. Default 45, max 50. The command keeps running either way; this is not its timeout."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_exec",
 		Description: fmt.Sprintf("Run a shell command inside the machine and return stdout, stderr and the exit code. "+
 			"The shell is a login zsh that is not interactive (zsh -lc). "+
@@ -223,7 +223,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		ExecID      string `json:"execId" jsonschema:"execId from a machine_exec that returned running true"`
 		WaitSeconds int    `json:"waitSeconds,omitempty" jsonschema:"How long to wait for the command to finish before answering running true again. Default 45, max 50."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_exec_wait",
 		Description: "Wait for a command machine_exec started and returned with running true. Returns the same " +
 			"result machine_exec would have: running true (call again), or running false with exitCode, stdout " +
@@ -245,7 +245,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		Client string `json:"client" jsonschema:"The bundle URL macOS keys the approval by"`
 		Step   int    `json:"step"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_approve_capture",
 		Description: "Pre-approve an app under test that captures the screen itself (ScreenCaptureKit, a screen " +
 			"recorder), so macOS does not cover the screen with \"<App> is requesting to bypass the system private " +
@@ -265,7 +265,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 	type destroyOut struct {
 		OK bool `json:"ok"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_destroy",
 		Description: "Stop and delete the machine. The run's recording stays on disk. To end a job, prefer run_finish: it " +
 			"records how the run ended and destroys the machine in one call. Only destroy a run your own " +
@@ -294,7 +294,7 @@ func addScreenshotTool(s *mcp.Server, mgr *machine.Manager) {
 	type runIn struct {
 		RunID string `json:"runId" jsonschema:"runId from machine_create"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "machine_screenshot",
 		Description: screenshotDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, machine.Shot, error) {

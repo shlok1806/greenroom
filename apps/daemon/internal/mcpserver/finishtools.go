@@ -42,7 +42,7 @@ func addFinishTools(s *mcp.Server, mgr *machine.Manager, reg *session.Registry, 
 		DestroyError string         `json:"destroyError,omitempty" jsonschema:"Why destroying the machine failed; the finish is recorded anyway. Call machine_destroy."`
 		Report       report.Report  `json:"report"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "run_finish",
 		Description: "End your job on this run and get its proof. Call it once, when the work is done or given up. " +
 			"outcome is verified, unverified or abandoned. verified is accepted only when the run's current verdict " +
@@ -111,7 +111,7 @@ func addFinishTools(s *mcp.Server, mgr *machine.Manager, reg *session.Registry, 
 		Format string `json:"format,omitempty" jsonschema:"md (default): the text is Markdown to paste into a PR body or comment. json: the text is the report as JSON. The structured result is the JSON report either way."`
 		Embed  bool   `json:"embed,omitempty" jsonschema:"Put each evidence screenshot in the report as a data URI instead of a link, for a place that cannot reach this daemon. Large: about 0.7 MB per screenshot."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "run_report",
 		Description: "Read a run's proof, finished or not, live or destroyed: the task, how the run finished (outcome, " +
 			"summary, ref), the models that verified it, times, and the verdict with every check: its kinds, status, " +
