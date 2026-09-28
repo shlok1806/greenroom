@@ -37,6 +37,10 @@ import (
 //	input-down          the input helper refuses every event
 //	screen              "<width>x<height>" the input helper reports (default 1024x768)
 //	shot.b64            base64 PNG a screenshot returns
+//	shot-hang           a screenshot hangs this many seconds and returns nothing, like a guest
+//	                    whose WindowServer is wedged (issue #187)
+//	ui-hang             the input helper's --ui-base64 hangs this many seconds
+//	input-install-sleep compiling the guest input helper takes this many seconds
 //	ui.json             what the input helper's --ui-base64 prints (default: Finder, no elements)
 //	crash-report        what the crash report lookup prints: a report's path, then its exception
 //	                    line (default: nothing, no report)
@@ -47,11 +51,15 @@ import (
 //	tart-version        what `tart --version` prints (default tart.PinnedVersion)
 //	list-empty          `tart list` returns []
 //	list.json           `tart list` prints this file as it is (wins over the two below)
-//	vmnames, vmname     `tart list` reports these VMs running (default: one unrelated VM)
+//	vmnames, vmname     `tart list` reports these VMs running (default: one unrelated VM), or
+//	                    stopped once `tart stop <name>` stopped one and no `tart run <name>` followed
+//	stop-sleep          `tart stop` takes this many seconds
 //
 // The script writes session-stdin ("tty <rows> <cols>" or "pipe"), exec-stdin (every script
 // machine_exec sent on stdin, ExecStdin), a session's files
-// (greenroom-session.<id> and .pid, ADR 0017) and stopped (after stop or delete).
+// (greenroom-session.<id> and .pid, ADR 0017), stopped (after stop or delete) and stop-<name>
+// (after `tart stop <name>`). A `tart run <name>` after a stop of that name removes both, so
+// the VM boots again as machine_reboot's does (daemon ADR 0004).
 // `--serve` runs the fake live screen helper; its own control files are listed in fakescreen.go.
 // machine_pull's probe and tar (greenroom-pull-probe, greenroom-pull-tar) run for real on the
 // host, with $HOME as the guest home.
@@ -83,6 +91,9 @@ case "$sub" in
     exit 0 ;;
   run)
     [ -f "$C/fail-run" ] && { echo "The number of VMs exceeds the system limit" >&2; exit 1; }
+    # A VM stopped by name (tart stop <name>) boots again, as machine_reboot does: its stop
+    # marks go, so this run is not ended by the stop that came before it.
+    if [ -f "$C/stop-$1" ]; then rm -f "$C/stop-$1" "$C/stopped"; fi
     # Stays in the foreground like a real VM, but never outlives the test: it exits on stop,
     # when the control directory is removed, or after 5 minutes.
     i=0
@@ -233,9 +244,11 @@ case "$sub" in
         if [ -f "$C/input-stale" ]; then echo "stale greenroom-input-2"; else echo current; fi
         exit 0 ;;
       *swiftc*)
+        [ -f "$C/input-install-sleep" ] && sleep "$(cat "$C/input-install-sleep")"
         [ -f "$C/fail-input-install" ] && { echo "swiftc: command not found" >&2; exit 1; }
         exit 0 ;;
       *"greenroom-input"*"--ui-base64"*)
+        [ -f "$C/ui-hang" ] && exec sleep "$(cat "$C/ui-hang")"
         [ -f "$C/input-down" ] && { echo '{"error":"this machine has not granted Accessibility"}' >&2; exit 1; }
         if [ -f "$C/ui.json" ]; then cat "$C/ui.json"; else
           echo '{"app":{"name":"Finder","bundleId":"com.apple.finder","pid":1},"apps":["Finder"],"screen":{"width":1024,"height":768},"elements":[],"truncated":false}'
@@ -253,7 +266,13 @@ case "$sub" in
     # machine_exec's own command (the greenroom-exec wrapper).
     case "$*" in
       *greenroom-exec*)
-        [ -f "$C/exec-sleep" ] && sleep "$(cat "$C/exec-sleep")"
+        # In short steps: a killed tart exec returns at once, and so must this script, which
+        # an orphaned long sleep would keep holding its output pipes (a reboot or destroy
+        # kills the host exec of a running command).
+        if [ -f "$C/exec-sleep" ]; then
+          n=$(($(cat "$C/exec-sleep") * 10)); i=0
+          while [ "$i" -lt "$n" ]; do sleep 0.1; i=$((i + 1)); done
+        fi
         [ -f "$C/exec-stdout" ] && { cat "$C/exec-stdout"; exit 0; } ;;
     esac
     for f in "$C"/exec-exit-*; do
@@ -264,7 +283,9 @@ case "$sub" in
     done
     # Screenshots come before exec-codes so a timed frame capture cannot consume a queued code.
     case "$*" in
-      *base64*) cat "$C/shot.b64" 2>/dev/null; exit 0 ;;
+      *base64*)
+        [ -f "$C/shot-hang" ] && exec sleep "$(cat "$C/shot-hang")"
+        cat "$C/shot.b64" 2>/dev/null; exit 0 ;;
       *screencapture*) exit 0 ;;
     esac
     if [ -f "$C/exec-codes" ]; then
@@ -286,16 +307,20 @@ case "$sub" in
       out=""
       while IFS= read -r n; do
         [ -n "$n" ] || continue
-        out="$out{\"Source\":\"local\",\"Name\":\"$n\",\"State\":\"running\"},"
+        s=running; [ -f "$C/stop-$n" ] && s=stopped
+        out="$out{\"Source\":\"local\",\"Name\":\"$n\",\"State\":\"$s\"},"
       done < "$C/vmnames"
       printf '[%s]\n' "${out%,}"
     else
-      printf '[{"Source":"local","Name":"%s","State":"running"}]\n' "$(cat "$C/vmname" 2>/dev/null || true)"
+      n=$(cat "$C/vmname" 2>/dev/null || true)
+      s=running; [ -n "$n" ] && [ -f "$C/stop-$n" ] && s=stopped
+      printf '[{"Source":"local","Name":"%s","State":"%s"}]\n' "$n" "$s"
     fi
     exit 0 ;;
   stop)
     [ -f "$C/fail-stop" ] && { echo "Error: cannot stop" >&2; exit 1; }
-    touch "$C/stopped"; exit 0 ;;
+    [ -f "$C/stop-sleep" ] && sleep "$(cat "$C/stop-sleep")"
+    touch "$C/stopped" "$C/stop-$1"; exit 0 ;;
   delete)
     [ -f "$C/fail-delete" ] && { echo "Error: cannot delete" >&2; exit 1; }
     touch "$C/stopped"; exit 0 ;;

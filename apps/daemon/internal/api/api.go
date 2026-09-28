@@ -3,6 +3,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -27,6 +28,8 @@ type api struct {
 	upLocks map[string]*sync.Mutex // per run, held while its uploads are written or removed
 
 	models report.Models // the verifier's models, for run reports (ADR 0034)
+
+	sums summaries // finished runs' summaries (ADR 0036)
 }
 
 // runHandler is a route under /api/runs/{id} whose run is known to exist.
@@ -54,8 +57,10 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger, opts ...
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/runs", a.listRuns)
 	mux.HandleFunc("GET /api/events", a.events)
+	mux.HandleFunc("GET /api/summary", a.board)
 	for pattern, h := range map[string]runHandler{
 		"GET /api/runs/{id}":                     a.runDetail,
+		"GET /api/runs/{id}/summary":             a.oneSummary,
 		"GET /api/runs/{id}/steps":               a.runSteps,
 		"GET /api/runs/{id}/frames":              a.runFrames,
 		"GET /api/runs/{id}/frames/{file...}":    a.frameFile,
@@ -71,6 +76,7 @@ func New(mgr *machine.Manager, reg *session.Registry, log *slog.Logger, opts ...
 		"DELETE /api/runs/{id}/control":          a.releaseControl,
 		"POST /api/runs/{id}/input":              a.input,
 		"POST /api/runs/{id}/destroy":            a.destroy,
+		"POST /api/runs/{id}/reboot":             a.reboot,
 	} {
 		mux.HandleFunc(pattern, a.withRun(h))
 	}
@@ -113,10 +119,10 @@ func (a *api) decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-// failMachine reports a machine operation's error: 409 when the machine is gone, 500 otherwise.
+// failMachine reports a machine operation's error: 409 when the machine is gone or rebooting, 500 otherwise.
 func (a *api) failMachine(w http.ResponseWriter, runID string, err error) {
 	code := http.StatusInternalServerError
-	if !a.mgr.Live(runID) {
+	if !a.mgr.Live(runID) || errors.Is(err, machine.ErrRebooting) {
 		code = http.StatusConflict
 	}
 	a.fail(w, code, err)

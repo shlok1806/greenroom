@@ -26,13 +26,66 @@ func newBoot(mc *Machine) context.Context {
 func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Time) {
 	defer close(mc.bootDone)
 	defer mc.bootCancel()
+	timings := map[string]any{}
+	got, err := m.bootGuest(boot, mc, timings)
+	ip := got.ip
+
+	m.mu.Lock()
+	if !m.liveLocked(mc) {
+		m.mu.Unlock()
+		close(mc.ready)
+		return
+	}
+	if err != nil {
+		mc.Status, mc.Error = Failed, err.Error()
+		mc.vmDeleted = true // cleanupVM below; Destroy waits for this boot, so it cannot miss it
+	} else {
+		mc.Status, mc.IP, mc.BootSeconds = Ready, ip, round1(time.Since(started))
+		mc.Toolchain, mc.Desktop = got.toolchain, got.desktop
+	}
+	gen := mc.gen
+	m.mu.Unlock()
+	m.persist()
+
+	// The boot step is on disk before ready closes, so a caller returning from
+	// Wait reads a record that agrees with it.
+	if uerr := mc.rec.update(func(man *Manifest) { man.IP = ip }); uerr != nil {
+		m.Log.Warn("cannot write the run manifest", "runId", mc.RunID, "err", uerr)
+	}
+	timings["status"], timings["ip"], timings["bootSeconds"] = mc.Status, ip, mc.BootSeconds
+	seq := mc.rec.step("machine_boot", nil, timings, err, started)
+	close(mc.ready)
+	m.emitStep(mc.RunID, seq)
+	if err != nil {
+		m.Log.Warn("machine failed to boot", "runId", mc.RunID, "err", err)
+		m.cleanupVM(mc.Name)
+		mc.rec.markEnded()
+		m.emit(LifecycleEvent{Kind: "failed", RunID: mc.RunID, Machine: m.snapshot(mc)})
+		return
+	}
+	m.Log.Info("machine ready", "runId", mc.RunID, "ip", ip, "bootSeconds", mc.BootSeconds,
+		"agentSeconds", timings["agentSeconds"], "sshSeconds", timings["sshSeconds"])
+	m.emit(LifecycleEvent{Kind: "ready", RunID: mc.RunID, Machine: m.snapshot(mc)})
+	m.watchProcess(mc, gen)
+	m.startFrames(mc, gen)
+}
+
+// guestBoot is what the boot phases found out about the guest.
+type guestBoot struct {
+	ip        string
+	toolchain map[string]any
+	desktop   *DesktopReport
+}
+
+// bootGuest runs the phases that take a started VM to usable: agent, ip, key, settings,
+// helper, checks, ssh. finishBoot runs them after Create, and machine_reboot after it
+// starts the clone again (daemon ADR 0004). Each phase's time and every non-fatal error land
+// in timings. boot bounds the whole of it.
+func (m *Manager) bootGuest(boot context.Context, mc *Machine, timings map[string]any) (guestBoot, error) {
 	ctx, cancel := context.WithTimeout(boot, m.readyTimeout)
 	defer cancel()
 
-	var ip string
-	var toolchain map[string]any
-	var desktop *DesktopReport
-	timings := map[string]any{}
+	var got guestBoot
 	phase := func(key string, fn func() error) error {
 		at := time.Now()
 		err := fn()
@@ -45,7 +98,7 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 		err := fn()
 		detail := ""
 		if name == PhaseIP {
-			detail = ip
+			detail = got.ip
 		}
 		end(detail, err)
 		return err
@@ -53,7 +106,7 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 	err := shown(PhaseAgent, func() error { return phase("agentSeconds", func() error { return m.waitReady(ctx, mc) }) })
 	if err == nil {
 		err = shown(PhaseIP, func() error {
-			return phase("ipSeconds", func() (err error) { ip, err = m.tart.IP(ctx, mc.Name); return err })
+			return phase("ipSeconds", func() (err error) { got.ip, err = m.tart.IP(ctx, mc.Name); return err })
 		})
 	}
 	if err == nil {
@@ -91,18 +144,18 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 		// (ADR 0018), for machine_wait. Neither is fatal, and the desktop is only reported.
 		_ = phase("toolchainSeconds", func() error {
 			var terr error
-			if toolchain, terr = readToolchain(ctx, m.tart, mc.Name); terr != nil {
+			if got.toolchain, terr = readToolchain(ctx, m.tart, mc.Name); terr != nil {
 				timings["toolchainError"] = terr.Error()
 			}
-			m.warnStaleRecipe(mc, toolchain, timings)
+			m.warnStaleRecipe(mc, got.toolchain, timings)
 			return terr
 		})
 		_ = phase("desktopSeconds", func() error {
-			desktop = m.checkDesktop(ctx, mc)
-			if desktop.Error != "" {
-				timings["desktopError"] = desktop.Error
-			} else if !desktop.Clean {
-				timings["desktopFindings"] = desktop.Findings()
+			got.desktop = m.checkDesktop(ctx, mc)
+			if got.desktop.Error != "" {
+				timings["desktopError"] = got.desktop.Error
+			} else if !got.desktop.Clean {
+				timings["desktopFindings"] = got.desktop.Findings()
 			}
 			return nil
 		})
@@ -113,69 +166,39 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 			return phase("sshSeconds", func() error {
 				sshCtx, sshCancel := context.WithTimeout(boot, m.readyTimeout)
 				defer sshCancel()
-				return m.waitSSH(sshCtx, mc, ip)
+				return m.waitSSH(sshCtx, mc, got.ip)
 			})
 		})
 	}
-
-	m.mu.Lock()
-	if !m.liveLocked(mc) {
-		m.mu.Unlock()
-		close(mc.ready)
-		return
-	}
-	if err != nil {
-		mc.Status, mc.Error = Failed, err.Error()
-	} else {
-		mc.Status, mc.IP, mc.BootSeconds = Ready, ip, round1(time.Since(started))
-		mc.Toolchain, mc.Desktop = toolchain, desktop
-	}
-	m.mu.Unlock()
-	m.persist()
-
-	// The boot step is on disk before ready closes, so a caller returning from
-	// Wait reads a record that agrees with it.
-	if uerr := mc.rec.update(func(man *Manifest) { man.IP = ip }); uerr != nil {
-		m.Log.Warn("cannot write the run manifest", "runId", mc.RunID, "err", uerr)
-	}
-	timings["status"], timings["ip"], timings["bootSeconds"] = mc.Status, ip, mc.BootSeconds
-	seq := mc.rec.step("machine_boot", nil, timings, err, started)
-	close(mc.ready)
-	m.emitStep(mc.RunID, seq)
-	if err != nil {
-		m.Log.Warn("machine failed to boot", "runId", mc.RunID, "err", err)
-		m.cleanupVM(mc.Name)
-		mc.rec.markEnded()
-		m.emit(LifecycleEvent{Kind: "failed", RunID: mc.RunID, Machine: m.snapshot(mc)})
-		return
-	}
-	m.Log.Info("machine ready", "runId", mc.RunID, "ip", ip, "bootSeconds", mc.BootSeconds,
-		"agentSeconds", timings["agentSeconds"], "sshSeconds", timings["sshSeconds"])
-	m.emit(LifecycleEvent{Kind: "ready", RunID: mc.RunID, Machine: m.snapshot(mc)})
-	m.watchProcess(mc)
-	m.startFrames(mc)
+	return got, err
 }
 
 // watchProcess fails a ready machine whose VM stops. This daemon's `tart run`
 // stays in the foreground for the life of the VM; a reattached machine's
-// belongs to an earlier daemon, so tart is polled for it instead.
-func (m *Manager) watchProcess(mc *Machine) {
-	if mc.proc != nil {
+// belongs to an earlier daemon, so tart is polled for it instead. gen is the
+// boot being watched: the stop machine_reboot makes ends an earlier boot's
+// watch without a word.
+func (m *Manager) watchProcess(mc *Machine, gen int) {
+	m.mu.Lock()
+	proc := mc.proc // a reboot replaces it
+	m.mu.Unlock()
+	go m.watchFiles(mc, gen)
+	if proc != nil {
 		go func() {
-			mc.proc.Wait()
-			m.machineGone(mc, mc.proc.Err())
+			proc.Wait()
+			m.machineGone(mc, gen, proc.Err())
 		}()
 		return
 	}
-	go m.watchVM(mc)
+	go m.watchVM(mc, gen)
 }
 
-// watchVM polls tart until the reattached machine leaves the map or its VM stops.
-func (m *Manager) watchVM(mc *Machine) {
+// watchVM polls tart until the reattached machine leaves the map, is rebooted or its VM stops.
+func (m *Manager) watchVM(mc *Machine, gen int) {
 	for {
 		time.Sleep(m.vmPoll)
 		m.mu.Lock()
-		alive := m.liveLocked(mc)
+		alive := m.liveLocked(mc) && mc.gen == gen
 		m.mu.Unlock()
 		if !alive {
 			return
@@ -188,7 +211,7 @@ func (m *Manager) watchVM(mc *Machine) {
 			continue
 		}
 		if !running[mc.Name] {
-			m.machineGone(mc, errors.New("tart no longer lists the VM as running"))
+			m.machineGone(mc, gen, errors.New("tart no longer lists the VM as running"))
 			return
 		}
 	}
@@ -210,14 +233,17 @@ func (m *Manager) runningVMs(ctx context.Context) (map[string]bool, error) {
 }
 
 // machineGone ends the run of a machine whose VM stopped on its own. A machine
-// already destroyed is left alone, since that stop is expected.
-func (m *Manager) machineGone(mc *Machine, cause error) {
+// already destroyed is left alone, since that stop is expected, and so is one
+// rebooted since boot gen was watched: machine_reboot stops the VM on purpose and
+// keeps its clone (daemon ADR 0004).
+func (m *Manager) machineGone(mc *Machine, gen int, cause error) {
 	m.mu.Lock()
-	if !m.liveLocked(mc) {
+	if !m.liveLocked(mc) || mc.gen != gen {
 		m.mu.Unlock()
 		return
 	}
 	mc.Status, mc.Error = Failed, cause.Error()
+	mc.vmDeleted = true // cleanupVM below
 	live := m.forgetLocked(mc)
 	m.mu.Unlock()
 	closeSessions(live)
@@ -230,14 +256,14 @@ func (m *Manager) machineGone(mc *Machine, cause error) {
 }
 
 // startFrames starts the frame recorder unless recording is off or the
-// machine was destroyed after it became ready.
-func (m *Manager) startFrames(mc *Machine) {
+// machine was destroyed or rebooted after boot gen made it ready.
+func (m *Manager) startFrames(mc *Machine, gen int) {
 	if m.frameInterval <= 0 {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.mu.Lock()
-	if !m.liveLocked(mc) {
+	if !m.liveLocked(mc) || mc.gen != gen || mc.Status != Ready {
 		m.mu.Unlock()
 		cancel()
 		return
@@ -251,7 +277,7 @@ func (m *Manager) startFrames(mc *Machine) {
 	}()
 }
 
-// Wait blocks until the machine leaves Booting or timeout passes, and
+// Wait blocks until the machine leaves Booting or Rebooting or timeout passes, and
 // returns its current state either way.
 func (m *Manager) Wait(ctx context.Context, runID string, timeout time.Duration) (*Machine, error) {
 	mc, err := m.get(runID)
@@ -259,7 +285,7 @@ func (m *Manager) Wait(ctx context.Context, runID string, timeout time.Duration)
 		return nil, err
 	}
 	select {
-	case <-mc.ready:
+	case <-m.readyCh(mc):
 	case <-time.After(timeout):
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -267,19 +293,38 @@ func (m *Manager) Wait(ctx context.Context, runID string, timeout time.Duration)
 	return m.snapshot(mc), nil
 }
 
-// awaitReady is what every tool that touches the guest calls first.
+// awaitReady is what every tool that touches the guest calls first. A machine
+// that is rebooting is refused at once: its reboot takes longer than any call may wait.
 func (m *Manager) awaitReady(ctx context.Context, mc *Machine) error {
+	m.mu.Lock()
+	ready, status := mc.ready, mc.Status
+	m.mu.Unlock()
+	if status == Rebooting {
+		return rebootingError(mc.RunID)
+	}
 	select {
-	case <-mc.ready:
+	case <-ready:
 	case <-time.After(readyGrace):
 		return fmt.Errorf("machine %s is still booting; call machine_wait and try again", mc.RunID)
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	if st := m.snapshot(mc); st.Status != Ready {
+	switch st := m.snapshot(mc); st.Status {
+	case Ready:
+		return nil
+	case Rebooting:
+		return rebootingError(mc.RunID)
+	default:
 		return fmt.Errorf("machine %s is %s: %s", mc.RunID, st.Status, st.Error)
 	}
-	return nil
+}
+
+// readyCh is the channel the machine's current boot closes when it leaves Booting or
+// Rebooting. A reboot replaces it, so it is read under m.mu.
+func (m *Manager) readyCh(mc *Machine) <-chan struct{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return mc.ready
 }
 
 // waitReady polls the guest agent over vsock until it answers.

@@ -37,7 +37,7 @@ func machineStatus(ctx context.Context, mgr *machine.Manager, runID string) stri
 	}
 	line += "."
 	switch mc.Status {
-	case machine.Booting:
+	case machine.Booting, machine.Rebooting:
 		line += " " + bootingAdvice
 	case machine.Failed:
 		line += " " + deadAdvice
@@ -57,6 +57,8 @@ func unusable(ctx context.Context, mgr *machine.Manager, runID string) string {
 		return ""
 	case machine.Booting:
 		return "the machine is still booting"
+	case machine.Rebooting:
+		return "the machine is rebooting"
 	}
 	return "the machine failed to boot: " + orElse(mc.Error, "no reason recorded")
 }

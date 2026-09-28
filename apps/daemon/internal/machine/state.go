@@ -23,19 +23,30 @@ func (m *Manager) loadState() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	running, err := m.runningVMs(ctx)
+	vms, err := m.tart.List(ctx)
 	if err != nil {
 		return err
+	}
+	running, exists := map[string]bool{}, map[string]bool{}
+	for _, vm := range vms {
+		exists[vm.Name] = true
+		running[vm.Name] = running[vm.Name] || vm.State == "running"
 	}
 	for _, mc := range saved {
 		if mc == nil || mc.RunID == "" || mc.Dir == "" {
 			m.Log.Warn("skipping an incomplete machine in state.json", "machine", mc)
 			continue
 		}
-		if !running[mc.Name] {
+		// A reboot that failed, or that this daemon's predecessor died in, kept its clone
+		// (daemon ADR 0004): it stays listed as failed, to reboot again or destroy.
+		kept := (mc.Status == Failed || mc.Status == Rebooting) && exists[mc.Name]
+		if !running[mc.Name] && !kept {
 			m.Log.Warn("dropping machine that is no longer running", "runId", mc.RunID, "name", mc.Name)
 			m.endRun(mc.Dir)
 			continue
+		}
+		if mc.Status == Rebooting {
+			mc.Status, mc.Error = Failed, "the daemon restarted during a reboot; the disk is kept: call machine_reboot to boot it again, or machine_destroy"
 		}
 		if mc.rec, err = newRecorder(mc.Dir, m.reattachManifest(mc), m.Log); err != nil {
 			m.Log.Error("cannot reopen a running machine's run; leaving its VM unmanaged",
@@ -46,19 +57,20 @@ func (m *Manager) loadState() error {
 		mc.input = &inputState{}
 		mc.Control = nil // its holder did not survive the daemon (ADR 0009)
 		var boot context.Context
-		if mc.Status == Ready {
-			close(mc.ready)
-		} else {
+		if mc.Status == Booting {
 			boot = newBoot(mc)
+		} else {
+			close(mc.ready)
 		}
 		m.mu.Lock() // goroutines started for earlier machines already read the map
 		m.machines[mc.RunID] = mc
 		m.mu.Unlock()
-		if boot != nil {
+		switch {
+		case boot != nil:
 			go m.finishBoot(boot, mc, mc.CreatedAt)
-		} else {
-			m.watchProcess(mc)
-			m.startFrames(mc)
+		case mc.Status == Ready:
+			m.watchProcess(mc, 0)
+			m.startFrames(mc, 0)
 		}
 	}
 	return m.saveState()
@@ -96,6 +108,7 @@ func (m *Manager) reattachManifest(mc *Machine) Manifest {
 		man.Steps = saved.Steps
 		man.Verdict = saved.Verdict
 		man.Models = saved.Models
+		man.Name, man.Source = saved.Name, saved.Source
 		if !saved.CreatedAt.IsZero() {
 			man.CreatedAt = saved.CreatedAt
 		}

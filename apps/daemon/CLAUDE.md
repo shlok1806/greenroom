@@ -98,6 +98,39 @@ send either). The companion and smoke client send a loopback Host and no Origin.
   and `api.New` sweeps those of runs with no machine at start.
 - `GET /api/runs/{id}/report?format=md|json[&embed=true]` (`report.go`, ADR 0034) is the
   run's proof, the same report `run_report` returns; `text/markdown` or JSON, `no-store`.
+- Run summaries (ADR 0036, `internal/summary`, `api/summary.go`). `GET /api/summary` is the
+  board: `{groups: [{id, title, count, runs}], macs: {free, total, text}, updatedAt}`, all
+  three groups (`needs-you`, `running`, `done`) always present, newest status first.
+  `GET /api/runs/{id}/summary` is one run's `summary.Summary`. The event stream sends
+  `event: summary` `{runId, summary, macs}` when a run's summary changes: listeners only mark
+  the run (they run under the store's and manager's locks, and a summary reads both), and the
+  stream derives marked runs every `SummaryEvery` (250 ms), dropping one equal to the last it
+  sent but for `elapsedSeconds`, `updatedAt` and `lastFrame`. Steps are read only for an open run or a
+  failed check's picture; a run with no live machine is cached (`summaries`) until its
+  conversation length or manifest mtime changes. `macs` counts the manager's machines only,
+  never other VMs on the host (that needs `tart list`).
+  Example, the failed TipSplit run of the golden fixture:
+
+  ```json
+  {"runId": "20260923-044138-de31017819a86d84", "name": "TipSplit: split the bill", "source": "Claude Code",
+   "state": "failed", "status": "Failed", "tone": "fail", "group": "needs-you",
+   "detail": "Proposed by the verifier after 3:26.",
+   "checks": {"total": 4, "passed": 2, "failed": 2, "pending": 0, "text": "2 of 4 checks",
+              "current": {"id": "each-25", "text": "Each pays becomes $50.00 at 25%", "state": "fail", "saw": "$10.00"},
+              "items": [{"id": "each-25", "text": "Each pays becomes $50.00 at 25%", "state": "fail", "saw": "$10.00"},
+                        {"id": "each", "text": "Each pays is $48.00 for 3 people", "state": "fail", "saw": "$8.00"},
+                        {"id": "window", "text": "Window shows Bill, Tip and People", "state": "pass"},
+                        {"id": "tip", "text": "Tip is $24.00 for $120 at 20%", "state": "pass"}]},
+   "failing": {"text": "Each pays becomes $50.00 at 25%", "expected": "$50.00", "saw": "$10.00",
+               "observed": "After choosing 25%, Each pays reads $10.00.", "step": 5,
+               "picture": {"kind": "screenshot", "file": "005-screenshot.png", "url": "/api/runs/<id>/artifacts/005-screenshot.png"},
+               "mark": {"x": 0.515, "y": 0.635, "w": 0.23, "h": 0.05}},
+   "primaryAction": {"id": "accept", "label": "Accept fail"}, "secondaryActions": [{"id": "reject", "label": "Reject"}],
+   "machine": {"status": "on"}, "since": "...", "startedAt": "...", "elapsedSeconds": 986, "lastFrame": {...}, "updatedAt": "..."}
+  ```
+- `POST /api/runs/{id}/reboot` (`control.go`, daemon ADR 0004) is `Manager.Reboot` for a person:
+  202 with the machine rebooting and its step, 409 for any refusal. The Companion has no button
+  for it yet. Guest routes answer 409 while a machine reboots (`failMachine`, `ErrRebooting`).
 - `GET /api/runs/{id}/pull?src=&exclude=` (`pull.go`, ADR 0022) is `Manager.PullArchive`:
   the guest's `tar czf -` streamed through `tart.ExecTo` as `application/gzip`, never held.
   The step number is the `Greenroom-Step` header; a missing source is 404 before any byte.
@@ -153,7 +186,8 @@ artifact route for a public-host call, which the connect token opens.
 Each layer depends only on the ones below. Keep it that way.
 
 - `main.go` - flags, HTTP mux, and the lifecycle bridge (manager events to transcript
-  events: ready, failed, stopped, destroyed).
+  events: ready, failed, stopped, destroyed, rebooting; a `ready` or `failed` with `reboot`
+  says the reboot's outcome).
 - `internal/mcpserver` - the only agent-facing surface. Tool schemas, defaults, PNG to
   JPEG. No VM logic. `recoverPanics` turns a handler panic into that call's error: the SDK
   runs handlers on its own goroutines, beyond net/http's recovery, so a panic there ends the
@@ -176,6 +210,22 @@ Each layer depends only on the ones below. Keep it that way.
   steps.jsonl) and the conversation, `Report.Markdown` renders it. Below `api` and
   `mcpserver`, above `machine` and `session`; both surfaces build the report here, so there
   is one shape.
+- `internal/summary` - a run in the few plain words a person reads first (ADR 0036): `Derive`
+  is pure over an `Input` the caller gathers (manifest, live machine, messages, verdict,
+  steps, frames); `NewBoard` groups. Below `api` and `mcpserver` (which uses `Name` to cut
+  `machine_create`'s name), above `machine` and `session`. The status vocabulary, the groups
+  and the action ids are the ADR's table: a new state is a row there and a case in
+  `TestEveryStatusHasItsGroupActionAndWords`. Every string must stay plain words:
+  `TestNoSummaryUsesAToolNameTimingOrInternalTerm` lists what is forbidden, and verifier prose
+  it quotes goes through `plain`. The rules it reads by text: the bridge's "machine is ready",
+  "machine rebooted and is ready", "machine failed" (and "machine failed to reboot"),
+  "machine stopped", "machine destroyed" and "human destroyed" events, the
+  "nobody will answer"/"nothing will answer" notices, and `machine.ScreenNotAnsweringError`'s
+  "screen is not answering"; change them together. Golden: `testdata/board.golden.json`, the
+  runs docs/20's Figma screens show, and `testdata/live.golden.json`, two runs recorded on a real
+  machine (`testdata/<runId>/`: manifest, conversation, steps, frame lines) replayed moment by
+  moment; `go test ./internal/summary -update` rewrites both. `found_test.go` holds each
+  rule that run taught.
 - `internal/diskimage` - a stopped VM's raw disk read on the host (`MountReadOnly`): a
   clonefile copy attached read-only with `hdiutil -nomount`, only its APFS Data volume
   mounted, read-only and `nobrowse`; `Close` unmounts, detaches and removes it. Shells out to
@@ -185,6 +235,9 @@ Each layer depends only on the ones below. Keep it that way.
   by `install.sh` through `-ldflags -X .../internal/buildinfo.<name>=`. Unstamped (`go run`, tests)
   is empty, never a guess from `debug.ReadBuildInfo`. Renaming a var breaks the stamp silently:
   change `install.sh` with it. A leaf; imports nothing of the daemon's.
+- `internal/openfiles` - the open file limit (daemon ADR 0002): `Raise` at `serve` and
+  `bench run` start, `Inherited` (what a child started now gets), `Count` (`lsof -p`). A leaf;
+  imports nothing of the daemon's.
 - `internal/bench` - the verifier bench (ADR 0025): cases, patches, the runner and the
   scorer. Sits beside `api` and `mcpserver`: it drives `machine`, `session` and `verifier`,
   and nothing imports it but `bench.go`.
@@ -262,9 +315,15 @@ Boot and lifecycle
   lists the same set and deletes only with `-delete`.
 - `Create` holds `createMu` for its whole length, so the host-capacity check and the clone
   cannot interleave. Default limit 2 (Apple's), `-max-machines` changes it.
+- `machine_create` takes an optional `name` (cut to five words by `summary.Name`) and records
+  it with the calling client's name as the manifest's `name` and `source`
+  (`Manager.RecordLabel`, ADR 0036). The server is stateless, so an older-protocol client's
+  `clientInfo` never reaches a tool call: `clientName` falls back to the User-Agent's first
+  product, skipping HTTP libraries' (`genericAgents`). A label that cannot be written is
+  logged; the create stands.
 - `machine_create` returns `booting` at once; callers poll `machine_wait` (capped at 50 s,
-  under Claude Code's 60 s first-byte timeout). `agent_wait`, `machine_exec` and
-  `machine_exec_wait` have the same cap. No tool may block longer.
+  under Claude Code's 60 s first-byte timeout). `agent_wait`, `machine_exec`,
+  `machine_exec_wait` and `machine_reboot` have the same cap. No tool may block longer.
 - Ready means usable: guest agent answers, IP known, ssh key installed, sshd accepts on
   guest 127.0.0.1:22 (probed via `tart exec`). The waiting phases each get their own
   `readyTimeout` (3 min). A timeout names the last probe error.
@@ -317,7 +376,8 @@ Boot and lifecycle
   only reads; a reset or aged record is rewritten. Killing replayd stops every
   ScreenCaptureKit session, so a rewrite, and `machine_approve_capture` (a record for an
   app under test, keyed by its bundle URL), end a running live stream first with a
-  reason; viewers reconnect. Both hold `input.approval.mu`, so writes never overlap. A failure is logged and recorded as
+  reason; viewers reconnect. Both hold `input.approval.run` (taken with the caller's context;
+  the check and write are bounded, 15 s and 30 s), so writes never overlap. A failure is logged and recorded as
   `captureAlertError`, never fatal: the machine works under the alert. In `PrepareGuest`
   it is fatal.
 - Boot also sets desktop preferences (`desktopprefs.go`, step key `desktopPrefsSeconds`,
@@ -340,9 +400,34 @@ Boot and lifecycle
   serve and bench set it once, from `Verifier.Models` (or `manual`/`none`), before any run.
   The options come from `nim.ChatOptions`/`nim.DescribeOptions`, the same maps the requests
   are built from, so a new request field is recorded without anyone remembering to.
+- File limit (daemon ADR 0002, issue #186): tart 2.37 leaks one vsock fd in `tart run` on
+  every `tart exec`, however it ends (about 27 a minute from frame recording at 2 s; measured
+  in run `20260927-210125-687fa19deff41e76`), and `tart run` dies with "Error(24)" in
+  `vm.log` when it runs out. 65536 lasts about 40 hours, 138240 about 85.
+  `raiseFileLimit` must run before the first `tart.Client.Start`: Go gives children the soft
+  limit the daemon started with (launchd's 256) until the program calls `syscall.Setrlimit`
+  (never `unix.Setrlimit`, which the runtime does not see). `install.sh` also sets the job's
+  `SoftResourceLimits`/`HardResourceLimits` `NumberOfFiles`. `filewatch.go` counts each ready
+  machine's `tart run` fds every 30 s (a reattached one's pid from `tart.RunPID`, the fcntl
+  lock owner of its `config.json`) into `Machine.Files`, set only on copies
+  (`publicLocked`), so `state.json` never holds a count; one WARN per machine from 80 percent.
+  The watch carries its boot's `gen` and reads `mc.proc` under `m.mu`: a reboot clears
+  `files` and `filesWarned`, the old watch stops and a count it had in flight is dropped.
+  The upstream fix (tart's `ControlSocket.handleClient`) is not ours; #186 stays open for it.
 - `waitReady` watches `tart run`'s process; if it exits, fail at once with the tail of
   `vm.log`. `watchProcess` does the same after ready; a reattached machine has no process,
   so it polls `tart list` every `WithVMPollInterval` (15 s) instead.
+- `machine_reboot` (daemon ADR 0004, `reboot.go`, issue #187) stops the VM (`tart stop
+  --timeout 20`, then a kill of this daemon's `tart run`), starts the same clone and runs
+  `bootGuest` again, under one 5 min bound (`WithRebootTimeout`). Status `rebooting` until
+  ready or failed; guest calls on it fail at once with `ErrRebooting` (`awaitReady`), never
+  wait. A failed reboot keeps the disk and stops the VM: status failed, run not ended,
+  `machine_reboot` retries and Destroy deletes it. Destroy decides whether a VM is left by
+  `Machine.vmDeleted`, never by the status. Every boot of a clone has a `Machine.gen`: a
+  watcher, `machineGone` or `startFrames` of an older gen stands down, so the reboot's own
+  stop never fails the machine or deletes its clone. Anything new that watches a machine's
+  VM or process must carry the gen too. `mc.ready` and `mc.proc` are replaced by a reboot:
+  read them under `m.mu` (`readyCh`), except in the boot goroutine that set them.
 - `Destroy` cancels the boot and waits for `finishBoot` to return, which then records
   nothing. It also waits for the frame recorder to return, so no frame lands in the run
   directory after it. The machine stays in the map and `state.json` (marked `destroying`) until its
@@ -422,6 +507,12 @@ Exec
   on the host does not help: tart itself stays up. Output a background child writes
   after the shell exits is lost. zsh `-c` runs `a && b &` with `a` in the foreground;
   that is zsh, not us.
+- A cancelled `tart.Exec`/`ExecTo`/`ExecInputTo` gets SIGINT, and SIGKILL only
+  `execInterruptWait` (3 s) later (`interruptOnCancel`, daemon ADR 0002): tart cancels the
+  gRPC call on SIGINT, which ends the guest command and lets tart exit cleanly; SIGKILL left
+  the guest command running. It does not reduce the fd leak (every exec leaks one either
+  way). Never build an exec `exec.Cmd` without it. Sessions and pipes are exempt (a
+  session's guest command must outlive its host exec).
 - The timeout is enforced in the guest (ADR 0014, issue #28): the wrapper puts zsh in its
   own process group (`set -m`) and a watchdog TERMs it at the timeout, KILLs it 5 s later.
   The result keeps the output so far, exit 124, `timedOut`. The host waits the timeout
@@ -433,7 +524,8 @@ Exec
 - `machine_exec` waits at most `waitSeconds` (max 50), then returns `running` and an
   `execId`; `machine_exec_wait` collects the rest (ADR 0015, issue #39). The command is a
   job owned by the machine (`execjob.go`), detached from the call, cancelled by
-  `detachLocked`. Its step is claimed at start and written when it ends. The verifier's
+  `detachLocked`, or aborted by a reboot with `errExecRebooted` as its error
+  (`execJob.abort`). Its step is claimed at start and written when it ends. The verifier's
   `Manager.Exec` blocks on the same job.
 - Each stream keeps its first `ExecHeadLimit` (8 KiB) and last `ExecTailLimit` (24 KiB),
   with `stdoutBytes`/`stderrBytes` and `*Truncated` (issue #29). `tart.ExecTo` streams
@@ -826,9 +918,44 @@ UI tree (ADR 0012)
 - The verifier's prompt makes the tree the way to aim and a coder's constraints hard rules
   (`verifier.go`). `TestTheDeliveredSystemPromptBindsConstraintsAndAimsFromTheTree` pins the phrases.
 
+Screen looks (daemon ADR 0003, issue #187)
+
+- A look is any call that needs the guest's WindowServer: `captureScreen` (screenshot, frame,
+  the render check), and the helper's `--ui-base64`, `--desktop` and screen-size reads. Each
+  runs under `lookWatchdogScript` (`look.go`) through `guestLook`/`readHelper`: the guest ends
+  it (TERM, KILL 2 s later, exit 124) at `lookTimes.capture` (15 s) or `.ui` (25 s), and the
+  host gives up `.grace` (5 s) later. A new look goes through them too, never a bare
+  `tart exec`: killing the host's exec never reaches the guest, and a wedged WindowServer then
+  collects orphans. Only `machine_input`'s one-shot post is not a look (a batch may sleep).
+- `ScreenshotAs` and `Manager.ui` cap the whole call at `lookTimes.cap` (45 s) whatever the
+  caller's ctx allows (`lookError`). A timeout is `ErrScreenNotAnswering`
+  (`*ScreenNotAnsweringError`); its text names `machine_exec` and `machine_reboot` and is what
+  the agent reads, so keep both names in it.
+- One guest capture per machine (`inputState.capture`, a `captureGate`). Looks wait for an
+  outstanding one within their cap and then capture themselves (never share its picture);
+  behind one that timed out they fail at once. The recorder passes `wait=false` and skips.
+  The capture runs detached from its caller and holds the slot until its tart exec returns.
+  A reboot resets the gate (`inputState.forget`, `captureGate.reset`): a new epoch, the slot
+  free and the streak 0; a capture of the old boot releases into nothing. Without it a look
+  after machine_reboot waited on the wedged boot's capture and failed telling the agent to
+  reboot again. Every acquire's epoch goes back to its own release.
+- The recorder backs off after consecutive timeouts (`frameBackoff`: 2 s doubling to 1 min),
+  logs once when the screen stops answering and once when it answers again, and never logs a
+  timeout or a skipped frame as a frame failure.
+- `ensureInput` starts one detached install (`installJob`) per machine; callers wait with their
+  own ctx. The helper check runs under the watchdog; only a missing or stale helper compiles.
+  `inputState.mu` is never held across a guest call.
+- `input.swift` answers `--version` before any top-level code that touches WindowServer. Keep
+  it first: the install and boot checks run `--version` on a guest whose screen may be wedged.
+- Tests shorten the limits with `withLookTimes`; the fake tart hangs a capture with
+  `shot-hang` and a UI read with `ui-hang`, and slows the compile with `input-install-sleep`.
+  `look_test.go` runs the watchdog script itself on the host's `/bin/sh`.
+
 Live screen (ADR 0011)
 
-- Every VM boots `tart run --no-graphics`. Graphics mode (`--vnc-experimental`, the old
+- Every VM boots `tart run --no-graphics --no-audio --no-clipboard` (image builds too). Without
+  the last two, tart gives the guest the host's microphone and a two-way clipboard, so code
+  under test could read what the person copied. Never drop them. Graphics mode (`--vnc-experimental`, the old
   `watch`) is retired (ADR 0016, issue #7: the guest GPU restarts and a crash dialog
   covers the screen). Do not add a graphics or VNC path; a person watches through this
   stream in the companion.
@@ -1049,7 +1176,7 @@ mode, each read back with the copy's signature).
   `fail-disk`, `fail-xcode`, `fail-softwareupdate`, `fail-check-<exercise>`, `crash-report` (what
   the effect read's crash report lookup prints, ADR 0028) and
   `softwareupdate` (image build and gate), `tart-version` (fake a version mismatch), `exec-sleep` and `exec-stdout` (a slow or
-  loud machine_exec), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
+  loud machine_exec), `shot-hang`, `ui-hang` and `input-install-sleep` (a wedged screen, daemon ADR 0003), `input-stale` (an image with an old helper) and `session-exit-code`. It writes
   `session-stdin` (`tty <rows> <cols>` or `pipe`) so tests prove a session reaches tart on a
   pipe. It models a session with the host's real `script` running `cat`, and runs the real
   session read and close scripts, with `TMPDIR` set to the control dir.
@@ -1059,7 +1186,11 @@ mode, each read back with the copy's signature).
   the test binary (`testsupport/fakescreen.go`, gated by an env var in its `init`). Its control
   files are listed there; `testsupport.ServeStarts` counts starts.
 - `WithSSHProbe`, `WithReadyTimeout` shorten or replace boot waits; `WithScreenIdle` the
-  live screen's idle stop.
+  live screen's idle stop. `WithFileCheck` replaces the file count's interval, counter, limit
+  and pid lookup; `newTestManager` turns it off (`Interval: 0`).
+- `internal/openfiles` and `internal/tart` re-execute their test binary as a helper (an env
+  var in `TestMain`): one started under `ulimit -Sn 256` proves a child inherits the raised
+  limit, one holds tart's `config.json` lock for `RunPID`.
 - `InstallXcode` tests (`xcode_test.go`) put a fake `ssh` first on `PATH` and a fake
   Xcode.app (xcodebuild and an Info.plist); the host's real `ditto` makes the stream.
 - A fake `rsync` earlier on `PATH` covers `Sync` (it runs twice without mirror: the copy,
@@ -1069,6 +1200,11 @@ mode, each read back with the copy's signature).
   probe and tar and the mirror guard (`greenroom-sync-guard`) for real from the same `HOME`.
   A test that mirrors must set `HOME` to a temp dir first, or the guard's `mkdir -p` lands in
   the real home.
+- The fake tart boots a VM again after `tart stop <name>` (it writes `stop-<name>` beside
+  `stopped`, and a `tart run <name>` after it clears both) and lists a VM stopped by name as
+  stopped: that is what reboot tests run on. `agent-down` holds a reboot in `rebooting`;
+  `stop-sleep` slows `tart stop`. `exec-sleep` sleeps in 0.1 s steps so a killed exec
+  returns at once, as a real `tart exec` does.
 - `internal/bench` runner tests use the real manager on the fake tart, a fake `rsync` that
   copies its source (so the patched app is visible) and a scripted `verifier.Brain`. The fake
   tart stops every VM on one `stopped` file, so they run one trial at a time with

@@ -83,18 +83,27 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 
 	type createIn struct {
 		Image string `json:"image,omitempty" jsonschema:"OCI image to clone. Defaults to the daemon's configured image."`
+		Name  string `json:"name,omitempty" jsonschema:"What this run checks, in five words or fewer, e.g. 'TipSplit: split the bill'. The person watching sees the run by this name; longer names are cut to five words."`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_create",
 		Description: "Clone and start a fresh macOS machine. Returns at once with status booting and the runId every " +
 			"other tool needs. Call machine_wait next; boot takes 30 to 90 seconds. Machines run headless; " +
-			"a person watches the screen live in the greenroom companion app.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, *machine.Machine, error) {
+			"a person watches the screen live in the greenroom companion app. Give the run a short name.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, *machine.Machine, error) {
 		image := in.Image
 		if image == "" {
 			image = defaultImage
 		}
-		return wrap(mgr.Create(ctx, image))
+		mc, err := mgr.Create(ctx, image)
+		if err != nil {
+			return nil, nil, err
+		}
+		// The run is made; a label that cannot be written costs only its name in lists.
+		if err := mgr.RecordLabel(mc.RunID, runName(in.Name), clientName(req)); err != nil {
+			mgr.Log.Warn("cannot record the run's name", "runId", mc.RunID, "err", err)
+		}
+		return nil, mc, nil
 	})
 
 	type waitIn struct {
@@ -103,7 +112,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "machine_wait",
-		Description: "Wait for a machine to finish booting. Returns its status: booting (call again), ready (ip and " +
+		Description: "Wait for a machine to finish booting, or rebooting after machine_reboot. Returns its status: booting or rebooting (call again), ready (ip and " +
 			"bootSeconds are set), or failed (error is set). A ready machine also reports toolchain, what its image " +
 			"measured when it was built (Xcode present or not and its version, whether XCTest and swift-testing packages run with " +
 			"swift test and whether xcodebuild builds, swift and Command Line Tools versions; known false when the image says nothing), and " +
@@ -297,6 +306,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		return nil, destroyOut{OK: true}, nil
 	})
 
+	addRebootTool(s, mgr)
 	addAgentTools(s, reg)
 	addFinishTools(s, mgr, reg, o)
 	addInputTools(s, mgr)

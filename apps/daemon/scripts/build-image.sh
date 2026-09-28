@@ -113,7 +113,7 @@ fi
 
 log="$(mktemp -t greenroom-build-image)"
 echo "booting $name (log: $log)"
-"$tart" run "$name" --no-graphics >"$log" 2>&1 &
+"$tart" run "$name" --no-graphics --no-audio --no-clipboard >"$log" 2>&1 &
 run_pid=$!
 cleanup() {
   if kill -0 "$run_pid" 2>/dev/null; then

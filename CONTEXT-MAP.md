@@ -14,6 +14,7 @@ first real term settles). **documented** means `CONTEXT.md` exists.
 | mcp       | `apps/daemon/internal/mcpserver/`     | MCP tools over the manager and the conversation             | code       |
 | api       | `apps/daemon/internal/api/`           | HTTP API and SSE for the companion (ADR 0007)               | code       |
 | session   | `apps/daemon/internal/session/`       | A run's conversation: messages, verdicts (ADR 0006)         | code       |
+| summary   | `apps/daemon/internal/summary/`       | A run's summary: name, status word, group, action (ADR 0036) | code       |
 | verifier  | `apps/daemon/internal/verifier/`      | greenroom's own agent, NIM or manual (ADR 0005)             | code       |
 | nim       | `apps/daemon/internal/nim/`           | Client for NVIDIA NIM's OpenAI-compatible API               | code       |
 | tart      | `apps/daemon/internal/tart/`          | Tart CLI wrapper, pinned version, long-lived execs          | code       |
@@ -33,3 +34,8 @@ first real term settles). **documented** means `CONTEXT.md` exists.
   (ADR 0009).
 - **Live screen**: a machine's screen as H.264, streamed from the guest while someone
   watches (ADR 0011). Not the recording: frames stay the run's evidence.
+- **Run summary**: a run in the words a person reads first, derived by the daemon (ADR
+  0036): a name of five words or fewer, one status word (Starting, Ready, Checking, Paused,
+  Not answering, Restarting, Passed, Failed, Inconclusive, Stopped), its group and its one
+  primary action. **Needs you** is an open run that cannot go on without a person; a run
+  whose machine is gone or that its coding agent finished is **Done**, whatever its verdict.
