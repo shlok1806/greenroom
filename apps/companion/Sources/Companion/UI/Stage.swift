@@ -224,16 +224,23 @@ struct LivePicture: View {
         .clipShape(RoundedRectangle(cornerRadius: Corner.row))
         .overlay(RoundedRectangle(cornerRadius: Corner.row)
             .strokeBorder(shell.driving ? Palette.accent : Palette.border, lineWidth: shell.driving ? 2 : 1))
-        .onAppear {
-            let screen = shell.store.liveScreen(for: runId)
-            screen.start()
-            live = screen
-        }
-        .onDisappear {
-            live?.stop()
-            live = nil
-        }
+        .onAppear { if OnScreen.shared.visible { connect() } }
+        .onDisappear { disconnect() }
+        // No stream while nobody can see the window (companion ADR 0021).
+        .onChange(of: OnScreen.shared.visible) { _, visible in visible ? connect() : disconnect() }
         .accessibilityLabel(shell.driving ? "The Mac's screen. You have control." : "The Mac's screen, live")
+    }
+
+    private func connect() {
+        guard live == nil else { return }
+        let screen = shell.store.liveScreen(for: runId)
+        screen.start()
+        live = screen
+    }
+
+    private func disconnect() {
+        live?.stop()
+        live = nil
     }
 
     private func liveWords(_ phase: LiveScreen.Phase) -> String {

@@ -64,6 +64,7 @@ struct CompanionShell: View {
         .ignoresSafeArea()
         .background(Palette.bg)
         .background(ShellWindowConfigurator())
+        .background(OnScreenReader())
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .preferredColorScheme(appearance == "dark" ? .dark : (appearance == "light" ? .light : nil))
         .navigationTitle(shell.summary?.name ?? "Greenroom Companion")

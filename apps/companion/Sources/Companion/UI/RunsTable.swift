@@ -254,7 +254,7 @@ struct SidebarRunRow: View {
         Group {
             if let frozenNow {
                 RunRowView(model: RunRowModel(summary, now: frozenNow, selected: selected, twin: twin), selected: selected, hovered: hovering)
-            } else if summary.group == .done {
+            } else if summary.group == .done || !OnScreen.shared.visible {
                 RunRowView(model: RunRowModel(summary, now: Date(), selected: selected, twin: twin), selected: selected, hovered: hovering)
             } else {
                 TimelineView(.periodic(from: .now, by: 1)) { context in

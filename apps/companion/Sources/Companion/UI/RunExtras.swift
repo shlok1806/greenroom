@@ -152,28 +152,38 @@ struct UndoToast: View {
     let shell: ShellModel
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.25)) { context in
-            if let held = shell.heldChoice(now: context.date) {
-                HStack(spacing: Gap.x12) {
-                    StatusGlyph(kind: held.choice.kind == .accept ? .passed : .failed, color: held.choice.kind == .accept ? .pass : .fail)
-                    Text(held.choice.kind == .accept ? "Accepted \(held.name)" : "Rejected \(held.name)")
-                        .textStyle(.body).foregroundStyle(Palette.text).lineLimit(1)
-                    Text("\(held.seconds)").textStyle(.captionEmphasis).monospacedDigit().foregroundStyle(Palette.textSecondary)
-                        .help("Goes out in \(held.seconds) s")
-                    Button("Undo") { shell.undoVerdictChoice() }
-                        .buttonStyle(ActionButtonStyle(kind: .secondary))
-                        .help("Undo (U)")
-                        .accessibilityIdentifier("undo")
-                }
-                .padding(.leading, Gap.x16)
-                .padding(.trailing, Gap.x8)
-                .frame(height: 44)
-                .background(RoundedRectangle(cornerRadius: Corner.sheet).fill(Palette.bgRaised))
-                .overlay(RoundedRectangle(cornerRadius: Corner.sheet).strokeBorder(Palette.border, lineWidth: 1))
-                .shadow(color: .black.opacity(Elevation.raisedOpacity), radius: Elevation.raisedRadius / 2, y: Elevation.raisedY)
-                .padding(.bottom, Gap.x16)
-                .transition(.opacity)
+        // Ticks only while a choice is held and the window shows (companion ADR 0021).
+        if shell.store.verdictUndo.pending != nil {
+            if OnScreen.shared.visible {
+                TimelineView(.periodic(from: .now, by: 0.25)) { context in toast(now: context.date) }
+            } else {
+                toast(now: Date())
             }
+        }
+    }
+
+    @ViewBuilder
+    private func toast(now: Date) -> some View {
+        if let held = shell.heldChoice(now: now) {
+            HStack(spacing: Gap.x12) {
+                StatusGlyph(kind: held.choice.kind == .accept ? .passed : .failed, color: held.choice.kind == .accept ? .pass : .fail)
+                Text(held.choice.kind == .accept ? "Accepted \(held.name)" : "Rejected \(held.name)")
+                    .textStyle(.body).foregroundStyle(Palette.text).lineLimit(1)
+                Text("\(held.seconds)").textStyle(.captionEmphasis).monospacedDigit().foregroundStyle(Palette.textSecondary)
+                    .help("Goes out in \(held.seconds) s")
+                Button("Undo") { shell.undoVerdictChoice() }
+                    .buttonStyle(ActionButtonStyle(kind: .secondary))
+                    .help("Undo (U)")
+                    .accessibilityIdentifier("undo")
+            }
+            .padding(.leading, Gap.x16)
+            .padding(.trailing, Gap.x8)
+            .frame(height: 44)
+            .background(RoundedRectangle(cornerRadius: Corner.sheet).fill(Palette.bgRaised))
+            .overlay(RoundedRectangle(cornerRadius: Corner.sheet).strokeBorder(Palette.border, lineWidth: 1))
+            .shadow(color: .black.opacity(Elevation.raisedOpacity), radius: Elevation.raisedRadius / 2, y: Elevation.raisedY)
+            .padding(.bottom, Gap.x16)
+            .transition(.opacity)
         }
     }
 }

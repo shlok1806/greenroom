@@ -336,7 +336,8 @@ extension EnvironmentValues {
 }
 
 /// Draws `content` with the seconds on the motion clock: every frame while `running`, once
-/// while it is not, under Reduce Motion, or when the clock is fixed.
+/// while it is not, under Reduce Motion, when the clock is fixed, or while the window is off
+/// screen (companion ADR 0021).
 struct Clocked<Content: View>: View {
     var running = true
     @ViewBuilder var content: (Double) -> Content
@@ -344,7 +345,7 @@ struct Clocked<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        if clock.fixed != nil || !running || reduceMotion {
+        if clock.fixed != nil || !running || reduceMotion || !OnScreen.shared.visible {
             content(reduceMotion ? 0 : clock.seconds(Date()))
         } else {
             TimelineView(.animation) { context in content(clock.seconds(context.date)) }
