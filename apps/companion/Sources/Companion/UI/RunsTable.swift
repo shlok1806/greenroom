@@ -44,6 +44,9 @@ struct RunsTable: NSViewRepresentable {
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        // The design draws no scroll bar beside the rows: an overlay scroller, which shows only
+        // while scrolling, even with a mouse attached (seen as a 17 pt bar in a Greenroom VM).
+        scroll.scrollerStyle = .overlay
         scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: Gap.x8, right: 0)
         scroll.automaticallyAdjustsContentInsets = false
         context.coordinator.table = table
@@ -51,6 +54,7 @@ struct RunsTable: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        if scroll.scrollerStyle != .overlay { scroll.scrollerStyle = .overlay }
         let c = context.coordinator
         c.parent = self
         let changed = c.items != items || c.summaries != summaries || c.frozenNow != frozenNow
@@ -174,6 +178,20 @@ struct RunsTable: NSViewRepresentable {
 /// A table that keeps AppKit's arrow-key selection but lets Return and letters reach the window.
 private final class KeyTable: NSTableView {
     override var acceptsFirstResponder: Bool { true }
+
+    /// The window opens with the runs list focused, so Up and Down walk it at once and no
+    /// titlebar button wears a focus ring nobody asked for (seen in Greenroom run
+    /// 20260928-144042-10fc05f5e0a43287: the search button ringed at launch).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        // After SwiftUI has given its first focus (with Full Keyboard Access on, the first
+        // button); a field someone is typing in keeps it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, weak window] in
+            guard let self, let window, !(window.firstResponder is NSTextView) else { return }
+            window.makeFirstResponder(self)
+        }
+    }
 }
 
 /// A run row whose time counts up while the run is open; a done run's age holds still.

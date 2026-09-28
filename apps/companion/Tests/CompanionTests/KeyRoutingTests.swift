@@ -268,7 +268,7 @@ private actor CountingControlClient: ControlClient {
 }
 
 /// Lends the screen to whoever asks.
-private actor GrantingControlClient: ControlClient {
+actor GrantingControlClient: ControlClient {
     func takeControl(runId: String) async throws -> ControlResponse {
         ControlResponse(
             control: ControlLease(holder: "human", since: Date(), expires: Date().addingTimeInterval(60), actions: 0),

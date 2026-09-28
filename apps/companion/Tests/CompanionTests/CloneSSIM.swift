@@ -112,6 +112,9 @@ struct CloneSSIM {
             if path.hasSuffix("/Screen") || path.hasSuffix("/Filmstrip") || (path.contains("/Key frame") && path.hasSuffix("/Rectangle")) || path.hasSuffix("Traffic lights") {
                 clear(Int(x), Int(y), Int(x + fw), Int(y + fh))
             }
+            // The driven screen fills the window on black: its picture would reach the black
+            // around it through the SSIM window (5 px), so the ring round it goes too.
+            if path.hasPrefix("Screen area/Live screen") { clear(Int(x) - 5, Int(y) - 5, Int(x + fw) + 5, Int(y + fh) + 5) }
         }
         return region
     }

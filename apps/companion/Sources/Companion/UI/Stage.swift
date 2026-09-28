@@ -72,6 +72,7 @@ struct StageView: View {
                 EvidenceFrame(content: frame, mark: mark, markColor: color, dimmed: dimmed,
                               openRecording: { shell.evidenceOpen = true })
             }
+            .accessibilityElement(children: .contain)
             .accessibilityLabel(pictureLabel)
         case .waiting(let words):
             placeholder(words, glyph: .starting)
@@ -294,7 +295,7 @@ struct KeyFramesView: View {
                                 Image(nsImage: image).resizable().interpolation(.medium).aspectRatio(contentMode: .fill)
                             }
                         }
-                        .frame(width: wide, height: KeyFrames.height)
+                        .frame(width: wide, height: (each * 3 / 4 * scale).rounded() / scale)
                         .clipShape(RoundedRectangle(cornerRadius: Corner.control))
                         .overlay {
                             // Figma: 1 pt border inside; selected, 2 pt outside in the text colour.

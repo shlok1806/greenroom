@@ -42,6 +42,7 @@ struct CommandPaletteView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            VStack(spacing: 0) {
             PaletteQuery(query: $rawQuery) { event in
                 switch event {
                 case .exit:
@@ -60,6 +61,8 @@ struct CommandPaletteView: View {
             .onChange(of: query) { _, _ in selectedIndex = 0 }
 
             Rectangle().fill(Palette.border).frame(height: 1)
+            }
+            .cloneScope("Query")
 
             PaletteTable(options: filtered, query: query, selectedIndex: selectedIndex ?? 0, hoveredID: $hoveredID) { option in
                 guard option.disabledReason == nil else { return }
@@ -75,6 +78,7 @@ struct CommandPaletteView: View {
         .onChange(of: isPresented) { _, shown in if !shown { rawQuery = "" } }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Command palette")
+        .cloneScope("Palette")
     }
 }
 
@@ -88,13 +92,17 @@ private struct PaletteQuery: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: Gap.x12) {
+        // Figma 12: 16 in, the icon 10 from the field, the field 10 from the esc keycap, 51 tall
+        // over the 1 pt rule.
+        HStack(spacing: 10) {
             IconView(icon: .search).foregroundStyle(Palette.textSecondary)
             TextField("Search runs and actions", text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 15))
+                .font(TypeStyle.title.font.weight(.regular))
                 .foregroundStyle(Palette.text)
                 .focused($focused)
+                .frame(height: TypeStyle.title.lineHeight)
+                .clonePart("Text")
                 .onExitCommand { onEvent(.exit) }
                 .onMoveCommand { direction in
                     switch direction {
@@ -108,10 +116,10 @@ private struct PaletteQuery: View {
                     // Ghostty: claim focus on the next turn, once the field is in the window.
                     DispatchQueue.main.async { focused = true }
                 }
-            Keycap(keys: "esc")
+            Keycap(keys: "esc").cloneScope("Keycap")
         }
         .padding(.horizontal, Gap.x16)
-        .frame(height: 48)
+        .frame(height: 51)
     }
 }
 
@@ -133,14 +141,20 @@ private struct PaletteTable: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
+                    // Figma 12: a section heading 30 tall (12 above its words, 4 below, 20 in),
+                    // rows 36 tall 8 in from the palette's sides, one after another, 8 below the last.
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
                             if index == 0 || options[index - 1].section != option.section {
+                                let section = Set(options[..<index].map(\.section)).count
                                 Text(option.section).textStyle(.captionEmphasis).foregroundStyle(Palette.textSecondary)
-                                    .padding(.horizontal, Gap.x12)
-                                    .padding(.top, index == 0 ? Gap.x8 : Gap.x12)
+                                    .clonePart("Text")
+                                    .padding(.leading, 20)
+                                    .padding(.top, Gap.x12)
                                     .padding(.bottom, Gap.x4)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                     .accessibilityAddTraits(.isHeader)
+                                    .cloneScope("Section[\(section)]")
                             }
                             Button { run(option) } label: {
                                 PaletteRowView(icon: option.icon, glyph: option.glyph, label: option.title,
@@ -148,6 +162,9 @@ private struct PaletteTable: View {
                                                enabled: option.disabledReason == nil)
                             }
                             .buttonStyle(.plain)
+                            .cloneScope("Palette row")
+                            .padding(.horizontal, Gap.x8)
+                            .cloneScope("Frame[\(index)]")
                             .help(option.disabledReason ?? "")
                             .onHover { hoveredID = $0 ? option.id : nil }
                             .id(option.id)
@@ -155,9 +172,10 @@ private struct PaletteTable: View {
                             .accessibilityHint(option.disabledReason ?? "")
                         }
                     }
-                    .padding(Gap.x8)
+                    .padding(.bottom, Gap.x8)
                 }
-                .frame(maxHeight: 380)
+                .scrollIndicators(.never)
+                .frame(maxHeight: 392)
                 .onChange(of: selectedIndex) { _, index in
                     guard index < options.count else { return }
                     proxy.scrollTo(options[index].id)

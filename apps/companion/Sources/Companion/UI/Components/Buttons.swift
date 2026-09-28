@@ -212,8 +212,8 @@ struct Keycap: View {
         Text(keys)
             .textStyle(.caption)
             .foregroundStyle(Palette.textSecondary)
+            // Figma: the keys 5 in on each side, 20 tall; one key makes a narrow cap ("A" 18).
             .padding(.horizontal, 5)
-            .frame(minWidth: 20)
             .frame(height: 20)
             .background(RoundedRectangle(cornerRadius: Corner.keycap).fill(Palette.bgHover))
             .accessibilityLabel("shortcut \(keys)")

@@ -44,7 +44,7 @@ final class RunWindowTests: XCTestCase {
             if path.hasSuffix("/steps") || path.hasSuffix("/api/runs") { return .json("[]") }
             return .json("{}", status: 404)
         }
-        let store = RunStore(client: client, screenSource: NoScreen())
+        let store = RunStore(client: client, controlClient: GrantingControlClient(), screenSource: NoScreen())
         let golden = try SummaryTests.golden()
         if let mockupState {
             store.board = F.mockup(golden, state: mockupState)
@@ -156,6 +156,11 @@ final class RunWindowTests: XCTestCase {
         var state: StateFixtures.State?
         /// Parts the frame draws otherwise than the app, by decision (see the PR for why).
         var skip: [String] = []
+        /// The palette open over the run (Figma 12), or the person driving (Figma 09).
+        var palette = false
+        var driving = false
+        /// How many parts must match at least: a frame with little on it has few.
+        var minParts = 50
     }
 
     static let frames: [FigmaFrame] = [
@@ -169,12 +174,19 @@ final class RunWindowTests: XCTestCase {
         FigmaFrame(name: "m07a-not-answering-light", state: .notAnswering, skip: ["Sidebar/Runs"]),
         FigmaFrame(name: "m07b-restarting-light", state: .restarting,
                    skip: ["Sidebar/Runs/Run row[7]", "Sidebar/Runs/Run row[8]", "Sidebar/Runs/More"]),
+        // The frame's runs to go to are a few; the app lists every run, so the rows past the
+        // first two of that section show other runs (words differ, places do not).
+        FigmaFrame(name: "m12-palette-light", palette: true),
+        // The live screen is the guest's: its picture and the ring drawn round it are not compared.
+        FigmaFrame(name: "m09-take-control-light", state: .live, skip: ["Screen area/Live screen"], driving: true, minParts: 7),
     ]
 
     /// The failed run on the mockup's board, as `frame` draws it.
     private func mockupHost(_ frame: FigmaFrame, redacted: Bool) async throws -> ParkedHost {
         let shell = ShellModel(store: try store(.failed, mockup: true, compact: frame.compact, passed: frame.passed, mockupState: frame.state))
         await shell.store.select(F.tipSplit)
+        if frame.driving { await shell.store.pilot(for: F.tipSplit).take() }
+        shell.paletteOpen = frame.palette
         let host = await host(shell, state: frame.state ?? .failed, size: frame.size, redacted: redacted, dark: frame.dark)
         try await Task.sleep(for: .seconds(1))
         host.window.contentView?.layoutSubtreeIfNeeded()
@@ -200,7 +212,7 @@ final class RunWindowTests: XCTestCase {
             let (compared, misses) = Self.layoutMisses(parts: parts, layout: layout, skip: frame.skip)
             report.append("\(frame.name) \(compared) parts, \(misses.count) off")
             misses.forEach { print("  off \(frame.name): " + $0) }
-            XCTAssertGreaterThanOrEqual(compared, 50, "\(frame.name) parts found: \(parts.keys.sorted())")
+            XCTAssertGreaterThanOrEqual(compared, frame.minParts, "\(frame.name) parts found: \(parts.keys.sorted())")
             XCTAssertTrue(misses.isEmpty, "\(frame.name):\n" + misses.joined(separator: "\n"))
         }
         print("clone layout: " + report.joined(separator: "; "))
@@ -213,14 +225,14 @@ final class RunWindowTests: XCTestCase {
     static func layoutMisses(parts: [String: CGRect], layout: String, skip: [String] = []) -> (compared: Int, misses: [String]) {
         func last(_ path: String) -> String { String(path.split(separator: "/").last ?? "") }
         func hugs(_ path: String) -> Bool {
-            ["Button", "Toolbar button", "Outcome", "Now", "Run meta", "Status"].contains { last(path).hasPrefix($0) }
+            ["Button", "Toolbar button", "Outcome", "Now", "Run meta", "Status", "Shortcut", "Keycap"].contains { last(path).hasPrefix($0) }
         }
         func trailing(_ path: String) -> Bool {
             let name = last(path)
-            return name == "Meta" || name.hasPrefix("Button") || name.hasPrefix("Toolbar button") || name == "Icon button"
+            return name == "Meta" || name == "Shortcut" || name == "Keycap" || name.hasPrefix("Button") || name.hasPrefix("Toolbar button") || name == "Icon button"
                 || path.contains("/Button") || path.contains("/Toolbar button") || path.contains("Toolbar/Icon button")
         }
-        func followsText(_ path: String) -> Bool { ["Tally", "Run meta"].contains(last(path)) }
+        func followsText(_ path: String) -> Bool { ["Tally", "Run meta"].contains(last(path)) || path == "Toolbar/Text[1]" }
         var misses: [String] = []
         var compared = 0
         for line in layout.split(separator: "\n") where !line.hasPrefix("#") {
@@ -393,6 +405,16 @@ final class RunWindowTests: XCTestCase {
         XCTAssertEqual(BootRow.rows([]).map(\.glyph), [.pending, .pending, .pending, .pending])
         XCTAssertEqual(BootRow.rows([], ready: true).map(\.glyph), [.passed, .passed, .passed, .passed])
         for row in rows { XCTAssertFalse(row.text.contains("192."), "no addresses") }
+    }
+
+    /// The palette offers a message only while the run's Mac is up, as the toolbar does.
+    func testThePaletteOffersAMessageOnlyWhileTheMacIsUp() async throws {
+        let live = ShellModel(store: try store(.live))
+        await live.store.select(F.tipSplit)
+        XCTAssertTrue(PaletteOptions.of(live).contains { $0.id == "message" })
+        let done = ShellModel(store: try store(.done))
+        await done.store.select(F.tipSplit)
+        XCTAssertFalse(PaletteOptions.of(done).contains { $0.id == "message" })
     }
 
     func testAPassedRunsKeyFramesAreTheProofPicturesOnePerStepCaptioned() throws {

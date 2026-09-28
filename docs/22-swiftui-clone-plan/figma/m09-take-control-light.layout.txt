@@ -1,0 +1,12 @@
+# Figma node 13:1545, "09 Take control of the live screen (1280x800, light)", read with use_figma on 2026-09-28.
+# One layer per line: path;x;y;width;height[;text], points from the frame's top left. Paths are
+# layer names joined by "/", with [i] when a parent has more than one child of that name.
+Toolbar;0;0;1280;52
+Toolbar/Traffic lights;20;19.5;52;12
+Toolbar/Ellipse;108;21.5;8;8
+Toolbar/Text[0];128;16.5;103;18;You have control
+Toolbar/Text[1];243;16.5;284;18;TipSplit: split the bill. The verifier waits for you.
+Toolbar/Button;1136;11.5;132;28
+Toolbar/Button/Text;1148;16.5;108;18;Give control back
+Screen area;0;52;1280;748
+Screen area/Live screen (you are driving);144;54;992;744

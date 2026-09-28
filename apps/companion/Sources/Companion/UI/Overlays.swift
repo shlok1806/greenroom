@@ -84,24 +84,31 @@ struct TakeControlView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: Gap.x8) {
-                Circle().fill(Palette.accent).frame(width: 6, height: 6)
-                Text("You have control").textStyle(.bodyEmphasis).foregroundStyle(Palette.text)
+                Circle().fill(Palette.accent).frame(width: 8, height: 8).clonePart("Ellipse")
+                    .padding(.trailing, 4)
+                Text("You have control").textStyle(.bodyEmphasis).foregroundStyle(Palette.text).clonePart("Text[0]")
+                    .padding(.trailing, 4)
                 Text("\(summary.name). The verifier waits for you.").textStyle(.body).foregroundStyle(Palette.textSecondary).lineLimit(1)
+                    .clonePart("Text[1]")
                 Spacer()
                 Button("Give control back") { shell.perform(SummaryAction(id: SummaryAction.giveBack, label: "Give control back")) }
                     .buttonStyle(ActionButtonStyle(kind: .primary, loading: shell.busy == SummaryAction.giveBack))
+                    .cloneScope("Button")
             }
-            .padding(.leading, 96)
+            // Figma 09: the dot 108 in (past the traffic lights), 12 to the words, 12 between them.
+            .padding(.leading, 108)
             .padding(.trailing, Gap.x12)
             .frame(height: Metrics.toolbarHeight)
             .background(Palette.bg)
             .overlay(alignment: .bottom) { Rectangle().fill(Palette.border).frame(height: 1) }
+            .cloneScope("Toolbar")
             ZStack {
                 Color.black
                 if let runId = shell.runId {
                     LivePicture(shell: shell, runId: runId)
                 }
             }
+            .cloneScope("Screen area")
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("You have control of the Mac")
@@ -116,6 +123,7 @@ struct PaletteOverlay: View {
         ZStack(alignment: .top) {
             Palette.scrim.opacity(0.18)
                 .ignoresSafeArea()
+                .cloneScope("Scrim")
                 .onTapGesture { shell.paletteOpen = false }
                 .accessibilityHidden(true)
             CommandPaletteView(isPresented: $shell.paletteOpen, options: PaletteOptions.of(shell))
@@ -137,18 +145,23 @@ enum PaletteOptions {
                                          keys: action == primary ? "⌘↩" : Keys.shortcut(for: action)) { shell.perform(action) })
             }
             out.append(PaletteOption(id: "activity", title: "Open activity", section: "This run", icon: .activity, keys: "A") { shell.activityOpen = true })
-            out.append(PaletteOption(id: "message", title: "Message the verifier", section: "This run", icon: .message, keys: "M") { shell.openComposer(.message) })
+            // Only while something will answer, as the toolbar offers it: a Mac that is gone
+            // takes no messages (seen in Greenroom run 20260928-144042-10fc05f5e0a43287).
+            if s.machine.isUp {
+                out.append(PaletteOption(id: "message", title: "Message the verifier", section: "This run", icon: .message, keys: "M") { shell.openComposer(.message) })
+            }
             out.append(PaletteOption(id: "evidence", title: "Open the evidence", section: "This run", icon: .video, keys: "E") { shell.evidenceOpen = true })
             out.append(PaletteOption(id: "copy", title: "Copy run ID", section: "This run", icon: .copy) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(s.runId, forType: .string)
             })
         }
-        out.append(PaletteOption(id: "settings", title: "Settings", section: "Greenroom", icon: .settings, keys: "⌘,") { shell.settingsOpen = true })
         for run in shell.store.board?.runs ?? [] where run.runId != shell.runId {
             out.append(PaletteOption(id: "r-\(run.runId)", title: run.name, section: "Go to run",
                                      glyph: (run.state.glyph, run.tone.color)) { shell.select(run: run.runId) })
         }
+        // After the runs, as Figma 12 lists this run's actions, then the runs to go to.
+        out.append(PaletteOption(id: "settings", title: "Settings", section: "Greenroom", icon: .settings, keys: "⌘,") { shell.settingsOpen = true })
         return out
     }
 }

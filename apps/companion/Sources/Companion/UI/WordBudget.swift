@@ -60,8 +60,18 @@ enum VisibleWords {
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         request.minimumTextHeight = 0.004
-        let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        try handler.perform([request])
+        // The Neural Engine now and then refuses a request when the Mac is busy (an e5rt
+        // error, seen while VMs ran beside the tests); the same request on a fresh handler reads.
+        var attempt = 0
+        while true {
+            do {
+                try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+                break
+            } catch where attempt < 3 {
+                attempt += 1
+                Thread.sleep(forTimeInterval: 0.2 * Double(attempt))
+            }
+        }
         let size = CGSize(width: image.width, height: image.height)
         let observations = (request.results ?? []).filter { obs in
             // Vision's boxes are normalised with the origin bottom left.
