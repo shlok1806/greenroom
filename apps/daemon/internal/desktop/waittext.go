@@ -114,6 +114,9 @@ func WaitText(a WaitArgs, r WaitResult) string {
 		subject = Label(*r.Node)
 	}
 	took, limit := secs(r.ElapsedMs), secs(a.TimeoutMs)
+	if a.TimeoutMs <= 0 {
+		limit = took
+	}
 	secret := r.Node != nil && r.Node.Secret()
 	var lead string
 	if r.Satisfied {
@@ -127,7 +130,11 @@ func WaitText(a WaitArgs, r WaitResult) string {
 	case r.Value != nil:
 		lead += ", value " + quote(*r.Value)
 	}
-	if !r.Satisfied {
+	switch {
+	case r.Satisfied:
+	case a.TimeoutMs >= WaitTimeout.Max:
+		lead += "; wait again to keep waiting, or look with machine_snapshot"
+	default:
 		lead += fmt.Sprintf("; wait longer (timeoutMs, at most %d) or look with machine_snapshot", WaitTimeout.Max)
 	}
 	lines := []string{lead}
@@ -215,8 +222,19 @@ func ExpectText(a ExpectArgs, r ExpectResult) string {
 	if r.Node != nil && a.Property != PropCount {
 		subject = Label(*r.Node)
 	}
-	return fmt.Sprintf("expect %s %s %s %s: %s after %s (observed %s)",
-		subject, word(string(a.Property)), word(string(a.Op)), expected, verdict, secs(r.ElapsedMs), observed)
+	return fmt.Sprintf("expect %s %s: %s after %s (observed %s)", subject, claimText(a, expected), verdict, secs(r.ElapsedMs), observed)
+}
+
+// claimText is what an expectation claims: `value equals "42"`, `count atLeast 3`, and for the
+// properties that are true or false, `enabled` or `not enabled`.
+func claimText(a ExpectArgs, expected string) string {
+	if on, ok := a.Expected.(bool); ok && a.Property.kind() == "flag" && (a.Op == "" || a.Op == OpEquals) {
+		if on {
+			return word(string(a.Property))
+		}
+		return "not " + word(string(a.Property))
+	}
+	return word(string(a.Property)) + " " + word(string(a.Op)) + " " + expected
 }
 
 // expectedText renders what the caller expected: strings quoted, numbers and bools bare.
