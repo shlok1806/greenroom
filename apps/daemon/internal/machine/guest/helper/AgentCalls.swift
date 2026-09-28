@@ -34,6 +34,10 @@ enum OpKind {
     case capture
     /// Concurrently: a script the daemon wrote, bounded by its own timeout.
     case shell
+    /// Concurrently, off every read queue: a wait or an expectation, which sleeps between its
+    /// polls and runs each poll on its app's read queue (`onReadQueue`), so a long wait never
+    /// holds up the snapshots of the app it watches.
+    case wait
 }
 
 struct Op {
@@ -205,6 +209,7 @@ private var pending: [Int: Call] = [:]
 private let inputQueue = DispatchQueue(label: "greenroom.agent.input")
 private let captureQueue = DispatchQueue(label: "greenroom.agent.capture")
 private let shellQueue = DispatchQueue(label: "greenroom.agent.shell", attributes: .concurrent)
+private let waitQueue = DispatchQueue(label: "greenroom.agent.wait", attributes: .concurrent)
 /// Where a read's queue key is computed: never the reader thread, which must answer PING.
 private let routeQueue = DispatchQueue(label: "greenroom.agent.route", attributes: .concurrent)
 private let timerQueue = DispatchQueue(label: "greenroom.agent.deadlines")
@@ -219,6 +224,37 @@ private func readQueue(_ key: String) -> DispatchQueue {
     let queue = DispatchQueue(label: "greenroom.agent.read.\(key)")
     readQueues[key] = queue
     return queue
+}
+
+/// Runs `body` on the read queue `key` (`pid:<pid>`, as `appQueueKey` names them) and waits for
+/// it until `deadline`: how an op off the read queues (a wait's poll, a capture's ref) reads an
+/// app in turn with that app's other reads. A read still running at the deadline is left to
+/// finish and its answer dropped; the caller gets `not_responding`.
+func onReadQueue<T>(_ key: String, until deadline: DispatchTime, _ body: @escaping () throws -> T) throws -> T {
+    let box = ReadQueueBox<T>()
+    let lock = NSLock()
+    let done = DispatchSemaphore(value: 0)
+    readQueue(key).async {
+        let result = Result { try body() }
+        lock.lock()
+        box.result = result
+        lock.unlock()
+        done.signal()
+    }
+    if done.wait(timeout: deadline) == .timedOut {
+        throw AgentFailure("not_responding", "the app's earlier accessibility read has not finished (the app may be hung); try again shortly")
+    }
+    lock.lock()
+    defer { lock.unlock() }
+    guard let result = box.result else {
+        throw AgentFailure("internal", "a read finished without an answer")
+    }
+    return try result.get()
+}
+
+/// Where a read run by `onReadQueue` leaves its answer.
+private final class ReadQueueBox<T> {
+    var result: Result<T, Error>?
 }
 
 /// Takes one REQUEST from the reader thread. It only routes: every op runs elsewhere.
@@ -275,6 +311,8 @@ func handleRequest(_ payload: Data) {
         captureQueue.async { run(call, op.handler) }
     case .shell:
         shellQueue.async { run(call, op.handler) }
+    case .wait:
+        waitQueue.async { run(call, op.handler) }
     }
 }
 
