@@ -39,7 +39,8 @@ final class RunWindowTests: XCTestCase {
             }
             if path.contains("/artifacts/") || path.contains("/frames/") { return StubURLProtocol.Reply(body: png) }
             if path.hasSuffix("/messages") { return .json(#"{"messages": []}"#) }
-            if path.hasSuffix("/steps") || path.hasSuffix("/frames") || path.hasSuffix("/api/runs") { return .json("[]") }
+            if path.hasSuffix("/frames") { return .json(Self.framesJSON) }
+            if path.hasSuffix("/steps") || path.hasSuffix("/api/runs") { return .json("[]") }
             return .json("{}", status: 404)
         }
         let store = RunStore(client: client, screenSource: NoScreen())
@@ -51,6 +52,14 @@ final class RunWindowTests: XCTestCase {
         store.details[F.tipSplit] = detail
         return store
     }
+
+    /// Forty recorded frames, one a step, for the filmstrip.
+    private nonisolated static let framesJSON: String = {
+        let items = (1...40).map { i in
+            #"{"at": "2026-09-23T04:4\#(i / 10):\#(String(format: "%02d", (i % 10) * 5))Z", "file": "f\#(i).jpg", "step": \#(i)}"#
+        }
+        return "[" + items.joined(separator: ",") + "]"
+    }()
 
     /// URLSession hands a stub the body as a stream.
     private nonisolated static func read(_ stream: InputStream?) -> Data {
@@ -124,6 +133,73 @@ final class RunWindowTests: XCTestCase {
             host.close()
         }
         print("word budget: " + report.joined(separator: ", "))
+    }
+
+    // MARK: - Layout against the Figma frame (docs/22 section 7)
+
+    /// Every part the window reports, against the layer of the same path in the Figma frame
+    /// "03 Run, failed, evidence (1280x800, light)" (`docs/22-swiftui-clone-plan/figma/
+    /// m03-failed-light.layout.txt`). Boxes: origin and size within 0.5 pt. Text: the design
+    /// draws Inter and the app SF Pro, so a text part's origin and height are held to 0.5 pt and
+    /// its width is not compared (docs/22 section 7). Sidebar rows past the first two depend on
+    /// the board's runs, which differ from the mockup's, and are not compared.
+    func testTheFailedRunIsLaidOutAsTheFigmaFrame() async throws {
+        CloneParts.enabled = true
+        defer { CloneParts.enabled = false }
+        let shell = ShellModel(store: try store(.failed))
+        await shell.store.select(F.tipSplit)
+        let host = await host(shell, state: .failed)
+        try await Task.sleep(for: .seconds(1))
+        host.window.contentView?.layoutSubtreeIfNeeded()
+        let parts = CloneParts.frames(in: host.window)
+        let url = MotionTests.repo.appendingPathComponent("docs/22-swiftui-clone-plan/figma/m03-failed-light.layout.txt")
+        let skip = ["Sidebar/Runs/Group[1]", "Sidebar/Runs/Group[2]", "Sidebar/Runs/Run row[2]", "Sidebar/Runs/Run row[3]",
+                    "Sidebar/Runs/Run row[4]", "Sidebar/Runs/More", "Sidebar/Titlebar/Traffic lights", "Sidebar/Runs/Run row[0]/Meta",
+                    "Sidebar/Runs/Run row[1]", "Sidebar/Footer/Text"]
+        // How each part may differ, and only this: a part sized by its words ("hugs") keeps
+        // its origin but not its width, since SF Pro and Inter set the same words a little
+        // apart; a part laid out from the trailing edge is held by its trailing edge; a text
+        // that follows another text on its line is held by its top and height only.
+        func last(_ path: String) -> String { String(path.split(separator: "/").last ?? "") }
+        func hugs(_ path: String) -> Bool {
+            ["Button", "Toolbar button", "Outcome", "Now", "Run meta", "Status"].contains { last(path).hasPrefix($0) }
+        }
+        func trailing(_ path: String) -> Bool {
+            let name = last(path)
+            return name == "Meta" || name.hasPrefix("Button") || name.hasPrefix("Toolbar button") || name == "Icon button"
+                || path.contains("/Button") || path.contains("/Toolbar button") || path.contains("Toolbar/Icon button")
+        }
+        func followsText(_ path: String) -> Bool { ["Tally", "Run meta"].contains(last(path)) }
+        var widths: [String: Double] = [:]
+        var misses: [String] = []
+        var compared = 0
+        for line in try String(contentsOf: url, encoding: .utf8).split(separator: "\n") where !line.hasPrefix("#") {
+            let f = line.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
+            guard f.count >= 5, let x = Double(f[1]), let y = Double(f[2]), let w = Double(f[3]), let h = Double(f[4]) else { continue }
+            let path = f[0]
+            widths[path] = w
+            if skip.contains(where: { path.hasPrefix($0) }) { continue }
+            guard let got = parts[path] else { continue }
+            let text = f.count > 5
+            var off: [String] = []
+            if trailing(path), !path.contains("Icon/") || last(path) == "Icon button" {
+                // Held by the trailing edge: the words before it set its start.
+                if !text, abs(got.maxX - (x + w)) > 0.5, !path.contains("/Button[0]"), !(path.hasSuffix("Button[0]")), !path.hasSuffix("Toolbar button[0]") {
+                    off.append("maxX \(got.maxX) want \(x + w)")
+                }
+            } else if !followsText(path), !(path.split(separator: "/").dropLast().contains { hugs(String($0)) }) {
+                if abs(got.minX - x) > 0.5 { off.append("x \(got.minX) want \(x)") }
+            }
+            if abs(got.minY - y) > 0.5 { off.append("y \(got.minY) want \(y)") }
+            if !text, !hugs(path), abs(got.width - w) > 0.5 { off.append("w \(got.width) want \(w)") }
+            if abs(got.height - h) > 0.5 { off.append("h \(got.height) want \(h)") }
+            if !off.isEmpty { misses.append("\(path): " + off.joined(separator: ", ")) }
+            compared += 1
+        }
+        print("clone layout m03: \(compared) parts compared, \(misses.count) off")
+        misses.forEach { print("  off: " + $0) }
+        XCTAssertGreaterThan(compared, 60, "parts found: \(parts.keys.sorted())")
+        XCTAssertTrue(misses.isEmpty, misses.joined(separator: "\n"))
     }
 
     // MARK: - VoiceOver

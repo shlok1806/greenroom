@@ -15,21 +15,33 @@ struct StageView: View {
         let content = StageContent.of(summary, check: shell.selectedCheck, pickedFrame: shell.selectedFrame,
                                       liveWanted: shell.showsLive, framesHeld: frames)
         let padding = windowClass.stagePadding
+        let strip = summary.state != .starting
         GeometryReader { geo in
-            let width = min(geo.size.width - padding.horizontal * 2, (geo.size.height - 180) * 4 / 3, windowClass == .wide ? 800 : 640)
-            VStack(alignment: .leading, spacing: Gap.x12) {
-                picture(content)
-                    .frame(width: max(200, width))
-                    .overlay {
-                        if summary.state == .restarting {
-                            RestartProgress(phases: shell.store.details[summary.runId]?.machine?.boot ?? [])
+            // The design's stage: 24 above, 16 below, 32 at the sides (24, 16 and 24 compact);
+            // the evidence (the 4:3 picture, 12, a 28 pt caption), 24, the 58 pt filmstrip,
+            // centred in what is left. The picture takes the full width unless the height ends first.
+            let chrome: CGFloat = 12 + 28 + (strip ? 24 + 58 : 0)
+            let tall = geo.size.height - padding.top - Gap.x16 - chrome
+            let width = max(200, min(geo.size.width - padding.horizontal * 2, tall * 4 / 3))
+            VStack(alignment: .leading, spacing: Gap.x24) {
+                VStack(alignment: .leading, spacing: Gap.x12) {
+                    picture(content)
+                        .frame(width: width, height: width * 3 / 4)
+                        .overlay {
+                            if summary.state == .restarting {
+                                RestartProgress(phases: shell.store.details[summary.runId]?.machine?.boot ?? [])
+                            }
                         }
-                    }
-                    .onTapGesture { if case .picture = content { shell.evidenceOpen = true } }
-                caption(content)
-                    .frame(width: max(200, width))
-                if summary.state != .starting {
-                    FilmstripView(shell: shell, summary: summary, frames: frames, width: max(200, width))
+                        .onTapGesture { if case .picture = content { shell.evidenceOpen = true } }
+                        .cloneScope("Screen")
+                    caption(content)
+                        .frame(width: width, height: 28)
+                        .cloneScope("Caption")
+                }
+                .cloneScope("Evidence")
+                if strip {
+                    FilmstripView(shell: shell, summary: summary, frames: frames, width: width)
+                        .cloneScope("Filmstrip")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -82,6 +94,7 @@ struct StageView: View {
             captionText(content)
                 .textStyle(.title).fontWeight(.regular)
                 .lineLimit(1)
+                .clonePart("Text")
                 .frame(maxWidth: .infinity, alignment: .leading)
             if case .live = content {
                 HStack(spacing: 6) {
@@ -91,6 +104,7 @@ struct StageView: View {
             } else if summary.lastFrame != nil, summary.state != .starting, summary.state != .restarting {
                 ToolbarButton(icon: .video, title: "Recording") { shell.evidenceOpen = true }
                     .help("Open the evidence and the recording (E)")
+                    .cloneScope("Toolbar button")
             }
         }
     }
@@ -188,13 +202,15 @@ struct FilmstripView: View {
         if items.isEmpty {
             EmptyView()
         } else {
-            let thumb = min(Metrics.thumbWidth * 1.4, (width - CGFloat(items.count - 1) * Gap.x4) / CGFloat(max(items.count, 8)))
+            // Eight 68 pt thumbs spread across the picture's width (the design's space-between).
+            let thumb = min(Metrics.thumbWidth, (width - 7 * 2) / 8)
             HStack(spacing: 0) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 { Spacer(minLength: Gap.x4) }
+                    if index > 0 { Spacer(minLength: 2) }
                     StorePicture(store: shell.store, runId: summary.runId, picture: SummaryPicture(kind: "frame", file: item.file)) { frame in
                         FilmstripThumb(image: frame.image, selected: isSelected(item, last: index == items.count - 1), mark: item.mark, width: thumb)
                     }
+                    .cloneScope(items.count > 1 ? "Filmstrip thumb[\(index)]" : "Filmstrip thumb")
                     .onTapGesture { shell.select(frame: item.file) }
                     .accessibilityElement()
                     .accessibilityLabel(item.mark == .failed ? "Frame of a failed check" : "Frame \(index + 1)")

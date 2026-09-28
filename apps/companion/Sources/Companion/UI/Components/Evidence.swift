@@ -62,7 +62,7 @@ struct EvidenceFrame: View {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
+                    .aspectRatio(contentMode: .fill)
                     .overlay {
                         if let mark, !redacted {
                             GeometryReader { geo in

@@ -211,11 +211,41 @@ extension View {
     /// Sets a type style: its face, size, weight and tracking, a line box `lineHeight` tall
     /// per line (docs/22 section 3.5), and tabular figures so times and counts never shift.
     func textStyle(_ style: TypeStyle) -> some View {
-        font(style.font)
-            .tracking(style.tracking)
-            .lineSpacing(style.lineSpacing)
-            .padding(.vertical, style.halfLeading)
-            .monospacedDigit()
+        LineBox(style: style) {
+            font(style.font)
+                .tracking(style.tracking)
+                .lineSpacing(style.lineSpacing)
+                .monospacedDigit()
+        }
+    }
+}
+
+/// Makes text exactly as tall as the design's line boxes: `lineHeight` per line, the glyphs
+/// centred in each (CSS and Figma split the leading half above and half below). A padding of
+/// half the leading would land on fractions of a point, which layout rounds; this works out the
+/// lines from the text's own height and gives the whole box.
+struct LineBox: Layout {
+    var style: TypeStyle
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let text = subviews.first else { return .zero }
+        let size = text.sizeThatFits(proposal)
+        return CGSize(width: size.width, height: height(for: size.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let text = subviews.first else { return }
+        let size = text.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+        text.place(at: CGPoint(x: bounds.minX, y: bounds.minY + (height(for: size.height) - size.height) / 2),
+                   proposal: ProposedViewSize(width: bounds.width, height: size.height))
+    }
+
+    /// The box for text this tall: whole lines of `lineHeight`.
+    func height(for measured: CGFloat) -> CGFloat {
+        guard measured > 0 else { return 0 }
+        let natural = style.naturalLineHeight + style.lineSpacing
+        let lines = max(1, ((measured + style.lineSpacing) / natural).rounded())
+        return lines * style.lineHeight
     }
 }
 

@@ -17,17 +17,23 @@ struct RunPane: View {
                 }, dismiss: shell.dismissWarning)
             }
             HStack(spacing: 0) {
-                ChecksColumn(shell: shell, summary: summary)
-                    .frame(width: windowClass.checks)
-                    .overlay(alignment: .trailing) { Rectangle().fill(Palette.border).frame(width: 1) }
+                HStack(spacing: 0) {
+                    ChecksColumn(shell: shell, summary: summary)
+                    // The 1 pt border is inside the column's width, as the design draws it.
+                    Rectangle().fill(Palette.border).frame(width: 1)
+                }
+                .frame(width: windowClass.checks)
+                .cloneScope("Checks")
                 if shell.activityOpen {
                     ActivityPanel(shell: shell, summary: summary)
                 } else {
-                    StageView(shell: shell, summary: summary, windowClass: windowClass)
+                    StageView(shell: shell, summary: summary, windowClass: windowClass).cloneScope("Stage")
                 }
             }
+            .cloneScope("Body")
         }
         .background(Palette.bg)
+        .cloneScope("Run")
     }
 }
 
@@ -40,21 +46,26 @@ struct RunToolbar: View {
     var body: some View {
         HStack(spacing: Gap.x8) {
             Text(summary.name).textStyle(.bodyEmphasis).foregroundStyle(Palette.text).lineLimit(1)
+                .fixedSize().clonePart("Run name")
             Text(origin).textStyle(.body).foregroundStyle(Palette.textSecondary).lineLimit(1)
+                .layoutPriority(-1).clonePart("Run meta")
             Spacer(minLength: Gap.x8)
             ToolbarButton(icon: .activity, title: "Activity", on: shell.activityOpen) { shell.toggleActivity() }
                 .help("Activity (A)")
+                .cloneScope("Toolbar button[0]")
             // Only while something will answer: a Mac that is gone takes no messages.
             if summary.machine.isUp {
                 ToolbarButton(icon: .message, title: "Message", on: shell.composer == .message) { shell.openComposer(.message) }
                     .help("Message the verifier (M)")
+                    .cloneScope("Toolbar button[1]")
             }
-            RunMoreMenu(shell: shell, summary: summary)
+            RunMoreMenu(shell: shell, summary: summary).cloneScope("Icon button")
         }
         .padding(.leading, Gap.x24)
         .padding(.trailing, Gap.x12)
         .frame(height: Metrics.toolbarHeight)
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.border).frame(height: 1) }
+        .cloneScope("Toolbar")
     }
 
     /// Who started the run and when; once it is done, only when (who started it matters while
@@ -86,9 +97,11 @@ private struct RunMoreMenu: View {
             }
         } label: {
             IconView(icon: .more).foregroundStyle(Palette.textSecondary)
+                .clonePart("Icon/more")
                 .frame(width: Metrics.buttonHeight, height: Metrics.buttonHeight)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(IconButtonStyle())
         .menuIndicator(.hidden)
         .fixedSize()
         .help("More")
@@ -115,7 +128,10 @@ struct StatusHeader: View {
         .padding(.horizontal, Gap.x24)
         .padding(.vertical, Gap.x16)
         .frame(minHeight: Metrics.headerHeight)
+        // The design's header is 80 of content and padding over its 1 pt border (81 in all).
+        .padding(.bottom, 1)
         .overlay(alignment: .bottom) { Rectangle().fill(Palette.border).frame(height: 1) }
+        .cloneScope("Header")
     }
 
     private func content(now: Date) -> some View {
@@ -125,38 +141,51 @@ struct StatusHeader: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .center, spacing: 10) {
                     StatusGlyph(kind: model.glyph, color: model.glyphColor, size: Metrics.headerGlyph)
+                        .clonePart("Glyph")
                     Text(model.status).textStyle(.display).foregroundStyle(Palette.text)
                         .contentTransition(.opacity)
+                        .clonePart("Status word")
                     if !model.tally.isEmpty {
                         Text(model.tally).textStyle(.title).foregroundStyle(Palette.textSecondary)
+                            .contentTransition(.numericText())
+                            .clonePart("Tally")
                     }
                 }
+                .cloneScope("Outcome")
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isHeader)
                 .animation(Motion.change(Motion.land, reduce: reduceMotion), value: model.status)
                 if !model.line.isEmpty {
+                    // In line with the status word: 30 in (the 20 pt glyph and its 10 pt gap).
                     HStack(spacing: 6) {
                         if model.isNow {
-                            Circle().fill(Palette.accent).frame(width: 6, height: 6)
+                            Circle().fill(Palette.accent).frame(width: 6, height: 6).clonePart("Live pulse")
                             (Text("Now ").foregroundStyle(Palette.textSecondary) + Text(model.line).foregroundStyle(Palette.text))
                                 .textStyle(.body)
+                                .clonePart("Text")
                         } else {
                             Text(model.line).textStyle(.body).foregroundStyle(Palette.textSecondary)
+                                .clonePart("Now text")
                         }
                     }
                     .lineLimit(1)
-                    .padding(.leading, model.isNow ? 30 - 12 : 30)
+                    .padding(.leading, 30)
+                    .cloneScope("Now")
                 }
             }
-            Spacer(minLength: Gap.x16)
-            ForEach(secondary, id: \.id) { action in
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cloneScope("Status")
+            let buttons = secondary.count + (primary == nil ? 0 : 1)
+            ForEach(Array(secondary.enumerated()), id: \.element.id) { index, action in
                 Button(action.label) { shell.perform(action) }
                     .buttonStyle(ActionButtonStyle(kind: .secondary, loading: shell.busy == action.id))
+                    .cloneScope(buttons > 1 ? "Button[\(index)]" : "Button")
             }
             if let primary {
                 Button(primary.label) { shell.perform(primary) }
                     .buttonStyle(ActionButtonStyle(kind: .primary, loading: shell.busy == primary.id))
                     .help(Keys.hint(for: primary))
+                    .cloneScope(buttons > 1 ? "Button[\(buttons - 1)]" : "Button")
             }
         }
     }
@@ -209,10 +238,12 @@ struct ChecksColumn: View {
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     heading("Checks")
-                    ForEach(summary.checks.items) { check in
+                    let many = summary.checks.items.count > 1
+                    ForEach(Array(summary.checks.items.enumerated()), id: \.element.id) { index, check in
                         CheckRowView(check: check, selected: check.id == shell.selectedCheckID, metaOverride: meta(for: check))
                             .onTapGesture { shell.select(check: check.id) }
                             .accessibilityAction { shell.select(check: check.id) }
+                            .cloneScope(many ? "Check row[\(index)]" : "Check row")
                     }
                 }
             }
@@ -239,11 +270,15 @@ struct ChecksColumn: View {
         }
     }
 
+    /// Caption Emphasis, 12 in, 4 above and 6 below (24 tall).
     private func heading(_ title: String) -> some View {
         Text(title).textStyle(.captionEmphasis).foregroundStyle(Palette.textSecondary)
+            .clonePart("Text")
             .padding(.leading, Gap.x12)
             .padding(.top, Gap.x4)
             .padding(.bottom, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cloneScope("Heading")
             .accessibilityAddTraits(.isHeader)
     }
 }
