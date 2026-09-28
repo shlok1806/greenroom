@@ -146,7 +146,9 @@ private func tryChecks(_ look: Look, call: Call, plan: CheckPlan, log: inout Che
                        changedUI: inout Bool, until end: DispatchTime) -> TryOutcome {
     var look = look
     let label = targetLabel(look)
-    let focused = look.read.focused == true
+    // Focused means it has the keyboard, not only its window's focus: a field whose window is
+    // under a panel that took the keyboard (navlab's Inspector) still says AXFocused.
+    let focused = look.read.focused == true && focusedElement().map { CFEqual($0, look.element) } == true
     let pointer = plan.pointer && !(plan.pointerUnlessFocused && focused)
     var point: CGPoint?
     var tried: [CGPoint] = []

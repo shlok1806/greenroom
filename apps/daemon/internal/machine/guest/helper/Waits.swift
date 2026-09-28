@@ -240,7 +240,8 @@ private func poll(_ target: Target, reader: String, call: Call, tree: Bool) thro
         if listing.error == .cannotComplete { return nil }
         var options = WalkOptions()
         options.mode = .all
-        options.limit = 50
+        // As many as `find` lists at most, so a count up to that is exact.
+        options.limit = 200
         options.budget = 1
         options.accept = { read in
             findMatches(pattern, role: role, FindFields(
