@@ -486,7 +486,9 @@ final class Walk {
                 // A window has a ref whether it is listed or not: its elements name it.
                 windowRef = ref(me)
                 windowRefs.append(windowRef ?? "")
-                if let kind = attentionKind(windowSubrole: read.subrole) { attend(me, kind: kind) }
+                // A minimized window says AXDialog (Preview's do), and wants nothing until it is
+                // brought back.
+                if !minimized, let kind = attentionKind(windowSubrole: read.subrole) { attend(me, kind: kind) }
             }
             if let kind = attentionKind(role: role) { attend(me, kind: kind) }
             if listed {
