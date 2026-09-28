@@ -70,8 +70,8 @@ func Diff(before, after Tree) []Change {
 	appeared, folded := structural(after.Nodes, refSet(before.Nodes), newRefs(after.Windows, before.Windows))
 	gone, goneFolded := structural(before.Nodes, refSet(after.Nodes), newRefs(before.Windows, after.Windows))
 
-	out = append(out, attentionChanges(before.Attention, after.Attention, appeared, ChangeAttentionOpened)...)
-	out = append(out, attentionChanges(after.Attention, before.Attention, gone, ChangeAttentionClosed)...)
+	out = append(out, attentionChanges(after.Attention, before.Attention, appeared, ChangeAttentionOpened)...)
+	out = append(out, attentionChanges(before.Attention, after.Attention, gone, ChangeAttentionClosed)...)
 	out = append(out, windowChanges(after.Windows, before.Windows, appeared, ChangeWindowOpened)...)
 	out = append(out, windowChanges(before.Windows, after.Windows, gone, ChangeWindowClosed)...)
 
