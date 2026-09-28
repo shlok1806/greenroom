@@ -43,8 +43,11 @@ final class RedesignHarness {
                 for size in scenario.sizes {
                     let base = "\(scenario.name)-\(dark ? "dark" : "light")-\(size.name)"
                     let view = await scenario.view(size)
-                    let image = try await render(view, size: size, dark: dark, to: directory.appending(path: "\(base).png"))
-                    guard let image else { continue }
+                    _ = try await render(view, size: size, dark: dark, to: directory.appending(path: "\(base).png"))
+                    // The words are read off a second render with the guest's screen blank.
+                    let blank = try await render(AnyView(view.environment(\.redactsGuestScreen, true)), size: size, dark: dark,
+                                                 to: FileManager.default.temporaryDirectory.appending(path: "\(base).count.png"))
+                    guard let image = blank else { continue }
                     let exclude = [CGRect(x: 0, y: 0, width: scenario.countFrom * 2, height: CGFloat(image.height))]
                     let reading = try VisibleWords.read(image, excluding: exclude)
                     let verdict = scenario.budget.map { "\(reading.words) of \($0.budget)" } ?? "\(reading.words)"
@@ -132,7 +135,7 @@ extension RedesignHarness {
             Scenario(name: "s03-runs-sidebar-offline", sizes: [.regular]) { size in
                 AnyView(SidebarStage(board: nil, selected: nil, size: size, connection: .offline(hasData: false)))
             },
-        ]
+        ] + RunScenarios.scenarios(base: ProcessInfo.processInfo.environment["GREENROOM_URL"].flatMap(URL.init(string:)))
     }
 }
 

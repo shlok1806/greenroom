@@ -106,9 +106,12 @@ struct CheckRowView: View {
         }
     }
 
-    private var accessibilityLabel: String {
+    private var accessibilityLabel: String { Self.label(check, checking: checking, meta: meta?.text) }
+
+    /// "Each pays becomes $50.00 at 25%, failed, saw $10.00".
+    static func label(_ check: SummaryCheck, checking: Bool, meta: String?) -> String {
         let state = checking ? "checking" : (check.state == .pass ? "passed" : check.state == .fail ? "failed" : "not checked yet")
-        return [check.text, state, meta?.text].compactMap { $0 }.joined(separator: ", ")
+        return [check.text, state, meta].compactMap { $0 }.joined(separator: ", ")
     }
 }
 

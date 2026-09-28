@@ -5,17 +5,18 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store: RunStore
-    /// The window's keys (companion ADR 0005): one model, fed by one router.
-    let keyboard: KeyboardModel
-    private let router: KeyRouter
+    /// What the window shows beside the store (companion ADR 0019).
+    let shell: ShellModel
+    /// The window's keys, all in `UI/Keys.swift`.
+    private let keys: Keys
     private var quitting = false
 
     override init() {
         let store = RunStore()
-        let keyboard = KeyboardModel(store: store)
+        let shell = ShellModel(store: store)
         self.store = store
-        self.keyboard = keyboard
-        router = KeyRouter(keyboard: keyboard)
+        self.shell = shell
+        keys = Keys(shell: shell)
         super.init()
     }
 
@@ -32,10 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
         }
-        router.install()
-        #if DEBUG
-        SnapshotHook.runIfAsked(store: store, router: router)
-        #endif
+        keys.install()
         // The run window is fitted to its screen the first time it shows after launch, when
         // macOS may have restored it off screen, and whenever it moves to another screen.
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didChangeScreenNotification] {
@@ -127,15 +125,15 @@ struct CompanionApp: App {
     var body: some Scene {
         // One window: selection lives in the store, so a second window would mirror it.
         Window("Greenroom Companion", id: "main") {
-            RootView(store: store, keyboard: delegate.keyboard)
-                .frame(minWidth: RunLayout.windowMinimum.width, minHeight: RunLayout.windowMinimum.height)
+            CompanionShell(shell: delegate.shell)
+                .frame(minWidth: Metrics.windowMinimum.width, minHeight: Metrics.windowMinimum.height)
                 .task {
                     store.start()
                     store.updates.start()
                 }
         }
-        // Own chrome (ADR 0004, 0008): the content fills the window under a transparent
-        // title bar; `RootView` draws the top bar.
+        // The content fills the window under a transparent title bar; the sidebar's title row
+        // holds the traffic lights (companion ADR 0019).
         .windowStyle(.hiddenTitleBar)
         // The spec's default, but never wider or taller than the screen it opens on: a
         // plain `defaultSize` opened 1320 pt wide on a 1024 pt screen (issue #64).
@@ -143,7 +141,7 @@ struct CompanionApp: App {
             WindowPlacement(size: RunLayout.defaultWindowSize(visible: context.defaultDisplay.visibleRect.size))
         }
         .commands {
-            RunMenuCommands(keyboard: delegate.keyboard)
+            ShellCommands(shell: delegate.shell)
         }
     }
 }

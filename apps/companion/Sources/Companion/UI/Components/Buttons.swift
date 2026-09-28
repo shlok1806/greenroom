@@ -112,9 +112,12 @@ struct ToolbarButtonStyle: ButtonStyle {
 }
 
 private struct ToolbarLabelStyle: LabelStyle {
+    @Environment(\.redactsGuestScreen) private var counting
+
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 6) {
-            configuration.icon.frame(width: 16, height: 16).font(.system(size: 13))
+            // Hidden while the harness counts words: a text recogniser reads icons as letters.
+            configuration.icon.frame(width: 16, height: 16).font(.system(size: 13)).opacity(counting ? 0 : 1)
             configuration.title.textStyle(.body)
         }
         .foregroundStyle(Palette.textSecondary)
@@ -127,12 +130,14 @@ struct IconButton: View {
     var systemImage: String
     var name: String
     var action: () -> Void
+    @Environment(\.redactsGuestScreen) private var counting
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 13))
                 .frame(width: 16, height: 16)
+                .opacity(counting ? 0 : 1)
         }
         .buttonStyle(IconButtonStyle())
         .help(name)

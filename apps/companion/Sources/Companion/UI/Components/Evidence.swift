@@ -11,6 +11,35 @@ enum FrameContent {
     case loading
     /// The frame could not be read; the recording may still have it.
     case missing
+
+    var image: NSImage? {
+        if case .image(let image) = self { return image }
+        return nil
+    }
+
+    /// A blank picture the size of the real one, for counting the words the app itself shows.
+    static func redacted(_ content: FrameContent) -> FrameContent {
+        guard case .image(let image) = content else { return content }
+        let blank = NSImage(size: image.size)
+        blank.lockFocus()
+        NSColor.gray.setFill()
+        NSRect(origin: .zero, size: image.size).fill()
+        blank.unlockFocus()
+        return .image(blank)
+    }
+}
+
+/// Draws every picture of the guest's screen blank: the word count reads only the app's own
+/// words (docs/20 counts the run pane without the guest's screen).
+struct RedactsGuestScreenKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var redactsGuestScreen: Bool {
+        get { self[RedactsGuestScreenKey.self] }
+        set { self[RedactsGuestScreenKey.self] = newValue }
+    }
 }
 
 /// A picture of the Mac's screen, framed, with at most one mark on it.
@@ -24,17 +53,18 @@ struct EvidenceFrame: View {
     /// Offered on a missing frame.
     var openRecording: (() -> Void)?
     var aspect: CGFloat = 4 / 3
+    @Environment(\.redactsGuestScreen) private var redacted
 
     var body: some View {
         ZStack {
-            switch content {
+            switch redacted ? FrameContent.redacted(content) : content {
             case .image(let image):
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
                     .overlay {
-                        if let mark {
+                        if let mark, !redacted {
                             GeometryReader { geo in
                                 EvidenceMarkView(color: markColor)
                                     .frame(width: max(12, mark.w * geo.size.width) + 8, height: max(12, mark.h * geo.size.height) + 8)
@@ -105,12 +135,13 @@ struct FilmstripThumb: View {
     /// Under the thumb, for key frames that carry one ("$10.00 at 25%").
     var caption: String?
     var width: CGFloat = Metrics.thumbWidth
+    @Environment(\.redactsGuestScreen) private var redacted
 
     var body: some View {
         VStack(alignment: .leading, spacing: Gap.x4) {
             ZStack {
                 Palette.bgSelected
-                if let image {
+                if let image, !redacted {
                     Image(nsImage: image).resizable().interpolation(.medium).aspectRatio(contentMode: .fill)
                 }
             }

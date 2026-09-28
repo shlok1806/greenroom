@@ -10,12 +10,15 @@ struct StatusGlyph: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var turning = false
+    /// A text recogniser reads a glyph as a letter; the harness's word count hides them.
+    @Environment(\.redactsGuestScreen) private var counting
 
     var body: some View {
         GlyphShape(kind: kind, color: color.token.color)
             .rotationEffect(.degrees(turning ? 360 : 0))
             .animation(turning ? .linear(duration: Motion.ring).repeatForever(autoreverses: false) : nil, value: turning)
             .frame(width: size, height: size)
+            .opacity(counting ? 0 : 1)
             .accessibilityHidden(true)
             .onAppear { turning = kind.turns && !reduceMotion && !SnapshotMode.isActive }
             .onChange(of: kind.turns && !reduceMotion) { _, turns in turning = turns && !SnapshotMode.isActive }

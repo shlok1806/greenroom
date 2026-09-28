@@ -358,8 +358,9 @@ enum EvidenceCaption: Equatable, Sendable {
 /// The check a run opens on: the first failed (the daemon lists them first), else the first
 /// with a picture, else the first.
 enum CheckSelection {
+    /// Nil for a plan nothing has answered yet: no check is proven, so none is singled out.
     static func initial(_ checks: [SummaryCheck]) -> String? {
-        (checks.first { $0.state == .fail } ?? checks.first { $0.picture != nil } ?? checks.first)?.id
+        (checks.first { $0.state == .fail } ?? checks.first { $0.picture != nil } ?? checks.first { $0.state != .pending })?.id
     }
 
     /// The check `delta` after `id`, wrapping; the first (or last) when none is selected.

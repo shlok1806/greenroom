@@ -1011,7 +1011,7 @@ final class OffscreenWindow: NSWindow {
 }
 
 /// Lends the screen without a daemon, so the driving state can be rendered.
-private struct GrantingControlClient: ControlClient {
+struct GrantingControlClient: ControlClient {
     func takeControl(runId: String) async throws -> ControlResponse {
         ControlResponse(
             control: ControlLease(holder: "human", since: Date(), expires: Date().addingTimeInterval(60), actions: 0),
@@ -1030,7 +1030,7 @@ private struct GrantingControlClient: ControlClient {
 
 /// A live screen that never sends a picture, so a dressed-up live run shows its recording
 /// with "Connecting" rather than the daemon refusing a machine that does not exist.
-private struct SilentScreen: ScreenSource {
+struct SilentScreen: ScreenSource {
     func liveScreen(runId: String) -> AsyncThrowingStream<ScreenMessage, Error> {
         AsyncThrowingStream { _ in }
     }

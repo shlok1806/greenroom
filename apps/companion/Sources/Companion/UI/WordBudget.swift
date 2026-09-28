@@ -9,19 +9,24 @@ import Vision
 enum WordBudget {
     enum Screen: String, CaseIterable, Sendable {
         case runLive = "Run, live"
-        case runVerdictWaiting = "Run, verdict waiting"
+        /// A verdict to accept or reject, and every other state that waits for you (Paused,
+        /// Not answering, a resource warning).
+        case runVerdictWaiting = "Run, waiting for you"
         case runFinished = "Run, finished"
         case booting = "Booting"
         case noRunOpen = "No run open"
         case firstLaunch = "First launch"
 
-        /// The most words the state may show.
+        /// The most words the state may show. docs/20 section 6, with two corrections the
+        /// approved Figma file makes itself: booting is "20 + shell" (the toolbar's name,
+        /// source and buttons, about 20 more), and a finished run counts "about 58" there, so
+        /// it is held to 60, not 50.
         var budget: Int {
             switch self {
             case .runLive: 60
             case .runVerdictWaiting: 70
-            case .runFinished: 50
-            case .booting: 20
+            case .runFinished: 60
+            case .booting: 40
             case .noRunOpen: 15
             case .firstLaunch: 35
             }

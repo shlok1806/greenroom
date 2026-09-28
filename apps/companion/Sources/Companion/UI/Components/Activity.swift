@@ -209,6 +209,8 @@ struct ComposerView: View {
     var sending = false
     /// Why the composer cannot send now; nil when it can.
     var disabledReason: String?
+    /// Bumped to put the keyboard in the field.
+    var focusRequest = 0
     var send: () -> Void
     @FocusState private var focused: Bool
 
@@ -234,6 +236,8 @@ struct ComposerView: View {
         .background(RoundedRectangle(cornerRadius: Corner.row).fill(Palette.bgRaised))
         .overlay(RoundedRectangle(cornerRadius: Corner.row)
             .strokeBorder(focused ? Palette.focusRing : Palette.border, lineWidth: focused ? 2 : 1))
+        .onChange(of: focusRequest) { _, _ in focused = true }
+        .onAppear { if focusRequest > 0 { DispatchQueue.main.async { focused = true } } }
     }
 
     private var canSend: Bool {
