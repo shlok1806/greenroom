@@ -22,7 +22,7 @@ final class LiveScreenTests: XCTestCase {
         defer { IOPMAssertionRelease(awake) }
         let source = FakeScreenSource(try messages())
         let live = LiveScreen(runId: "r", source: source)
-        let window = hostedWindow(live)
+        let window = try hostedWindow(live)
         defer { window.close() }
         live.start()
 
@@ -50,17 +50,27 @@ final class LiveScreenTests: XCTestCase {
         XCTAssertEqual(live.output.layer.videoGravity, .resizeAspect)
     }
 
-    /// The layer only displays frames inside an ordered window. Tests run in the
+    /// The layer only displays frames inside an ordered window that is on a display.
+    /// A window that intersects no screen has no display to refresh it: samples
+    /// decode and `displayedPixelBuffer()` stays nil for good. Tests run in the
     /// developer's (or the self-hosted CI runner's) login session, so the window
-    /// sits far off every display and xctest never becomes a Dock app.
-    private func hostedWindow(_ live: LiveScreen) -> NSWindow {
+    /// sits on the primary screen under the desktop picture, where nobody sees it,
+    /// takes no clicks, and xctest never becomes a Dock app.
+    private func hostedWindow(_ live: LiveScreen) throws -> NSWindow {
         NSApplication.shared.setActivationPolicy(.prohibited)
-        let window = NSWindow(contentRect: CGRect(x: -20_000, y: -20_000, width: 640, height: 480), styleMask: [.borderless], backing: .buffered, defer: false)
+        let screen = try XCTUnwrap(NSScreen.screens.first, "A display is online but AppKit lists no screen.")
+        let origin = CGPoint(x: screen.frame.minX, y: screen.frame.minY)
+        let window = NSWindow(contentRect: CGRect(origin: origin, size: CGSize(width: 640, height: 480)), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) - 1)
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        window.ignoresMouseEvents = true
+        window.hasShadow = false
         let view = LiveScreenHostView(displayLayer: live.output.layer)
         view.pixelSize = CGSize(width: 1280, height: 960)
         window.contentView = view
         window.orderBack(nil)
+        XCTAssertNotNil(window.screen, "The hosting window is on no display, so the layer can present nothing.")
         return window
     }
 

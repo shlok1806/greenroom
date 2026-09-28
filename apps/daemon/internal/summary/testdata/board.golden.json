@@ -71,18 +71,20 @@
             "passed": 2,
             "failed": 2,
             "pending": 0,
-            "text": "2 of 4 checks failed",
+            "text": "2 of 4 checks",
             "current": {
+              "id": "each-25",
               "text": "Each pays becomes $50.00 at 25%",
-              "state": "fail"
+              "state": "fail",
+              "saw": "$10.00"
             },
             "items": [
               {
                 "id": "each-25",
                 "text": "Each pays becomes $50.00 at 25%",
                 "state": "fail",
-                "expected": "$50.00",
                 "saw": "$10.00",
+                "expected": "$50.00",
                 "observed": "After choosing 25%, Each pays reads $10.00.",
                 "step": 5,
                 "picture": {
@@ -103,8 +105,8 @@
                 "id": "each",
                 "text": "Each pays is $48.00 for 3 people",
                 "state": "fail",
-                "expected": "$48.00",
                 "saw": "$8.00",
+                "expected": "$48.00",
                 "observed": "With Bill 120 and 3 people, Each pays reads $8.00.",
                 "step": 2,
                 "picture": {
@@ -189,7 +191,7 @@
             "passed": 4,
             "failed": 0,
             "pending": 0,
-            "text": "4 of 4 checks passed",
+            "text": "4 of 4 checks",
             "current": null,
             "items": [
               {
@@ -405,7 +407,7 @@
             "passed": 1,
             "failed": 0,
             "pending": 0,
-            "text": "1 of 1 check passed",
+            "text": "1 of 1 check",
             "current": null,
             "items": [
               {
@@ -420,7 +422,8 @@
           "primaryAction": null,
           "secondaryActions": [],
           "machine": {
-            "status": "off"
+            "status": "off",
+            "ended": "The coding agent shut down the Mac."
           },
           "outcome": "Verified",
           "lastFrame": {
