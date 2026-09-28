@@ -14,33 +14,49 @@
       {
         "id": "summary-status",
         "criterion": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and name \"TipSplit: split the bill\"",
-        "kinds": ["value"],
+        "kinds": [
+          "value"
+        ],
         "status": "pass",
-        "evidence": [7],
+        "evidence": [
+          7
+        ],
         "observed": "Response has status=\"Failed\", group=\"done\", name=\"TipSplit: split the bill\""
       },
       {
         "id": "summary-checks",
         "criterion": "In that summary checks.text is \"2 of 4 checks\" and checks.items has 4 rows with the two failed rows first",
-        "kinds": ["value"],
+        "kinds": [
+          "value"
+        ],
         "status": "pass",
-        "evidence": [7],
+        "evidence": [
+          7
+        ],
         "observed": "checks.text is \"2 of 4 checks\"; checks.items has 4 rows with the two failed rows (each-pays-48, each-pays-50) first"
       },
       {
         "id": "summary-failing",
         "criterion": "In that summary failing.expected is \"$48.00\" and failing.saw is \"$8.00\"",
-        "kinds": ["value"],
+        "kinds": [
+          "value"
+        ],
         "status": "pass",
-        "evidence": [7],
+        "evidence": [
+          7
+        ],
         "observed": "failing.expected is \"$48.00\" and failing.saw is \"$8.00\""
       },
       {
         "id": "summary-list",
         "criterion": "GET /api/summary lists that run under the group with id \"done\" and its macs.text reads \"2 of 2 Macs free\"",
-        "kinds": ["value"],
+        "kinds": [
+          "value"
+        ],
         "status": "pass",
-        "evidence": [8],
+        "evidence": [
+          8
+        ],
         "observed": "GET /api/summary lists the run under group id \"done\" and macs.text is \"2 of 2 Macs free\""
       }
     ],
