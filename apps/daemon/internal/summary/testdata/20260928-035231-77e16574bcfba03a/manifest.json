@@ -1,0 +1,79 @@
+{
+  "runId": "20260928-035231-77e16574bcfba03a",
+  "image": "greenroom-lean-a",
+  "machineName": "greenroom-20260928-035231-77e16574bcfba03a",
+  "ip": "192.168.64.3",
+  "createdAt": "2026-09-28T03:52:31.763936Z",
+  "destroyedAt": "2026-09-28T03:58:54.572038Z",
+  "steps": 14,
+  "verdict": {
+    "seq": 7,
+    "verdict": "pass",
+    "summary": "All four checks pass. The run summary endpoint returns status \"Failed\", group \"done\", name \"TipSplit: split the bill\" (step 7). Its checks.text is \"2 of 4 checks\" with 4 items, the two failed rows first (step 7). The failing object shows expected \"$48.00\" and saw \"$8.00\" (step 7). The summary list endpoint includes the run under group \"done\" and macs.text reads \"2 of 2 Macs free\" (step 8).",
+    "checks": [
+      {
+        "id": "summary-status",
+        "criterion": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and name \"TipSplit: split the bill\"",
+        "kinds": ["value"],
+        "status": "pass",
+        "evidence": [7],
+        "observed": "Response has status=\"Failed\", group=\"done\", name=\"TipSplit: split the bill\""
+      },
+      {
+        "id": "summary-checks",
+        "criterion": "In that summary checks.text is \"2 of 4 checks\" and checks.items has 4 rows with the two failed rows first",
+        "kinds": ["value"],
+        "status": "pass",
+        "evidence": [7],
+        "observed": "checks.text is \"2 of 4 checks\"; checks.items has 4 rows with the two failed rows (each-pays-48, each-pays-50) first"
+      },
+      {
+        "id": "summary-failing",
+        "criterion": "In that summary failing.expected is \"$48.00\" and failing.saw is \"$8.00\"",
+        "kinds": ["value"],
+        "status": "pass",
+        "evidence": [7],
+        "observed": "failing.expected is \"$48.00\" and failing.saw is \"$8.00\""
+      },
+      {
+        "id": "summary-list",
+        "criterion": "GET /api/summary lists that run under the group with id \"done\" and its macs.text reads \"2 of 2 Macs free\"",
+        "kinds": ["value"],
+        "status": "pass",
+        "evidence": [8],
+        "observed": "GET /api/summary lists the run under group id \"done\" and macs.text is \"2 of 2 Macs free\""
+      }
+    ],
+    "status": "accepted",
+    "acceptedBy": "coder",
+    "disputes": 0
+  },
+  "finish": {
+    "outcome": "verified",
+    "summary": "The daemon derives one run summary per run (status word, group, checks rows, first failing check with expected and saw, next action) and serves it at /api/summary and /api/runs/{id}/summary. The verifier checked the branch's daemon inside the machine against a recorded run: 4 of 4 checks passed.",
+    "ref": {
+      "branch": "redesign/1-run-summary",
+      "commit": "2045f27",
+      "pr": "https://github.com/shlok1806/greenroom/pull/211"
+    },
+    "at": "2026-09-28T03:58:53.450646Z"
+  },
+  "models": {
+    "brain": "nim",
+    "model": "nvidia/nemotron-3-ultra-550b-a55b",
+    "vision": "meta/muse-glimmer-30b",
+    "modelOptions": {
+      "max_tokens": 8192,
+      "temperature": 0.2
+    },
+    "visionOptions": {
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      },
+      "max_tokens": 700,
+      "temperature": 0.2
+    }
+  },
+  "name": "Run summary: the recorded TipSplit…",
+  "source": "claude-code"
+}

@@ -2,6 +2,7 @@ package summary
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -10,11 +11,10 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/session"
 )
 
-// Word limits (docs/20 section 6): a check row reads in eight words, a failing check's line in
-// twelve.
+// Word limits (docs/20 section 6): a check row reads in eight words, its setup clause in twelve.
 const (
 	checkWords    = 8
-	failingWords  = 12
+	setupWords    = 12
 	observedWords = 25
 	targetWords   = 3
 )
@@ -36,7 +36,7 @@ func detail(in Input, f derived, st State) string {
 	case NotAnswering:
 		return "The Mac's screen stopped answering. Restart it? Your files are kept."
 	case Restarting:
-		return "Restarting the Mac. Your files are kept."
+		return "Your files are kept."
 	case Ready:
 		if in.Verdict.Status == session.Rejected {
 			return rejectedSentence(in)
@@ -115,6 +115,15 @@ func stoppedSentence(in Input) string {
 	if stop := waitingStop(in.Messages); stop != nil {
 		return strings.TrimSuffix(stopSentence(stop.Stop), ".") + " before a verdict."
 	}
+	return machineEnd(in)
+}
+
+// machineEnd says how the run's Mac went away, from the lifecycle events the daemon wrote
+// (main.go's bridge, api's destroy); "" while it is up or when nothing says.
+func machineEnd(in Input) string {
+	if in.Machine != nil && in.Machine.Status != machine.Failed {
+		return ""
+	}
 	for i := len(in.Messages) - 1; i >= 0; i-- {
 		m := in.Messages[i]
 		if m.From != session.System {
@@ -173,15 +182,23 @@ func now(in Input, f derived, st State) string {
 		return "Idle for " + span(idle)
 	}
 	if f.owed != nil && (step == nil || step.At.Before(f.owed.At)) {
-		return "Reading the task"
+		return reading(*f.owed)
 	}
 	if step == nil {
-		if f.owed == nil {
-			return "Waiting for the coding agent"
-		}
-		return "Reading the task"
+		return "Waiting for the coding agent"
 	}
 	return capitalise(stepWords(actionOf(*step, in.Steps), in.Steps))
+}
+
+// reading says the verifier has a message and has not acted on it yet.
+func reading(m session.Message) string {
+	switch {
+	case m.Kind == session.Task:
+		return "Reading the task"
+	case m.From == session.Human:
+		return "Reading your message"
+	}
+	return "Reading the coding agent's message"
 }
 
 // actionOf is the input a verifier's effect read followed (machine.StepEffect.Of), else st: a
@@ -211,10 +228,12 @@ func bootWords(phases []machine.BootPhase) string {
 		return "Copying the Mac"
 	case machine.PhaseStart:
 		return "Starting the Mac"
-	case machine.PhaseSettings, machine.PhaseHelper, machine.PhaseChecks:
-		return "Getting the Mac ready"
+	case machine.PhaseAgent, machine.PhaseIP:
+		return "Waiting for the Mac"
 	}
-	return "Waiting for the Mac"
+	// Key, settings, helper, checks, ssh, and any phase added later: the Mac answers and is
+	// being set up. The words never go back to waiting once it does.
+	return "Getting the Mac ready"
 }
 
 // stepWords is one step as what it does, never the tool's name.
@@ -239,6 +258,8 @@ func stepWords(st machine.Step, steps []machine.Step) string {
 		return "starting the Mac"
 	case "machine_destroy":
 		return "shutting down the Mac"
+	case "machine_reboot":
+		return "restarting the Mac"
 	}
 	return "working"
 }
@@ -380,11 +401,31 @@ func inside(e machine.UIElement, x, y float64) bool {
 	return x >= e.X-e.W/2 && x <= e.X+e.W/2 && y >= e.Y-e.H/2 && y <= e.Y+e.H/2
 }
 
+// subroleWords name a control that has no words of its own by what it is.
+var subroleWords = map[string]string{
+	"IncrementArrow": "the up arrow",
+	"DecrementArrow": "the down arrow",
+	"CloseButton":    "the close button",
+	"MinimizeButton": "the minimize button",
+	"ZoomButton":     "the zoom button",
+	"SearchField":    "the search field",
+}
+
+// elementName is what a person would call the element: its label or title, else what its
+// subrole is, else, for text, what it says. A control's value is not its name: a stepper
+// reading 2 is not "2" (live check, run 20260928-000221-d9a2350ea69e1d91).
 func elementName(e machine.UIElement) string {
-	for _, s := range []string{e.Label, e.Title, e.Value} {
+	for _, s := range []string{e.Label, e.Title} {
 		if s = strings.Join(strings.Fields(s), " "); s != "" {
 			return s
 		}
+	}
+	if w, ok := subroleWords[e.Subrole]; ok {
+		return w
+	}
+	switch e.Role {
+	case "StaticText", "Link", "MenuItem", "Cell", "Heading":
+		return strings.Join(strings.Fields(e.Value), " ")
 	}
 	return ""
 }
@@ -413,105 +454,130 @@ func keyName(key string, mods []string) string {
 // tally counts the checks that apply to the status: the verdict's for an outcome, else the
 // newest plan's, all pending.
 func tally(in Input, f derived, st State) Checks {
-	out := Checks{Items: []CheckItem{}}
-	switch st {
-	case Passed, Failed, Inconclusive:
+	out := Checks{Items: []CheckRef{}}
+	outcome := st == Passed || st == Failed || st == Inconclusive
+	switch {
+	case outcome:
+	case f.plan != nil:
+		for _, c := range f.plan.Checks {
+			out.Items = append(out.Items, checkRow(c))
+		}
+		out.Total, out.Pending = len(f.plan.Checks), len(f.plan.Checks)
+		out.Text = fmt.Sprintf("%d %s planned", out.Total, plural(out.Total, "check"))
+		return out
+	case in.Verdict.Status == session.None || in.Verdict.Status == session.Rejected:
+		return out
+	case f.owed != nil && f.owed.Kind == session.Task:
+		return out // a new task asks for a new look; the old verdict's checks are not its answer
+	}
+	// The current verdict's checks, which stand while the Mac restarts, the verifier is
+	// paused or a note is being answered (live check, run 20260928-035231-77e16574bcfba03a).
+	for _, want := range []string{"fail", "pending", "pass"} {
 		for _, c := range in.Verdict.Checks {
-			out.Total++
-			switch c.Status {
-			case session.CheckPass:
-				out.Passed++
-			case session.CheckFail:
-				out.Failed++
-			default:
-				out.Pending++
+			if row := checkRow(c); row.State == want {
+				out.Items = append(out.Items, withProof(in, row, c))
 			}
 		}
-		if out.Total == 0 {
-			return out
+	}
+	for _, row := range out.Items {
+		out.Total++
+		switch row.State {
+		case "pass":
+			out.Passed++
+		case "fail":
+			out.Failed++
+		default:
+			out.Pending++
 		}
-		if st == Failed {
-			out.Text = fmt.Sprintf("%d of %d %s failed", out.Failed, out.Total, plural(out.Total, "check"))
-		} else {
-			out.Text = fmt.Sprintf("%d of %d %s passed", out.Passed, out.Total, plural(out.Total, "check"))
-		}
-		out.Current = currentCheck(in.Verdict.Checks)
-		out.Items = verdictItems(in)
+	}
+	if out.Total == 0 {
 		return out
 	}
-	if f.plan == nil {
-		return out
+	// The tally sits beside the status word, which says failed or passed once ("Failed, 2 of
+	// 4 checks"). Beside any other word the tally says which.
+	switch {
+	case st == Failed:
+		out.Text = fmt.Sprintf("%d of %d %s", out.Failed, out.Total, plural(out.Total, "check"))
+	case st == Passed:
+		out.Text = fmt.Sprintf("%d of %d %s", out.Passed, out.Total, plural(out.Total, "check"))
+	case !outcome && out.Failed > 0:
+		out.Text = fmt.Sprintf("%d of %d %s failed", out.Failed, out.Total, plural(out.Total, "check"))
+	default:
+		out.Text = fmt.Sprintf("%d of %d %s passed", out.Passed, out.Total, plural(out.Total, "check"))
 	}
-	out.Total, out.Pending = len(f.plan.Checks), len(f.plan.Checks)
-	out.Text = fmt.Sprintf("%d %s planned", out.Total, plural(out.Total, "check"))
-	for _, c := range f.plan.Checks {
-		out.Items = append(out.Items, CheckItem{ID: c.ID, Text: checkText(c, checkWords), State: "pending"})
+	if first := out.Items[0]; first.State != "pass" {
+		out.Current = &CheckRef{ID: first.ID, Text: first.Text, State: first.State, Saw: first.Saw}
 	}
 	return out
 }
 
-// verdictItems is every check of the current verdict with its values and proof: failed
-// first, then not checked, then passed, each in the verdict's order.
-func verdictItems(in Input) []CheckItem {
-	out := []CheckItem{}
-	for _, want := range []string{session.CheckFail, session.CheckUnchecked, session.CheckPass} {
-		for _, c := range in.Verdict.Checks {
-			status := c.Status
-			if status != session.CheckPass && status != session.CheckFail {
-				status = session.CheckUnchecked
-			}
-			if status != want {
-				continue
-			}
-			observed := plain(c.Observed)
-			item := CheckItem{ID: c.ID, Text: checkText(c, checkWords), Observed: clipWords(observed, observedWords)}
-			switch status {
-			case session.CheckFail:
-				item.State = "fail"
-				item.Expected, item.Saw = Disagreement(c.Criterion, observed)
-			case session.CheckPass:
-				item.State = "pass"
-				item.Saw = Agreement(c.Criterion, observed)
-			default:
-				item.State = "pending"
-			}
-			item.Step, item.Picture = evidencePicture(in, c.Evidence)
-			if item.Picture != nil && item.Saw != "" {
-				item.Mark = markFor(in.Steps, c.Evidence, item.Step, item.Saw)
-			}
-			out = append(out, item)
+// withProof adds a verdict check's values and proof to its row: what should have been, what
+// the evidence showed, and the picture and mark that show it (companion ADR 0019).
+func withProof(in Input, row CheckRef, c session.Check) CheckRef {
+	observed := plain(c.Observed)
+	row.Observed = clipWords(observed, observedWords)
+	switch row.State {
+	case "fail":
+		row.Expected, _ = Disagreement(c.Criterion, observed)
+	case "pass":
+		// A number the pass read ("$24.00"); quoted text would repeat the row's own words.
+		if v := Agreement(c.Criterion, observed); v != "" && valueKind(v) != "text" {
+			row.Saw = v
 		}
 	}
-	return out
+	row.Step, row.Picture = evidencePicture(in, c.Evidence)
+	if row.Picture != nil && row.Saw != "" {
+		row.Mark = markFor(in.Steps, c.Evidence, row.Step, row.Saw)
+	}
+	return row
 }
 
-// currentCheck is the first failed check, else the first not checked.
-func currentCheck(checks []session.Check) *CheckRef {
-	for _, want := range []string{session.CheckFail, session.CheckUnchecked} {
-		for _, c := range checks {
-			status := c.Status
-			if status == "" {
-				status = session.CheckUnchecked
-			}
-			if status != want {
-				continue
-			}
-			state := "fail"
-			if want == session.CheckUnchecked {
-				state = "pending"
-			}
-			return &CheckRef{Text: checkText(c, checkWords), State: state}
-		}
+// checkRow is a check as a row. A check with no answer yet is pending.
+func checkRow(c session.Check) CheckRef {
+	row := CheckRef{ID: c.ID, State: "pending"}
+	row.Text, _ = checkText(c)
+	switch c.Status {
+	case session.CheckPass:
+		row.State = "pass"
+	case session.CheckFail:
+		row.State = "fail"
+		_, row.Saw = Disagreement(c.Criterion, plain(c.Observed))
 	}
-	return nil
+	return row
 }
 
-func checkText(c session.Check, words int) string {
-	text := plain(c.Criterion)
-	if text == "" {
-		text = plain(strings.ReplaceAll(c.ID, "-", " "))
+// checkText is a check's row text, and the setup clause it left out, if it did.
+func checkText(c session.Check) (text, setup string) {
+	full := plain(c.Criterion)
+	if full == "" {
+		full = plain(strings.ReplaceAll(c.ID, "-", " "))
 	}
-	return clipWords(text, words)
+	text, setup = claim(full, checkWords)
+	return clipWords(text, checkWords), setup
+}
+
+// setupLead starts a clause that sets the scene before the claim: "With Bill 120, 20% tip,
+// People 3, Each pays reads $48.00".
+var setupLead = regexp.MustCompile(`(?i)^(with|after|when|once|given|if|for|on|in)\b`)
+
+// claim is a criterion that fits words, or else its claim and the setup clause in front of
+// it: the claim is what follows the last comma, when the criterion opens with a setup word
+// and at least two words follow. Cutting such a criterion at its eighth word kept the setup
+// and lost the claim (live check, run 20260928-000221-d9a2350ea69e1d91).
+func claim(text string, words int) (string, string) {
+	if len(strings.Fields(text)) <= words || !setupLead.MatchString(text) {
+		return text, ""
+	}
+	i := strings.LastIndex(text, ", ")
+	if i < 0 {
+		return text, ""
+	}
+	rest := strings.TrimSpace(text[i+2:])
+	rest = strings.TrimPrefix(strings.TrimPrefix(rest, "then "), "and ")
+	if len(strings.Fields(rest)) < 2 {
+		return text, ""
+	}
+	return capitalise(rest), clipWords(text[:i], setupWords)
 }
 
 // failing is the first failed check with its values and the picture that shows it.
@@ -527,7 +593,8 @@ func failing(in Input, f derived) *Failing {
 		return nil
 	}
 	observed := plain(check.Observed)
-	out := &Failing{Text: checkText(*check, failingWords), Observed: clipWords(observed, observedWords)}
+	out := &Failing{Observed: clipWords(observed, observedWords)}
+	out.Text, out.Setup = checkText(*check)
 	out.Expected, out.Saw = Disagreement(check.Criterion, observed)
 	out.Step, out.Picture = evidencePicture(in, check.Evidence)
 	if out.Picture != nil && out.Saw != "" {
@@ -555,11 +622,17 @@ func evidencePicture(in Input, evidence []int) (int, *Picture) {
 	if len(evidence) == 0 {
 		return 0, nil
 	}
+	// The first frame recorded at or after the step, unless an input came in between: that
+	// frame shows a later screen than the one the check read.
 	n := evidence[0]
 	for _, fr := range in.Frames {
-		if fr.Step >= n {
-			return n, framePicture(in.RunID, &fr)
+		if fr.Step < n {
+			continue
 		}
+		if inputBetween(in.Steps, n, fr.Step) {
+			break
+		}
+		return n, framePicture(in.RunID, &fr)
 	}
 	return n, nil
 }
