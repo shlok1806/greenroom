@@ -28,8 +28,11 @@ struct RecordingTimeline: Equatable, Sendable {
         var kind: Kind
         /// Seconds from the start.
         var at: TimeInterval
-        /// The 1-based number of the check this step proves, if it proves one.
+        /// The 1-based number of the check this step proves, if it proves one (a failed one
+        /// first when it proves several).
         var check: Int?
+        /// Every check this step proves, by number, in order.
+        var checks: [Int] = []
 
         var id: Int { step }
     }
@@ -105,8 +108,10 @@ struct RecordingTimeline: Equatable, Sendable {
 
         // Marks: one per step, failure over human over key frame over plain.
         var proofs: [Int: (number: Int, failed: Bool)] = [:]
+        var allProofs: [Int: [Int]] = [:]
         for (index, check) in checks.enumerated() {
             guard let step = check.picture?.step ?? check.step else { continue }
+            allProofs[step, default: []].append(index + 1)
             let failed = check.state == .fail
             if let held = proofs[step], held.failed || !failed { continue }
             proofs[step] = (index + 1, failed)
@@ -124,7 +129,7 @@ struct RecordingTimeline: Equatable, Sendable {
             } else {
                 kind = .step
             }
-            return Mark(step: step.seq, kind: kind, at: at, check: proof?.number)
+            return Mark(step: step.seq, kind: kind, at: at, check: proof?.number, checks: allProofs[step.seq] ?? [])
         }
 
         // Idle: a quiet stretch between one step's end (or the start) and the next step (or the end).
@@ -333,14 +338,13 @@ enum TimelineWords {
     /// One line for a mark: "Step 14 · Clicked 25%" with what makes it worth finding.
     static func label(_ mark: RecordingTimeline.Mark, steps: [Step], checks: [SummaryCheck]) -> String {
         let step = steps.first { $0.seq == mark.step }
-        let phrase = step.map { StepSummary.phrase(for: $0, in: steps) } ?? "Step \(mark.step)"
-        var line = "Step \(mark.step) · \(phrase)"
+        var line = step.map { "Step \(mark.step) · \(StepSummary.phrase(for: $0, in: steps))" } ?? "Step \(mark.step)"
         if let error = step?.error {
             line += " · failed: \(error.split(whereSeparator: \.isNewline).first.map(String.init) ?? error)"
         } else if mark.kind == .human {
             line += " · you had control"
         }
-        if let number = mark.check, checks.indices.contains(number - 1) {
+        for number in mark.checks.isEmpty ? [mark.check].compactMap({ $0 }) : mark.checks where checks.indices.contains(number - 1) {
             let check = checks[number - 1]
             let state = check.state == .fail ? "failed" : (check.state == .pass ? "passed" : "not answered")
             line += " · check \(number) \(state): \(check.text)"

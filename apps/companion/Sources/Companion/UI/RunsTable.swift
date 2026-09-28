@@ -16,10 +16,9 @@ struct RunsTable: NSViewRepresentable {
     var select: (String) -> Void
     var expand: (SummaryGroup) -> Void
     var frozenNow: Date?
-    /// Scrolls the table for the visible scroller.
-    var driver: ScrollDriver?
-    /// How far the list is scrolled, and the runs showing ("25-48 of 2,000").
-    var onScroll: ((ScrollMetrics, String) -> Void)?
+    /// How far the list is scrolled and the runs showing ("25-48 of 2,000"), for the visible
+    /// scroller; it also scrolls the table.
+    var tracker: ScrollTracker?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -54,7 +53,7 @@ struct RunsTable: NSViewRepresentable {
         scroll.automaticallyAdjustsContentInsets = false
         context.coordinator.table = table
         context.coordinator.scrollView = scroll
-        driver?.scrollView = scroll
+        tracker?.driver.scrollView = scroll
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scrolled(_:)),
                                                name: NSView.boundsDidChangeNotification, object: scroll.contentView)
@@ -83,8 +82,11 @@ struct RunsTable: NSViewRepresentable {
                 return false
             }, columnIndexes: [0])
         }
-        driver?.scrollView = scroll
-        if changed { DispatchQueue.main.async { c.report() } }
+        tracker?.driver.scrollView = scroll
+        if changed {
+            c.runRows = items.indices.filter { if case .run = items[$0] { true } else { false } }
+            DispatchQueue.main.async { c.report() }
+        }
         if let selected, let row = items.firstIndex(of: .run(selected)) {
             c.syncingSelection = true
             table.selectRowIndexes([row], byExtendingSelection: false)
@@ -110,19 +112,29 @@ struct RunsTable: NSViewRepresentable {
             report()
         }
 
-        /// Tells the sidebar how far the list is scrolled and which runs show.
+        /// The rows that are runs, in order: the scroller counts runs, not headings.
+        var runRows: [Int] = []
+
+        /// Tells the scroller how far the list is scrolled and which runs show. Cheap: it runs
+        /// on every scroll step (two binary searches over the run rows).
         func report() {
-            guard let scrollView, let table, let onScroll = parent?.onScroll else { return }
+            guard let scrollView, let table, let tracker = parent?.tracker else { return }
             let clip = scrollView.contentView.bounds
             let metrics = ScrollMetrics(offset: clip.origin.y, content: table.frame.height + Gap.x8, viewport: clip.height)
-            let runRows = items.indices.filter { if case .run = items[$0] { true } else { false } }
             let visible = table.rows(in: clip)
-            let shown = runRows.filter { $0 >= visible.location && $0 < visible.location + visible.length }
-            var words = ""
-            if let first = shown.first.flatMap(runRows.firstIndex(of:)), let last = shown.last.flatMap(runRows.firstIndex(of:)) {
-                words = "\(first + 1)-\(last + 1) of \(runRows.count.formatted())"
+            func firstRun(atOrAfter row: Int) -> Int {
+                var low = 0, high = runRows.count
+                while low < high {
+                    let mid = (low + high) / 2
+                    if runRows[mid] < row { low = mid + 1 } else { high = mid }
+                }
+                return low
             }
-            onScroll(metrics, words)
+            let first = firstRun(atOrAfter: visible.location)
+            let end = firstRun(atOrAfter: visible.location + visible.length)
+            let words = end > first ? "\(first + 1)-\(end) of \(runRows.count.formatted())" : ""
+            if tracker.metrics != metrics { tracker.metrics = metrics }
+            if tracker.position != words { tracker.position = words }
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int { items.count }

@@ -19,9 +19,7 @@ struct RunsSidebar: View {
     @State private var searching = false
     @State private var query = ""
     @FocusState private var searchFocused: Bool
-    @State private var scrollMetrics = ScrollMetrics()
-    @State private var scrollPosition = ""
-    @State private var scrollDriver = ScrollDriver()
+    @State private var scroll = ScrollTracker()
     @Environment(\.frozenNow) private var frozenNow
 
     private var items: [SidebarItem] {
@@ -90,14 +88,8 @@ struct RunsSidebar: View {
 
     private var list: some View {
         RunsTable(items: items, summaries: summaries, selected: selected, select: select,
-                  expand: { expanded.insert($0) }, frozenNow: frozenNow, driver: scrollDriver,
-                  onScroll: { metrics, position in
-                      if scrollMetrics != metrics { scrollMetrics = metrics }
-                      if scrollPosition != position { scrollPosition = position }
-                  })
-            .overlay(alignment: .trailing) {
-                VisibleScroller(metrics: scrollMetrics, position: scrollPosition) { scrollDriver.scroll(to: $0) }
-            }
+                  expand: { expanded.insert($0) }, frozenNow: frozenNow, tracker: scroll)
+            .overlay(alignment: .trailing) { TrackedScroller(tracker: scroll) }
     }
 
     private var summaries: [String: Summary] {

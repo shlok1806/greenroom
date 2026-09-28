@@ -142,6 +142,25 @@ extension View {
     }
 }
 
+/// How far an AppKit list is scrolled, observed only by its scroller, so scrolling redraws
+/// the knob and not the list's owner.
+@Observable
+@MainActor
+final class ScrollTracker {
+    var metrics = ScrollMetrics()
+    var position = ""
+    @ObservationIgnored let driver = ScrollDriver()
+}
+
+/// The visible scroller over an AppKit list, fed by its `ScrollTracker`.
+struct TrackedScroller: View {
+    let tracker: ScrollTracker
+
+    var body: some View {
+        VisibleScroller(metrics: tracker.metrics, position: tracker.position) { tracker.driver.scroll(to: $0) }
+    }
+}
+
 /// Lets SwiftUI scroll an AppKit scroll view (the runs table) to an offset.
 @MainActor
 final class ScrollDriver {

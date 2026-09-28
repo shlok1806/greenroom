@@ -144,16 +144,53 @@ enum PaletteOptions {
                                          icon: Keys.icon(for: action),
                                          keys: action == primary ? "⌘↩" : Keys.shortcut(for: action)) { shell.perform(action) })
             }
+            if shell.canTakeControl(s) {
+                out.append(PaletteOption(id: "take", title: "Take control", section: "This run", icon: .pointer, keys: "T") {
+                    shell.perform(SummaryAction(id: SummaryAction.takeControl, label: "Take control"))
+                })
+            }
             out.append(PaletteOption(id: "activity", title: "Open activity", section: "This run", icon: .activity, keys: "A") { shell.activityOpen = true })
+            out.append(PaletteOption(id: "checks", title: "Show the checks", section: "This run", icon: .check) { shell.show(.checks) })
             // Only while something will answer, as the toolbar offers it: a Mac that is gone
             // takes no messages (seen in Greenroom run 20260928-144042-10fc05f5e0a43287).
             if s.machine.isUp {
                 out.append(PaletteOption(id: "message", title: "Message the verifier", section: "This run", icon: .message, keys: "M") { shell.openComposer(.message) })
+                out.append(PaletteOption(id: "task", title: "New task for the verifier", section: "This run", icon: .message) { shell.openComposer(.task) })
+            } else {
+                out.append(PaletteOption(id: "conversation", title: "Read the conversation", section: "This run", icon: .message, keys: "M") { shell.show(.message) })
             }
             out.append(PaletteOption(id: "evidence", title: "Open the evidence", section: "This run", icon: .video, keys: "E") { shell.evidenceOpen = true })
-            out.append(PaletteOption(id: "copy", title: "Copy run ID", section: "This run", icon: .copy) {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(s.runId, forType: .string)
+            out.append(PaletteOption(id: "details", title: "Run details", section: "This run", icon: .info) { shell.detailsOpen = true })
+            out.append(PaletteOption(id: "copy", title: "Copy run ID", section: "This run", icon: .copy) { shell.copyRunID() })
+            if shell.canCapture {
+                out.append(PaletteOption(id: "capture", title: "Capture a screenshot", section: "This run", icon: .camera, keys: "C") { shell.capture() })
+            }
+            if shell.canExport {
+                out.append(PaletteOption(id: "export", title: "Save the recording", section: "This run", icon: .download) { shell.exportRecording() })
+            }
+            if shell.canDestroy {
+                out.append(PaletteOption(id: "destroy", title: "Destroy the Mac", section: "This run", icon: .trash) { shell.confirmingDestroy = true })
+            }
+            let t = shell.timeline()
+            if !t.frames.isEmpty {
+                out.append(PaletteOption(id: "play", title: shell.playing ? "Pause the recording" : "Play the recording", section: "Player",
+                                         icon: shell.playing ? .pause : .play, keys: "Space") { shell.togglePlay() })
+                out.append(PaletteOption(id: "speed", title: "Play at \(shell.speed >= 4 ? 1 : Int(shell.speed) * 2)×", section: "Player",
+                                         icon: .play, keys: "F") { shell.toggleSpeed() })
+                out.append(PaletteOption(id: "frame-next", title: "Next frame", section: "Player", icon: .skipForward, keys: "→") { shell.moveFrame(by: 1) })
+                out.append(PaletteOption(id: "frame-previous", title: "Previous frame", section: "Player", icon: .skipBack, keys: "←") { shell.moveFrame(by: -1) })
+            }
+            if !t.failures.isEmpty {
+                out.append(PaletteOption(id: "failure-next", title: "Next failure", section: "Player", icon: .skipForward, keys: "N") { shell.jumpToFailure() })
+                out.append(PaletteOption(id: "failure-previous", title: "Previous failure", section: "Player", icon: .skipBack, keys: "⇧N") {
+                    shell.jumpToFailure(forward: false)
+                })
+            }
+            if t.live {
+                out.append(PaletteOption(id: "live", title: "Go live", section: "Player", icon: .video, keys: "L") { shell.goLive() })
+            }
+            out.append(PaletteOption(id: "zoom", title: shell.zoomed ? "Show the inspector" : "Picture only", section: "Player", icon: .expand, keys: "Z") {
+                shell.toggleZoom()
             })
         }
         for run in shell.store.board?.runs ?? [] where run.runId != shell.runId {
@@ -161,7 +198,11 @@ enum PaletteOptions {
                                      glyph: (run.state.glyph, run.tone.color)) { shell.select(run: run.runId) })
         }
         // After the runs, as Figma 12 lists this run's actions, then the runs to go to.
-        out.append(PaletteOption(id: "settings", title: "Settings", section: "Greenroom", icon: .settings, keys: "⌘,") { shell.settingsOpen = true })
+        if shell.store.verdictUndo.pending != nil {
+            out.append(PaletteOption(id: "undo", title: "Undo the accept or reject", section: "Greenroom", icon: .restart, keys: "U") { shell.undoVerdictChoice() })
+        }
+        out.append(PaletteOption(id: "refresh", title: "Refresh", section: "Greenroom", icon: .restart, keys: "⌘R") { shell.refresh() })
+        out.append(PaletteOption(id: "settings", title: "Settings, builds and updates", section: "Greenroom", icon: .settings, keys: "⌘,") { shell.settingsOpen = true })
         return out
     }
 }
@@ -182,9 +223,17 @@ struct SettingsSheet: View {
                     Text("Updates").textStyle(.body).foregroundStyle(Palette.text)
                     Text(summary.detail ?? summary.title).textStyle(.caption).foregroundStyle(Palette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if summary.mismatch {
+                        Text("The app and greenroom were built from different commits.").textStyle(.caption).foregroundStyle(Palette.wait)
+                    }
                 }
                 Spacer()
-                if updates.run?.running == true {
+                if let busy = updates.confirming {
+                    Button("Cancel") { updates.cancelUpdate() }.buttonStyle(ActionButtonStyle(kind: .secondary))
+                    Button("Update anyway") { Task { await updates.updateAnyway() } }
+                        .buttonStyle(ActionButtonStyle(kind: .primary))
+                        .help("The verifier is working on \(busy.joined(separator: ", ")). Updating restarts greenroom and cuts that work off.")
+                } else if updates.run?.running == true {
                     Button("Updating") {}.buttonStyle(ActionButtonStyle(kind: .primary, loading: true))
                 } else if summary.canUpdate {
                     Button("Update and restart") {
@@ -195,6 +244,14 @@ struct SettingsSheet: View {
                     Button("Check now") { Task { await updates.refresh() } }.buttonStyle(ActionButtonStyle(kind: .secondary))
                 }
             }
+            if let run = updates.run {
+                UpdateProgress(run: run) { updates.dismissRun() }
+                    .padding(.horizontal, Gap.x24)
+                    .padding(.bottom, Gap.x12)
+            }
+            BuildsLedger(updates: updates)
+                .padding(.horizontal, Gap.x24)
+                .padding(.bottom, Gap.x12)
             row {
                 Text("Appearance").textStyle(.body).foregroundStyle(Palette.text)
                 Spacer()
@@ -239,6 +296,87 @@ struct SettingsSheet: View {
             .padding(.horizontal, Gap.x24)
             .padding(.vertical, Gap.x12)
             .overlay(alignment: .top) { Rectangle().fill(Palette.border).frame(height: 1) }
+    }
+}
+
+/// The builds (the old window's Builds and Updates): the app's and greenroom's commits, what
+/// the verifier runs with, the checkout, and what is new on main.
+struct BuildsLedger: View {
+    let updates: Updates
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Gap.x12, verticalSpacing: 4) {
+                row("App", build(updates.app.stamp))
+                if let daemon = updates.daemon {
+                    row("Greenroom", build(daemon.stamp))
+                    row("Verifier", daemon.brain)
+                    row("Vision", daemon.vision)
+                    row("Image", "input helper \(daemon.inputHelper.map(String.init) ?? "?"), recipe \(daemon.imageRecipe.map(String.init) ?? "?")")
+                } else {
+                    row("Greenroom", updates.daemonError ?? "not read yet")
+                }
+                row("Checkout", updates.checkout ?? "none")
+            }
+            if updates.run == nil, case .checked(let check, _) = updates.check, !check.commits.isEmpty {
+                Text("New on main: \(check.ahead)").textStyle(.captionEmphasis).foregroundStyle(Palette.textSecondary).padding(.top, 4)
+                ForEach(check.commits.prefix(8)) { commit in
+                    HStack(alignment: .firstTextBaseline, spacing: Gap.x8) {
+                        Text(commit.sha).font(.system(size: 11, design: .monospaced)).foregroundStyle(Palette.textSecondary)
+                        Text(commit.subject).textStyle(.caption).foregroundStyle(Palette.text).lineLimit(1)
+                    }
+                }
+            }
+        }
+    }
+
+    private func build(_ stamp: BuildStamp) -> String {
+        guard stamp.known else { return "not stamped (not installed by its script)" }
+        guard let at = stamp.builtAt else { return stamp.label }
+        return "\(stamp.label), built \(at.formatted(date: .abbreviated, time: .shortened))"
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(label).textStyle(.caption).foregroundStyle(Palette.textSecondary)
+            Text(value).textStyle(.caption).foregroundStyle(Palette.text).textSelection(.enabled).lineLimit(2).truncationMode(.middle)
+        }
+    }
+}
+
+/// An update as it runs: the step it is on, the last lines of its output, and how it ended.
+struct UpdateProgress: View {
+    let run: UpdateRun
+    var dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(headline).textStyle(.bodyEmphasis).foregroundStyle(Palette.text)
+                Spacer()
+                if !run.running { Button("Done", action: dismiss).buttonStyle(ActionButtonStyle(kind: .plain)) }
+            }
+            ScrollView {
+                Text(run.lines.suffix(40).joined(separator: "\n"))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Palette.textSecondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .defaultScrollAnchor(.bottom)
+            .visibleScroller()
+            .frame(height: 120)
+            .background(RoundedRectangle(cornerRadius: Corner.control).fill(Palette.bgSelected))
+        }
+    }
+
+    private var headline: String {
+        switch run.outcome {
+        case .running: return "Updating" + (run.step.map { ": \($0)" } ?? "")
+        case .done: return "Updated. This app reopens on the new build."
+        case .refused(let why): return "Update refused: \(why)"
+        case .failed(let step, let status): return "Update failed at \(step) (exit \(status))"
+        }
     }
 }
 

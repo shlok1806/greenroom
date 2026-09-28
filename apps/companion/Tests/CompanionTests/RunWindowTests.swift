@@ -361,6 +361,10 @@ final class RunWindowTests: XCTestCase {
         let posts = Posts()
         let shell = ShellModel(store: try store(.failed, posts: posts))
         shell.perform(try XCTUnwrap(shell.summary?.primaryAction))
+        // Held for its undo first: nothing goes out until the window ends.
+        try await waitUntil { shell.store.verdictUndo.pending != nil }
+        XCTAssertFalse(posts.all.contains { $0.body.contains(#""kind":"accept""#) })
+        await shell.store.sendHeldVerdictChoice(now: Date().addingTimeInterval(60))
         try await waitUntil { posts.all.contains { $0.path.hasSuffix("/messages") && $0.body.contains(#""kind":"accept""#) } }
 
         let stuck = ShellModel(store: try store(.notAnswering, posts: posts))
@@ -373,9 +377,11 @@ final class RunWindowTests: XCTestCase {
         let shell = ShellModel(store: try store(.failed, posts: posts))
         shell.perform(SummaryAction(id: SummaryAction.reject, label: "Reject"))
         XCTAssertEqual(shell.composer, .reject)
-        XCTAssertTrue(shell.activityOpen)
+        XCTAssertEqual(shell.inspectorTab, .message, "the reason is asked in the Message tab, beside the player")
         shell.composerDraft = "Each pays should include the tip."
         shell.sendComposer()
+        try await waitUntil { shell.store.verdictUndo.pending != nil }
+        await shell.store.sendHeldVerdictChoice(now: Date().addingTimeInterval(60))
         try await waitUntil { posts.all.contains { $0.body.contains(#""kind":"dispute""#) && $0.body.contains("include the tip") } }
     }
 

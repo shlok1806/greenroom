@@ -150,11 +150,10 @@ private struct RunMoreMenu: View {
 private struct DetailsButton: View {
     @Bindable var shell: ShellModel
     var summary: Summary
-    @State private var open = false
 
     var body: some View {
-        IconButton(icon: .info, name: "Details") { open.toggle() }
-            .popover(isPresented: $open, arrowEdge: .bottom) {
+        IconButton(icon: .info, name: "Details") { shell.detailsOpen.toggle() }
+            .popover(isPresented: $shell.detailsOpen, arrowEdge: .bottom) {
                 RunDetailsView(shell: shell, summary: summary)
             }
             .accessibilityIdentifier("toolbar.details")

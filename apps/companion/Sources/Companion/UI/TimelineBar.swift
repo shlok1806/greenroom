@@ -275,7 +275,8 @@ struct TimelineTrack: View {
                 context.fill(Path(roundedRect: CGRect(x: mx - 1, y: y - 7, width: 2, height: 14), cornerRadius: 1), with: .color(color))
             }
             if let number = mark.check {
-                let label = Text("\(number)").font(.system(size: 9, weight: .semibold)).foregroundStyle(color)
+                let numbers = mark.checks.isEmpty ? [number] : mark.checks
+                let label = Text(numbers.map(String.init).joined(separator: ",")).font(.system(size: 9, weight: .semibold)).foregroundStyle(color)
                 context.draw(label, at: CGPoint(x: mx, y: y - 12), anchor: .center)
             }
         }

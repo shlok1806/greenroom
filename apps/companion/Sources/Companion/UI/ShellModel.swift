@@ -37,6 +37,8 @@ final class ShellModel {
     var evidenceOpen = false
     var paletteOpen = false
     var settingsOpen = false
+    /// The run's details popover.
+    var detailsOpen = false
     /// Destroying the Mac asks first, inline under the header (never a dialog).
     var confirmingDestroy = false
     /// Runs whose "not answering" the person chose to wait out.
