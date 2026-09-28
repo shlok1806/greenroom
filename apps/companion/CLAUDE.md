@@ -48,6 +48,11 @@ no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
   roll). `MotionTests` holds them to the browser's sampled frames in
   `docs/22-swiftui-clone-plan/specs/` and to `Tests/CompanionTests/Golden/` (made with node
   from the pinned sources; regenerate when a source sha is bumped).
+- Off screen, nothing ticks (ADR 0021, #219): `OnScreen.shared.visible` follows the run
+  window's `occlusionState` (`OnScreenReader` at the shell's root; other windows never change
+  it). `Clocked` and every periodic `TimelineView` in `UI/` draw once while it is false, and
+  the live screen disconnects. A new clock in `UI/` checks it too. Measured with a run
+  starting: 16% of a core in another Space before, 0% after.
 - `UI/Icons.swift`: the design's icons as paths (the Figma icon components exported as SVG,
   Lucide's outlines). Never an SF Symbol in `UI/`: it is not what the design draws.
 - `UI/CommandScore.swift` is cmdk's ranking, ported line for line; change it only with its

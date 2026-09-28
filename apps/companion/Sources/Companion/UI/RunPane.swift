@@ -191,7 +191,7 @@ struct StatusHeader: View {
     var body: some View {
         let ticking = summary.state.isWorking || summary.state == .paused || summary.state == .notAnswering
         Group {
-            if ticking && frozenNow == nil {
+            if ticking && frozenNow == nil && OnScreen.shared.visible {
                 TimelineView(.periodic(from: .now, by: 1)) { context in content(now: context.date) }
             } else {
                 content(now: frozenNow ?? Date())
