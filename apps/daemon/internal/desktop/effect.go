@@ -111,9 +111,13 @@ func changeLines(changes []Change, indent string) []string {
 	return out
 }
 
+// plural is `1 change`, `3 changes`, `2 matches`.
 func plural(n int, noun string) string {
-	if n == 1 {
+	switch {
+	case n == 1:
 		return "1 " + noun
+	case strings.HasSuffix(noun, "ch"):
+		return fmt.Sprintf("%d %ses", n, noun)
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
 }
@@ -135,10 +139,27 @@ type Action struct {
 	Count   int
 	Mods    []string
 	Text    string // type: the text asked for
+	Via     string // type: TypeViaUnicode or TypeViaKeys
 	Replace bool
 	Submit  string
 	Value   string // setValue
 	Key     string
+}
+
+// Redacted is the action as a step may record it: when the result says the target is a secure
+// text field, the typed text and the value set are replaced by SecretText, so a password never
+// reaches steps.jsonl (catalog I15). Any other action comes back unchanged.
+func (a Action) Redacted(r ActionResult) Action {
+	if !r.IsSecret() {
+		return a
+	}
+	if a.Text != "" {
+		a.Text = SecretText(utf8.RuneCountInString(a.Text))
+	}
+	if a.Op == OpSetValue || a.Value != "" {
+		a.Value = SecretText(utf8.RuneCountInString(a.Value))
+	}
+	return a
 }
 
 // ActionText is everything a model reads after an action: the lead line, how long the checks
@@ -250,14 +271,10 @@ func combo(mods []string, key string) string {
 }
 
 func typeLead(a Action, r ActionResult) string {
-	text := r.Typed
-	if text == "" {
-		text = a.Text
-	}
-	secret := r.Secret || (r.Target != nil && r.Target.Secret())
-	what := quote(text)
+	secret := r.IsSecret()
+	what := quote(typedText(a, r))
 	if secret {
-		what = plural(utf8.RuneCountInString(text), "character")
+		what = secretTyped(a.Text, r.Typed)
 	}
 	into := "into " + refLabel(a.Ref, r.Target)
 	if a.Ref == "" {
@@ -267,6 +284,9 @@ func typeLead(a Action, r ActionResult) string {
 		}
 	}
 	s := "typed " + what + " " + into
+	if a.Via == TypeViaKeys {
+		s += " as key presses"
+	}
 	if a.Replace {
 		s += ", replacing its value"
 	}
@@ -276,9 +296,34 @@ func typeLead(a Action, r ActionResult) string {
 	return s + readBackText(r, secret, a.Replace, "what was typed")
 }
 
+// typedText is what the agent says it posted, else what the caller asked for.
+func typedText(a Action, r ActionResult) string {
+	if r.Typed != "" {
+		return r.Typed
+	}
+	return a.Text
+}
+
+// secretTyped stands for text typed into a secure field. The agent's own count is preferred,
+// since its read-back compares against that; the text itself is never rendered.
+func secretTyped(asked, typed string) string {
+	if n, ok := secretChars(typed); ok {
+		return SecretText(n)
+	}
+	if asked != "" {
+		return SecretText(utf8.RuneCountInString(asked))
+	}
+	return "<secret>"
+}
+
 func setValueLead(a Action, r ActionResult) string {
-	s := fmt.Sprintf("set %s to %s through accessibility (not a user input)", refLabel(a.Ref, r.Target), quote(a.Value))
-	return s + readBackText(r, r.Target != nil && r.Target.Secret(), true, "the value set")
+	secret := r.IsSecret()
+	value := quote(a.Value)
+	if secret {
+		value = SecretText(utf8.RuneCountInString(a.Value))
+	}
+	s := fmt.Sprintf("set %s to %s through accessibility (not a user input)", refLabel(a.Ref, r.Target), value)
+	return s + readBackText(r, secret, true, "the value set")
 }
 
 // readBackText is the read-back clause: what the element shows now, and whether that is what was
@@ -286,13 +331,7 @@ func setValueLead(a Action, r ActionResult) string {
 func readBackText(r ActionResult, secret, whole bool, asked string) string {
 	ok := r.ReadBackOK == nil || *r.ReadBackOK
 	if secret {
-		if !ok {
-			return "; its length does not match " + asked
-		}
-		if r.Target != nil && r.Target.Chars > 0 {
-			return fmt.Sprintf("; it now holds %s", plural(r.Target.Chars, "character"))
-		}
-		return ""
+		return secretReadBack(r, ok, asked)
 	}
 	if r.ReadBack == nil {
 		return "; its value could not be read back"
@@ -305,6 +344,36 @@ func readBackText(r ActionResult, secret, whole bool, asked string) string {
 		return shows + ", not " + asked
 	}
 	return shows + ", which does not contain " + asked
+}
+
+// secretReadBack says how many characters a secure field holds now, when the agent said.
+func secretReadBack(r ActionResult, ok bool, asked string) string {
+	n, known := secretHeld(r)
+	switch {
+	case known && ok:
+		return "; it holds " + plural(n, "character")
+	case known:
+		return fmt.Sprintf("; it holds %s, which is not the length of %s", plural(n, "character"), asked)
+	case !ok:
+		return "; its length does not match " + asked
+	}
+	return ""
+}
+
+// secretHeld is the length of a secure field after the action: from the after tree, where the
+// target is as it is now, else from the read-back.
+func secretHeld(r ActionResult) (int, bool) {
+	if r.Target != nil && r.Target.Ref != "" && r.After != nil {
+		for _, n := range r.After.Nodes {
+			if n.Ref == r.Target.Ref {
+				return n.Chars, true
+			}
+		}
+	}
+	if r.ReadBack != nil {
+		return secretChars(*r.ReadBack)
+	}
+	return 0, false
 }
 
 func keyLead(a Action, r ActionResult) string {
@@ -353,6 +422,9 @@ func RefusalText(ref string, target *Node, r Refusal) string {
 	case ReasonCovered:
 		return fmt.Sprintf("refused: %s is %s%s; close or move it first", subject, coverText(coverOf(cause, target)), after)
 	case ReasonHidden:
+		if target != nil && target.Has(StateOverflow) {
+			return fmt.Sprintf("refused: %s is in its toolbar's overflow%s; press the toolbar's >> button first, then the item in the menu it opens", subject, after)
+		}
 		return fmt.Sprintf("refused: %s shows nothing on screen (its window may be minimized, hidden or off the screen)%s; bring its window into view first", subject, after)
 	case ReasonOffscreen:
 		in := "its scroll area"
@@ -375,11 +447,11 @@ func RefusalText(ref string, target *Node, r Refusal) string {
 		}
 		return fmt.Sprintf("refused: the app of %s could not be brought to the front%s%s; close or quit what holds the front, then try again", subject, held, after)
 	}
-	s := fmt.Sprintf("refused: %s (%s)%s", subject, word(r.Reason), after)
+	s := fmt.Sprintf("refused: %s is not actionable (%s)%s", subject, word(r.Reason), after)
 	if r.Message != "" {
 		s += ": " + oneLine(r.Message)
 	}
-	return s
+	return s + "; take a machine_snapshot to see what state it is in"
 }
 
 // coverOf is the coverer a refusal names, completed from the target's own covered flag.

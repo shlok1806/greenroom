@@ -38,7 +38,7 @@ func TestOutlineMatchesTheDesign(t *testing.T) {
 	want := `screen 1024x768 · frontmost "TipSplit" (pid 812) · focused e4
 attention: none
 act by ref (e.g. e4); a ref stays the same while its element lives, and each action returns what it changed
-window e1 "TipSplit" (focused, main) 480x360 at (272,204)
+window e1 "TipSplit" (main, focused) 480x360 at (272,204)
   e4 TextField "Bill" value="84.00" [focused]
   e9 RadioGroup "Tip"
     e10 RadioButton "18%" [selected]

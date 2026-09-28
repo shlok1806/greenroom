@@ -3,8 +3,10 @@ package desktop
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"slices"
 	"strconv"
+	"unicode/utf8"
 )
 
 // The wire types of the toolkit ops (daemon ADR 0006, "Ops and results"). Field names and JSON
@@ -47,6 +49,20 @@ func (p Point) Fractions(s Screen) (x, y float64) {
 		return 0, 0
 	}
 	return p[0] / float64(s.Width), p[1] / float64(s.Height)
+}
+
+// Point turns fractions of the screen into a guest point, the space the agent works in. Fractions
+// outside 0 to 1 are clamped, as machine_input's are: a point off the edge is a hand, not a bad
+// request.
+func (s Screen) Point(x, y float64) Point {
+	return Point{math.Round(clamp01(x) * float64(s.Width)), math.Round(clamp01(y) * float64(s.Height))}
+}
+
+func clamp01(v float64) float64 {
+	if math.IsNaN(v) {
+		return 0
+	}
+	return min(max(v, 0), 1)
 }
 
 // Screen is the guest's main display in points, as HELLO and `snapshot` report it.
@@ -93,19 +109,28 @@ type AppInfo struct {
 	Started  Stamp  `json:"started,omitempty"`
 }
 
-// The states the agent reports, in the order the outline shows them. A state the daemon does not
-// know yet is shown after these, sorted, so a new one in the agent needs no daemon change.
+// The states the agent reports, in the order the outline shows them (`main` is a window's). A
+// state the daemon does not know yet is shown after these, sorted, so a new one in the agent
+// needs no daemon change.
 const (
+	StateMain     = "main"
 	StateDisabled = "disabled"
 	StateSelected = "selected"
 	StateFocused  = "focused"
 	StateExpanded = "expanded"
 	StateEditable = "editable"
 	StateBusy     = "busy"
-	StateSecret   = "secret"
+	// StateSecret is a secure text field: its value is never sent, only its length (Chars).
+	StateSecret = "secret"
+	// StateOverflow is a toolbar item behind the toolbar's overflow chevron (catalog M15): it is
+	// not actionable until the chevron is pressed.
+	StateOverflow = "overflow"
 )
 
-var stateOrder = []string{StateDisabled, StateSelected, StateFocused, StateExpanded, StateEditable, StateBusy}
+var stateOrder = []string{StateMain, StateDisabled, StateSelected, StateFocused, StateExpanded, StateEditable, StateBusy}
+
+// sentenceStates are the states that render as their own flag, not as a bare word.
+var sentenceStates = []string{StateSecret, StateOverflow}
 
 // Where a coverer sits relative to the covered element (Covered.Where).
 const (
@@ -134,7 +159,8 @@ type ScrollPos struct {
 	Right bool     `json:"right,omitempty"`
 }
 
-// Node is one element (daemon ADR 0006's `node`).
+// Node is one element (daemon ADR 0006's `node`). Document and Edited are a window's (catalog
+// W16): the file it shows, as a path, and whether it has unsaved changes.
 type Node struct {
 	Ref       string     `json:"ref"`
 	Role      string     `json:"role,omitempty"`
@@ -156,6 +182,23 @@ type Node struct {
 	Scroll    *ScrollPos `json:"scroll,omitempty"`
 	Chars     int        `json:"chars,omitempty"`
 	Cut       []string   `json:"cut,omitempty"`
+	Document  string     `json:"document,omitempty"`
+	Edited    bool       `json:"edited,omitempty"`
+}
+
+// UnmarshalJSON decodes a node and drops the value of a secure text field should an agent ever
+// send one, so a secret cannot reach an outline, a diff or a step through this package.
+func (n *Node) UnmarshalJSON(b []byte) error {
+	type plain Node
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*n = Node(p)
+	if n.Secret() {
+		n.Value = ""
+	}
+	return nil
 }
 
 // Has reports whether the node is in state s.
@@ -260,6 +303,40 @@ type ActionResult struct {
 	ReadBackOK *bool    `json:"readBackOK,omitempty"`
 	Secret     bool     `json:"secret,omitempty"`
 	ReResolved bool     `json:"reResolved,omitempty"`
+}
+
+// UnmarshalJSON decodes a result and, for a secure target, keeps only the length of what was
+// typed and read back, should an agent ever send the text itself (catalog I15).
+func (r *ActionResult) UnmarshalJSON(b []byte) error {
+	type plain ActionResult
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*r = ActionResult(p)
+	if !r.IsSecret() {
+		return nil
+	}
+	r.Typed = lengthOnly(r.Typed)
+	if r.ReadBack != nil {
+		s := lengthOnly(*r.ReadBack)
+		r.ReadBack = &s
+	}
+	return nil
+}
+
+// lengthOnly is a secret's text as SecretText, unless it already is one or is empty.
+func lengthOnly(s string) string {
+	if _, ok := secretChars(s); ok || s == "" {
+		return s
+	}
+	return SecretText(utf8.RuneCountInString(s))
+}
+
+// IsSecret reports whether the action's target is a secure text field, by the result's own flag
+// or by the target's state. No text about such an action shows what was typed or the value.
+func (r ActionResult) IsSecret() bool {
+	return r.Secret || (r.Target != nil && r.Target.Secret())
 }
 
 // ScrollAxes is a scroll position, each axis a fraction 0 to 1 or nil.
