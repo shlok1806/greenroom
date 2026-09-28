@@ -175,7 +175,7 @@ func TestStartBootsHeadless(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "run vm --no-graphics"; strings.TrimSpace(string(got)) != want {
+	if want := "run vm --no-graphics --no-audio --no-clipboard"; strings.TrimSpace(string(got)) != want {
 		t.Errorf("Start ran tart with %q, want %q", strings.TrimSpace(string(got)), want)
 	}
 }

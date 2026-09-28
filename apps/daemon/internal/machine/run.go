@@ -39,6 +39,12 @@ type Manifest struct {
 	// Models is who verified the run, as the daemon was configured when the run was created
 	// (issue #154). Absent in runs from before it.
 	Models *Models `json:"models,omitempty"`
+
+	// Name is the coding agent's short name for the run (machine_create's name), and Source
+	// the MCP client that created it, as it named itself (root ADR 0036). Either is absent
+	// when not given, and in runs from before them.
+	Name   string `json:"name,omitempty"`
+	Source string `json:"source,omitempty"`
 }
 
 // Models names what answers a run's conversation: the verifier's brain, its reasoning model,

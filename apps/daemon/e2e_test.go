@@ -118,6 +118,11 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("pgrep -fl greenroom did not list the wrapper's short line: %+v", execOut)
 	}
 	for _, line := range strings.Split(strings.TrimSpace(execOut.Stdout), "\n") {
+		// The frame recorder's capture can be running too; its temp file is named
+		// greenroom-shot-*, so pgrep lists it. It is not machine_exec's, which #128 is about.
+		if strings.Contains(line, "screencapture") {
+			continue
+		}
 		if len(line) > 160 || strings.Contains(line, "pgrep") {
 			t.Errorf("process line %q is long or carries the command", line)
 		}
