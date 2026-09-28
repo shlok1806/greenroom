@@ -170,7 +170,11 @@ func nodeObject(ref: String, element: AXUIElement, read: AXRead, shown: Visibili
     let identifier = stableIdentifier(read.identifier)
     if !identifier.isEmpty { node["id"] = cut(identifier).text }
 
-    let all = states(of: element, read, role: role) + (facts?.states ?? []) + more
+    // A window says `focused` both as an element and as the app's focused window: once is enough.
+    var all: [String] = []
+    for state in states(of: element, read, role: role) + (facts?.states ?? []) + more where !all.contains(state) {
+        all.append(state)
+    }
     if !all.isEmpty { node["states"] = all }
     if let document = facts?.document { node["document"] = document }
     if facts?.edited == true { node["edited"] = true }
@@ -514,6 +518,9 @@ final class Walk {
         if role == "AXToolbar" {
             below.toolbar = (read.frame, elementAttribute(element, "AXOverflowButton") != nil)
         }
+        // A scroll bar's thumb and page buttons say again what its scroll area's `scroll`
+        // says; only `all` lists them.
+        if role == "AXScrollBar", options.mode != .all, options.accept == nil { return }
         for (childPlace, child) in read.children.enumerated() {
             if stopped { return }
             below.index = childPlace
