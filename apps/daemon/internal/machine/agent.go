@@ -161,6 +161,15 @@ func (m *Manager) agentWait(sup *guestagent.Supervisor) time.Duration {
 // does not list, and returns the connection it used: refs are scoped to its Gen. Nothing was
 // sent when the error is guestagent.ErrUnavailable or ErrMissingOp.
 func (m *Manager) agentCall(ctx context.Context, mc *Machine, req guestagent.Request) (guestagent.Response, *guestagent.Conn, error) {
+	return m.agentCallPrepared(ctx, mc, req, nil)
+}
+
+// agentCallPrepared is agentCall with prepare, run on the connection the request is about to go
+// on, before it is sent: a toolkit call raises that agent's ref counter first (deskCall). An
+// ErrUnavailable from prepare is a connection that ended before the request was sent, and is
+// waited through as one; any other error is the call's, with nothing of the request sent.
+func (m *Manager) agentCallPrepared(ctx context.Context, mc *Machine, req guestagent.Request,
+	prepare func(*guestagent.Conn) error) (guestagent.Response, *guestagent.Conn, error) {
 	sup := m.agentSupervisor(mc)
 	if sup == nil {
 		if !m.desktopToolkit {
@@ -179,6 +188,14 @@ func (m *Manager) agentCall(ctx context.Context, mc *Machine, req guestagent.Req
 			return guestagent.Response{}, conn, fmt.Errorf("%w: the guest agent in machine %s (helper %d) does not offer %q, so its input helper "+
 				"is older than this daemon: call machine_reboot, whose boot compiles the current helper, or rebuild the image "+
 				"(scripts/build-image.sh -force)", guestagent.ErrMissingOp, mc.RunID, conn.Hello().Version, req.Op)
+		}
+		if prepare != nil {
+			if err := prepare(conn); err != nil {
+				if errors.Is(err, guestagent.ErrUnavailable) && attempt < 2 {
+					continue
+				}
+				return guestagent.Response{}, conn, err
+			}
 		}
 		resp, err := conn.Call(ctx, req)
 		if errors.Is(err, guestagent.ErrUnavailable) && attempt < 2 {

@@ -11,6 +11,7 @@ func registerAgentOps() {
     registerCoreOps()
     registerCaptureOp()
     registerShellOp()
+    registerRefsOp()
     registerSnapshotOps()
     registerActionOps()
     registerScrollOp()

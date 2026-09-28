@@ -26,6 +26,8 @@
 //     effect.
 //   - redact.go: what a step may record of a wait or an expectation on a secure field.
 //   - route.go: ToolkitCall, which calls of the tools shared with the old ones are the toolkit's.
+//   - refs.go: HighestRef, the highest ref a result hands out, so refs never repeat across agent
+//     connections.
 //
 // Two rules hold for every text here, and a new renderer must keep them:
 //
