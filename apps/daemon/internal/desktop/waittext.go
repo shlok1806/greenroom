@@ -31,7 +31,9 @@ func ScrollText(r ScrollResult) string {
 		lead = Label(r.Container) + " did not move" + positionText(r.To) + paren
 	}
 	if r.Target != nil {
-		if r.Visible {
+		// Covered is not visible, whatever the agent's `visible` says: the Dock over the bottom of
+		// a window's scroll area takes the press, not the target.
+		if r.Visible && r.Target.Covered == nil {
 			lead += "; " + Label(*r.Target) + " is now visible"
 		} else {
 			lead += "; " + Label(*r.Target) + " is still not visible"
@@ -41,6 +43,9 @@ func ScrollText(r ScrollResult) string {
 		}
 	}
 	lines := []string{lead}
+	for _, n := range r.Notes {
+		lines = append(lines, "note: "+oneLine(n))
+	}
 	if r.Before != nil && r.After != nil {
 		var other []Change
 		for _, c := range Diff(*r.Before, *r.After) {

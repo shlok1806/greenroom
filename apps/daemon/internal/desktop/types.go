@@ -358,8 +358,11 @@ type ScrollResult struct {
 	Via       string     `json:"via,omitempty"`
 	Target    *Node      `json:"target,omitempty"`
 	Visible   bool       `json:"visible,omitempty"`
-	Before    *Tree      `json:"before,omitempty"`
-	After     *Tree      `json:"after,omitempty"`
+	// Notes are the agent's words on what the scroll could not do, such as a target that is in
+	// the container's view but under the Dock.
+	Notes  []string `json:"notes,omitempty"`
+	Before *Tree    `json:"before,omitempty"`
+	After  *Tree    `json:"after,omitempty"`
 }
 
 // WaitResult is the result of the `waitFor` op.
