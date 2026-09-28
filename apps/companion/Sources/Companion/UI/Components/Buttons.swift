@@ -95,17 +95,22 @@ struct ToolbarButton: View {
     var icon: Icon
     var title: String
     var on = false
+    /// False draws the icon alone; the title is its tooltip and its VoiceOver name.
+    var showsTitle = true
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 IconView(icon: icon).clonePart("Icon/\(icon.rawValue)")
-                Text(title).textStyle(.body).lineLimit(1).clonePart("Text")
+                if showsTitle {
+                    Text(title).textStyle(.body).lineLimit(1).clonePart("Text")
+                }
             }
             .foregroundStyle(Palette.textSecondary)
         }
         .buttonStyle(ToolbarButtonStyle(on: on))
+        .accessibilityLabel(title)
     }
 }
 

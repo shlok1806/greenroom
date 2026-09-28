@@ -204,6 +204,98 @@ enum Keyframes {
     }
 }
 
+/// Beautiful UI's agent entrances (redesign 7), the originals' timings as extracted
+/// (`task-rows.json`, `tool-chips.json`, `thinking-state.json`, `stream-text.json`): the Figma
+/// file names durations for state changes (press, settle, landing) but none for the agent's
+/// work arriving, so the originals' win there (docs/22 section 1). `ComponentMotionTests`
+/// holds each against its spec's animation list.
+enum AgentMotion {
+    /// `fade-up`: from 8 below at opacity 0, on the design's curve.
+    static let rise: CGFloat = 8
+    static let curve = Curve.outStrong
+    /// Task rows enter over 450 ms, 80 ms apart.
+    static let taskRow: Double = 0.45
+    static let taskRowStagger: Double = 0.08
+    /// A tool call's row enters over 300 ms (ToolChips, one every 700 ms in the demo).
+    static let toolChip: Double = 0.3
+    /// Thinking's trace rows enter over 320 ms, 120 ms apart.
+    static let traceRow: Double = 0.32
+    static let traceStagger: Double = 0.12
+    /// Thinking's label swaps to "Thought for ..." with `fade-in 350ms ease-out`.
+    static let labelFadeIn: Double = 0.35
+    static let labelCurve = Curve.cssEaseOut
+    /// StreamText's caret: 2 pt wide, 1.05 em tall, radius 1.
+    static let caretWidth: CGFloat = 2
+    static let caretEm: CGFloat = 1.05
+
+    /// `fade-up` at `time` seconds after the element was born, as the browser draws it:
+    /// opacity 0 to 1 and the rise 8 to 0 on the curve, after `delay`.
+    static func fadeUp(at time: Double, duration: Double, delay: Double = 0) -> (opacity: Double, offset: CGFloat) {
+        let progress = curve.value(at: (time - delay) / duration)
+        return (progress, rise * CGFloat(1 - progress))
+    }
+}
+
+/// An element of the agent's work arriving while the person watches: Beautiful UI's
+/// `fade-up`. `active` is false for what was already there when the view opened, which shows
+/// at once; nothing moves under Reduce Motion.
+struct FadeUp: ViewModifier {
+    var active: Bool
+    var duration: Double
+    var delay: Double = 0
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let visible = shown || !active || reduceMotion
+        content
+            .opacity(visible ? 1 : 0)
+            .offset(y: visible ? 0 : AgentMotion.rise)
+            .onAppear {
+                guard active, !reduceMotion, !shown else { return }
+                withAnimation(AgentMotion.curve.animation(duration).delay(delay)) { shown = true }
+            }
+    }
+}
+
+extension View {
+    func fadeUp(_ active: Bool, duration: Double, delay: Double = 0) -> some View {
+        modifier(FadeUp(active: active, duration: duration, delay: delay))
+    }
+}
+
+/// Which items of a growing list arrived while the view was open, and in which order, so
+/// each new one fades up with its stagger. What was there when the view opened (or when its
+/// run changed) is known and shows at once.
+struct Arrivals: Equatable {
+    private(set) var known: Set<String>?
+    private var batch: [String] = []
+
+    /// Everything in `ids` is already there.
+    mutating func reset(_ ids: [String]) {
+        known = Set(ids)
+        batch = []
+    }
+
+    /// Notes a new list: the ids not known yet are this batch, in order.
+    mutating func note(_ ids: [String]) {
+        guard let known else { return }
+        let fresh = ids.filter { !known.contains($0) }
+        if !fresh.isEmpty {
+            batch = fresh
+            self.known = known.union(fresh)
+        }
+    }
+
+    /// Whether `id` arrived while the view was open.
+    func isNew(_ id: String) -> Bool { batch.contains(id) }
+
+    /// The delay before `id` enters: its place in its batch times the stagger.
+    func delay(_ id: String, stagger: Double) -> Double {
+        Double(batch.firstIndex(of: id) ?? 0) * stagger
+    }
+}
+
 // MARK: - Loops and the clock
 
 /// The clock every loop reads (the checking ring, the shimmer, the pixel grid). Loops are

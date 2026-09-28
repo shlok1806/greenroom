@@ -68,6 +68,130 @@ enum RunScenarios {
                 await window(size, base: base, state: .failed, now: at(.failed), prepare: { $0.settingsOpen = true })
             },
             stateScenario("r15-done", .done),
+            // Redesign 7: the player and the inspector.
+            S(name: "r16-more-menu", sizes: [.regular], dark: true, countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in
+                    shell.dropdowns.toggle("more", anchor: CGRect(x: size.width - 52, y: 12, width: 28, height: 28),
+                                           items: moreItems(shell), width: 260)
+                    shell.dropdowns.move(by: 1)
+                })
+            },
+            S(name: "r17-speed-menu", sizes: [.regular], countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in
+                    shell.setSpeed(2)
+                    shell.dropdowns.toggle("speed", anchor: CGRect(x: size.width - 470, y: size.height - 60, width: 30, height: 22),
+                                           items: [1.0, 2, 4].map { v in DropdownItem(id: "s\(Int(v))", title: "\(Int(v))× speed", checked: v == 2) {} },
+                                           width: 150)
+                })
+            },
+            S(name: "r18-message-markdown", sizes: [.regular], dark: true, countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in
+                    shell.store.messages[F.tipSplit] = markdownConversation()
+                    shell.show(.message)
+                    shell.composer = .message
+                })
+            },
+            S(name: "r19-message-streaming", sizes: [.regular], countFrom: 248) { size in
+                await window(size, base: base, state: .live, now: at(.live), prepare: { shell in
+                    let all = markdownConversation()
+                    shell.store.messages[F.tipSplit] = Array(all.dropLast())
+                    shell.noteMessages(Array(all.dropLast()), runId: F.tipSplit)
+                    shell.store.messages[F.tipSplit] = all
+                    shell.noteMessages(all, runId: F.tipSplit, now: Date().addingTimeInterval(0.4))
+                    shell.show(.message)
+                })
+            },
+            S(name: "r20-picture-only", sizes: [.regular, .compact], countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { $0.zoomed = true })
+            },
+            S(name: "r21-details", sizes: [.regular], countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { $0.detailsOpen = true })
+            },
+            S(name: "r22-scrubbed", sizes: [.regular, .compact], dark: true, countFrom: 248) { size in
+                await window(size, base: base, state: .live, now: at(.live), prepare: { shell in
+                    shell.seek(toStep: 9)
+                })
+            },
+            S(name: "r23-activity-log", sizes: [.regular], countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in
+                    shell.activityOpen = true
+                    shell.seek(toStep: 13)
+                })
+            },
+            S(name: "r24-destroy-undo", sizes: [.regular], countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in
+                    shell.confirmingDestroy = true
+                    shell.store.lastError = "greenroom answered 409: the Mac is busy restarting"
+                })
+            },
+            // The conversation with the verifier's calls between messages, done (folded, one
+            // opened) and, live, the Thinking state with its trace open.
+            S(name: "r25-message-tools", sizes: [.regular], dark: true, countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in
+                    shell.show(.message)
+                })
+            },
+            S(name: "r26-message-thinking", sizes: [.regular], countFrom: 248) { size in
+                await window(size, base: base, state: .live, now: at(.live), prepare: { shell in
+                    shell.show(.message)
+                })
+            },
+            // Accept asked about when no proof was looked at, and the raw call at the playhead.
+            S(name: "r27-accept-ask", sizes: [.regular], countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in
+                    shell.store.updateVerdictDraft(F.tipSplit) { $0.confirmingAccept = true }
+                })
+            },
+            S(name: "r28-step-record", sizes: [.regular], dark: true, countFrom: 248) { size in
+                await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in
+                    AppDefaults.shared.set(true, forKey: "activityRecordOpen")
+                    shell.activityOpen = true
+                    shell.seek(toStep: 13)
+                })
+            },
+        ]
+    }
+
+    /// The More menu's rows as the toolbar builds them (the harness cannot click).
+    static func moreItems(_ shell: ShellModel) -> [DropdownItem] {
+        [
+            DropdownItem(id: "details", title: "Run details", icon: .info) {},
+            DropdownItem(id: "evidence", title: "Open the evidence", icon: .video, keys: "E") {},
+            DropdownItem(id: "zoom", title: "Picture only", icon: .expand, keys: "Z") {},
+            DropdownItem(id: "task", title: "New task for the verifier", icon: .message) {},
+            DropdownItem(id: "palette", title: "Command palette", icon: .search, keys: "⌘K") {},
+            DropdownItem(id: "capture", title: "Capture a screenshot", icon: .camera, keys: "C", separated: true) {},
+            DropdownItem(id: "export", title: "Save the recording…", icon: .download) {},
+            DropdownItem(id: "copy", title: "Copy run ID", icon: .copy) {},
+            DropdownItem(id: "restart", title: "Restart the Mac", icon: .restart, separated: true) {},
+            DropdownItem(id: "destroy", title: "Destroy the Mac…", icon: .trash, destructive: true) {},
+        ]
+    }
+
+    /// A conversation with headings, lists, code, a table, a quote and a link.
+    static func markdownConversation() -> [Message] {
+        let at = F.start
+        return [
+            Message(seq: 1, at: at, from: .coder, kind: .task,
+                    text: "Check **TipSplit** on screen: Bill 120, Tip 20%, People 3. *Each pays* should be `$48.00`."),
+            Message(seq: 5, at: at.addingTimeInterval(90), from: .human, kind: .note, text: "Also try the 25% button, please."),
+            Message(seq: 9, at: at.addingTimeInterval(200), from: .verifier, kind: .reply, text: """
+            ## What I saw
+            1. The tip reads **$24.00** at 20%, as expected.
+            2. *Each pays* reads `$8.00`, not `$48.00`.
+
+            | Field | Expected | Saw |
+            | --- | --- | --- |
+            | Tip | $24.00 | $24.00 |
+            | Each pays | $48.00 | $8.00 |
+
+            > The total is divided before the tip is added.
+
+            ```swift
+            let each = bill / Double(people) + tip   // should be (bill + tip) / people
+            ```
+            See [the source](https://github.com/shlok1806/greenroom) and step 13.
+            """),
         ]
     }
 

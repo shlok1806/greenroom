@@ -19,30 +19,26 @@ enum ActivityLayout {
         var rows: [(TaskRowModel, Set<Int>)] = []
         let sortedSteps = steps.sorted { $0.seq < $1.seq }
 
-        func chip(_ step: Step) -> ToolChipModel {
-            let state: ToolChipModel.State = step.error.map { .error(short($0)) } ?? .done
-            return ToolChipModel(id: step.seq, icon: icon(step.tool), label: chipLabel(step, in: sortedSteps),
-                                 meta: String(format: "%.1fs", Double(step.durationMs) / 1000), state: state)
-        }
+        func chip(_ step: Step) -> ToolChipModel { ActivityLayout.chip(step, in: sortedSteps) }
 
         if progress.isEmpty {
             // No words from the verifier: one row per step.
             for step in sortedSteps {
                 rows.append((TaskRowModel(id: "s\(step.seq)", title: StepSummary.phrase(for: step, in: sortedSteps),
-                                          glyph: step.error == nil ? .passed : .failed, color: step.error == nil ? .pass : .fail,
+                                          glyph: step.failed ? .failed : .passed, color: step.failed ? .fail : .pass,
                                           meta: String(format: "%.1fs", Double(step.durationMs) / 1000), chips: [], note: nil,
-                                          opensItself: false), [step.seq]))
+                                          opensItself: false, steps: [step.seq]), [step.seq]))
             }
         } else {
             for (index, message) in progress.enumerated() {
                 let end = index + 1 < progress.count ? progress[index + 1].at : Date.distantFuture
                 let mine = sortedSteps.filter { $0.at >= message.at && $0.at < end }
-                let failedStep = mine.contains { $0.error != nil }
+                let failedStep = mine.contains(where: \.failed)
                 let span = (mine.last?.at ?? message.at).timeIntervalSince(message.at) + Double(mine.last?.durationMs ?? 0) / 1000
                 let isLast = index == progress.count - 1
                 rows.append((TaskRowModel(id: "m\(message.seq)", title: title(message.text), glyph: failedStep ? .failed : .passed,
                                           color: failedStep ? .fail : .pass, meta: Clock.elapsed(Int(span.rounded())),
-                                          chips: mine.map(chip), note: nil, opensItself: failedStep),
+                                          chips: mine.map(chip), note: note(message.text), opensItself: failedStep, steps: mine.map(\.seq)),
                              Set(mine.map(\.seq))))
                 if isLast, working {
                     rows[rows.count - 1].0.glyph = .checking
@@ -72,6 +68,33 @@ enum ActivityLayout {
             }
         }
         return sections
+    }
+
+    /// A step as a tool chip: its tool's icon, two or three words, how long, or why it failed.
+    static func chip(_ step: Step, in steps: [Step]) -> ToolChipModel {
+        let state: ToolChipModel.State
+        switch step.outcome {
+        case .ok: state = .done
+        case .exit(let code): state = .error("exit \(code)")
+        case .error(let words): state = .error(short(words))
+        }
+        return ToolChipModel(id: step.seq, icon: icon(step.tool), label: chipLabel(step, in: steps),
+                             meta: String(format: "%.1fs", Double(step.durationMs) / 1000), state: state, risky: step.isRisky)
+    }
+
+    /// The row a step belongs to: the one holding it, else the last row that began before it.
+    static func row(holding step: Int?, in sections: [Section]) -> String? {
+        guard let step else { return nil }
+        let rows = sections.flatMap(\.rows)
+        if let exact = rows.first(where: { $0.steps.contains(step) }) { return exact.id }
+        return rows.last { ($0.steps.first ?? .max) <= step }?.id
+    }
+
+    /// A progress message's whole words, when the title shows only part of them.
+    static func note(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ToolCatalog.tool(ofProgress: trimmed) == nil, title(trimmed) != trimmed else { return nil }
+        return trimmed
     }
 
     /// A verifier's progress line as a row title: its first sentence, short.

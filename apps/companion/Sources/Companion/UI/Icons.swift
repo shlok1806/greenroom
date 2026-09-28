@@ -12,6 +12,10 @@ enum Icon: String, CaseIterable, Sendable {
     case chevronRight = "chevron-right"
     case chevronDown = "chevron-down"
     case send, copy, video, logs, camera, eye, keyboard, download, machine, think, check
+    // Lucide (ISC) pause, info, skip-forward, trash-2 and skip-back, scaled from 24 to 16.
+    case pause, info, trash
+    case skipForward = "skip-forward"
+    case skipBack = "skip-back"
 
     /// SVG path data on a 16-unit box, every subpath of the icon.
     var pathData: String {
@@ -64,6 +68,16 @@ enum Icon: String, CaseIterable, Sendable {
             "M8.00002 10.3333C9.28868 10.3333 10.3334 9.28867 10.3334 8.00001C10.3334 6.71134 9.28868 5.66667 8.00002 5.66667C6.71136 5.66667 5.66669 6.71134 5.66669 8.00001C5.66669 9.28867 6.71136 10.3333 8.00002 10.3333Z M8.00002 1.66667V3.33334M8.00002 12.6667V14.3333M1.66669 8.00001H3.33335M12.6667 8.00001H14.3334"
         case .check:
             "M13.3334 4L6.00002 11.3333L2.66669 8"
+        case .pause:
+            "M4 2.66667H6.66667V13.3333H4Z M9.33333 2.66667H12V13.3333H9.33333Z"
+        case .info:
+            "M8 1.33333C11.6819 1.33333 14.6667 4.3181 14.6667 8C14.6667 11.6819 11.6819 14.6667 8 14.6667C4.3181 14.6667 1.33333 11.6819 1.33333 8C1.33333 4.3181 4.3181 1.33333 8 1.33333Z M8 10.6667V8 M8 5.33333H8.00667"
+        case .trash:
+            "M2 4H14 M12.6667 4V13.3333C12.6667 14 12 14.6667 11.3333 14.6667H4.66667C4 14.6667 3.33333 14 3.33333 13.3333V4 M5.33333 4V2.66667C5.33333 2 6 1.33333 6.66667 1.33333H9.33333C10 1.33333 10.6667 2 10.6667 2.66667V4"
+        case .skipForward:
+            "M3.33333 2.66667L10 8L3.33333 13.3333V2.66667Z M12.6667 3.33333V12.6667"
+        case .skipBack:
+            "M12.6667 13.3333L6 8L12.6667 2.66667V13.3333Z M3.33333 12.6667V3.33333"
         }
     }
 

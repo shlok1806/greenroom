@@ -164,24 +164,38 @@ final class RunWindowTests: XCTestCase {
         /// How many parts must match at least: a frame with little on it has few.
         var minParts = 50
         var wide = false
+        /// The SSIM the chrome must reach. Frame 07a, with its runs list and run body masked
+        /// since redesign 7, keeps only the header and the window's edges, where Inter and SF
+        /// Pro setting the same words weigh more: 0.984 there (0.9955 before the mask).
+        var minSSIM = 0.985
     }
 
+    /// Redesign 7 moved the checks into the inspector column and put the transport bar under
+    /// the picture (frame R7 03); the frames before it are held for the sidebar and the header
+    /// only, and their run body and toolbar are masked.
+    static let beforeR7 = ["Run/Body", "Run/Toolbar"]
+
     static let frames: [FigmaFrame] = [
-        FigmaFrame(name: "m03-failed-light"),
-        FigmaFrame(name: "m03-failed-dark", dark: true),
-        FigmaFrame(name: "m03-failed-compact-light", size: CGSize(width: 1024, height: 680), compact: true),
-        FigmaFrame(name: "m04-passed-light", passed: true),
-        FigmaFrame(name: "m02-live-light", state: .live),
+        // Redesign 7: the player and the inspector. The scrub bar draws the run's own steps.
+        FigmaFrame(name: "r7-failed-light", skip: ["Run/Body/Stage/Timeline/Track"]),
+        FigmaFrame(name: "m03-failed-light", skip: beforeR7),
+        FigmaFrame(name: "m03-failed-dark", dark: true, skip: beforeR7),
+        FigmaFrame(name: "m03-failed-compact-light", size: CGSize(width: 1024, height: 680), compact: true, skip: beforeR7),
+        FigmaFrame(name: "m04-passed-light", passed: true, skip: beforeR7),
+        FigmaFrame(name: "m02-live-light", state: .live, skip: beforeR7),
         // The daemon puts a Mac that stopped answering under Needs you (root ADR 0036); the
         // frame leaves it under Running. Frames 07 also show four Done runs where 02 to 04 show five.
-        FigmaFrame(name: "m07a-not-answering-light", state: .notAnswering, skip: ["Sidebar/Runs"]),
+        FigmaFrame(name: "m07a-not-answering-light", state: .notAnswering, skip: ["Sidebar/Runs"] + beforeR7, minParts: 20, minSSIM: 0.98),
         FigmaFrame(name: "m07b-restarting-light", state: .restarting,
-                   skip: ["Sidebar/Runs/Run row[7]", "Sidebar/Runs/Run row[8]", "Sidebar/Runs/More"]),
+                   skip: ["Sidebar/Runs/Run row[7]", "Sidebar/Runs/Run row[8]", "Sidebar/Runs/More"] + beforeR7),
         // The frame's runs to go to are a few; the app lists every run, so the rows past the
         // first two of that section show other runs (words differ, places do not).
-        FigmaFrame(name: "m12-palette-light", palette: true),
-        FigmaFrame(name: "m02-live-dark", dark: true, state: .live),
-        FigmaFrame(name: "m01-home-wide-light", size: CGSize(width: 1600, height: 1000), wide: true),
+        // Redesign 7 lists the player's and the old window's actions too, so the rows past the
+        // sixth are other commands than the frame's.
+        FigmaFrame(name: "m12-palette-light", skip: beforeR7 + ["Palette/Frame[6]", "Palette/Frame[7]", "Palette/Frame[8]"],
+                   palette: true, minParts: 40),
+        FigmaFrame(name: "m02-live-dark", dark: true, state: .live, skip: beforeR7),
+        FigmaFrame(name: "m01-home-wide-light", size: CGSize(width: 1600, height: 1000), skip: beforeR7, wide: true),
         // The live screen is the guest's: its picture and the ring drawn round it are not compared.
         FigmaFrame(name: "m09-take-control-light", state: .live, skip: ["Screen area/Live screen"], driving: true, minParts: 7),
     ]
@@ -191,6 +205,8 @@ final class RunWindowTests: XCTestCase {
         let shell = ShellModel(store: try store(.failed, mockup: true, compact: frame.compact, passed: frame.passed,
                                                 mockupState: frame.state, wide: frame.wide))
         await shell.store.select(F.tipSplit)
+        // The stub answers 404 to what it does not serve; that is not the frame's error.
+        shell.store.clearError()
         if frame.driving { await shell.store.pilot(for: F.tipSplit).take() }
         shell.paletteOpen = frame.palette
         let host = await host(shell, state: frame.state ?? .failed, size: frame.size, redacted: redacted, dark: frame.dark)
@@ -214,6 +230,11 @@ final class RunWindowTests: XCTestCase {
         for frame in Self.frames {
             let host = try await mockupHost(frame, redacted: true)
             let parts = CloneParts.frames(in: host.window)
+            // GREENROOM_CLONE_DUMP=<dir> writes what the window reports, one part a line.
+            if let dump = ProcessInfo.processInfo.environment["GREENROOM_CLONE_DUMP"] {
+                let lines = parts.sorted { $0.key < $1.key }.map { "\($0.key);\($0.value.minX);\($0.value.minY);\($0.value.width);\($0.value.height)" }
+                try lines.joined(separator: "\n").write(to: URL(fileURLWithPath: dump).appendingPathComponent(frame.name + ".parts.txt"), atomically: true, encoding: .utf8)
+            }
             let layout = try String(contentsOf: Self.figma(frame.name + ".layout.txt"), encoding: .utf8)
             let (compared, misses) = Self.layoutMisses(parts: parts, layout: layout, skip: frame.skip)
             report.append("\(frame.name) \(compared) parts, \(misses.count) off")
@@ -231,7 +252,7 @@ final class RunWindowTests: XCTestCase {
     static func layoutMisses(parts: [String: CGRect], layout: String, skip: [String] = []) -> (compared: Int, misses: [String]) {
         func last(_ path: String) -> String { String(path.split(separator: "/").last ?? "") }
         func hugs(_ path: String) -> Bool {
-            ["Button", "Toolbar button", "Outcome", "Now", "Run meta", "Status", "Shortcut", "Keycap"].contains { last(path).hasPrefix($0) }
+            ["Button", "Toolbar button", "Outcome", "Now", "Run meta", "Status", "Shortcut", "Keycap", "Take control", "Live", "Tab"].contains { last(path).hasPrefix($0) }
         }
         func trailing(_ path: String) -> Bool {
             let name = last(path)
@@ -283,7 +304,7 @@ final class RunWindowTests: XCTestCase {
             let layout = try String(contentsOf: Self.figma(frame.name + ".layout.txt"), encoding: .utf8)
             let result = try XCTUnwrap(CloneSSIM.compare(render: image, figma: png, origin: CGPoint(x: 48, y: 32), layout: layout, masked: frame.skip))
             report.append(String(format: "%@ SSIM %.4f, %.2f%% off", frame.name, result.chrome, result.offShare * 100))
-            XCTAssertGreaterThanOrEqual(result.chrome, 0.985, frame.name)
+            XCTAssertGreaterThanOrEqual(result.chrome, frame.minSSIM, frame.name)
         }
         print("clone pixels: " + report.joined(separator: "; "))
     }
@@ -361,6 +382,10 @@ final class RunWindowTests: XCTestCase {
         let posts = Posts()
         let shell = ShellModel(store: try store(.failed, posts: posts))
         shell.perform(try XCTUnwrap(shell.summary?.primaryAction))
+        // Held for its undo first: nothing goes out until the window ends.
+        try await waitUntil { shell.store.verdictUndo.pending != nil }
+        XCTAssertFalse(posts.all.contains { $0.body.contains(#""kind":"accept""#) })
+        await shell.store.sendHeldVerdictChoice(now: Date().addingTimeInterval(60))
         try await waitUntil { posts.all.contains { $0.path.hasSuffix("/messages") && $0.body.contains(#""kind":"accept""#) } }
 
         let stuck = ShellModel(store: try store(.notAnswering, posts: posts))
@@ -373,9 +398,11 @@ final class RunWindowTests: XCTestCase {
         let shell = ShellModel(store: try store(.failed, posts: posts))
         shell.perform(SummaryAction(id: SummaryAction.reject, label: "Reject"))
         XCTAssertEqual(shell.composer, .reject)
-        XCTAssertTrue(shell.activityOpen)
+        XCTAssertEqual(shell.inspectorTab, .message, "the reason is asked in the Message tab, beside the player")
         shell.composerDraft = "Each pays should include the tip."
         shell.sendComposer()
+        try await waitUntil { shell.store.verdictUndo.pending != nil }
+        await shell.store.sendHeldVerdictChoice(now: Date().addingTimeInterval(60))
         try await waitUntil { posts.all.contains { $0.body.contains(#""kind":"dispute""#) && $0.body.contains("include the tip") } }
     }
 

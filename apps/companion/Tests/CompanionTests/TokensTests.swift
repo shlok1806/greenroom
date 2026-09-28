@@ -184,7 +184,8 @@ final class TokensTests: XCTestCase {
 
     /// The icons are the design's outlines: each parses to a path inside the 16-unit box.
     func testEveryIconParsesInsideItsBox() {
-        XCTAssertEqual(Icon.allCases.count, 24)
+        // The design's 24, and redesign 7's pause, info, trash, skip-forward and skip-back.
+        XCTAssertEqual(Icon.allCases.count, 29)
         for icon in Icon.allCases {
             let bounds = icon.path.boundingRect
             XCTAssertFalse(icon.path.isEmpty, "\(icon)")

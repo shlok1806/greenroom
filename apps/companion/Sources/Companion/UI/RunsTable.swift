@@ -16,6 +16,11 @@ struct RunsTable: NSViewRepresentable {
     var select: (String) -> Void
     var expand: (SummaryGroup) -> Void
     var frozenNow: Date?
+    /// How far the list is scrolled and the runs showing ("25-48 of 2,000"), for the visible
+    /// scroller; it also scrolls the table.
+    var tracker: ScrollTracker?
+    /// What tells apart runs with the same name, by run id (companion ADR 0018).
+    var twins: [String: TwinMark] = [:]
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -42,14 +47,20 @@ struct RunsTable: NSViewRepresentable {
         let scroll = NSScrollView()
         scroll.documentView = table
         scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        // The design draws no scroll bar beside the rows: an overlay scroller, which shows only
-        // while scrolling, even with a mouse attached (seen as a 17 pt bar in a Greenroom VM).
+        // The sidebar draws its own always-visible scroller (`VisibleScroller`): the system's
+        // overlay scroller hid until you scrolled, and the legacy one is a 17 pt bar.
+        scroll.hasVerticalScroller = false
         scroll.scrollerStyle = .overlay
         scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: Gap.x8, right: 0)
         scroll.automaticallyAdjustsContentInsets = false
         context.coordinator.table = table
+        context.coordinator.scrollView = scroll
+        tracker?.driver.scrollView = scroll
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scrolled(_:)),
+                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.scrolled(_:)),
+                                               name: NSView.frameDidChangeNotification, object: table)
         return scroll
     }
 
@@ -57,12 +68,13 @@ struct RunsTable: NSViewRepresentable {
         if scroll.scrollerStyle != .overlay { scroll.scrollerStyle = .overlay }
         let c = context.coordinator
         c.parent = self
-        let changed = c.items != items || c.summaries != summaries || c.frozenNow != frozenNow
+        let changed = c.items != items || c.summaries != summaries || c.frozenNow != frozenNow || c.twins != twins
         let selectionChanged = c.selected != selected
         c.items = items
         c.summaries = summaries
         c.selected = selected
         c.frozenNow = frozenNow
+        c.twins = twins
         guard let table = c.table else { return }
         if changed {
             table.reloadData()
@@ -72,6 +84,11 @@ struct RunsTable: NSViewRepresentable {
                 if case .run = items[index] { return true }
                 return false
             }, columnIndexes: [0])
+        }
+        tracker?.driver.scrollView = scroll
+        if changed {
+            c.runRows = items.indices.filter { if case .run = items[$0] { true } else { false } }
+            DispatchQueue.main.async { c.report() }
         }
         if let selected, let row = items.firstIndex(of: .run(selected)) {
             c.syncingSelection = true
@@ -90,8 +107,39 @@ struct RunsTable: NSViewRepresentable {
         var summaries: [String: Summary] = [:]
         var selected: String?
         var frozenNow: Date?
+        var twins: [String: TwinMark] = [:]
         weak var table: NSTableView?
+        weak var scrollView: NSScrollView?
         var syncingSelection = false
+
+        @objc func scrolled(_ note: Notification) {
+            report()
+        }
+
+        /// The rows that are runs, in order: the scroller counts runs, not headings.
+        var runRows: [Int] = []
+
+        /// Tells the scroller how far the list is scrolled and which runs show. Cheap: it runs
+        /// on every scroll step (two binary searches over the run rows).
+        func report() {
+            guard let scrollView, let table, let tracker = parent?.tracker else { return }
+            let clip = scrollView.contentView.bounds
+            let metrics = ScrollMetrics(offset: clip.origin.y, content: table.frame.height + Gap.x8, viewport: clip.height)
+            let visible = table.rows(in: clip)
+            func firstRun(atOrAfter row: Int) -> Int {
+                var low = 0, high = runRows.count
+                while low < high {
+                    let mid = (low + high) / 2
+                    if runRows[mid] < row { low = mid + 1 } else { high = mid }
+                }
+                return low
+            }
+            let first = firstRun(atOrAfter: visible.location)
+            let end = firstRun(atOrAfter: visible.location + visible.length)
+            let words = end > first ? "\(first + 1)-\(end) of \(runRows.count.formatted())" : ""
+            if tracker.metrics != metrics { tracker.metrics = metrics }
+            if tracker.position != words { tracker.position = words }
+        }
 
         func numberOfRows(in tableView: NSTableView) -> Int { items.count }
 
@@ -140,7 +188,7 @@ struct RunsTable: NSViewRepresentable {
                     .cloneScope(partName("Group", at: row) { if case .heading = $0 { true } else { false } })
             case .run(let id):
                 if let summary = summaries[id] {
-                    SidebarRunRow(summary: summary, selected: id == selected)
+                    SidebarRunRow(summary: summary, selected: id == selected, twin: twins[id])
                         .cloneScope(partName("Run row", at: row) { if case .run = $0 { true } else { false } })
                 }
             case .more(_, let hidden):
@@ -198,21 +246,24 @@ private final class KeyTable: NSTableView {
 struct SidebarRunRow: View {
     var summary: Summary
     var selected: Bool
+    var twin: TwinMark?
     @Environment(\.frozenNow) private var frozenNow
     @State private var hovering = false
 
     var body: some View {
         Group {
             if let frozenNow {
-                RunRowView(model: RunRowModel(summary, now: frozenNow, selected: selected), selected: selected, hovered: hovering)
+                RunRowView(model: RunRowModel(summary, now: frozenNow, selected: selected, twin: twin), selected: selected, hovered: hovering)
             } else if summary.group == .done {
-                RunRowView(model: RunRowModel(summary, now: Date(), selected: selected), selected: selected, hovered: hovering)
+                RunRowView(model: RunRowModel(summary, now: Date(), selected: selected, twin: twin), selected: selected, hovered: hovering)
             } else {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    RunRowView(model: RunRowModel(summary, now: context.date, selected: selected), selected: selected, hovered: hovering)
+                    RunRowView(model: RunRowModel(summary, now: context.date, selected: selected, twin: twin), selected: selected, hovered: hovering)
                 }
             }
         }
         .onHover { hovering = $0 }
+        // The whole name (the row may clip it), the status and when it started.
+        .help(RunRowModel.tooltip(summary))
     }
 }

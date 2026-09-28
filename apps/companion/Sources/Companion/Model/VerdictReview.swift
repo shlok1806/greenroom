@@ -328,26 +328,45 @@ extension RunTitle {
     /// title is its own has none. It does not change as more runs arrive, unless a new twin
     /// shares the minute.
     static func twinMarks(_ runs: [RunSummary]) -> [String: TwinMark] {
-        let title: (RunSummary) -> String = { short(task: $0.task, runId: $0.runId) }
+        twinMarks(runs, id: \.runId, title: { short(task: $0.task, runId: $0.runId) }, started: \.createdAt)
+    }
+
+    /// `twinMarks` over any list of runs: what names each, what titles it and when it started.
+    /// The native window's rows (companion ADR 0019) title a run by the daemon's name.
+    static func twinMarks<Run>(_ runs: [Run], id: (Run) -> String, title: (Run) -> String,
+                               started: (Run) -> Date) -> [String: TwinMark] {
         let groups = Dictionary(grouping: runs, by: title).values.filter { $0.count > 1 }
         var out: [String: TwinMark] = [:]
+        let zone = TimeZone.current
         for twins in groups {
-            let minutes = counted(twins) { Chrome.shortTime($0.createdAt) }
-            let seconds = counted(twins) { Chrome.timeOfDay($0.createdAt) }
-            let tags = idTags(twins.map(\.runId))
-            for run in twins {
-                let minute = Chrome.shortTime(run.createdAt)
-                let second = Chrome.timeOfDay(run.createdAt)
-                if minutes[minute, default: 0] < 2 {
-                    out[run.runId] = .time(minute)
-                } else if seconds[second, default: 0] < 2 {
-                    out[run.runId] = .time(second)
+            // Worked out arithmetically, not by a DateFormatter: a board of thousands of runs
+            // has thousands of twins, and the formatter took 60 ms over 2,000.
+            let stamps = twins.map { clock(started($0), in: zone) }
+            let minutes = stamps.reduce(into: [String: Int]()) { $0[$1.minute, default: 0] += 1 }
+            let seconds = stamps.reduce(into: [String: Int]()) { $0[$1.second, default: 0] += 1 }
+            var tags: [String: String]?
+            for (run, stamp) in zip(twins, stamps) {
+                if minutes[stamp.minute, default: 0] < 2 {
+                    out[id(run)] = .time(stamp.minute)
+                } else if seconds[stamp.second, default: 0] < 2 {
+                    out[id(run)] = .time(stamp.second)
                 } else {
-                    out[run.runId] = .tag(tags[run.runId] ?? run.runId)
+                    if tags == nil { tags = idTags(twins.map(id)) }
+                    out[id(run)] = .tag(tags?[id(run)] ?? id(run))
                 }
             }
         }
         return out
+    }
+
+    /// A start as `Chrome.shortTime` ("16:04") and `Chrome.timeOfDay` ("16:04:17") word it,
+    /// in `zone`.
+    static func clock(_ date: Date, in zone: TimeZone) -> (minute: String, second: String) {
+        let local = Int(date.timeIntervalSince1970.rounded(.down)) + zone.secondsFromGMT(for: date)
+        let day = (local % 86_400 + 86_400) % 86_400
+        func two(_ n: Int) -> String { n < 10 ? "0\(n)" : "\(n)" }
+        let minute = two(day / 3600) + ":" + two(day % 3600 / 60)
+        return (minute, minute + ":" + two(day % 60))
     }
 
     /// Each id's hex part cut to the fewest digits (at least the six `Chrome.runHash`
@@ -355,14 +374,23 @@ extension RunTitle {
     /// already calls the run by, only longer when they are shared.
     static func idTags(_ ids: [String]) -> [String: String] {
         let hex = Dictionary(ids.map { ($0, hexPart($0)) }, uniquingKeysWith: { first, _ in first })
+        // Sorted, the id sharing the longest start with each one is a neighbour: a tag is one
+        // digit past that, so thousands of twins cost a sort, not every pair. Compared as
+        // bytes: a run id is ASCII (a date, a time and hex digits).
+        let sorted = hex.map { (id: $0.key, digits: Array($0.value.utf8)) }.sorted { $0.digits.lexicographicallyPrecedes($1.digits) }
+        func shared(_ a: [UInt8], _ b: [UInt8]) -> Int {
+            var n = 0
+            while n < a.count, n < b.count, a[n] == b[n] { n += 1 }
+            return n
+        }
         var out: [String: String] = [:]
-        for (id, digits) in hex {
-            let others = hex.filter { $0.key != id }.map(\.value)
-            var length = min(6, digits.count)
-            while length < digits.count, others.contains(where: { $0.hasPrefix(digits.prefix(length)) }) {
-                length += 1
-            }
-            out[id] = "#" + digits.prefix(length)
+        for (index, entry) in sorted.enumerated() {
+            var longest = 0
+            if index > 0 { longest = max(longest, shared(entry.digits, sorted[index - 1].digits)) }
+            if index + 1 < sorted.count { longest = max(longest, shared(entry.digits, sorted[index + 1].digits)) }
+            let count = entry.digits.count
+            let length = min(count, max(min(6, count), longest + 1))
+            out[entry.id] = "#" + String(decoding: entry.digits.prefix(length), as: UTF8.self)
         }
         return out
     }
@@ -370,10 +398,6 @@ extension RunTitle {
     private static func hexPart(_ runId: String) -> String {
         let parts = runId.split(separator: "-", maxSplits: 2, omittingEmptySubsequences: false)
         return parts.count > 2 ? String(parts[2]) : runId
-    }
-
-    private static func counted(_ runs: [RunSummary], _ label: (RunSummary) -> String) -> [String: Int] {
-        runs.reduce(into: [:]) { $0[label($1), default: 0] += 1 }
     }
 
     /// A brief that opens by describing the screen ("X is running on screen", "X is on
