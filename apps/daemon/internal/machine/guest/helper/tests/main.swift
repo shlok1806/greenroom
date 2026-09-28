@@ -93,6 +93,7 @@ let tests: [(String, () -> Void)] = [
     ("a role matches with or without its prefix", testARoleMatchesWithOrWithoutItsPrefix),
     ("find looks in every text field but a secret", testFindLooksInEveryTextFieldButASecret),
     ("a signature changes with what it read", testASignatureChangesWithWhatItRead),
+    ("an element that does not show signs only its role", testAnElementThatDoesNotShowSignsOnlyItsRole),
 ]
 
 for (name, test) in tests {

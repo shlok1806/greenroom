@@ -102,3 +102,34 @@ func testASignatureChangesWithWhatItRead() {
     // FNV-1a's value for nothing read: the same in every process.
     expectEqual(Signature().value, 0xcbf2_9ce4_8422_2325)
 }
+
+func testAnElementThatDoesNotShowSignsOnlyItsRole() {
+    func signature(_ elements: [SignedElement]) -> UInt64 {
+        var s = Signature()
+        for element in elements { s.add(element: element) }
+        return s.value
+    }
+    let row = SignedElement(role: "AXTextField", value: "PDF Document", frame: CGRect(x: 380, y: 1196, width: 258, height: 18))
+    var hidden = row
+    hidden.shows = false
+    var stale = hidden
+    stale.value = "PDF"
+    stale.frame = CGRect(x: 380, y: 1196, width: 169, height: 18)
+    expectEqual(signature([stale]), signature([hidden]), "a row not drawn reports stale text and widths")
+    expect(signature([hidden]) != signature([]), "a row that does not show still counts")
+    expect(signature([hidden]) != signature([SignedElement(role: "AXButton", shows: false)]), "its role is signed")
+
+    var shown = row
+    shown.value = "PDF"
+    expect(signature([shown]) != signature([row]), "the text of a row that shows is signed")
+    shown = row
+    shown.frame = row.frame?.offsetBy(dx: 0, dy: 20)
+    expect(signature([shown]) != signature([row]), "so is its frame")
+
+    let secret = SignedElement(role: "AXSecureTextField", value: "hunter2", secret: true)
+    var other = secret
+    other.value = "abcdefg"
+    expectEqual(signature([other]), signature([secret]), "a secret signs its length, not its text")
+    other.value = "abc"
+    expect(signature([other]) != signature([secret]), "a secret's length is signed")
+}

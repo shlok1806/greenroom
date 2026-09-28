@@ -528,25 +528,11 @@ final class Walk {
         }
     }
 
-    /// What a walk adds to the signature of each element: what a person would see change. Of
-    /// an element that does not show only its role is signed, so rows coming and going still
-    /// count: a table reports stale widths and texts for the rows it has not drawn (Finder's
-    /// "PDF" for "PDF Document"), which made an idle window look busy to the settle.
     private func sign(_ read: AXRead, role: String, name: String, shows: Bool) {
-        signature.add(role)
-        guard shows else { return }
-        signature.add(name)
-        if read.secret {
-            signature.add(read.value?.count ?? 0)
-        } else {
-            signature.add(read.value ?? "")
-        }
-        signature.add(read.enabled)
-        signature.add(read.selected)
-        signature.add(read.focused)
-        signature.add(read.expanded)
-        signature.add(read.frame)
-        signature.add(read.children.count)
+        signature.add(element: SignedElement(
+            role: role, name: name, value: read.value ?? "", secret: read.secret, enabled: read.enabled,
+            selected: read.selected, focused: read.focused, expanded: read.expanded, frame: read.frame,
+            children: read.children.count, shows: shows))
     }
 
     /// The ref of a seen element, given on first use.
