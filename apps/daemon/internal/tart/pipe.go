@@ -74,7 +74,7 @@ func (p *Pipe) Err() error {
 	}
 	what := fmt.Sprintf("exit %d", st.ExitCode())
 	if ws, ok := st.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-		what = "killed by " + ws.Signal().String()
+		what = "ended by signal " + ws.Signal().String()
 	}
 	if msg == "" {
 		return fmt.Errorf("tart exec -i: %s", what)

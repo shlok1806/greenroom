@@ -50,6 +50,7 @@ type benchRunOpts struct {
 	trials, parallel, verifierMaxSteps                                     int
 	verifierBudget, turnTimeout, diskWait                                  time.Duration
 	minFreeGB                                                              float64
+	desktopToolkit                                                         bool
 }
 
 func benchRunFlags() (*flag.FlagSet, *benchRunOpts) {
@@ -72,6 +73,7 @@ func benchRunFlags() (*flag.FlagSet, *benchRunOpts) {
 	fs.DurationVar(&o.turnTimeout, "turn-timeout", 30*time.Minute, "how long to wait for the verifier's turn to end, from the task, before recording a timeout")
 	fs.Float64Var(&o.minFreeGB, "min-free-gb", float64(bench.DefaultMinFreeDisk)/(1<<30), "no trial starts with less free space (GB) on tart's volume ($TART_HOME, else ~/.tart); 0 turns the check off")
 	fs.DurationVar(&o.diskWait, "disk-wait", 10*time.Minute, "how long to wait for space under -min-free-gb before stopping; a stopped run resumes with the same -out")
+	fs.BoolVar(&o.desktopToolkit, "desktop-toolkit", false, desktopToolkitUsage)
 	return fs, o
 }
 
@@ -130,7 +132,8 @@ func benchRun(args []string) error {
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	raiseFileLimit(log)
-	mgr, err := machine.NewManager(o.root, log, machine.WithMaxMachines(2), machine.WithTartBin(o.tartBin))
+	mgr, err := machine.NewManager(o.root, log, machine.WithMaxMachines(2), machine.WithTartBin(o.tartBin),
+		machine.WithDesktopToolkit(o.desktopToolkit))
 	if err != nil {
 		return err
 	}

@@ -67,6 +67,9 @@ type Machine struct {
 	// daemon ADR 0002), from the latest count (filewatch.go). Only copies carry it, from files,
 	// so state.json never holds a stale count.
 	Files *FileUse `json:"files,omitempty"`
+	// AgentReconnects counts the guest agent's connections after the first (daemon ADR 0005
+	// point 11), so a reconnect loop shows next to Files. Only copies carry it, like Files.
+	AgentReconnects int `json:"agentReconnects,omitempty"`
 
 	// boot is each boot phase as it started and ended (bootphase.go), guarded by
 	// Manager.mu. Unexported, so neither MCP results nor state.json carry it; the
@@ -100,6 +103,10 @@ type Machine struct {
 	frameCancel context.CancelFunc // guarded by Manager.mu
 	frameDone   chan struct{}      // guarded by Manager.mu; closed when the frame recorder returns
 	screen      *screenStream      // guarded by Manager.mu; the live screen, if one has started
+	// agent is this boot's guest agent (agent.go, daemon ADR 0005), nil with the toolkit off.
+	// Guarded by Manager.mu; releaseLocked stops it, and agentDone closes once it has.
+	agent     *agentLink
+	agentDone chan struct{}
 
 	// bootCancel stops finishBoot and bootDone closes when it returns. Both are
 	// set before the machine is shared, and are nil when no boot runs.
@@ -156,7 +163,9 @@ type Manager struct {
 	messageActivity  func(runID string) time.Time // guarded by mu; see SetMessageActivity
 	models           *Models                      // guarded by mu; see SetModels
 	fileCheck        FileCheck
-	lookTimes        lookTimes // a look's limits (look.go); zero means defaultLookTimes
+	lookTimes        lookTimes  // a look's limits (look.go); zero means defaultLookTimes
+	desktopToolkit   bool       // machines run the guest agent (agent.go, daemon ADR 0005)
+	agentT           agentTimes // the guest agent's limits; zero means defaultAgentTimes
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)
@@ -337,6 +346,10 @@ func (mc *Machine) publicLocked() *Machine {
 	c.rec, c.ready, c.proc, c.input, c.sessions, c.frameCancel, c.screen = nil, nil, nil, nil, nil, nil, nil
 	c.execs, c.cleanups = nil, nil
 	c.bootCancel, c.bootDone, c.frameDone = nil, nil, nil
+	c.agent, c.agentDone = nil, nil
+	if mc.agent != nil {
+		c.AgentReconnects = mc.agent.sup.Reconnects()
+	}
 	c.boot = slices.Clone(mc.boot) // putPhase rewrites elements in place
 	c.Files, c.files = mc.files, nil
 	return &c
@@ -578,7 +591,7 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 
 	m.mu.Lock()
 	live = m.forgetLocked(mc)
-	frames, cleanups := mc.frameDone, mc.cleanups
+	frames, cleanups, agent := mc.frameDone, mc.cleanups, mc.agentDone
 	m.mu.Unlock()
 	closeSessions(live)
 	if cleanups != nil {
@@ -586,6 +599,9 @@ func (m *Manager) Destroy(ctx context.Context, runID string) error {
 	}
 	if frames != nil {
 		<-frames // no frame lands in the run directory after Destroy returns
+	}
+	if agent != nil {
+		<-agent // its tart exec has ended too
 	}
 	m.persist()
 	mc.rec.markEnded()
@@ -621,14 +637,15 @@ func (m *Manager) detachLocked(mc *Machine) []*PTYSession {
 	return live
 }
 
-// releaseLocked drops the lease and stops the frame recorder and the live screen (ending its
-// viewers with screenEnd), and detaches the sessions, which the caller passes to closeSessions
-// after releasing m.mu. Destroy and machine_reboot both start with it.
+// releaseLocked drops the lease and stops the frame recorder, the live screen (ending its
+// viewers with screenEnd) and the guest agent, and detaches the sessions, which the caller passes
+// to closeSessions after releasing m.mu. Destroy and machine_reboot both start with it.
 func (m *Manager) releaseLocked(mc *Machine, screenEnd error) []*PTYSession {
 	if mc.lapse != nil {
 		mc.lapse.Stop()
 	}
 	mc.Control = nil
+	m.stopAgentLocked(mc)
 	if mc.frameCancel != nil {
 		mc.frameCancel()
 	}

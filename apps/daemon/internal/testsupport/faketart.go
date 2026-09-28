@@ -46,6 +46,7 @@ import (
 //	                    line (default: nothing, no report)
 //	fail-session        an interactive session (`exec -i ... greenroom-session`) exits 1 at once
 //	fail-serve          the live screen helper (`exec -i ... --serve`) fails to start
+//	fail-agent          the guest agent (`exec -i ... --agent`, daemon ADR 0005) fails to start
 //	session-exits       a session's output file holds session-output, if present, and it exits at once,
 //	                    with the code in session-exit-code (default 0)
 //	tart-version        what `tart --version` prints (default tart.PinnedVersion)
@@ -61,6 +62,7 @@ import (
 // (after `tart stop <name>`). A `tart run <name>` after a stop of that name removes both, so
 // the VM boots again as machine_reboot's does (daemon ADR 0004).
 // `--serve` runs the fake live screen helper; its own control files are listed in fakescreen.go.
+// `--agent` runs the fake guest agent; its own control files are listed in fakeagent.go.
 // machine_pull's probe and tar (greenroom-pull-probe, greenroom-pull-tar) run for real on the
 // host, with $HOME as the guest home.
 func FakeTart(t *testing.T) (bin string, control string) {
@@ -111,6 +113,9 @@ case "$sub" in
       *"-i "*"--serve"*)
         [ -f "$C/fail-serve" ] && { echo "Error: VM is not running" >&2; exit 1; }
         exec env ` + fakeScreenEnv + `="$C" "` + self + `" ;;
+      *"-i "*"--agent"*)
+        [ -f "$C/fail-agent" ] && { echo "Error: VM is not running" >&2; exit 1; }
+        exec env ` + fakeAgentEnv + `="$C" "` + self + `" ;;
     esac
     # machine_exec is "exec -i <name> /bin/sh -s greenroom-exec <secs>" with the wrapper and the
     # command on stdin (issue #128). Each script is appended to exec-stdin, then put back where it

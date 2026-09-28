@@ -29,6 +29,9 @@ import (
 	"github.com/shlok1806/greenroom/apps/daemon/internal/verifier"
 )
 
+// desktopToolkitUsage is the -desktop-toolkit flag of serve and bench run (daemon ADR 0005).
+const desktopToolkitUsage = "drive each machine's desktop through one long-lived guest agent (daemon ADR 0005) instead of a tart exec per look and input; off until wave 4 of #206"
+
 const tartUsage = "path to the tart binary; defaults to " + tart.EnvVar + ", then the pinned tart " + tart.PinnedVersion + " install, then tart on PATH"
 
 const defaultImage = "ghcr.io/cirruslabs/macos-tahoe-base:latest" // scripts/build-image.sh and install.sh repeat this
@@ -95,6 +98,7 @@ type serveOpts struct {
 	publicHost, dist                                  string
 	maxDisputes, maxMachines, verifierMaxSteps        int
 	frameInterval, verifierBudget, sweepAfter         time.Duration
+	desktopToolkit                                    bool
 }
 
 func serveFlags() (*flag.FlagSet, *serveOpts) {
@@ -114,6 +118,7 @@ func serveFlags() (*flag.FlagSet, *serveOpts) {
 	fs.StringVar(&o.publicHost, "public-host", "", "hostname a tunnel forwards to this daemon; requests for it need GREENROOM_TOKEN (ADR 0021); default GREENROOM_PUBLIC_HOST, empty for local only")
 	fs.StringVar(&o.dist, "dist", "", "directory holding install.sh and the files under /dl/; default <root>/dist")
 	fs.DurationVar(&o.sweepAfter, "sweep-orphans-after", machine.DefaultOrphanAge, "at start, delete greenroom-<runId> clones that are stopped, have no run directory and are older than this (issue #103); 0 keeps them")
+	fs.BoolVar(&o.desktopToolkit, "desktop-toolkit", false, desktopToolkitUsage)
 	return fs, o
 }
 
@@ -169,6 +174,7 @@ func serveUntil(ctx context.Context, args []string) error {
 		machine.WithMaxMachines(o.maxMachines),
 		machine.WithFrameInterval(o.frameInterval),
 		machine.WithTartBin(o.tartBin), // empty keeps internal/tart's own resolution
+		machine.WithDesktopToolkit(o.desktopToolkit),
 	}
 	mgr, err := machine.NewManager(o.root, log, opts...)
 	if err != nil {
@@ -251,7 +257,7 @@ func serveUntil(ctx context.Context, args []string) error {
 	go func() { errCh <- httpServer.Serve(ln) }()
 	addr := ln.Addr().String()
 	log.Info("greenroom listening", "build", ver.String(), "mcp", "http://"+addr+"/mcp", "api", "http://"+addr+"/api/", "root", o.root, "image", o.image,
-		"maxMachines", o.maxMachines, "machines", len(mgr.List()))
+		"maxMachines", o.maxMachines, "machines", len(mgr.List()), "desktopToolkit", mgr.DesktopToolkit())
 
 	select {
 	case err := <-errCh:

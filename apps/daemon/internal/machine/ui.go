@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/shlok1806/greenroom/apps/daemon/internal/guestagent"
 )
 
 // The UI tree (ADR 0012): what the frontmost application's accessibility
@@ -65,6 +67,9 @@ type UITree struct {
 	// Unrendered is why the read's text could not be checked against the screen (ADR 0027),
 	// or empty when it was, or when the read has no text to check.
 	Unrendered string `json:"unrendered,omitempty"`
+	// Degraded is a read (the tree, or its render check's capture or window list) made by a
+	// one-shot exec because the guest agent's channel was down (daemon ADR 0005 point 13).
+	Degraded bool `json:"degraded,omitempty"`
 }
 
 // rawUITree is what the helper prints: frames in points, top-left origin.
@@ -172,28 +177,44 @@ func (m *Manager) ui(ctx context.Context, runID, reader, app string, limit int,
 	return tree, *found, err
 }
 
+// readUI reads the tree over the guest agent's channel (op ui) when the machine has one, else
+// with the one-shot helper, and then checks its text against the screen.
 func (m *Manager) readUI(ctx context.Context, mc *Machine, app string, limit int) (UITree, error) {
+	if err := m.agentStalled(mc, "the UI tree read"); err != nil {
+		return UITree{}, err
+	}
 	if _, err := m.ensureInput(ctx, mc); err != nil {
 		return UITree{}, err
 	}
-	req, err := json.Marshal(map[string]any{"app": app, "limit": limit})
-	if err != nil {
-		return UITree{}, err
-	}
-	res, err := readHelper(ctx, m.tart, mc.Name, m.looks().uiLimit(), "the UI tree read",
-		"--ui-base64", base64.StdEncoding.EncodeToString(req))
-	if err != nil {
+	args := map[string]any{"app": app, "limit": limit}
+	lim := m.looks().uiLimit()
+	resp, route, err := m.viaAgent(ctx, mc, guestagent.Request{Op: "ui", Args: args, Deadline: lim.guest})
+	out := resp.Result
+	switch {
+	case route == routeAgent && err != nil:
+		err, _ = agentLookError(err, "the UI tree read", lim.guest)
 		return UITree{}, fmt.Errorf("read the UI tree: %w", err)
+	case route != routeAgent:
+		req, err := json.Marshal(args)
+		if err != nil {
+			return UITree{}, err
+		}
+		res, err := readHelper(ctx, m.tart, mc.Name, lim, "the UI tree read", "--ui-base64", base64.StdEncoding.EncodeToString(req))
+		if err != nil {
+			return UITree{}, fmt.Errorf("read the UI tree: %w", err)
+		}
+		out = []byte(strings.TrimSpace(res.Stdout))
 	}
 	var raw rawUITree
-	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &raw); err != nil {
-		return UITree{}, fmt.Errorf("read the UI tree: %w: %.200s", err, strings.TrimSpace(res.Stdout))
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return UITree{}, fmt.Errorf("read the UI tree: %w: %.200s", err, out)
 	}
 	tree, err := uiFractions(raw)
 	if err != nil {
 		return tree, err
 	}
-	m.markRendered(ctx, mc, raw, &tree)
+	degraded := m.markRendered(ctx, mc, raw, &tree)
+	tree.Degraded = route == routeDegraded || degraded
 	return tree, nil
 }
 

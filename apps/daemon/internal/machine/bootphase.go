@@ -25,7 +25,7 @@ const (
 	PhaseIP       = "ip"       // tart reports the address
 	PhaseKey      = "key"      // the ssh key is installed
 	PhaseSettings = "settings" // capture approvals, desktop preferences, time zone
-	PhaseHelper   = "helper"   // the input helper is checked (and compiled when stale)
+	PhaseHelper   = "helper"   // the input helper is checked (and compiled when stale); the guest agent starts
 	PhaseChecks   = "checks"   // the toolchain manifest and the desktop are read
 	PhaseSSH      = "ssh"      // guest sshd accepts
 )

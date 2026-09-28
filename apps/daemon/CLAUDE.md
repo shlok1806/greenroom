@@ -25,6 +25,7 @@ go run . serve -verifier manual                 # no model; a person types instr
 go run . serve -image greenroom-base -max-machines 2 -frame-interval 2s
 go run . serve -tart <path>                     # or GREENROOM_TART
 go run . serve -sweep-orphans-after 0           # keep orphaned run clones (default: sweep those older than 6h at start)
+go run . serve -desktop-toolkit                 # desktop looks and inputs through one guest agent per machine (daemon ADR 0005)
 go run . sweep-orphans [-delete] [-older-than 6h] [-root dir]   # list (or delete) what that sweep takes (#103)
 go run . serve -public-host gr.example.com      # or GREENROOM_PUBLIC_HOST; needs GREENROOM_TOKEN; -dist <dir>
 go run . prepare-image -vm <running vm> [-xcode <Xcode.app>]   # build-image.sh runs it; not on its own
@@ -204,6 +205,11 @@ Each layer depends only on the ones below. Keep it that way.
   (`ptysession.go`).
 - `internal/nim` - OpenAI-compatible client for NVIDIA NIM.
 - `internal/tart` - the only package that knows tart's arguments and output.
+- `internal/guestagent` - the guest agent channel's wire (daemon ADR 0005): frames, `Conn` (one
+  connection: requests by id, BLOBs, heartbeat, deadlines) and `Supervisor` (restarts with
+  backoff, generations, reconnect count, a standing PAUSE). Imports only the standard library:
+  it knows nothing of machines, tart or tools. `machine` decides when it runs and what goes over
+  it (`agent.go`); a `*tart.Pipe` is its `Transport`.
 - `internal/tarball` - unpacking an untrusted gzipped tar (`Untar`); used by `api` and
   `remote`, imports nothing of the daemon's.
 - `internal/report` - a run's proof (ADR 0034): `Build` reads the run directory (manifest,
@@ -329,7 +335,8 @@ Boot and lifecycle
   `readyTimeout` (3 min). A timeout names the last probe error.
 - `machine_boot` step records `agentSeconds`, `ipSeconds`, `keySeconds`,
   `captureAlertSeconds`, `desktopPrefsSeconds`, `timeZoneSeconds`, `inputHelperSeconds`,
-  `toolchainSeconds`, `desktopSeconds`, `sshSeconds`.
+  `toolchainSeconds`, `desktopSeconds`, `sshSeconds`, and with the desktop toolkit
+  `guestAgentSeconds` (and `agentError`). `agentSeconds` is tart's guest agent, not ours.
 - Boot phases (`bootphase.go`) show the boot while it happens: clone, start (in `Create`),
   agent, ip, key, settings, helper, checks, ssh (in `finishBoot`), each published when it
   starts (no `seconds`) and when it ends (`seconds`, `detail`, `error` on the one a failed
@@ -975,6 +982,50 @@ Live screen (ADR 0011)
 - `/screen/live` answers 409 at once for a machine that is not ready; it never waits in
   `awaitReady`.
 
+Guest agent (daemon ADR 0005, `agent.go`, `internal/guestagent`)
+
+- Off unless `serve -desktop-toolkit` or `bench run -desktop-toolkit` (`WithDesktopToolkit`).
+  Off, nothing starts an agent and every look and input is the tart exec it always was
+  (`TestTheDesktopToolkitDrivesTheDesktopThroughOneExec` off). Keep it that way until wave 4.
+- One `guestagent.Supervisor` per boot of a clone (`Machine.agent`, guarded by `m.mu`, tied to
+  `Machine.gen` like every watcher). `bootAgent` starts it in the helper phase, right after
+  `bootInputHelper` made the helper current, with `tart.StartPipe` and `agentScript()` (pkills
+  an older `--agent` first, like `serveScript`), and waits `bootWait` for the first
+  connection: a failure is `agentError` in the boot step, never fatal, and the supervisor keeps
+  trying. `loadState` starts one, without waiting, for a reattached ready machine. A failed
+  boot stops it; `releaseLocked` stops it (destroy, detach, reboot), `Machine.agentDone` closes
+  once its tart exec has ended, and Destroy and the reboot wait for that. A reboot's new boot
+  starts its own.
+- `agentCall` is the one way in. It waits for a connection only while the channel has been
+  down under `degradeAfter` (10 s), never past ctx; refuses an op the agent's HELLO does not
+  list (`guestagent.ErrMissingOp`, naming a stale helper) before sending; and returns the
+  `Conn` it used, whose `Gen()` refs are scoped to. Nothing was sent when the error is
+  `ErrUnavailable` or `ErrMissingOp`. `Supervisor.Pause`, `Resume` and `Reconnects` never block,
+  because they run under `m.mu`; nothing in `guestagent` may call back into `machine`.
+- The legacy looks and inputs go through `viaAgent`: the screen size (`installInput`: a
+  connected agent is the current helper, so no version check), `ui` (`readUI`), `capture`
+  (`captureOnce`, still inside `captureGate`, so the recorder's frames and screenshots stay one
+  at a time), `desktop` (the render check; boot's `checkDesktop` stays an exec), `sh` (only the
+  capture-approval check; the write kills replayd and stays an exec) and `input` (`postInput`,
+  `reader` the holder, `input: true`). Boot's checks, the install, `machine_exec`, sessions,
+  sync, pull, reboot and the live screen (`--serve`) keep tart exec.
+- Degraded mode (point 13): a look whose channel has been down past `degradeAfter`, or ended
+  before its request was sent, runs its old exec and records `degraded: true` (`UITree`,
+  `Shot`, `InputResult` and their step outputs). An input falls back the same way only when
+  nothing was sent; one the channel carried and lost is `ErrLost` ("may or may not have been
+  posted"), never posted a second way (`TestAnInputIsNeverPostedTwice`). Toolkit ops must never
+  fall back: they call `agentCall` and fail with `ErrUnavailable`.
+- A look's agent `deadline` (or `ErrDeadline`) is a `ScreenNotAnsweringError`, counted in the
+  capture gate's streak like an exec timeout (`agentLookError`). While the supervisor reports
+  `stalled` (the agent's watchdog EVENT), captures and UI reads fail at once with
+  `ErrScreenNotAnswering` (`agentStalled`) instead of queueing behind the stall.
+- PAUSE and RESUME (point 14): a fresh take by any seat but `HolderCoder` and `HolderVerifier`
+  pauses the agent (`TakeControl`); that seat's release or lapse resumes it (`ReleaseControl`,
+  `lapseLocked`). The supervisor re-sends a standing PAUSE to a new connection. The lease is
+  still checked before any input; PAUSE only stops one already in flight.
+- `Machine.AgentReconnects` is set only on copies (`publicLocked`), like `Files`: never in
+  `state.json`.
+
 Sync
 
 - `source` must be absolute; `dest` must stay inside the guest home (`machine.CheckDest`
@@ -1185,6 +1236,20 @@ mode, each read back with the copy's signature).
 - The fake tart runs `exec -i ... --serve` as the fake live screen helper by re-executing
   the test binary (`testsupport/fakescreen.go`, gated by an env var in its `init`). Its control
   files are listed there; `testsupport.ServeStarts` counts starts.
+- It runs `exec -i ... --agent` as the fake guest agent the same way (`testsupport/fakeagent.go`,
+  `GREENROOM_FAKE_AGENT`); `fail-agent` makes that start fail. The fake agent answers `screen`,
+  `capture`, `ui`, `desktop`, `input` and `sh` from the fake tart's own files (`screen`,
+  `shot.b64`, `ui.json`, `desktop.json`, `input-down`, the capture-approval files), and any op,
+  the toolkit ones included, from a canned `agent-<op>.json`; `agent-<op>-sleep`, `agent-hang`,
+  `agent-exit`, `agent-nopong`, `agent-slow-hello` and `agent-stalled` break it. It records
+  `agent-requests`, `agent-control` (PAUSE, RESUME, CANCEL), `agent-input`, `agent-starts` and
+  `agent-exits`; the full list is its header comment. `testsupport.AgentStarts` counts starts in
+  calls.log. calls.log prints a script argument over several lines: count invocations
+  (`tartCalls` in `agent_test.go`), not lines.
+- `withAgentTimes` shortens the agent's `degradeAfter`, `bootWait` and the channel's own timings
+  (`guestagent.SupervisorOptions`: heartbeat, grace, backoff); `agent_test.go`'s `fastAgent` finds
+  a dead channel in 300 ms. `internal/guestagent`'s tests run `Conn` and `Supervisor` against an
+  in-process fake agent over `io.Pipe`, with every timing an option.
 - `WithSSHProbe`, `WithReadyTimeout` shorten or replace boot waits; `WithScreenIdle` the
   live screen's idle stop. `WithFileCheck` replaces the file count's interval, counter, limit
   and pid lookup; `newTestManager` turns it off (`Interval: 0`).

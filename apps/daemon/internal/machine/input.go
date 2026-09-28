@@ -1,12 +1,18 @@
 package machine
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
-	_ "embed"
+	"crypto/sha256"
+	"embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"slices"
 	"strings"
@@ -14,19 +20,22 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/shlok1806/greenroom/apps/daemon/internal/guestagent"
 	"github.com/shlok1806/greenroom/apps/daemon/internal/tart"
 )
 
-// inputHelper posts CGEvents from inside the guest's login session. It is
-// compiled in the guest on first use, never on the host.
+// helperSources is the input helper and guest agent (daemon ADR 0005): the Swift files under
+// guest/helper, compiled in the guest by installHelperScript, never on the host. The tests
+// directory is not embedded; it runs on the host (guest/helper/swift_test.go).
 //
-//go:embed guest/input.swift
-var inputHelper string
+//go:embed guest/helper/*.swift guest/helper/logic/*.swift
+var helperSources embed.FS
 
-// inputHelperVersion names the compiled helper. Bump it whenever
-// guest/input.swift changes, or running machines and prepared images keep
-// the old binary.
-const inputHelperVersion = 8
+// inputHelperVersion names the compiled helper. Bump it whenever the helper's behaviour
+// changes in a way a daemon relies on (a new mode or op), or running machines and prepared
+// images keep the old binary. Within a version, --version also carries the sources' hash
+// (helperVersionLine), so any change to them is recompiled by the install and boot checks.
+const inputHelperVersion = 9
 
 // ControlTTL is how long an unused screen-control lease lives unless the taker
 // asks otherwise. Every input renews it by its own ttl, so a crashed holder
@@ -85,6 +94,9 @@ type InputResult struct {
 	Screen  Screen  `json:"screen"`
 	Seconds float64 `json:"seconds"`
 	Step    int     `json:"step"`
+	// Degraded is a batch posted by the one-shot exec because the guest agent's channel was down
+	// (daemon ADR 0005 point 13); nothing of it had been sent on the channel.
+	Degraded bool `json:"degraded,omitempty"`
 }
 
 // inputState is a machine's installed helper. It has its own lock because the
@@ -156,6 +168,9 @@ func (m *Manager) TakeControl(runID, holder string, ttl time.Duration) (lease Co
 	if fresh && holder != HolderVerifier {
 		mc.handedOver()
 	}
+	if fresh {
+		m.pauseAgentLocked(mc, holder) // an input already in flight stops at its next event (daemon ADR 0005 point 14)
+	}
 	if ttl <= 0 {
 		ttl = ControlTTL
 		if !fresh && current.ttl > 0 {
@@ -212,6 +227,7 @@ func (m *Manager) ReleaseControl(runID, holder string) (Control, bool, error) {
 	if current.Holder != HolderVerifier {
 		mc.handedOver()
 	}
+	m.resumeAgentLocked(mc, current.Holder)
 	m.mu.Unlock()
 
 	m.emit(LifecycleEvent{Kind: "control", RunID: runID, Machine: m.snapshot(mc)})
@@ -300,6 +316,7 @@ func (m *Manager) lapseLocked(mc *Machine, now time.Time) *LifecycleEvent {
 	if c.Holder != HolderVerifier {
 		mc.handedOver()
 	}
+	m.resumeAgentLocked(mc, c.Holder)
 	if !m.liveLocked(mc) {
 		return nil
 	}
@@ -377,10 +394,13 @@ func (m *Manager) Input(ctx context.Context, runID, holder string, actions []Inp
 
 	started := time.Now()
 	out := InputResult{Actions: len(actions), Screen: screen}
-	err = m.postInput(ctx, mc, screen, actions)
+	out.Degraded, err = m.postInput(ctx, mc, holder, screen, actions)
 	out.Seconds = time.Since(started).Seconds()
-	out.Step = mc.rec.stepAs(holder, "machine_input", map[string]any{"holder": holder, "actions": actions},
-		map[string]any{"actions": out.Actions, "screen": screen}, err, started)
+	output := map[string]any{"actions": out.Actions, "screen": screen}
+	if out.Degraded {
+		output["degraded"] = true
+	}
+	out.Step = mc.rec.stepAs(holder, "machine_input", map[string]any{"holder": holder, "actions": actions}, output, err, started)
 	m.emitStep(mc.RunID, out.Step)
 	return out, err
 }
@@ -565,30 +585,46 @@ func clamp01(v float64) float64 {
 	return math.Min(math.Max(v, 0), 1)
 }
 
-func (m *Manager) postInput(ctx context.Context, mc *Machine, screen Screen, actions []InputAction) error {
+// postInput posts a batch for holder: over the guest agent's channel when the machine has one
+// (op input, which a PAUSE by another seat stops), else on the live screen's pipe while it
+// runs, else by the one-shot helper. It falls back from the channel only when nothing was sent
+// on it (degraded), so a batch is never posted twice.
+func (m *Manager) postInput(ctx context.Context, mc *Machine, holder string, screen Screen, actions []InputAction) (degraded bool, err error) {
 	scaled := make([]InputAction, len(actions))
 	for i, a := range actions {
 		scaled[i] = pixels(a, screen)
+	}
+	_, route, err := m.viaAgent(ctx, mc, guestagent.Request{Op: "input", Reader: holder, Input: true,
+		Args:     map[string]any{"actions": scaled},
+		Deadline: min(inputCost(scaled)+m.screenInputSlack, guestagent.MaxDeadline)})
+	switch route {
+	case routeAgent:
+		if err != nil {
+			return false, fmt.Errorf("input failed: %w", err)
+		}
+		return false, nil
+	case routeDegraded:
+		degraded = true
 	}
 	if s := m.liveScreen(mc); s != nil {
 		err := s.input(ctx, scaled)
 		if !errors.Is(err, errScreenEnded) {
 			if err != nil {
-				return fmt.Errorf("input failed: %w", err)
+				return degraded, fmt.Errorf("input failed: %w", err)
 			}
-			return nil
+			return degraded, nil
 		}
 	}
 	payload, err := json.Marshal(struct {
 		Actions []InputAction `json:"actions"`
 	}{scaled})
 	if err != nil {
-		return err
+		return degraded, err
 	}
 	if _, err := runHelper(ctx, m.tart, mc.Name, "--json-base64", base64.StdEncoding.EncodeToString(payload)); err != nil {
-		return fmt.Errorf("input failed: %w", err)
+		return degraded, fmt.Errorf("input failed: %w", err)
 	}
-	return nil
+	return degraded, nil
 }
 
 // runHelper runs the installed helper with args. Arguments go through a
@@ -669,7 +705,13 @@ func (m *Manager) runInstall(ctx context.Context, mc *Machine, job *installJob) 
 // installInput makes sure this version of the helper is in the guest and reads the screen
 // size with it. Only a helper that is missing or stale pays the compile's deadline; asking is
 // bounded by helperCheck, and the screen read by the look watchdog.
+//
+// With the guest agent connected the helper is current (boot's helper phase checked it before
+// starting the agent, which is that helper), so only the screen is read, over the channel.
 func (m *Manager) installInput(ctx context.Context, mc *Machine) (Screen, error) {
+	if s, route, err := m.agentScreen(ctx, mc); route == routeAgent {
+		return s, err
+	}
 	res, timedOut, err := guestLook(ctx, m.tart, mc.Name, helperCheck, "/bin/sh", "-c", helperCheckScript())
 	if timedOut {
 		// The helper's --version touches nothing but its own binary (input.swift), so a check
@@ -687,22 +729,105 @@ func (m *Manager) installInput(ctx context.Context, mc *Machine) (Screen, error)
 	return readScreenWithin(ctx, m.tart, mc.Name, m.looks().captureLimit())
 }
 
-// installHelperScript writes the embedded source into the guest and compiles
-// it, unless this version already answers --version. It is the single
-// definition of the helper's path, shared with PrepareGuest. main.swift and
-// -swift-version 5 are both required for top-level code to build.
+// sourceHashFile is the one helper file the install script writes itself: it names the
+// sources' hash, which --version prints (daemon ADR 0005).
+const sourceHashFile = "SourceHash.swift"
+
+// helperBundle is the embedded sources as a gzipped tar, with SourceHash.swift naming their
+// hash, and the line this build's helper answers --version with. Computed once.
+var helperBundle = sync.OnceValues(func() (bundle []byte, versionLine string) {
+	type file struct {
+		name string
+		data []byte
+	}
+	var files []file
+	for _, name := range helperSourceFiles() {
+		if name == sourceHashFile {
+			continue
+		}
+		data, err := helperSources.ReadFile("guest/helper/" + name)
+		if err != nil {
+			panic(fmt.Sprintf("the embedded helper sources: %v", err))
+		}
+		files = append(files, file{name, data})
+	}
+	h := sha256.New()
+	for _, f := range files {
+		h.Write([]byte(f.name))
+		h.Write([]byte{0})
+		h.Write(f.data)
+		h.Write([]byte{0})
+	}
+	sum := hex.EncodeToString(h.Sum(nil))[:12]
+	files = append(files, file{sourceHashFile, fmt.Appendf(nil,
+		"// Written by the install script (daemon ADR 0005).\nlet helperSource = %q\n", sum)})
+
+	var buf bytes.Buffer
+	gz, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	if err != nil {
+		panic(err)
+	}
+	tw := tar.NewWriter(gz)
+	for _, f := range files {
+		hdr := &tar.Header{Name: f.name, Mode: 0o644, Size: int64(len(f.data)), Typeflag: tar.TypeReg, Format: tar.FormatUSTAR}
+		if err := tw.WriteHeader(hdr); err != nil {
+			panic(err)
+		}
+		if _, err := tw.Write(f.data); err != nil {
+			panic(err)
+		}
+	}
+	if err := errors.Join(tw.Close(), gz.Close()); err != nil {
+		panic(err)
+	}
+	return buf.Bytes(), fmt.Sprintf("greenroom-input %d %s", inputHelperVersion, sum)
+})
+
+// helperVersionLine is what this daemon's helper prints for --version: its version and the
+// hash of its sources. The install and boot checks compare the whole line.
+func helperVersionLine() string {
+	_, line := helperBundle()
+	return line
+}
+
+// helperSourceFiles lists the embedded sources, relative to guest/helper, sorted.
+func helperSourceFiles() []string {
+	var out []string
+	err := fs.WalkDir(helperSources, "guest/helper", func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			out = append(out, strings.TrimPrefix(p, "guest/helper/"))
+		}
+		return err
+	})
+	if err != nil {
+		panic(fmt.Sprintf("the embedded helper sources: %v", err))
+	}
+	slices.Sort(out)
+	return out
+}
+
+// installHelperScript writes the embedded sources into the guest and compiles them, unless
+// this exact build (version and source hash) already answers --version. It is the single
+// definition of the helper's path, shared with PrepareGuest. The sources travel as one base64
+// gzipped tar, never through a shell as text. main.swift holds the only top-level code, and
+// -swift-version 5 is required for it to build. The binary is compiled beside its final name
+// and moved over it, so an interrupted compile never leaves a half-written helper.
 func installHelperScript() string {
+	bundle, line := helperBundle()
 	return fmt.Sprintf(`set -e
 bin="$HOME/%s"
 src="$HOME/%s"
-if [ -x "$bin" ] && "$bin" --version >/dev/null 2>&1; then exit 0; fi
+if [ -x "$bin" ] && [ "$("$bin" --version 2>/dev/null)" = %q ]; then exit 0; fi
+rm -rf "$src"
 mkdir -p "$(dirname "$bin")" "$src"
-printf %%s %s > "$src/main.swift.b64"
-base64 -D -i "$src/main.swift.b64" > "$src/main.swift" 2>/dev/null || base64 -d -i "$src/main.swift.b64" > "$src/main.swift"
-rm -f "$src/main.swift.b64"
+printf %%s %s > "$src/sources.tgz.b64"
+base64 -D -i "$src/sources.tgz.b64" > "$src/sources.tgz" 2>/dev/null || base64 -d -i "$src/sources.tgz.b64" > "$src/sources.tgz"
+tar -xzf "$src/sources.tgz" -C "$src"
+rm -f "$src/sources.tgz.b64" "$src/sources.tgz"
 command -v swiftc >/dev/null 2>&1 || { echo "swiftc is not installed in this machine" >&2; exit 127; }
-swiftc -O -swift-version 5 "$src/main.swift" -o "$bin"
-`, helperName(), helperSourceDir(), base64.StdEncoding.EncodeToString([]byte(inputHelper)))
+swiftc -O -swift-version 5 "$src"/*.swift "$src"/logic/*.swift -o "$bin.new"
+mv -f "$bin.new" "$bin"
+`, helperName(), helperSourceDir(), line, base64.StdEncoding.EncodeToString(bundle))
 }
 
 // readScreen asks the helper for the display size by posting no actions.
