@@ -186,12 +186,12 @@ struct SidebarRunRow: View {
     var body: some View {
         Group {
             if let frozenNow {
-                RunRowView(model: RunRowModel(summary, now: frozenNow), selected: selected, hovered: hovering)
+                RunRowView(model: RunRowModel(summary, now: frozenNow, selected: selected), selected: selected, hovered: hovering)
             } else if summary.group == .done {
-                RunRowView(model: RunRowModel(summary, now: Date()), selected: selected, hovered: hovering)
+                RunRowView(model: RunRowModel(summary, now: Date(), selected: selected), selected: selected, hovered: hovering)
             } else {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    RunRowView(model: RunRowModel(summary, now: context.date), selected: selected, hovered: hovering)
+                    RunRowView(model: RunRowModel(summary, now: context.date, selected: selected), selected: selected, hovered: hovering)
                 }
             }
         }

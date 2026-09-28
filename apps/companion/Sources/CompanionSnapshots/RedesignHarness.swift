@@ -71,12 +71,17 @@ final class RedesignHarness {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        window.contentViewController = NSHostingController(rootView: view.environment(\.colorScheme, dark ? .dark : .light))
-        window.setContentSize(NSSize(width: size.width, height: size.height))
-        window.setFrameOrigin(OffscreenWindow.origin)
+        let host = NSHostingController(rootView: view.environment(\.colorScheme, dark ? .dark : .light))
+        // The window keeps the size it is given; the hosting controller must not fit it to the view.
+        host.sizingOptions = []
+        window.contentViewController = host
+        // The whole window is the size asked for, as the app's is: its content runs under the
+        // hidden title bar, so the frame, not the content rect, is `size`.
+        let frame = NSRect(origin: OffscreenWindow.origin, size: NSSize(width: size.width, height: size.height))
+        window.setFrame(frame, display: false)
         window.orderFrontRegardless()
         try await Task.sleep(for: .milliseconds(700))
-        window.setContentSize(NSSize(width: size.width, height: size.height))
+        window.setFrame(frame, display: true)
         try await Task.sleep(for: .milliseconds(500))
         defer {
             window.orderOut(nil)

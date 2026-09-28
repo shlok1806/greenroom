@@ -240,7 +240,8 @@ struct ChecksColumn: View {
                     heading("Checks")
                     let many = summary.checks.items.count > 1
                     ForEach(Array(summary.checks.items.enumerated()), id: \.element.id) { index, check in
-                        CheckRowView(check: check, selected: check.id == shell.selectedCheckID, metaOverride: meta(for: check))
+                        CheckRowView(check: check, selected: check.id == shell.selectedCheckID, metaOverride: meta(for: check),
+                                     showsPassValue: summary.state != .failed)
                             .onTapGesture { shell.select(check: check.id) }
                             .accessibilityAction { shell.select(check: check.id) }
                             .cloneScope(many ? "Check row[\(index)]" : "Check row")

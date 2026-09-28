@@ -119,9 +119,11 @@ final class SummaryTests: XCTestCase {
         XCTAssertEqual(failed.metaColor, .fail)
         XCTAssertEqual(failed.accessibilityLabel, "TipSplit: split the bill, Failed, 2 failed")
 
-        let passed = RunRowModel(try XCTUnwrap(board.summary(wordCountPass)), now: now)
+        let passed = RunRowModel(try XCTUnwrap(board.summary(wordCountPass)), now: now, selected: true)
         XCTAssertEqual(passed.meta, "4 passed")
         XCTAssertEqual(passed.metaColor, .pass)
+        let waiting = RunRowModel(try XCTUnwrap(board.summary(wordCountPass)), now: now)
+        XCTAssertFalse(waiting.meta.contains("passed"), "a pass not open says how long it has waited: \(waiting.meta)")
 
         let running = RunRowModel(try XCTUnwrap(board.summary(unitConvert)), now: now)
         XCTAssertEqual(running.glyph, .checking)

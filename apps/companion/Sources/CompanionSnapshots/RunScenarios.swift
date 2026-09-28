@@ -109,6 +109,7 @@ enum RunScenarios {
         prepare(shell)
         return AnyView(CompanionShell(shell: shell)
             .frame(width: size.width, height: size.height)
+            .ignoresSafeArea()
             .environment(\.frozenNow, now))
     }
 }

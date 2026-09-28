@@ -83,6 +83,9 @@ struct CheckRowView: View {
     var checking = false
     /// Overrides the meta: "waiting", "paused".
     var metaOverride: String?
+    /// Whether a passed check shows the value it read: in a run that passed (Figma 04), not in
+    /// one that failed, where the eye goes to what failed (Figma 03).
+    var showsPassValue = true
     var hovered = false
 
     var body: some View {
@@ -134,7 +137,7 @@ struct CheckRowView: View {
         if checking { return ("checking", .accent) }
         switch check.state {
         case .fail: return check.saw.map { ("saw \($0)", .fail) }
-        case .pass: return check.saw.map { ($0, .secondary) }
+        case .pass: return showsPassValue ? check.saw.map { ($0, .secondary) } : nil
         case .pending: return nil
         }
     }

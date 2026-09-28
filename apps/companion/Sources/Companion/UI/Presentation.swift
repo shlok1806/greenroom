@@ -141,21 +141,23 @@ struct RunRowModel: Equatable, Sendable, Identifiable {
     /// What VoiceOver reads: "TipSplit: split the bill, Failed, 2 failed".
     var accessibilityLabel: String
 
-    init(_ summary: Summary, now: Date) {
+    init(_ summary: Summary, now: Date, selected: Bool = false) {
         id = summary.runId
         name = summary.name.isEmpty ? "Run \(summary.runId.suffix(6))" : summary.name
         glyph = summary.state.glyph
         glyphColor = summary.tone.color
-        (meta, metaColor) = RunRowModel.meta(summary, now: now)
+        (meta, metaColor) = RunRowModel.meta(summary, now: now, selected: selected)
         accessibilityLabel = [name, summary.status, meta].filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
-    /// Needs you, with an outcome: the tally ("2 failed", "4 passed"). Open: the time it has run.
-    /// Done: its age.
-    static func meta(_ s: Summary, now: Date) -> (String, ToneColor) {
-        if s.group == .needsYou, s.state.isOutcome, s.checks.total > 0 {
+    /// As the Figma mockups word it: a fail that needs you says what failed ("2 failed"); a pass
+    /// that needs you says "4 passed" while it is open, else how long it has waited ("8m"); an
+    /// open run, the time it has run ("1:12"); a done run, its age ("2h").
+    static func meta(_ s: Summary, now: Date, selected: Bool = false) -> (String, ToneColor) {
+        if s.group == .needsYou, s.state.isOutcome {
             if s.state == .failed, s.checks.failed > 0 { return ("\(s.checks.failed) failed", s.tone == .fail ? .fail : .secondary) }
-            if s.state == .passed { return ("\(s.checks.passed) passed", s.tone == .pass ? .pass : .secondary) }
+            if s.state == .passed, selected, s.checks.passed > 0 { return ("\(s.checks.passed) passed", s.tone == .pass ? .pass : .secondary) }
+            return (Clock.age(since: s.since, now: now), .secondary)
         }
         if s.group == .done {
             return (Clock.age(since: s.endedAt ?? s.since, now: now), .secondary)

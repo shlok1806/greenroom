@@ -138,6 +138,8 @@ final class ActionRegistryTests: XCTestCase {
             // Escape into its own events (Ghostty's palette), and the window's keys live in
             // one file.
             "UI/KeyPalette.swift": [#"onExitCommand"#, #"onMoveCommand"#],
+            // The runs search field closes on Escape.
+            "UI/Sidebar.swift": [#"onExitCommand"#],
             "UI/Keys.swift": [#"\.keyboardShortcut\((?!for:)"#, #"\.onKeyPress\("#, #"addLocalMonitorForEvents"#],
         ]
         for file in try swiftFiles() {
