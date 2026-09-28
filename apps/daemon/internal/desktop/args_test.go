@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -165,7 +166,7 @@ func TestPressArgs(t *testing.T) {
 	runArgCases(t, []argCase[PressArgs]{
 		{name: "a ref, defaults", raw: `{"ref":"e11"}`, want: PressArgs{Ref: "e11", Count: 1, Via: ViaPointer, TimeoutMs: 5000}},
 		{name: "everything", raw: `{"ref":"e11","button":"Right","count":2,"mods":["Cmd","shift"],"via":"pointer","timeoutMs":60000}`,
-			want: PressArgs{Ref: "e11", Button: "Right", Count: 2, Mods: []string{"Cmd", "shift"}, Via: ViaPointer, TimeoutMs: 30000}},
+			want: PressArgs{Ref: "e11", Button: "right", Count: 2, Mods: []string{"cmd", "shift"}, Via: ViaPointer, TimeoutMs: 30000}},
 		{name: "triple click by accessibility", raw: `{"ref":"e11","count":3,"via":"ax"}`, want: PressArgs{Ref: "e11", Count: 3, Via: ViaAX, TimeoutMs: 5000}},
 		{name: "a point with a reason", raw: `{"x":0.5,"y":0.25,"reason":"a canvas with no elements","force":true}`,
 			want: PressArgs{X: ptr(0.5), Y: ptr(0.25), Reason: "a canvas with no elements", Force: true, Count: 1, Via: ViaPointer, TimeoutMs: 5000}},
@@ -253,7 +254,7 @@ func TestSetValueArgs(t *testing.T) {
 func TestKeyArgs(t *testing.T) {
 	runArgCases(t, []argCase[KeyArgs]{
 		{name: "into the frontmost app", raw: `{"key":"return"}`, want: KeyArgs{Key: "return", TimeoutMs: 5000}},
-		{name: "everything", raw: `{"key":"s","mods":["cmd","Shift"],"ref":"e4","timeoutMs":100}`, want: KeyArgs{Key: "s", Mods: []string{"cmd", "Shift"}, Ref: "e4", TimeoutMs: 100}},
+		{name: "everything", raw: `{"key":"s","mods":["cmd","Shift"],"ref":"e4","timeoutMs":100}`, want: KeyArgs{Key: "s", Mods: []string{"cmd", "shift"}, Ref: "e4", TimeoutMs: 100}},
 		{name: "no key", raw: `{"mods":["cmd"]}`, wantErr: `key: missing; pass a key such as "return", "escape", "tab" or "s" (with mods ["cmd"] for cmd-S)`},
 		{name: "a blank key", raw: `{"key":" "}`, wantErr: `key: missing; pass a key such as "return", "escape", "tab" or "s" (with mods ["cmd"] for cmd-S)`},
 		{name: "unknown modifier", raw: `{"key":"q","mods":["comand"]}`, wantErr: `mods[0]: unknown modifier "comand"; use cmd, shift, alt, ctrl, fn (or command, meta, option, opt, control, function)`},
@@ -263,14 +264,15 @@ func TestKeyArgs(t *testing.T) {
 
 func TestModifierNamesAreTheHelpers(t *testing.T) {
 	for _, m := range []string{"cmd", "command", "meta", "shift", "alt", "option", "opt", "ctrl", "control", "fn", "function", "CMD", "Option"} {
-		if err := validateMods("mods", []string{m}); err != nil {
-			t.Errorf("%s: %v", m, err)
+		got, err := normalizeMods("mods", []string{m})
+		if err != nil || len(got) != 1 || got[0] != strings.ToLower(m) {
+			t.Errorf("%s: %v, %v", m, got, err)
 		}
 	}
 	for _, b := range []string{"left", "right", "middle", "center", "LEFT"} {
 		a := PressArgs{Ref: "e1", Button: b}
-		if err := a.Normalize(); err != nil {
-			t.Errorf("%s: %v", b, err)
+		if err := a.Normalize(); err != nil || a.Button != strings.ToLower(b) {
+			t.Errorf("%s: %q, %v", b, a.Button, err)
 		}
 	}
 }
