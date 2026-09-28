@@ -168,38 +168,36 @@ type Checks struct {
 	// Current is the check a person looks at first: the first failed, else the first not
 	// checked. Nil when there is none.
 	Current *CheckRef `json:"current"`
-	// Items is every check as a row reads it, in the order a person reads them: an
-	// outcome's failed checks, then those not checked, then those that passed; a plan's
-	// in the order the verifier declared them. Empty with no checks.
-	Items []CheckItem `json:"items"`
+	// Items is every check as a row: failed first, then not checked, then passed, each in
+	// the verifier's order. A plan with no verdict lists its checks in order, all pending.
+	Items []CheckRef `json:"items"`
 }
 
-// CheckItem is one check as its row and its proof read it.
-type CheckItem struct {
-	ID    string `json:"id"`
-	Text  string `json:"text"`
-	State string `json:"state"` // pass, fail, pending
-	// Expected and Saw are the values a failed check's words disagree on; Saw alone is the
-	// value a passed check read, when its words name one both sides share.
-	Expected string `json:"expected,omitempty"`
-	Saw      string `json:"saw,omitempty"`
-	// Observed is what the evidence showed, in one sentence of plain words.
-	Observed string `json:"observed,omitempty"`
-	// Step, Picture and Mark are the check's proof, as for Failing.
-	Step    int      `json:"step,omitempty"`
-	Picture *Picture `json:"picture,omitempty"`
-	Mark    *Box     `json:"mark,omitempty"`
-}
-
-// CheckRef is one check in a few words.
+// CheckRef is one check as a row: eight words or fewer, its state, and for a failed check the
+// value that was seen.
 type CheckRef struct {
+	ID    string `json:"id,omitempty"`
 	Text  string `json:"text"`
 	State string `json:"state"` // pass, fail, pending
+	// Saw is the value a failed check saw; for a passed check, the value it read when its
+	// words and its observation name the same one (Agreement).
+	Saw string `json:"saw,omitempty"`
+	// Expected, Observed, Step, Picture and Mark are a verdict check's proof, as for Failing:
+	// the Companion's check rows and evidence frame read them (companion ADR 0019). Absent on
+	// Current and on a plan's rows.
+	Expected string   `json:"expected,omitempty"`
+	Observed string   `json:"observed,omitempty"`
+	Step     int      `json:"step,omitempty"`
+	Picture  *Picture `json:"picture,omitempty"`
+	Mark     *Box     `json:"mark,omitempty"`
 }
 
 // Failing is the first failing check and what shows it.
 type Failing struct {
-	Text string `json:"text"`
+	// Text is the check's row text. Setup is the clause that set the scene before its claim
+	// ("With Bill 120, 20% tip, People 3"), when the row left it out.
+	Text  string `json:"text"`
+	Setup string `json:"setup,omitempty"`
 	// Expected and Saw are the values that disagree, when the check's words name them
 	// ("$50.00", "$10.00"). Either may be empty; Observed then says it.
 	Expected string `json:"expected,omitempty"`
@@ -242,6 +240,9 @@ type Machine struct {
 	Status string `json:"status"`
 	// Warning is a problem a person should act on, in words; empty when there is none.
 	Warning string `json:"warning,omitempty"`
+	// Ended says how the Mac went away ("The Mac stopped on its own."), once it has and the
+	// run's records say how.
+	Ended string `json:"ended,omitempty"`
 }
 
 // Input is everything one run's summary is made from. Nil and empty fields mean the daemon
@@ -643,9 +644,9 @@ const humanSeat = "human"
 
 func machineWords(in Input) Machine {
 	if in.Machine == nil {
-		return Machine{Status: "off"}
+		return Machine{Status: "off", Ended: machineEnd(in)}
 	}
-	out := Machine{}
+	out := Machine{Ended: machineEnd(in)}
 	switch in.Machine.Status {
 	case machine.Booting:
 		out.Status = "starting"
