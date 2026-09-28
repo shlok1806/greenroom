@@ -470,13 +470,31 @@ const (
 )
 
 // TypeArgs are machine_type's arguments. Without a ref it types into the focused element.
+// PaceMs is the least time between two characters (daemon ADR 0006 point 7); nil is the default
+// (Pace), and 0 is allowed, so it is a pointer.
 type TypeArgs struct {
 	Ref       string `json:"ref,omitempty"`
 	Text      string `json:"text"`
 	Replace   bool   `json:"replace,omitempty"`
 	Submit    string `json:"submit,omitempty"`
 	Via       string `json:"via,omitempty"`
+	PaceMs    *int   `json:"paceMs,omitempty"`
 	TimeoutMs int    `json:"timeoutMs,omitempty"`
+}
+
+// The typing pace (daemon ADR 0006 point 7): an app that is busy drops keys that come faster than
+// a hand types, and 20 ms a key is still 50 characters a second.
+const (
+	DefaultPaceMs = 20
+	MaxPaceMs     = 100
+)
+
+// Pace is the typing pace to send the agent: PaceMs after Normalize, else the default.
+func (a TypeArgs) Pace() int {
+	if a.PaceMs == nil {
+		return DefaultPaceMs
+	}
+	return *a.PaceMs
 }
 
 // Normalize clamps the timeout and validates. Whitespace-only text is allowed and read back;
@@ -498,6 +516,14 @@ func (a *TypeArgs) Normalize() error {
 	}
 	if a.Via != TypeViaUnicode && a.Via != TypeViaKeys {
 		return argErr("via", "%q is not one of \"unicode\", \"keys\"; leave it out for \"unicode\" (exact text on any keyboard layout), or pass \"keys\" when the app must see real key presses", a.Via)
+	}
+	switch {
+	case a.PaceMs == nil:
+	case *a.PaceMs < 0:
+		return argErr("paceMs", "%d is negative; pass 0 to %d milliseconds between characters, or leave it out for %d", *a.PaceMs, MaxPaceMs, DefaultPaceMs)
+	case *a.PaceMs > MaxPaceMs:
+		p := MaxPaceMs
+		a.PaceMs = &p
 	}
 	var err error
 	a.TimeoutMs, err = ActionTimeout.Clamp(a.TimeoutMs)

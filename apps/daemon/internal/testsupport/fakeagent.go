@@ -61,7 +61,8 @@ func init() {
 // {ok, actions, screen} (input-down refuses it, and ui, like the helper); sh answers the
 // capture-approval script as the fake tart does (fail-capture-approval exits 1,
 // capture-approval-stale makes `check` exit 3), and any other script with exit 0 and no output.
-// A PAUSE refuses new inputs of other holders with `paused`, as the real agent does.
+// A PAUSE refuses new inputs of other holders with `paused`, as the real agent does: any request
+// with input true (the toolkit's actions too) before it starts and during its agent-<op>-sleep.
 //
 // It appends every REQUEST as a JSON line to agent-requests, every PAUSE, RESUME and CANCEL as
 // "<kind> <payload>" to agent-control, each input batch's args to agent-input, a line to
@@ -222,12 +223,38 @@ func (a *fakeAgentProc) answer(r fakeAgentRequest, cancel <-chan struct{}) {
 		fail(guestagent.CodeCancelled, "cancelled")
 		return
 	}
+	// An input of another holder than the one the screen is paused for stops, before it starts
+	// and at every point it waits, as on the agent's input queue.
+	pausedBy := func() string {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if r.Input && a.paused != "" && a.paused != r.Reader {
+			return a.paused
+		}
+		return ""
+	}
+	if holder := pausedBy(); holder != "" {
+		fail(guestagent.CodePaused, "the "+holder+" took the screen; this input stopped")
+		return
+	}
 	if secs := a.seconds("agent-" + r.Op + "-sleep"); secs > 0 {
-		select {
-		case <-time.After(time.Duration(secs * float64(time.Second))):
-		case <-cancel:
-			fail(guestagent.CodeCancelled, "cancelled")
-			return
+		end := time.After(time.Duration(secs * float64(time.Second)))
+		poll := time.NewTicker(10 * time.Millisecond)
+		defer poll.Stop()
+	sleep:
+		for {
+			select {
+			case <-end:
+				break sleep
+			case <-cancel:
+				fail(guestagent.CodeCancelled, "cancelled")
+				return
+			case <-poll.C:
+				if holder := pausedBy(); holder != "" {
+					fail(guestagent.CodePaused, "the "+holder+" took the screen; this input stopped")
+					return
+				}
+			}
 		}
 	}
 	if !slices.Contains(FakeAgentCaps, r.Op) {

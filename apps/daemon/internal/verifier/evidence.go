@@ -189,7 +189,10 @@ type stepFact struct {
 	effect     string // for an input: machine.EffectChanged, EffectNone, EffectUnknown or EffectQuit
 	effectRead int    // for an input: the machine_ui step of its effect check, or 0
 	quitOf     int    // for an effect read that found the app gone: its input step (ADR 0028)
-	at, end    time.Time
+	// self is a toolkit action (daemon ADR 0006 point 8): its own step records its effect, so it is
+	// its own effect read (effectRead and quitOf name it).
+	self    bool
+	at, end time.Time
 	// elements is, for a verifier UI read, what it listed, with each element's
 	// machine.UIElement.Rendered mark (ADR 0027).
 	elements []machine.UIElement
@@ -212,7 +215,7 @@ func ledger(steps []machine.Step) map[int]stepFact {
 			continue
 		}
 		if f, ok := out[s.Effect.Of]; ok {
-			f.effect, f.effectRead = s.Effect.Kind, s.Seq
+			f.effect, f.effectRead, f.self = s.Effect.Kind, s.Seq, s.Effect.Of == s.Seq
 			out[s.Effect.Of] = f
 		}
 		if s.Effect.Kind == machine.EffectQuit {
@@ -449,13 +452,24 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 			out = append(out, fmt.Sprintf("cited step): evidence step %d is not a step you recorded in this run", n))
 		case f.by != machine.HolderVerifier:
 			out = append(out, fmt.Sprintf("cited step): evidence step %d was recorded by %s, not by you", n, seat(f.by)))
+		case f.self && c.Status == session.CheckFail && (f.effect == machine.EffectNone || f.effect == machine.EffectQuit):
+			// A toolkit action that changed nothing, or after which the app was gone, shows it
+			// itself: it is its own effect read (ADR 0028, ADR 0029).
+			fresh = append(fresh, n)
+			if f.effect == machine.EffectQuit {
+				quitReads[n] = n
+			}
 		case f.effect == machine.EffectQuit && f.effectRead != 0 && c.Status == session.CheckFail:
 			pointed = true
 			out = append(out, fmt.Sprintf("quit): evidence step %d is the input; its effect read step %d shows the app "+
 				"quit: cite step %d as evidence in place of step %d%s", n, f.effectRead, f.effectRead, n, inActions(c, n)))
+		case f.self:
+			out = append(out, fmt.Sprintf("kind): evidence step %d is a %s, an action; its own effect is evidence only for "+
+				"a fail where it changed nothing or the app quit. Observe the result with %s after it and cite that",
+				n, f.tool, observationList(steps)))
 		case !slices.Contains(observationTools, f.tool):
-			rule := fmt.Sprintf("kind): evidence step %d is a %s; evidence must be an observation "+
-				"(machine_ui, machine_screenshot or machine_exec)", n, f.tool)
+			rule := fmt.Sprintf("kind): evidence step %d is a %s; evidence must be an observation (%s)", n, f.tool,
+				observationList(steps))
 			if f.effectRead != 0 {
 				rule += fmt.Sprintf(". The UI read right after that input is step %d", f.effectRead)
 			}
@@ -482,9 +496,8 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 		case f.by != machine.HolderVerifier:
 			out = append(out, fmt.Sprintf("cited step): action step %d was recorded by %s, not by you", n, seat(f.by)))
 			continue
-		case f.tool != "machine_input":
-			out = append(out, fmt.Sprintf("kind): action step %d is a %s; actions must be inputs (machine_click, "+
-				"machine_type, machine_key, machine_scroll or machine_input)", n, f.tool))
+		case !isActionStep(f.tool):
+			out = append(out, fmt.Sprintf("kind): action step %d is a %s; actions must be inputs (%s)", n, f.tool, inputList(steps)))
 			continue
 		case f.failed:
 			out = append(out, fmt.Sprintf("kind): action step %d failed, so it did not act", n))
@@ -508,14 +521,28 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 	}
 	if c.Status == session.CheckFail && !pointed {
 		for _, n := range quitActs {
-			if f := steps[n]; f.effectRead != 0 && !slices.Contains(c.Evidence, n) {
+			f := steps[n]
+			switch {
+			case f.effectRead == 0 || slices.Contains(c.Evidence, f.effectRead):
+			case f.self:
+				pointed = true
+				out = append(out, fmt.Sprintf("quit): action step %d made the app quit, as its own result says: cite "+
+					"step %d as evidence too", n, n))
+			default:
 				pointed = true
 				out = append(out, fmt.Sprintf("quit): action step %d made the app quit, and its effect read step %d shows "+
 					"it: cite step %d as evidence", n, f.effectRead, f.effectRead))
 			}
 		}
 		for _, read := range slices.Sorted(maps.Keys(quitReads)) {
-			if of := quitReads[read]; !slices.Contains(c.Actions, of) {
+			of := quitReads[read]
+			switch {
+			case slices.Contains(c.Actions, of):
+			case of == read:
+				pointed = true
+				out = append(out, fmt.Sprintf("quit): evidence step %d is the action after which the app quit: cite "+
+					"step %d in actions too", read, read))
+			default:
 				pointed = true
 				out = append(out, fmt.Sprintf("quit): evidence step %d found the app had quit after step %d: cite step %d "+
 					"in actions", read, of, of))
@@ -573,6 +600,33 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 		out = append(out, drawnRule(c, steps, newest)...)
 	}
 	return out
+}
+
+// toolkitRun reports whether the run's steps show the desktop toolkit in use, so the rules name its
+// tools too. Without it they name only the tools the model has.
+func toolkitRun(steps map[int]stepFact) bool {
+	for _, f := range steps {
+		if f.self || slices.Contains(toolkitLooks, f.tool) || f.tool == "machine_press" || f.tool == "machine_set_value" {
+			return true
+		}
+	}
+	return false
+}
+
+// observationList names the observations a check may cite.
+func observationList(steps map[int]stepFact) string {
+	if toolkitRun(steps) {
+		return strings.Join(toolkitLooks, ", ") + ", machine_ui, machine_screenshot or machine_exec"
+	}
+	return "machine_ui, machine_screenshot or machine_exec"
+}
+
+// inputList names the inputs a check may cite as its actions.
+func inputList(steps map[int]stepFact) string {
+	if toolkitRun(steps) {
+		return "machine_press, machine_type, machine_set_value, machine_key, machine_scroll, machine_click or machine_input"
+	}
+	return "machine_click, machine_type, machine_key, machine_scroll or machine_input"
 }
 
 // inActions is " and step n in actions" when c does not cite input n among its actions.

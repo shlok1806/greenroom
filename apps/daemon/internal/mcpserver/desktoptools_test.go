@@ -33,7 +33,7 @@ func (h *harness) can(op, body string) {
 }
 
 // toolkitTools are the tools only a -desktop-toolkit daemon has.
-var toolkitTools = []string{"machine_snapshot", "machine_find"}
+var toolkitTools = []string{"machine_snapshot", "machine_find", "machine_press", "machine_set_value"}
 
 // listed is the harness's tools by name.
 func (h *harness) listed() map[string]*mcp.Tool {

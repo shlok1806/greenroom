@@ -34,10 +34,12 @@ const manualHelp = `Instructions, one per line, case-insensitive first word:
 const manualToolkitHelp = `
 With the desktop toolkit:
   snapshot [app]                            read the frontmost (or named) app as refs
-  find <text>                               find elements by text`
+  find <text>                               find elements by text
+  press <ref>                               press an element by ref
+  setvalue <ref> <value>                    set an element's value through accessibility (setup only)`
 
 // manualToolkitVerbs are the verbs only a toolkit daemon has.
-var manualToolkitVerbs = map[string]bool{"snapshot": true, "find": true}
+var manualToolkitVerbs = map[string]bool{"snapshot": true, "find": true, "press": true, "setvalue": true}
 
 // help is the grammar this brain takes.
 func (m *Manual) help() string {
@@ -108,7 +110,7 @@ func (m *Manual) follow(ctx context.Context, runID string, store *session.Store,
 		case "ask":
 			m.post(store, session.Message{Kind: session.Question, Text: orElse(strings.TrimSpace(arg), "(empty question)")})
 			return steps, session.Question
-		case "run", "screenshot", "ui", "click", "type", "key", "scroll", "snapshot", "find":
+		case "run", "screenshot", "ui", "click", "type", "key", "scroll", "snapshot", "find", "press", "setvalue":
 			if manualToolkitVerbs[verb] && !m.mgr.DesktopToolkit() {
 				m.post(store, session.Message{Kind: session.Reply, Text: verb + " needs a daemon run with -desktop-toolkit\n\n" + m.help()})
 				return steps, session.Reply
@@ -205,6 +207,17 @@ func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (
 	case "find":
 		call = callOf("machine_find", map[string]string{"text": arg})
 		result, step = deskTool(ctx, m.mgr, runID, call)
+		return call, result, step
+
+	case "press":
+		call = callOf("machine_press", map[string]string{"ref": strings.TrimSpace(arg)})
+		result, step, _, _ = deskAction(ctx, m.mgr, runID, call)
+		return call, result, step
+
+	case "setvalue":
+		ref, value := splitInstruction(arg)
+		call = callOf("machine_set_value", map[string]string{"ref": ref, "value": value})
+		result, step, _, _ = deskAction(ctx, m.mgr, runID, call)
 		return call, result, step
 
 	default: // scroll
