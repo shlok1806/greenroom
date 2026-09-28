@@ -29,7 +29,8 @@ final class RunWindowTests: XCTestCase {
 
     /// A store over the golden board with TipSplit in `state`: every picture a grey PNG, every
     /// list empty, every post recorded.
-    private func store(_ state: F.State = .failed, posts: Posts = Posts(), mockup: Bool = false, compact: Bool = false) throws -> RunStore {
+    private func store(_ state: F.State = .failed, posts: Posts = Posts(), mockup: Bool = false, compact: Bool = false,
+                       passed: Bool = false) throws -> RunStore {
         let png = Self.greyPNG
         let client = StubURLProtocol.client { request in
             let path = request.url?.path ?? ""
@@ -44,7 +45,8 @@ final class RunWindowTests: XCTestCase {
             return .json("{}", status: 404)
         }
         let store = RunStore(client: client, screenSource: NoScreen())
-        store.board = mockup ? F.mockup(try SummaryTests.golden(), compact: compact) : F.board(try SummaryTests.golden(), state: state)
+        store.board = passed ? F.mockupPassed(try SummaryTests.golden())
+            : mockup ? F.mockup(try SummaryTests.golden(), compact: compact) : F.board(try SummaryTests.golden(), state: state)
         store.reachable = true
         store.selectedRunId = F.tipSplit
         var detail = RunDetail(runId: F.tipSplit)
@@ -145,17 +147,19 @@ final class RunWindowTests: XCTestCase {
         var size = CGSize(width: 1280, height: 800)
         var dark = false
         var compact = false
+        var passed = false
     }
 
     static let frames: [FigmaFrame] = [
         FigmaFrame(name: "m03-failed-light"),
         FigmaFrame(name: "m03-failed-dark", dark: true),
         FigmaFrame(name: "m03-failed-compact-light", size: CGSize(width: 1024, height: 680), compact: true),
+        FigmaFrame(name: "m04-passed-light", passed: true),
     ]
 
     /// The failed run on the mockup's board, as `frame` draws it.
     private func mockupHost(_ frame: FigmaFrame, redacted: Bool) async throws -> ParkedHost {
-        let shell = ShellModel(store: try store(.failed, mockup: true, compact: frame.compact))
+        let shell = ShellModel(store: try store(.failed, mockup: true, compact: frame.compact, passed: frame.passed))
         await shell.store.select(F.tipSplit)
         let host = await host(shell, state: .failed, size: frame.size, redacted: redacted, dark: frame.dark)
         try await Task.sleep(for: .seconds(1))
@@ -375,6 +379,22 @@ final class RunWindowTests: XCTestCase {
         XCTAssertEqual(BootRow.rows([]).map(\.glyph), [.pending, .pending, .pending, .pending])
         XCTAssertEqual(BootRow.rows([], ready: true).map(\.glyph), [.passed, .passed, .passed, .passed])
         for row in rows { XCTAssertFalse(row.text.contains("192."), "no addresses") }
+    }
+
+    func testAPassedRunsKeyFramesAreTheProofPicturesOnePerStepCaptioned() throws {
+        let board = F.mockupPassed(try SummaryTests.golden())
+        let checks = try XCTUnwrap(board.summary(F.tipSplit)).checks.items
+        let frames = KeyFrames.items(checks)
+        // Steps 3, 12 and 17: the two checks proven at 12 share a frame, captioned by the first.
+        XCTAssertEqual(frames.map(\.step), [3, 12, 17])
+        XCTAssertEqual(frames.map(\.caption), ["Step 3", "Saw $48.00", "Saw $50.00"])
+        XCTAssertEqual(frames.map(\.checkID), ["window", "each", "each-25"])
+        XCTAssertEqual(KeyFrames.rowWidth, 512, accuracy: 0.001)
+        // A failed check is not a key frame; only the newest three are kept.
+        var more = checks
+        more.append(SummaryCheck(id: "late", text: "Late", state: .pass, saw: "1", picture: SummaryPicture(kind: "screenshot", file: "030.png", step: 30)))
+        more.append(SummaryCheck(id: "bad", text: "Bad", state: .fail, saw: "2", picture: SummaryPicture(kind: "screenshot", file: "031.png", step: 31)))
+        XCTAssertEqual(KeyFrames.items(more).map(\.step), [12, 17, 30])
     }
 
     func testTheFilmstripKeepsTheProofFramesAndEndsOnTheNewest() {

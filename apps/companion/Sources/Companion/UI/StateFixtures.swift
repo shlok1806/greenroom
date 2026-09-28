@@ -153,6 +153,59 @@ enum StateFixtures {
         ], macs: golden.macs)
     }
 
+    /// The board Figma frame 04 draws ("Run, passed"): TipSplit's fix passed and open, its four
+    /// checks proven on three pictures, the sidebar as the mockup names it.
+    static func mockupPassed(_ golden: SummaryBoard) -> SummaryBoard {
+        let now = start.addingTimeInterval(State.failed.at)
+        guard var tip = board(golden).summary(tipSplit) else { return golden }
+        (tip.name, tip.state, tip.status, tip.tone, tip.group) = ("TipSplit: fix each pays", .passed, "Passed", .pass, .needsYou)
+        tip.startedAt = now.addingTimeInterval(-360)
+        tip.since = now.addingTimeInterval(-20)
+        tip.elapsedSeconds = 372
+        tip.detail = "Proposed by the verifier after 6:12."
+        tip.failing = nil
+        tip.primaryAction = SummaryAction(id: SummaryAction.accept, label: "Accept pass")
+        tip.secondaryActions = [SummaryAction(id: SummaryAction.reject, label: "Reject")]
+        func shot(_ step: Int) -> SummaryPicture {
+            SummaryPicture(kind: "screenshot", file: String(format: "%03d-screenshot.png", step), step: step)
+        }
+        tip.checks = SummaryChecks(total: 4, passed: 4, text: "4 of 4 checks", items: [
+            SummaryCheck(id: "each-25", text: "Each pays becomes $50.00 at 25%", state: .pass, expected: "$50.00", saw: "$50.00",
+                         observed: "Bill 120, 3 people, then 25%.", step: 17, picture: shot(17),
+                         mark: SummaryBox(x: 0.314, y: 0.638, w: 0.232, h: 0.05)),
+            SummaryCheck(id: "each", text: "Each pays is $48.00 for 3 people", state: .pass, expected: "$48.00", saw: "$48.00",
+                         observed: "Bill 120, 3 people.", step: 12, picture: shot(12)),
+            SummaryCheck(id: "tip", text: "Tip is $24.00 for $120 at 20%", state: .pass, expected: "$24.00", saw: "$24.00",
+                         observed: "Tip reads $24.00.", step: 12, picture: shot(12)),
+            SummaryCheck(id: "window", text: "Window shows Bill, Tip and People", state: .pass,
+                         observed: "The window shows Bill, Tip and People.", step: 3, picture: shot(3)),
+        ])
+        func run(_ id: String, _ name: String, _ state: SummaryState, _ tone: SummaryTone, _ group: SummaryGroup,
+                 age: TimeInterval, elapsed: Int = 0) -> Summary {
+            var s = Summary(runId: id, name: name, state: state, status: "", tone: tone, group: group,
+                            since: now.addingTimeInterval(-age))
+            s.elapsedSeconds = elapsed
+            if group == .done { s.endedAt = now.addingTimeInterval(-age) }
+            return s
+        }
+        var clear = run("m-need-1", "TodoList: Clear done", .failed, .fail, .needsYou, age: 3 * 60)
+        clear.checks = SummaryChecks(total: 3, passed: 2, failed: 1)
+        let hour: TimeInterval = 3600, day: TimeInterval = 86400
+        var done = [
+            run("m-done-0", "TipSplit: split the bill", .failed, .fail, .done, age: 1 * hour),
+            run("m-done-1", "WordCount: longest word", .passed, .pass, .done, age: 2 * hour),
+            run("m-done-2", "UnitConvert: result size", .stopped, .quiet, .done, age: 1 * day + 60),
+            run("m-done-3", "TodoList: add item", .passed, .pass, .done, age: 1 * day + 120),
+            run("m-done-4", "WordCount: keeps text", .passed, .pass, .done, age: 2 * day),
+        ]
+        done += (0..<38).map { run("m-old-\($0)", "Older run \($0)", .passed, .pass, .done, age: 3 * day + TimeInterval($0) * hour) }
+        return SummaryBoard(groups: [
+            .init(id: .needsYou, runs: [tip, clear]),
+            .init(id: .running, runs: [run("m-run-0", "UnitConvert: Temperature", .checking, .live, .running, age: 72, elapsed: 72)]),
+            .init(id: .done, runs: done),
+        ], macs: golden.macs)
+    }
+
     static func edit(_ board: inout SummaryBoard, _ runId: String, _ change: (inout Summary) -> Void) {
         guard var s = board.summary(runId) else { return }
         change(&s)

@@ -39,6 +39,45 @@ struct BootRow: Equatable, Sendable, Identifiable {
     }
 }
 
+/// One of a passed run's key frames (Figma 04): a picture a check was proven on, captioned.
+struct KeyFrame: Equatable, Sendable, Identifiable {
+    var id: Int { step }
+    var step: Int
+    var picture: SummaryPicture
+    /// The check the picture proves, selected when the frame is clicked.
+    var checkID: String
+    var caption: String
+}
+
+enum KeyFrames {
+    /// Three across under the picture, 124 pt tall at 4:3, 8 apart: 512 pt, which the picture
+    /// above matches (Figma 04).
+    static let count = 3
+    static let height: CGFloat = 124
+    static let gap: CGFloat = 8
+    static var rowWidth: CGFloat { CGFloat(count) * height * 4 / 3 + CGFloat(count - 1) * gap }
+
+    /// The pictures the checks were proven on, one per step, oldest first, the newest
+    /// `count`. Each is captioned by what the verifier did at that step when the steps are held
+    /// ("Click 25%"), else by the value its check read ("Saw $48.00"), else by its step.
+    static func items(_ checks: [SummaryCheck], steps: [Step] = []) -> [KeyFrame] {
+        var byStep: [Int: KeyFrame] = [:]
+        for check in checks where check.state == .pass {
+            guard let picture = check.picture, let step = picture.step ?? check.step, byStep[step] == nil else { continue }
+            let caption: String
+            if let done = steps.first(where: { $0.seq == step }) {
+                caption = StepSummary.phrase(for: done, in: steps)
+            } else if let saw = check.saw {
+                caption = "Saw \(saw)"
+            } else {
+                caption = "Step \(step)"
+            }
+            byStep[step] = KeyFrame(step: step, picture: picture, checkID: check.id, caption: caption)
+        }
+        return Array(byStep.values.sorted { $0.step < $1.step }.suffix(count))
+    }
+}
+
 /// One key frame under the picture.
 struct FilmstripItem: Equatable, Sendable, Identifiable {
     var id: String { file }

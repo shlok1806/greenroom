@@ -15,14 +15,19 @@ struct StageView: View {
         let content = StageContent.of(summary, check: shell.selectedCheck, pickedFrame: shell.selectedFrame,
                                       liveWanted: shell.showsLive, framesHeld: frames)
         let padding = windowClass.stagePadding
-        let strip = summary.state != .starting
+        // A passed run shows the frames its checks were proven on (Figma 04); any other, the
+        // filmstrip to scrub (Figma 03).
+        let keyFrames = summary.state == .passed ? KeyFrames.items(summary.checks.items, steps: shell.store.steps[summary.runId] ?? []) : []
+        let strip = summary.state != .starting && keyFrames.isEmpty
         GeometryReader { geo in
             // The design's stage: 24 above, 16 below, 32 at the sides;
-            // the evidence (the 4:3 picture, 12, a 28 pt caption), 24, the 58 pt filmstrip,
-            // centred in what is left. The picture takes the full width unless the height ends first.
-            let chrome: CGFloat = 12 + 28 + (strip ? 24 + 58 : 0)
+            // the evidence (the 4:3 picture, 12, a 28 pt caption), 24, the 58 pt filmstrip or
+            // the 144 pt key frames, centred in what is left. The picture takes the full width
+            // unless the height ends first, and no more than the key frames' row under it.
+            let chrome: CGFloat = 12 + 28 + (keyFrames.isEmpty ? (strip ? 24 + 58 : 0) : 24 + KeyFrames.height + 20)
             let tall = geo.size.height - padding.top - Gap.x16 - chrome
-            let width = max(200, min(geo.size.width - padding.horizontal * 2, tall * 4 / 3))
+            let room = min(geo.size.width - padding.horizontal * 2, tall * 4 / 3)
+            let width = max(200, keyFrames.isEmpty ? room : min(room, KeyFrames.rowWidth))
             VStack(alignment: .leading, spacing: Gap.x24) {
                 VStack(alignment: .leading, spacing: Gap.x12) {
                     picture(content)
@@ -42,6 +47,10 @@ struct StageView: View {
                 if strip {
                     FilmstripView(shell: shell, summary: summary, frames: frames, width: width)
                         .cloneScope("Filmstrip")
+                }
+                if !keyFrames.isEmpty {
+                    KeyFramesView(shell: shell, summary: summary, frames: keyFrames, width: width)
+                        .cloneScope("Key frames")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -237,6 +246,65 @@ struct FilmstripView: View {
             return Filmstrip.frame(atOrAfter: step, in: frames)?.file == item.file
         }
         return last
+    }
+}
+
+/// A passed run's key frames (Figma 04): three pictures its checks were proven on, 8 apart,
+/// each captioned 6 below; the one proving the selected check ringed as the filmstrip's is.
+struct KeyFramesView: View {
+    @Bindable var shell: ShellModel
+    var summary: Summary
+    var frames: [KeyFrame]
+    var width: CGFloat
+    @Environment(\.redactsGuestScreen) private var redacted
+    @Environment(\.displayScale) private var scale
+
+    var body: some View {
+        // Every frame the same width on the device's pixel grid, each starting where the
+        // design's third starts, rounded: the frames land within half a pixel of the design's
+        // 165.33 pt, whatever is left over going to the gaps.
+        let each = (width - CGFloat(KeyFrames.count - 1) * KeyFrames.gap) / CGFloat(KeyFrames.count)
+        let wide = (each * scale).rounded() / scale
+        ZStack(alignment: .topLeading) {
+            ForEach(Array(frames.enumerated()), id: \.element.id) { index, frame in
+                let start = (CGFloat(index) * (each + KeyFrames.gap) * scale).rounded() / scale
+                let selected = shell.selectedCheck?.id == frame.checkID
+                    || (shell.selectedCheck?.picture?.step).map { $0 == frame.step } == true
+                VStack(alignment: .leading, spacing: 6) {
+                    StorePicture(store: shell.store, runId: summary.runId, picture: frame.picture) { content in
+                        ZStack {
+                            Palette.bgSelected
+                            if case .image(let image) = content, !redacted {
+                                Image(nsImage: image).resizable().interpolation(.medium).aspectRatio(contentMode: .fill)
+                            }
+                        }
+                        .frame(width: wide, height: KeyFrames.height)
+                        .clipShape(RoundedRectangle(cornerRadius: Corner.control))
+                        .overlay {
+                            // Figma: 1 pt border inside; selected, 2 pt outside in the text colour.
+                            if selected {
+                                RoundedRectangle(cornerRadius: Corner.control + 2).strokeBorder(Palette.text, lineWidth: 2).padding(-2)
+                            } else {
+                                RoundedRectangle(cornerRadius: Corner.control).strokeBorder(Palette.border, lineWidth: 1)
+                            }
+                        }
+                    }
+                    .clonePart("Rectangle")
+                    Text(frame.caption).textStyle(.caption).foregroundStyle(selected ? Palette.text : Palette.textSecondary)
+                        .lineLimit(1)
+                        .clonePart("Text")
+                }
+                .frame(width: wide, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { shell.select(check: frame.checkID) }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Key frame: \(frame.caption)")
+                .accessibilityAddTraits(.isButton)
+                .cloneScope(frames.count > 1 ? "Key frame[\(index)]" : "Key frame")
+                .padding(.leading, start)
+            }
+        }
+        .frame(width: width, alignment: .leading)
     }
 }
 

@@ -107,7 +107,7 @@ struct CloneSSIM {
             if bareRow || f.count > 5 || path.hasSuffix("/Glyph") || path.contains("/Icon/") || path.hasSuffix("GlyphBox") {
                 clear(Int(x) - 1, Int(y) - 1, Int(x + fw) + 2, Int(y + fh) + 2)
             }
-            if path.hasSuffix("/Screen") || path.hasSuffix("/Filmstrip") || path.hasSuffix("Traffic lights") {
+            if path.hasSuffix("/Screen") || path.hasSuffix("/Filmstrip") || (path.contains("/Key frame") && path.hasSuffix("/Rectangle")) || path.hasSuffix("Traffic lights") {
                 clear(Int(x), Int(y), Int(x + fw), Int(y + fh))
             }
         }
