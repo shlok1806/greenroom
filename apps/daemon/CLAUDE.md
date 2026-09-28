@@ -1030,6 +1030,17 @@ Guest agent (daemon ADR 0005, `agent.go`, `internal/guestagent`)
   still checked before any input; PAUSE only stops one already in flight.
 - `Machine.AgentReconnects` is set only on copies (`publicLocked`), like `Files`: never in
   `state.json`.
+- The helper's queues (`AgentCalls.swift`, `OpKind`): reads run on a serial queue per app
+  (`pid:<pid>`), so one hung app blocks only its own reads; inputs on the one input queue;
+  captures on the capture queue. `OpKind.wait` (`waitFor`, `expect`) runs off every read queue
+  and sleeps between polls, running each poll on its app's read queue through `onReadQueue`, so
+  a 40 s wait never holds up that app's snapshots. A new op that reads an app from off the read
+  queues and must not overlap its walks (a wait's poll, a capture by ref) goes through
+  `onReadQueue` too; it gives up at its deadline with `not_responding` and drops the late answer.
+- The settle's tree signature (`logic/Signature.swift`) signs only what shows: an element that
+  does not show adds only its role. Tables report stale widths and texts for rows they have not
+  drawn, and signing those made an idle window look busy, so the settle never settled. Keep new
+  signed fields inside the `shows` guard unless their change is visible when hidden.
 
 Desktop toolkit (daemon ADR 0006, `desktop*.go`, `internal/desktop`)
 
@@ -1051,6 +1062,16 @@ Desktop toolkit (daemon ADR 0006, `desktop*.go`, `internal/desktop`)
 - Refs are scoped to their connection: `inputState.desk` remembers per reader the supervisor and
   generation its refs came from, and a call naming a ref from another one is refused before
   anything is sent. A reboot's new supervisor makes every old ref refused the same way.
+- Ref numbers never repeat for a reader on a machine (the fix for B10 of the first live run). A
+  new agent starts its tables at `e1`, and once a fresh snapshot moves the reader's origin to the
+  new connection, the connection check above no longer catches an `e39` the caller kept from
+  before, which then named another element. So `deskCall` records the highest ref of every
+  result and error detail (`desktop.HighestRef`, which reads only the ref fields, never a name)
+  in `inputState.desk`, and `raiseRefs` sends op `refs {reader, next}` on each new connection
+  before that reader's first toolkit call (`agentCallPrepared`'s prepare, so it goes on the same
+  connection as the call). The agent only raises its counter, never lowers it, capped at
+  `e999999999` (the daemon's ref pattern). A daemon restart loses the high-water mark: the input
+  state is not in `state.json`.
 - Looks (`deskLook`: snapshot, find, wait_for, expect, cropped screenshot) take no lease and are
   looks for #124 (`noteLook`). Actions (`act`, `Scroll`) take the per-call lease in `deskLease`,
   exactly as `InputAs` (the coder refused in a verifier turn, `ScreenTakenError`, the verifier's
