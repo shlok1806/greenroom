@@ -41,6 +41,7 @@ type Config struct {
 	Image    string
 	Model    string          // the reasoning model, recorded with each result
 	Models   *machine.Models // the brain, describer and request options, recorded with each result (issue #154)
+	Toolkit  bool            // the machines run the desktop toolkit (-desktop-toolkit), recorded with each result
 
 	Parallel int // machines at once; default 2, Apple's limit
 
@@ -464,7 +465,7 @@ func (r *Runner) runTrial(ctx context.Context, c Case, trial int) (res Result) {
 func (r *Runner) newResult(c Case, trial int) Result {
 	return Result{Case: c.ID, Trial: trial, App: c.App, Kind: c.Kind, Family: c.Family, Split: c.Split, Tier: c.Tier,
 		Expected: c.Expected, MustCheck: c.MustCheck, Infra: c.InfraType(), Image: r.cfg.Image, Model: r.cfg.Model,
-		Models: r.cfg.Models, StartedAt: time.Now().UTC()}
+		Models: r.cfg.Models, Toolkit: r.cfg.Toolkit, StartedAt: time.Now().UTC()}
 }
 
 // create makes a machine, waiting while the host is at its VM limit (another run, or the

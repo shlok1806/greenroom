@@ -44,6 +44,9 @@ type Result struct {
 	// Models is the brain, reasoning model, describer and their request options (issue #154).
 	// Absent in results from before it: their describer was not recorded.
 	Models *machine.Models `json:"models,omitempty"`
+	// Toolkit is true for a trial run with -desktop-toolkit (daemon ADR 0005): the guest agent
+	// and the toolkit's tools. Absent is the old tools.
+	Toolkit bool `json:"toolkit,omitempty"`
 
 	StartedAt time.Time `json:"startedAt"`
 	Ending    string    `json:"ending"`
