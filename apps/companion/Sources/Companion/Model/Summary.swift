@@ -189,6 +189,9 @@ struct SummaryChecks: Hashable, Sendable, Decodable {
 /// The first failing check and its proof.
 struct SummaryFailing: Hashable, Sendable, Decodable {
     var text: String
+    /// The clause that set the scene before the claim ("With Bill 120, 20% tip, People 3"),
+    /// when the row left it out.
+    var setup: String?
     var expected: String?
     var saw: String?
     var observed: String?
@@ -199,6 +202,7 @@ struct SummaryFailing: Hashable, Sendable, Decodable {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         text = try c.decode(.text, or: "")
+        setup = (try c.decodeIfPresent(String.self, forKey: .setup)).nonEmpty
         expected = (try c.decodeIfPresent(String.self, forKey: .expected)).nonEmpty
         saw = (try c.decodeIfPresent(String.self, forKey: .saw)).nonEmpty
         observed = (try c.decodeIfPresent(String.self, forKey: .observed)).nonEmpty
@@ -207,7 +211,7 @@ struct SummaryFailing: Hashable, Sendable, Decodable {
         mark = try? c.decodeIfPresent(SummaryBox.self, forKey: .mark)
     }
 
-    private enum CodingKeys: String, CodingKey { case text, expected, saw, observed, step, picture, mark }
+    private enum CodingKeys: String, CodingKey { case text, setup, expected, saw, observed, step, picture, mark }
 }
 
 /// The run's Mac in words.
@@ -216,19 +220,23 @@ struct SummaryMachine: Hashable, Sendable, Decodable {
     var status = ""
     /// A problem a person should act on, in words.
     var warning: String?
+    /// How the Mac went away ("The Mac stopped on its own."), once it has.
+    var ended: String?
 
-    init(status: String = "", warning: String? = nil) {
+    init(status: String = "", warning: String? = nil, ended: String? = nil) {
         self.status = status
         self.warning = warning
+        self.ended = ended
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         status = try c.decode(.status, or: "")
         warning = (try c.decodeIfPresent(String.self, forKey: .warning)).nonEmpty
+        ended = (try c.decodeIfPresent(String.self, forKey: .ended)).nonEmpty
     }
 
-    private enum CodingKeys: String, CodingKey { case status, warning }
+    private enum CodingKeys: String, CodingKey { case status, warning, ended }
 
     /// Whether a Mac is up for the run (on, starting or restarting).
     var isUp: Bool { status == "on" || status == "starting" || status == "restarting" }

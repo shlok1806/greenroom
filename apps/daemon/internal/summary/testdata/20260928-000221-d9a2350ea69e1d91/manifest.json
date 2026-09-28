@@ -10,41 +10,70 @@
     "seq": 13,
     "verdict": "fail",
     "summary": "The window shows Bill, Tip, and People labels (step 6, 7). With Bill 120, 20% tip, People 3, Tip correctly reads $24.00 (step 15). However, Each pays reads $8.00 instead of the expected $48.00 (step 17), and after picking 25%, Each pays reads $10.00 instead of $50.00 (step 19). The app appears to show tip per person rather than total per person.\n\n[greenroom] Posted as fail on its evidenced failing checks. 1 answer did not hold and is shown as unchecked: check \"tip-20\" (freshness): no evidence step comes after action step 16; observe the result after the last action and cite that step.",
-    "evidence": ["/tmp/gr211/root/runs/20260928-000221-d9a2350ea69e1d91/007-screenshot.png"],
+    "evidence": [
+      "/tmp/gr211/root/runs/20260928-000221-d9a2350ea69e1d91/007-screenshot.png"
+    ],
     "checks": [
       {
         "id": "labels-present",
         "criterion": "The window shows Bill, Tip and People labels",
-        "kinds": ["visual"],
+        "kinds": [
+          "visual"
+        ],
         "status": "pass",
-        "evidence": [6, 7],
+        "evidence": [
+          6,
+          7
+        ],
         "observed": "Window shows Bill, Tip, and People labels (step 6 elements 3, 5, 11; step 7 screenshot)"
       },
       {
         "id": "tip-20",
         "criterion": "With Bill 120, 20% tip, People 3, Tip reads $24.00",
-        "kinds": ["value"],
+        "kinds": [
+          "value"
+        ],
         "status": "unchecked",
-        "evidence": [15],
-        "actions": [12, 14, 16],
+        "evidence": [
+          15
+        ],
+        "actions": [
+          12,
+          14,
+          16
+        ],
         "observed": "Not verified: freshness: no evidence step comes after action step 16; observe the result after the last action and cite that step"
       },
       {
         "id": "each-pays-48",
         "criterion": "With Bill 120, 20% tip, People 3, Each pays reads $48.00",
-        "kinds": ["value"],
+        "kinds": [
+          "value"
+        ],
         "status": "fail",
-        "evidence": [17],
-        "actions": [12, 14, 16],
+        "evidence": [
+          17
+        ],
+        "actions": [
+          12,
+          14,
+          16
+        ],
         "observed": "Each pays reads $8.00, not $48.00 (step 17 element 17)"
       },
       {
         "id": "each-pays-50",
         "criterion": "After picking 25% tip, Each pays reads $50.00",
-        "kinds": ["value"],
+        "kinds": [
+          "value"
+        ],
         "status": "fail",
-        "evidence": [19],
-        "actions": [18],
+        "evidence": [
+          19
+        ],
+        "actions": [
+          18
+        ],
         "observed": "Each pays reads $10.00, not $50.00 (step 19 element 17)"
       }
     ],
