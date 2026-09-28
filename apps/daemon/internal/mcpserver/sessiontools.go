@@ -19,7 +19,7 @@ func addSessionTools(s *mcp.Server, mgr *machine.Manager) {
 		RunID   string `json:"runId" jsonschema:"runId from machine_create"`
 		Command string `json:"command,omitempty" jsonschema:"The command to run behind a pty. Defaults to an interactive login shell, which is what you want for a session you will type commands into."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_session_start",
 		Description: "Start a command in the machine that stays alive between tool calls, with a real terminal " +
 			"behind it. Use this instead of machine_exec when state must survive: a shell that keeps its " +
@@ -37,7 +37,7 @@ func addSessionTools(s *mcp.Server, mgr *machine.Manager) {
 		SessionID string `json:"sessionId" jsonschema:"sessionId from machine_session_start"`
 		Data      string `json:"data" jsonschema:"Exactly what to write to the session's input. Include a trailing newline to run a command: without one the shell just holds the characters on its line, the same as typing without pressing return."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_session_send",
 		Description: "Write to a session's input, exactly as given. End with a newline to run a command. Returns " +
 			"as soon as the text is delivered, without waiting for the command: call machine_session_read for " +
@@ -52,7 +52,7 @@ func addSessionTools(s *mcp.Server, mgr *machine.Manager) {
 		SessionID   string `json:"sessionId" jsonschema:"sessionId from machine_session_start"`
 		WaitSeconds int    `json:"waitSeconds,omitempty" jsonschema:"How long to wait for new output before answering with none. Default 5, max 50. Use a longer wait while a build runs rather than calling this in a loop."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_session_read",
 		Description: "Read a session's output since your last read. Output is never returned twice: each call " +
 			"continues where the last stopped, and pending says how many bytes are still waiting, so keep calling " +
@@ -76,7 +76,7 @@ func addSessionTools(s *mcp.Server, mgr *machine.Manager) {
 		RunID     string `json:"runId" jsonschema:"runId from machine_create"`
 		SessionID string `json:"sessionId" jsonschema:"sessionId from machine_session_start"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_session_close",
 		Description: "End a session and clean it up inside the machine; read anything you still want first, since " +
 			"its output goes with it. Destroying the machine closes all its sessions, so use this to finish one " +

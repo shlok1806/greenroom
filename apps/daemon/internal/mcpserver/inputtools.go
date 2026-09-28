@@ -34,7 +34,7 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	if mgr.DesktopToolkit() {
 		uiDescription = uiDescriptionToolkit
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "machine_ui",
 		Description: uiDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in uiIn) (*mcp.CallToolResult, machine.UITree, error) {
@@ -68,7 +68,7 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	if mgr.DesktopToolkit() {
 		clickDescription = clickDescriptionToolkit
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "machine_click",
 		Description: clickDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in clickIn) (*mcp.CallToolResult, clickOut, error) {
@@ -120,7 +120,7 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	if mgr.DesktopToolkit() {
 		inputDescription = inputDescriptionToolkit
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "machine_input",
 		Description: inputDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in inputIn) (*mcp.CallToolResult, machine.InputResult, error) {
@@ -139,7 +139,7 @@ func addOldTypeKeyScroll(s *mcp.Server, post func(ctx context.Context, runID str
 		RunID string `json:"runId" jsonschema:"runId from machine_create"`
 		Text  string `json:"text" jsonschema:"The text to type, one character event at a time, into whatever has focus. Click into a field first if nothing does."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "machine_type",
 		Description: "Type text into the machine, into whatever currently has keyboard focus." + humanDriving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in typeIn) (*mcp.CallToolResult, machine.InputResult, error) {
@@ -151,7 +151,7 @@ func addOldTypeKeyScroll(s *mcp.Server, post func(ctx context.Context, runID str
 		Key   string   `json:"key" jsonschema:"A key name: a letter, digit or punctuation character, or one of return, enter, tab, space, delete, forwarddelete, escape, left, right, up, down, home, end, pageup, pagedown, capslock, help, f1-f12."`
 		Mods  []string `json:"mods,omitempty" jsonschema:"Modifiers held with the key: cmd, shift, alt, ctrl, fn (also command, option, control, function). Any other name is an error."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_key",
 		Description: "Press one key, optionally with modifiers held, for example key f with mods [cmd] for " +
 			"command-F." + humanDriving,
@@ -166,7 +166,7 @@ func addOldTypeKeyScroll(s *mcp.Server, post func(ctx context.Context, runID str
 		DeltaX float64  `json:"deltaX,omitempty" jsonschema:"Horizontal scroll amount, in points. Positive scrolls right, negative scrolls left."`
 		DeltaY float64  `json:"deltaY,omitempty" jsonschema:"Vertical scroll amount, in points. Positive scrolls down, negative scrolls up."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "machine_scroll",
 		Description: "Scroll the machine's screen under the pointer's current position, or under x,y if given." + humanDriving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in scrollIn) (*mcp.CallToolResult, machine.InputResult, error) {
