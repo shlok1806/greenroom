@@ -243,6 +243,45 @@ enum StateFixtures {
         return board
     }
 
+    /// The board Figma frame 01 draws ("Home", 1600 x 1000): three runs need you, three run,
+    /// seven done shown of 41.
+    static func mockupWide(_ golden: SummaryBoard) -> SummaryBoard {
+        let now = start.addingTimeInterval(State.failed.at)
+        var board = mockup(golden)
+        guard let tip = board.summary(tipSplit), let word = board.summary(wordCount) else { return golden }
+        func run(_ id: String, _ name: String, _ state: SummaryState, _ tone: SummaryTone, _ group: SummaryGroup,
+                 age: TimeInterval, elapsed: Int = 0) -> Summary {
+            var s = Summary(runId: id, name: name, state: state, status: "", tone: tone, group: group,
+                            since: now.addingTimeInterval(-age))
+            s.elapsedSeconds = elapsed
+            if group == .done { s.endedAt = now.addingTimeInterval(-age) }
+            return s
+        }
+        var clear = run("w-need-2", "TodoList: Clear done", .failed, .fail, .needsYou, age: 3 * 60)
+        clear.checks = SummaryChecks(total: 3, passed: 2, failed: 1)
+        let hour: TimeInterval = 3600, day: TimeInterval = 86400
+        var done = [
+            run("w-done-0", "TipSplit: fix each pays", .passed, .pass, .done, age: 1 * hour),
+            run("w-done-1", "WordCount: keeps text", .passed, .pass, .done, age: 2 * hour),
+            run("w-done-2", "UnitConvert: result size", .stopped, .quiet, .done, age: 3 * hour),
+            run("w-done-3", "TodoList: add item", .passed, .pass, .done, age: 5 * hour),
+            run("w-done-4", "WordCount: empty input", .passed, .pass, .done, age: 1 * day + 60),
+            run("w-done-5", "UnitConvert: miles to km", .failed, .fail, .done, age: 1 * day + 120),
+            run("w-done-6", "TipSplit: round cents", .passed, .pass, .done, age: 2 * day),
+        ]
+        done += (0..<34).map { run("w-old-\($0)", "Older run \($0)", .passed, .pass, .done, age: 3 * day + TimeInterval($0) * hour) }
+        board.groups = [
+            .init(id: .needsYou, runs: [tip, word, clear]),
+            .init(id: .running, runs: [
+                run("w-run-0", "UnitConvert: Temperature", .checking, .live, .running, age: 72, elapsed: 72),
+                run("w-run-1", "WordCount: longest word", .checking, .live, .running, age: 600, elapsed: 600),
+                run("w-run-2", "TodoList: summary line", .starting, .live, .running, age: 24, elapsed: 24),
+            ]),
+            .init(id: .done, runs: done),
+        ]
+        return board
+    }
+
     static func edit(_ board: inout SummaryBoard, _ runId: String, _ change: (inout Summary) -> Void) {
         guard var s = board.summary(runId) else { return }
         change(&s)

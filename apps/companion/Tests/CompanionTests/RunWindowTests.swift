@@ -30,7 +30,7 @@ final class RunWindowTests: XCTestCase {
     /// A store over the golden board with TipSplit in `state`: every picture a grey PNG, every
     /// list empty, every post recorded.
     private func store(_ state: F.State = .failed, posts: Posts = Posts(), mockup: Bool = false, compact: Bool = false,
-                       passed: Bool = false, mockupState: F.State? = nil) throws -> RunStore {
+                       passed: Bool = false, mockupState: F.State? = nil, wide: Bool = false) throws -> RunStore {
         let png = Self.greyPNG
         let client = StubURLProtocol.client { request in
             let path = request.url?.path ?? ""
@@ -46,7 +46,9 @@ final class RunWindowTests: XCTestCase {
         }
         let store = RunStore(client: client, controlClient: GrantingControlClient(), screenSource: NoScreen())
         let golden = try SummaryTests.golden()
-        if let mockupState {
+        if wide {
+            store.board = F.mockupWide(golden)
+        } else if let mockupState {
             store.board = F.mockup(golden, state: mockupState)
         } else {
             store.board = passed ? F.mockupPassed(golden) : mockup ? F.mockup(golden, compact: compact) : F.board(golden, state: state)
@@ -161,6 +163,7 @@ final class RunWindowTests: XCTestCase {
         var driving = false
         /// How many parts must match at least: a frame with little on it has few.
         var minParts = 50
+        var wide = false
     }
 
     static let frames: [FigmaFrame] = [
@@ -177,13 +180,16 @@ final class RunWindowTests: XCTestCase {
         // The frame's runs to go to are a few; the app lists every run, so the rows past the
         // first two of that section show other runs (words differ, places do not).
         FigmaFrame(name: "m12-palette-light", palette: true),
+        FigmaFrame(name: "m02-live-dark", dark: true, state: .live),
+        FigmaFrame(name: "m01-home-wide-light", size: CGSize(width: 1600, height: 1000), wide: true),
         // The live screen is the guest's: its picture and the ring drawn round it are not compared.
         FigmaFrame(name: "m09-take-control-light", state: .live, skip: ["Screen area/Live screen"], driving: true, minParts: 7),
     ]
 
     /// The failed run on the mockup's board, as `frame` draws it.
     private func mockupHost(_ frame: FigmaFrame, redacted: Bool) async throws -> ParkedHost {
-        let shell = ShellModel(store: try store(.failed, mockup: true, compact: frame.compact, passed: frame.passed, mockupState: frame.state))
+        let shell = ShellModel(store: try store(.failed, mockup: true, compact: frame.compact, passed: frame.passed,
+                                                mockupState: frame.state, wide: frame.wide))
         await shell.store.select(F.tipSplit)
         if frame.driving { await shell.store.pilot(for: F.tipSplit).take() }
         shell.paletteOpen = frame.palette
