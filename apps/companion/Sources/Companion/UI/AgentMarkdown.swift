@@ -7,21 +7,18 @@ import SwiftUI
 /// Emphasis, bold and italics in the system face, inline code and fenced code in the mono face
 /// (a code block scrolls sideways and has Copy), lists, quotes with a rule, tables as a grid,
 /// links in the accent that open in the browser, and a cited step as a chip that seeks the
-/// player. A streaming message passes its not-yet-settled `tail`, drawn fading as Beautiful
-/// UI's StreamText draws it, and a caret.
+/// player. A streaming message passes blocks cut at its last word (`StreamReveal.cut`), whose
+/// arriving words `ArrivingWords` fades up, and a caret.
 struct AgentMarkdown: View {
     let blocks: [MarkdownText.Block]
-    /// The characters still arriving, drawn after the last paragraph, fading.
-    var tail = ""
     /// A caret after the text while it streams.
     var caret = false
     var color: Color = Palette.text
     /// Seeks the player to a cited step; nil draws citations as plain text.
     var onStep: ((Int) -> Void)?
 
-    init(blocks: [MarkdownText.Block], tail: String = "", caret: Bool = false, color: Color = Palette.text, onStep: ((Int) -> Void)? = nil) {
+    init(blocks: [MarkdownText.Block], caret: Bool = false, color: Color = Palette.text, onStep: ((Int) -> Void)? = nil) {
         self.blocks = blocks
-        self.tail = tail
         self.caret = caret
         self.color = color
         self.onStep = onStep
@@ -81,7 +78,7 @@ struct AgentMarkdown: View {
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
                 self.block(block, last: index == blocks.count - 1)
             }
-            if blocks.isEmpty || !endsInParagraph, !tail.isEmpty || caret {
+            if blocks.isEmpty || !endsInParagraph, caret {
                 streamingText(Text(""))
             }
         }
@@ -103,14 +100,14 @@ struct AgentMarkdown: View {
     private func block(_ block: MarkdownText.Block, last: Bool) -> some View {
         switch block {
         case .heading(let level, let spans):
-            Text(attributed(spans, size: level <= 1 ? 15 : Self.size, bold: true))
+            text(spans, size: level <= 1 ? 15 : Self.size, bold: true)
                 .foregroundStyle(color)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, Gap.x4)
                 .accessibilityAddTraits(.isHeader)
         case .paragraph(let spans):
-            let text = Text(attributed(spans, size: Self.size, bold: false))
+            let text = text(spans, size: Self.size, bold: false)
             (last ? streamingText(text) : AnyView(styledParagraph(text)))
         case .code(let language, let text):
             AgentCodeBlock(text: text, language: language)
@@ -148,14 +145,9 @@ struct AgentMarkdown: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// The last paragraph with the arriving tail and the caret after it.
+    /// The last paragraph with the caret after it while the message streams.
     private func streamingText(_ text: Text) -> AnyView {
         var out = text
-        let characters = Array(tail)
-        for (index, character) in characters.enumerated() {
-            let opacity = StreamReveal.tailOpacity(index, of: characters.count)
-            out = out + Text(String(character)).font(.system(size: Self.size)).foregroundColor(color.opacity(opacity))
-        }
         if caret {
             // StreamText's caret: a 2 pt bar 1.05 em tall, radius 1, 1.5 after the text,
             // sitting on the descender as the source's inline-block does.
@@ -183,6 +175,23 @@ struct AgentMarkdown: View {
         case false?: "○"
         case nil: ordered ? "\(number)." : "•"
         }
+    }
+
+    /// Spans as text: runs of settled words as one styled string, each word still arriving
+    /// marked (`ArrivingWord`) so a streaming reveal can fade it.
+    private func text(_ spans: [MarkdownText.Span], size: CGFloat, bold: Bool) -> Text {
+        guard spans.contains(where: { $0.arriving != nil }) else { return Text(attributed(spans, size: size, bold: bold)) }
+        var out = Text("")
+        var start = 0
+        while start < spans.count {
+            let arriving = spans[start].arriving
+            var end = start + 1
+            while end < spans.count, spans[end].arriving == arriving { end += 1 }
+            let run = Text(attributed(Array(spans[start..<end]), size: size, bold: bold))
+            out = out + (arriving.map { run.customAttribute(ArrivingWord(index: $0)) } ?? run)
+            start = end
+        }
+        return out
     }
 
     /// Spans as one styled string in the system face; code in the mono face on a quiet fill,
@@ -299,43 +308,204 @@ struct AgentTable: View {
     }
 }
 
-/// Beautiful UI's StreamText (`components/atoms/StreamText.tsx`, MIT, spec `stream-text.json`,
-/// docs/22 C12) as a reveal of text that has arrived whole: two characters every 9 ms, the
-/// last six drawn fading under the source's mask (black at 20%, 20% black at the end), a
-/// caret while it runs. The daemon sends each message whole, so nothing here fakes tokens.
+/// A message that arrived while the conversation showed, streamed in once the way ChatGPT and
+/// Claude stream (companion ADR 0020): whole words, each fading up as it lands, at a reading
+/// pace that catches up on a long message. The daemon sends each message whole, so the reveal
+/// knows every word from the start and nothing here fakes tokens. Pure, so tests hold it.
 enum StreamReveal {
-    static let charactersPerTick = 2
-    static let tickMs = 9.0
-    static let tailLength = 6
-    /// The source blurs the tail 1.6 px; SwiftUI `Text` runs cannot blur one by one, so the
-    /// fade carries the blur's weight (documented gap, docs/22 C12).
-    static let tailBlur = 1.6
+    /// The steady pace, in words a second.
+    static let wordsPerSecond = 30.0
+    /// The longest a reveal runs (before its last word's fade): a long message speeds up.
+    static let longestReveal = 2.0
+    /// Each word's fade up: opacity 0 to 1 and a small rise, on the design's curve.
+    static let wordFade = 0.18
+    static let wordRise: CGFloat = 3
+    static let curve = AgentMotion.curve
 
-    /// Characters shown `elapsed` seconds after the message arrived.
-    static func revealed(_ total: Int, elapsed: TimeInterval) -> Int {
-        guard elapsed > 0 else { return 0 }
-        return min(total, Int((elapsed * 1000 / tickMs).rounded(.down)) * charactersPerTick)
+    /// Words a second for a message of `words` words.
+    static func rate(_ words: Int) -> Double { max(wordsPerSecond, Double(words) / longestReveal) }
+
+    /// Words shown `elapsed` seconds after the reveal began. The first shows at once.
+    static func revealed(_ words: Int, elapsed: TimeInterval) -> Int {
+        guard words > 0, elapsed >= 0 else { return 0 }
+        return min(words, Int((elapsed * rate(words)).rounded(.down)) + 1)
     }
 
-    /// How long a message of `total` characters takes.
-    static func duration(_ total: Int) -> TimeInterval {
-        Double((total + charactersPerTick - 1) / charactersPerTick) * tickMs / 1000
+    /// When the `word`th word (from 0) lands.
+    static func landing(_ word: Int, of words: Int) -> TimeInterval { Double(word) / rate(words) }
+
+    /// How long the whole reveal takes, the last word's fade included.
+    static func duration(_ words: Int) -> TimeInterval { words == 0 ? 0 : landing(words - 1, of: words) + wordFade }
+
+    /// The `word`th word's opacity and how far below its place it draws, `elapsed` seconds in.
+    static func motion(_ word: Int, of words: Int, elapsed: TimeInterval) -> (opacity: Double, offset: CGFloat) {
+        let progress = curve.value(at: (elapsed - landing(word, of: words)) / wordFade)
+        return (progress, wordRise * CGFloat(1 - progress))
     }
 
-    /// The opacity of the `index`th of the tail's `count` characters: the mask
-    /// `linear-gradient(to right, black 20%, rgb(0 0 0 / 20%))` at the character's centre.
-    static func tailOpacity(_ index: Int, of count: Int) -> Double {
-        guard count > 0 else { return 1 }
-        let x = (Double(index) + 0.5) / Double(count)
-        return x <= 0.2 ? 1 : 1 - 0.8 * (x - 0.2) / 0.8
+    /// The words in `blocks`, as the reveal counts them.
+    static func words(_ blocks: [MarkdownText.Block]) -> Int {
+        var cutter = Cutter(shown: .max, settled: .max)
+        _ = cutter.blocks(blocks)
+        return cutter.next
     }
 
-    /// The settled text and the tail after `revealed` characters.
-    static func split(_ text: String, revealed: Int) -> (settled: String, tail: String) {
-        let shown = String(text.prefix(revealed))
-        guard revealed < text.count else { return (shown, "") }
-        let cut = max(0, shown.count - tailLength)
-        return (String(shown.prefix(cut)), String(shown.dropFirst(cut)))
+    /// `blocks` as they show `elapsed` seconds in: cut after the last word shown, never inside
+    /// one, with each word still fading carrying its index (`Span.arriving`).
+    static func cut(_ blocks: [MarkdownText.Block], words: Int, elapsed: TimeInterval) -> [MarkdownText.Block] {
+        cut(blocks, shown: revealed(words, elapsed: elapsed), settled: revealed(words, elapsed: elapsed - wordFade))
+    }
+
+    /// `blocks` with their first `shown` words; words from `settled` on are marked arriving.
+    static func cut(_ blocks: [MarkdownText.Block], shown: Int, settled: Int) -> [MarkdownText.Block] {
+        var cutter = Cutter(shown: shown, settled: settled)
+        return cutter.blocks(blocks)
+    }
+
+    /// Walks the blocks in reading order, numbering words. A word is a run of non-space
+    /// characters and the spaces after it, across styles; a cited step's chip is one word, a
+    /// code block's line, a table's header or row and a rule each count as one.
+    private struct Cutter {
+        let shown: Int
+        let settled: Int
+        /// The index the next word will take; the count once the walk ends.
+        var next = 0
+
+        var full: Bool { next >= shown }
+
+        mutating func blocks(_ blocks: [MarkdownText.Block]) -> [MarkdownText.Block] {
+            var out: [MarkdownText.Block] = []
+            for block in blocks {
+                if full { break }
+                if let cut = self.block(block) { out.append(cut) }
+            }
+            return out
+        }
+
+        private mutating func block(_ block: MarkdownText.Block) -> MarkdownText.Block? {
+            switch block {
+            case .heading(let level, let spans):
+                return self.spans(spans).map { .heading(level: level, $0) }
+            case .paragraph(let spans):
+                return self.spans(spans).map { .paragraph($0) }
+            case .code(let language, let text):
+                let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+                let take = min(lines.count, shown - next)
+                next += take
+                return take > 0 ? .code(language: language, text: lines.prefix(take).joined(separator: "\n")) : nil
+            case .list(let ordered, let start, let items):
+                var kept: [MarkdownText.Item] = []
+                for item in items {
+                    if full { break }
+                    let inner = blocks(item.blocks)
+                    if inner.isEmpty { break }
+                    kept.append(MarkdownText.Item(checked: item.checked, blocks: inner))
+                }
+                return kept.isEmpty ? nil : .list(ordered: ordered, start: start, items: kept)
+            case .quote(let inner):
+                let cut = blocks(inner)
+                return cut.isEmpty ? nil : .quote(cut)
+            case .table(let header, let rows):
+                next += 1
+                var kept: [[[MarkdownText.Span]]] = []
+                for row in rows {
+                    if full { break }
+                    next += 1
+                    kept.append(row)
+                }
+                return .table(header: header, rows: kept)
+            case .rule:
+                next += 1
+                return .rule
+            }
+        }
+
+        /// A paragraph's runs up to the last word shown, split where a word's arriving mark
+        /// changes. Nil when no word of it shows.
+        private mutating func spans(_ spans: [MarkdownText.Span]) -> [MarkdownText.Span]? {
+            var out: [MarkdownText.Span] = []
+            // The word the characters belong to; nil before the paragraph's first.
+            var word: Int?
+            var inWord = false
+            // Spaces before the paragraph's first word, which go with it.
+            var pending = ""
+            walk: for span in spans {
+                if span.step != nil {
+                    if !inWord {
+                        guard next < shown else { break walk }
+                        word = next
+                        next += 1
+                        inWord = true
+                    }
+                    append(pending + span.text, from: span, word: word ?? 0, to: &out)
+                    pending = ""
+                    continue
+                }
+                var buffer = ""
+                for character in span.text {
+                    if character.isWhitespace {
+                        inWord = false
+                        if word == nil { pending.append(character) } else { buffer.append(character) }
+                        continue
+                    }
+                    if !inWord {
+                        if let word, !buffer.isEmpty { append(buffer, from: span, word: word, to: &out) }
+                        buffer = pending
+                        pending = ""
+                        guard next < shown else { break walk }
+                        word = next
+                        next += 1
+                        inWord = true
+                    }
+                    buffer.append(character)
+                }
+                if let word, !buffer.isEmpty { append(buffer, from: span, word: word, to: &out) }
+            }
+            return out.isEmpty ? nil : out
+        }
+
+        /// Adds `text` in `span`'s style as part of `word`, joining the run before it when
+        /// nothing tells them apart.
+        private func append(_ text: String, from span: MarkdownText.Span, word: Int, to out: inout [MarkdownText.Span]) {
+            var run = span
+            run.text = text
+            run.arriving = word >= settled ? word : nil
+            if span.step == nil, var last = out.last, last.step == nil, last.style == run.style, last.link == run.link,
+               last.arriving == run.arriving {
+                last.text += text
+                out[out.count - 1] = last
+            } else {
+                out.append(run)
+            }
+        }
+    }
+}
+
+/// Marks a run of a streaming message's words that is still fading in.
+struct ArrivingWord: TextAttribute {
+    var index: Int
+}
+
+/// Draws each arriving word from its own clock (`StreamReveal.motion`), so words fade up
+/// inside one wrapped `Text` without laying the line out again.
+struct ArrivingWords: TextRenderer {
+    var words: Int
+    var elapsed: TimeInterval
+
+    func draw(layout: Text.Layout, in context: inout GraphicsContext) {
+        for line in layout {
+            for run in line {
+                guard let word = run[ArrivingWord.self] else {
+                    context.draw(run)
+                    continue
+                }
+                let motion = StreamReveal.motion(word.index, of: words, elapsed: elapsed)
+                var faded = context
+                faded.opacity = motion.opacity
+                faded.translateBy(x: 0, y: motion.offset)
+                faded.draw(run)
+            }
+        }
     }
 }
 
@@ -352,12 +522,17 @@ struct StreamingMarkdown: View {
 
     var body: some View {
         if let start, !reduceMotion {
+            // Parsed once per message, not per frame; each frame only cuts it.
+            let blocks = MarkdownText.blocks(text, steps: onStep == nil ? nil : steps)
+            let words = StreamReveal.words(blocks)
+            let duration = StreamReveal.duration(words)
             TimelineView(.animation) { context in
-                let count = StreamReveal.revealed(text.count, elapsed: context.date.timeIntervalSince(start))
-                let (settled, tail) = StreamReveal.split(text, revealed: count)
-                AgentMarkdown(blocks: MarkdownText.blocks(settled, steps: onStep == nil ? nil : steps), tail: tail, caret: count < text.count,
-                              onStep: onStep)
-                    .onChange(of: count >= text.count) { _, done in if done { finished() } }
+                let elapsed = context.date.timeIntervalSince(start)
+                let done = elapsed >= duration
+                AgentMarkdown(blocks: StreamReveal.cut(blocks, words: words, elapsed: elapsed), caret: !done, onStep: onStep)
+                    .textRenderer(ArrivingWords(words: words, elapsed: elapsed))
+                    // Checked on the first frame too: a reveal already over hands back at once.
+                    .onChange(of: done, initial: true) { _, done in if done { finished() } }
             }
             .contentShape(Rectangle())
             .onTapGesture { finished() }

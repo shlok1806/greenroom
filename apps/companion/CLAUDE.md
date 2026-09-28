@@ -13,7 +13,8 @@ the Markdown renderer), `0010` (run thumbnails from the last frame, superseded b
 `0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict), `0013` (one
 primary in the top bar, Give Back on the driving bar), `0014` (evidence marks on the picture), `0015` (a
 verifier stopped at its limit is a card with Continue), `0016` (a finished run says Done, only Verified is
-green), `0017` (in-window menus are drawn by the app) and `0018` (twins say what tells them apart).
+green), `0017` (in-window menus are drawn by the app), `0018` (twins say what tells them apart) and `0020`
+(agent text streams in by the word).
 Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
@@ -61,6 +62,12 @@ no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
     one-line places (a check's claim and what it observed, expected and saw, the Now line,
     task row and section titles) through `AgentMarkdown.inline`, which sets presentation
     intents only, so the place keeps its own type. Never `Text(check.text)` for agent words.
+  - A message that arrives while the conversation shows streams in by the word (ADR 0020,
+    `StreamReveal`): the parsed blocks are cut between words (never mid-word or mid-token),
+    30 words a second, the whole reveal capped at 2 s, each arriving word marked
+    `Span.arriving` and faded up by the `ArrivingWords` text renderer. Its end is checked on
+    the first frame too (`onChange(initial: true)`), or a reveal already over never hands
+    back and its `TimelineView` ticks forever.
   - Beautiful UI's agent entrances use `AgentMotion` (the originals' timings, held to the
     specs by `AgentAnimationTests`) through `.fadeUp`, and `Arrivals` decides what is new:
     only what arrives while a view shows moves; what was there when it opened never does.
