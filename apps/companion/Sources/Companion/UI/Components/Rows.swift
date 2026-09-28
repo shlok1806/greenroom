@@ -94,7 +94,7 @@ struct CheckRowView: View {
                 StatusGlyph(kind: checking ? .checking : check.state.glyph, color: checking ? .accent : check.state.color)
                     .frame(width: 16, height: 18)
                     .clonePart("GlyphBox")
-                Text(check.text)
+                Text(AgentMarkdown.inline(check.text))
                     .textStyle(selected ? .bodyEmphasis : .body)
                     .foregroundStyle(check.state == .pending && !checking && !selected ? Palette.textSecondary : Palette.text)
                     .fixedSize(horizontal: false, vertical: true)
@@ -111,12 +111,13 @@ struct CheckRowView: View {
             }
             .cloneScope("Top")
             if selected, let observed = check.observed {
-                Text(observed)
+                Text(AgentMarkdown.inline(observed))
                     .textStyle(.body)
                     .foregroundStyle(Palette.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(MarkdownText.plain(MarkdownText.blocks(observed)))
                     .clonePart("Detail")
                     .padding(.leading, 26)
                     .cloneScope("DetailWrap")

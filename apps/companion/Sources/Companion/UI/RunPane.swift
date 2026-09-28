@@ -217,11 +217,11 @@ struct StatusHeader: View {
                     HStack(spacing: 6) {
                         if model.isNow {
                             Circle().fill(Palette.accent).frame(width: 6, height: 6).clonePart("Live pulse")
-                            (Text("Now ").foregroundStyle(Palette.textSecondary) + Text(model.line).foregroundStyle(Palette.text))
+                            (Text("Now ").foregroundStyle(Palette.textSecondary) + Text(AgentMarkdown.inline(model.line)).foregroundStyle(Palette.text))
                                 .textStyle(.body)
                                 .clonePart("Text")
                         } else {
-                            Text(model.line).textStyle(.body).foregroundStyle(Palette.textSecondary)
+                            Text(AgentMarkdown.inline(model.line)).textStyle(.body).foregroundStyle(Palette.textSecondary)
                                 .clonePart("Now text")
                         }
                     }

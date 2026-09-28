@@ -56,8 +56,7 @@ struct RunDetailsView: View {
                 }
                 if let task, !task.isEmpty {
                     Text("Task").textStyle(.captionEmphasis).foregroundStyle(Palette.textSecondary).padding(.top, Gap.x4)
-                    Text(task).textStyle(.body).foregroundStyle(Palette.text).textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    AgentMarkdown(text: task)
                 }
             }
             .padding(Gap.x16)

@@ -34,6 +34,48 @@ struct AgentMarkdown: View {
     static let size: CGFloat = 13
     static let codeSize: CGFloat = 12
 
+    /// Agent text that sits in one line or a short run of words (a check's claim, what it
+    /// observed, expected and saw, a task row's title, the Now line): its inline Markdown,
+    /// bold, italics, code, strike-through and links, as presentation intents, so the text
+    /// keeps the size and weight its place gives it. Blocks are joined with spaces; a list
+    /// item keeps no marker. Never `AttributedString(markdown:)` (companion CLAUDE.md).
+    static func inline(_ text: String) -> AttributedString {
+        let blocks = MarkdownText.blocks(text)
+        guard !blocks.isEmpty else { return AttributedString(text) }
+        var out = AttributedString()
+        for (index, spans) in inlineSpans(blocks).enumerated() {
+            if index > 0 { out += AttributedString(" ") }
+            for span in spans {
+                var run = AttributedString(span.text)
+                var intent: InlinePresentationIntent = []
+                if span.style.contains(.strong) { intent.insert(.stronglyEmphasized) }
+                if span.style.contains(.emphasis) { intent.insert(.emphasized) }
+                if span.style.contains(.code) { intent.insert(.code) }
+                if span.style.contains(.strikethrough) { intent.insert(.strikethrough) }
+                if !intent.isEmpty { run.inlinePresentationIntent = intent }
+                if let link = span.link, let url = MarkdownText.openableURL(link) {
+                    run.link = url
+                    run.foregroundColor = Palette.accent
+                }
+                out += run
+            }
+        }
+        return out
+    }
+
+    private static func inlineSpans(_ blocks: [MarkdownText.Block]) -> [[MarkdownText.Span]] {
+        blocks.flatMap { block -> [[MarkdownText.Span]] in
+            switch block {
+            case .heading(_, let spans), .paragraph(let spans): [spans]
+            case .code(_, let text): [[MarkdownText.Span(text, .code)]]
+            case .list(_, _, let items): items.flatMap { inlineSpans($0.blocks) }
+            case .quote(let inner): inlineSpans(inner)
+            case .table(let header, let rows): ([header] + rows).map { row in row.flatMap { $0 + [MarkdownText.Span(" ")] } }
+            case .rule: []
+            }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Gap.x8) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
@@ -115,10 +157,25 @@ struct AgentMarkdown: View {
             out = out + Text(String(character)).font(.system(size: Self.size)).foregroundColor(color.opacity(opacity))
         }
         if caret {
-            out = out + Text("\u{2009}▍").font(.system(size: Self.size)).foregroundColor(Palette.text)
+            // StreamText's caret: a 2 pt bar 1.05 em tall, radius 1, 1.5 after the text,
+            // sitting on the descender as the source's inline-block does.
+            out = out + Text("\u{2009}").font(.system(size: Self.size))
+                + Text(Image(nsImage: Self.caret)).foregroundColor(Palette.text).baselineOffset(-3)
         }
         return AnyView(styledParagraph(out))
     }
+
+    /// The caret as a template image, so the text's colour fills it.
+    static let caret: NSImage = {
+        let bar = NSSize(width: AgentMotion.caretWidth, height: (AgentMotion.caretEm * AgentMarkdown.size).rounded())
+        let image = NSImage(size: bar, flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 1, yRadius: 1).fill()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
 
     private func marker(ordered: Bool, number: Int, checked: Bool?) -> String {
         switch checked {

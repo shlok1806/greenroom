@@ -93,9 +93,11 @@ final class DropdownCenter {
     /// so nothing reaches the window behind an open menu.
     func handle(keyCode: UInt16, characters: String, flags: NSEvent.ModifierFlags) -> Bool {
         switch keyCode {
-        case 53: close()                                           // esc
+        case 53, 48: close()                                       // esc, tab
         case 125: move(by: 1)                                      // down
         case 126: move(by: -1)                                     // up
+        case 115: highlighted = nil; move(by: 1)                   // home: the first row
+        case 119: highlighted = nil; move(by: -1)                  // end: the last row
         case 36, 76, 49: if let highlighted { run(highlighted) }   // return, enter, space
         default:
             if flags.intersection([.command, .control, .option]).isEmpty, !characters.isEmpty {
@@ -154,7 +156,7 @@ struct DropdownLayer: View {
                         .transition(reduceMotion ? .identity : .asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.95, anchor: open.alignTrailing ? .topTrailing : .topLeading))
                                 .animation(Motion.easeOut(0.16)),
-                            removal: .opacity.animation(.easeOut(duration: 0.1))))
+                            removal: .opacity.animation(Motion.easeOut(0.1))))
                 }
             }
         }
@@ -227,7 +229,7 @@ struct DropdownPanel: View {
 
 /// Beautiful UI's SegmentedControl in the design's tokens: a 2 pt inset track, the chosen
 /// option's thumb raised with a hairline, sliding 200 ms; labels Body, the chosen one in the
-/// text colour, the others secondary. Arrows move the choice when it has the keyboard.
+/// text colour, the others secondary. With Full Keyboard Access each option takes Tab and Space.
 struct SegmentedControl<Value: Hashable>: View {
     let options: [(value: Value, title: String)]
     @Binding var selection: Value

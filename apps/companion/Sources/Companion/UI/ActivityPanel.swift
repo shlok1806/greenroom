@@ -110,6 +110,9 @@ struct ActivitySteps: View {
     @AppStorage("activityLogs", store: AppDefaults.shared) private var logs = false
     @AppStorage("activityFailuresOnly", store: AppDefaults.shared) private var failuresOnly = false
     @State private var open: [String: Bool] = [:]
+    /// Rows and tool calls that arrive while Activity shows fade up (Beautiful UI).
+    @State private var rowArrivals = Arrivals()
+    @State private var chipArrivals = Arrivals()
 
     private var steps: [Step] { shell.store.steps[summary.runId] ?? [] }
 
@@ -175,6 +178,15 @@ struct ActivitySteps: View {
                 }
             }
         }
+        .onAppear { resetArrivals(sections) }
+        .onChange(of: summary.runId) { _, _ in resetArrivals(sections) }
+        .onChange(of: sections.flatMap(\.rows).map(\.id)) { _, ids in rowArrivals.note(ids) }
+        .onChange(of: steps.map(\.seq)) { _, seqs in chipArrivals.note(seqs.map(String.init)) }
+    }
+
+    private func resetArrivals(_ sections: [ActivityLayout.Section]) {
+        rowArrivals.reset(sections.flatMap(\.rows).map(\.id))
+        chipArrivals.reset(steps.map { String($0.seq) })
     }
 
     private func taskRows(_ sections: [ActivityLayout.Section], current: String?) -> some View {
@@ -184,7 +196,7 @@ struct ActivitySteps: View {
                     .textStyle(.body).foregroundStyle(Palette.textSecondary).padding(Gap.x24)
             }
             ForEach(sections) { section in
-                Text(section.title).textStyle(.captionEmphasis).foregroundStyle(Palette.textSecondary)
+                Text(AgentMarkdown.inline(section.title)).textStyle(.captionEmphasis).foregroundStyle(Palette.textSecondary)
                     .lineLimit(2)
                     .padding(.horizontal, Gap.x16)
                     .padding(.top, Gap.x16)
@@ -197,8 +209,14 @@ struct ActivitySteps: View {
                         current: row.id == current,
                         onSelect: { if let first = row.steps.first { shell.seek(toStep: first) } },
                         onChip: { shell.seek(toStep: $0) },
-                        chipHelp: chipHelp)
+                        chipHelp: chipHelp,
+                        chipEntrance: { seq in
+                            let id = String(seq)
+                            return (chipArrivals.isNew(id), chipArrivals.delay(id, stagger: AgentMotion.taskRowStagger))
+                        })
                         .padding(.horizontal, Gap.x8)
+                        .fadeUp(rowArrivals.isNew(row.id), duration: AgentMotion.taskRow,
+                                delay: rowArrivals.delay(row.id, stagger: AgentMotion.taskRowStagger))
                         .id(row.id)
                 }
             }
@@ -247,8 +265,12 @@ struct ActivitySteps: View {
         .padding(.trailing, Gap.x8)
     }
 
-    /// A step's words on hover: tool, time, how long, the error in full.
-    private func chipHelp(_ seq: Int) -> String {
+    private func chipHelp(_ seq: Int) -> String { StepHelp.text(seq, in: steps) }
+}
+
+/// A step's words on hover: tool, time, how long, the error in full.
+enum StepHelp {
+    static func text(_ seq: Int, in steps: [Step]) -> String {
         guard let step = steps.first(where: { $0.seq == seq }) else { return "Step \(seq)" }
         var words = "Step \(seq): \(StepSummary.phrase(for: step, in: steps)). \(ToolCatalog.entry(for: step.tool).title), "
             + "\(step.at.formatted(date: .omitted, time: .standard)), \(String(format: "%.1f s", Double(step.durationMs) / 1000))"
@@ -269,25 +291,47 @@ struct ConversationTab: View {
         }
     }
 
+    private var steps: [Step] { shell.store.steps[summary.runId] ?? [] }
+
+    private var items: [ConversationLayout.Item] {
+        ConversationLayout.items(messages: messages, steps: steps, working: summary.state == .checking)
+    }
+
+    /// Messages, groups and calls that arrive while the tab shows fade up.
+    @State private var messageArrivals = Arrivals()
+    @State private var chipArrivals = Arrivals()
+
+    private func resetArrivals() {
+        messageArrivals.reset(items.map(\.id))
+        chipArrivals.reset(steps.map { String($0.seq) })
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: Gap.x12) {
-                        if messages.isEmpty {
+                        if items.isEmpty {
                             Text("No messages yet.").textStyle(.body).foregroundStyle(Palette.textSecondary)
                         }
-                        ForEach(messages) { message in
-                            MessageBlock(message: message, start: shell.streamStart(runId: summary.runId, seq: message.seq),
-                                         steps: Set((shell.store.steps[summary.runId] ?? []).map(\.seq)),
-                                         onStep: { shell.seek(toStep: $0) },
-                                         finished: { shell.finishStream(runId: summary.runId, seq: message.seq) })
-                                .id(message.seq)
-                        }
-                        if summary.state == .checking {
-                            // Beautiful UI's Thinking state, with what the verifier does now.
-                            ThinkingView(live: true, liveText: summary.now ?? "Thinking")
-                                .accessibilityIdentifier("conversation.thinking")
+                        ForEach(items) { item in
+                            switch item {
+                            case .message(let message):
+                                MessageBlock(message: message, start: shell.streamStart(runId: summary.runId, seq: message.seq),
+                                             steps: Set(steps.map(\.seq)),
+                                             onStep: { shell.seek(toStep: $0) },
+                                             finished: { shell.finishStream(runId: summary.runId, seq: message.seq) })
+                                    .fadeUp(messageArrivals.isNew(item.id), duration: AgentMotion.toolChip)
+                                    .id(message.seq)
+                            case .tools(_, let group, let live):
+                                // Beautiful UI's Thinking state; its trace, the calls as tool chips.
+                                ToolTraceView(steps: group, allSteps: steps, live: live, now: summary.now ?? "Thinking",
+                                              arrivals: chipArrivals,
+                                              onChip: { shell.seek(toStep: $0) },
+                                              chipHelp: { StepHelp.text($0, in: steps) })
+                                    .fadeUp(messageArrivals.isNew(item.id), duration: AgentMotion.toolChip)
+                                    .id(item.id)
+                            }
                         }
                         Color.clear.frame(height: 1).id("end")
                     }
@@ -302,8 +346,15 @@ struct ConversationTab: View {
                     shell.noteMessages(messages, runId: summary.runId)
                     proxy.scrollTo("end", anchor: .bottom)
                 }
+                .onChange(of: steps.count) { _, _ in
+                    if shell.playhead == nil { proxy.scrollTo("end", anchor: .bottom) }
+                }
                 .onAppear { shell.noteMessages(messages, runId: summary.runId) }
             }
+            .onAppear { resetArrivals() }
+            .onChange(of: summary.runId) { _, _ in resetArrivals() }
+            .onChange(of: items.map(\.id)) { _, ids in messageArrivals.note(ids) }
+            .onChange(of: steps.map(\.seq)) { _, seqs in chipArrivals.note(seqs.map(String.init)) }
 
             composer
         }

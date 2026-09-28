@@ -81,8 +81,11 @@ struct TaskRowView: View {
     var onChip: ((Int) -> Void)?
     /// A chip's words on hover: the tool, the time, the error.
     var chipHelp: ((Int) -> String)?
+    /// Whether a chip arrived while the row showed, and its delay: it fades up (ToolChips).
+    var chipEntrance: ((Int) -> (active: Bool, delay: Double))?
 
     @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var opens: Bool { !row.chips.isEmpty || row.note != nil }
 
@@ -96,9 +99,12 @@ struct TaskRowView: View {
                     IconView(icon: .chevronRight, size: 12)
                         .foregroundStyle(Palette.textSecondary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
+                        // Beautiful UI turns the chevron on Tailwind's default curve; the Figma
+                        // file's settle is the time.
+                        .animation(reduceMotion ? nil : Curve.tailwindDefault.animation(Motion.settle), value: expanded)
                         .opacity(opens ? 1 : 0)
                     StatusGlyph(kind: row.glyph, color: row.color)
-                    Text(row.title).textStyle(.body).foregroundStyle(Palette.text)
+                    Text(AgentMarkdown.inline(row.title)).textStyle(.body).foregroundStyle(Palette.text)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text(row.meta).textStyle(.caption).foregroundStyle(Palette.textSecondary)
@@ -116,13 +122,17 @@ struct TaskRowView: View {
                     if !row.chips.isEmpty {
                         ChipFlowLayout(spacing: 6) {
                             ForEach(row.chips) { chip in
-                                if let onChip {
-                                    Button { onChip(chip.id) } label: { ToolChip(chip: chip) }
-                                        .buttonStyle(.plain)
-                                        .help(chipHelp?(chip.id) ?? chip.label)
-                                } else {
-                                    ToolChip(chip: chip)
+                                let entrance: (active: Bool, delay: Double) = chipEntrance?(chip.id) ?? (active: false, delay: 0)
+                                Group {
+                                    if let onChip {
+                                        Button { onChip(chip.id) } label: { ToolChip(chip: chip) }
+                                            .buttonStyle(.plain)
+                                            .help(chipHelp?(chip.id) ?? chip.label)
+                                    } else {
+                                        ToolChip(chip: chip)
+                                    }
                                 }
+                                .fadeUp(entrance.active, duration: AgentMotion.toolChip, delay: entrance.delay)
                             }
                         }
                     }

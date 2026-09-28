@@ -19,11 +19,7 @@ enum ActivityLayout {
         var rows: [(TaskRowModel, Set<Int>)] = []
         let sortedSteps = steps.sorted { $0.seq < $1.seq }
 
-        func chip(_ step: Step) -> ToolChipModel {
-            let state: ToolChipModel.State = step.error.map { .error(short($0)) } ?? .done
-            return ToolChipModel(id: step.seq, icon: icon(step.tool), label: chipLabel(step, in: sortedSteps),
-                                 meta: String(format: "%.1fs", Double(step.durationMs) / 1000), state: state)
-        }
+        func chip(_ step: Step) -> ToolChipModel { ActivityLayout.chip(step, in: sortedSteps) }
 
         if progress.isEmpty {
             // No words from the verifier: one row per step.
@@ -72,6 +68,13 @@ enum ActivityLayout {
             }
         }
         return sections
+    }
+
+    /// A step as a tool chip: its tool's icon, two or three words, how long, or why it failed.
+    static func chip(_ step: Step, in steps: [Step]) -> ToolChipModel {
+        let state: ToolChipModel.State = step.error.map { .error(short($0)) } ?? .done
+        return ToolChipModel(id: step.seq, icon: icon(step.tool), label: chipLabel(step, in: steps),
+                             meta: String(format: "%.1fs", Double(step.durationMs) / 1000), state: state)
     }
 
     /// The row a step belongs to: the one holding it, else the last row that began before it.

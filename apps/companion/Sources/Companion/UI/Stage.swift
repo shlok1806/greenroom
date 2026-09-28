@@ -168,13 +168,13 @@ struct StageView: View {
             }
             switch EvidenceCaption.of(shell.selectedCheck) {
             case .disagreement(let expected, let saw):
-                return Text("Expected ").foregroundStyle(Palette.textSecondary) + Text(expected).fontWeight(.semibold).foregroundStyle(Palette.text)
-                    + Text(", saw ").foregroundStyle(Palette.textSecondary) + Text(saw).fontWeight(.semibold).foregroundStyle(Palette.fail)
+                return Text("Expected ").foregroundStyle(Palette.textSecondary) + Text(AgentMarkdown.inline(expected)).fontWeight(.semibold).foregroundStyle(Palette.text)
+                    + Text(", saw ").foregroundStyle(Palette.textSecondary) + Text(AgentMarkdown.inline(saw)).fontWeight(.semibold).foregroundStyle(Palette.fail)
             case .agreement(let saw):
-                return Text("Saw ").foregroundStyle(Palette.textSecondary) + Text(saw).fontWeight(.semibold).foregroundStyle(Palette.text)
+                return Text("Saw ").foregroundStyle(Palette.textSecondary) + Text(AgentMarkdown.inline(saw)).fontWeight(.semibold).foregroundStyle(Palette.text)
                     + Text(", as expected").foregroundStyle(Palette.textSecondary)
             case .sentence(let words):
-                return Text(words).foregroundStyle(Palette.textSecondary)
+                return Text(AgentMarkdown.inline(words)).foregroundStyle(Palette.textSecondary)
             case .lastStep(let words):
                 return Text(words).foregroundStyle(Palette.textSecondary)
             case .none:
