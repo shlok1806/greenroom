@@ -107,13 +107,16 @@ type Process struct {
 const logTailLines = 3
 
 // Start boots a VM headless in its own process group so it outlives the daemon,
-// with output appended to logPath. Graphics mode is retired (ADR 0016).
+// with output appended to logPath. Graphics mode is retired (ADR 0016). Audio and
+// clipboard sharing are off: by default tart feeds the host's microphone into the guest,
+// plays guest sound on the host and syncs the clipboard both ways, so code under test
+// could read what the person copied or hear their room.
 func (c *Client) Start(name, logPath string) (*Process, error) {
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(c.Bin, "run", name, "--no-graphics")
+	cmd := exec.Command(c.Bin, "run", name, "--no-graphics", "--no-audio", "--no-clipboard")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

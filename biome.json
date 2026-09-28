@@ -9,6 +9,7 @@
       "!**/.turbo",
       "!docs/image-experiment/raw",
       "!apps/daemon/internal/report/testdata",
+      "!apps/daemon/internal/summary/testdata",
       "!docs/22-swiftui-clone-plan/specs"
     ]
   },
