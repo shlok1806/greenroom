@@ -36,7 +36,16 @@ import Foundation
 import ScreenCaptureKit
 import VideoToolbox
 
-let version = "greenroom-input 7"
+let version = "greenroom-input 8"
+
+// --version answers before any other top-level code runs. The globals below (the main
+// display, its bounds, the event source) talk to WindowServer as soon as they are
+// initialised, and a wedged WindowServer then held `--version` forever, so the install
+// check hung with it (issue #187). Nothing above this line may touch the window server.
+if CommandLine.arguments.dropFirst().first == "--version" {
+    print(version)
+    exit(0)
+}
 
 // MARK: - Wire types
 
@@ -904,10 +913,6 @@ func desktop() -> [String: Any] {
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())
-if arguments.first == "--version" {
-    print(version)
-    exit(0)
-}
 if arguments.first == "--desktop" {
     emit(desktop(), to: FileHandle.standardOutput)
     exit(0)

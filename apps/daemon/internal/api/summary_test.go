@@ -157,6 +157,30 @@ func TestTheSummaryUsesTheNameAndClientTheRunWasCreatedWith(t *testing.T) {
 	}
 }
 
+// Issue #186's files warning reaches the summary in words, and the run needs you.
+func TestAMachineNearItsFileLimitWarnsInWords(t *testing.T) {
+	h := newHarness(t, machine.WithFileCheck(machine.FileCheck{
+		Interval: 10 * time.Millisecond,
+		Count:    func(context.Context, int) (int, error) { return 250, nil },
+		Limit:    func() (uint64, bool) { return 256, true },
+	}))
+	runID := h.ready()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		s := h.summary(runID)
+		if s.Machine.Warning != "" {
+			if s.Machine.Warning != summary.LowOnFilesWarning || s.Group != summary.NeedsYou {
+				t.Errorf("warning %q in %s, want the words in needs-you", s.Machine.Warning, s.Group)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no warning in %+v", s.Machine)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestAnUnknownRunHasNoSummary(t *testing.T) {
 	h := newHarness(t)
 	if code, _ := h.status(http.MethodGet, "/api/runs/nope/summary", nil); code != http.StatusNotFound {
