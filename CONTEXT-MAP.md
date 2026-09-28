@@ -35,7 +35,7 @@ first real term settles). **documented** means `CONTEXT.md` exists.
 - **Live screen**: a machine's screen as H.264, streamed from the guest while someone
   watches (ADR 0011). Not the recording: frames stay the run's evidence.
 - **Run summary**: a run in the words a person reads first, derived by the daemon (ADR
-  0036): a name of five words or fewer, one status word (Starting, Checking, Paused, Not
-  answering, Restarting, Passed, Failed, Inconclusive, Stopped), its group and its one
+  0036): a name of five words or fewer, one status word (Starting, Ready, Checking, Paused,
+  Not answering, Restarting, Passed, Failed, Inconclusive, Stopped), its group and its one
   primary action. **Needs you** is an open run that cannot go on without a person; a run
   whose machine is gone or that its coding agent finished is **Done**, whatever its verdict.

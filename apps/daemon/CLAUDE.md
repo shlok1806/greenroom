@@ -105,7 +105,7 @@ send either). The companion and smoke client send a loopback Host and no Origin.
   `event: summary` `{runId, summary, macs}` when a run's summary changes: listeners only mark
   the run (they run under the store's and manager's locks, and a summary reads both), and the
   stream derives marked runs every `SummaryEvery` (250 ms), dropping one equal to the last it
-  sent but for `elapsedSeconds` and `updatedAt`. Steps are read only for an open run or a
+  sent but for `elapsedSeconds`, `updatedAt` and `lastFrame`. Steps are read only for an open run or a
   failed check's picture; a run with no live machine is cached (`summaries`) until its
   conversation length or manifest mtime changes. `macs` counts the manager's machines only,
   never other VMs on the host (that needs `tart list`).
@@ -115,8 +115,12 @@ send either). The companion and smoke client send a loopback Host and no Origin.
   {"runId": "20260923-044138-de31017819a86d84", "name": "TipSplit: split the bill", "source": "Claude Code",
    "state": "failed", "status": "Failed", "tone": "fail", "group": "needs-you",
    "detail": "Proposed by the verifier after 3:26.",
-   "checks": {"total": 4, "passed": 2, "failed": 2, "pending": 0, "text": "2 of 4 checks failed",
-              "current": {"text": "Each pays becomes $50.00 at 25%", "state": "fail"}},
+   "checks": {"total": 4, "passed": 2, "failed": 2, "pending": 0, "text": "2 of 4 checks",
+              "current": {"id": "each-25", "text": "Each pays becomes $50.00 at 25%", "state": "fail", "saw": "$10.00"},
+              "items": [{"id": "each-25", "text": "Each pays becomes $50.00 at 25%", "state": "fail", "saw": "$10.00"},
+                        {"id": "each", "text": "Each pays is $48.00 for 3 people", "state": "fail", "saw": "$8.00"},
+                        {"id": "window", "text": "Window shows Bill, Tip and People", "state": "pass"},
+                        {"id": "tip", "text": "Tip is $24.00 for $120 at 20%", "state": "pass"}]},
    "failing": {"text": "Each pays becomes $50.00 at 25%", "expected": "$50.00", "saw": "$10.00",
                "observed": "After choosing 25%, Each pays reads $10.00.", "step": 5,
                "picture": {"kind": "screenshot", "file": "005-screenshot.png", "url": "/api/runs/<id>/artifacts/005-screenshot.png"},
@@ -218,7 +222,10 @@ Each layer depends only on the ones below. Keep it that way.
   "machine stopped", "machine destroyed" and "human destroyed" events, the
   "nobody will answer"/"nothing will answer" notices, and `machine.ScreenNotAnsweringError`'s
   "screen is not answering"; change them together. Golden: `testdata/board.golden.json`, the
-  runs docs/20's Figma screens show; `go test ./internal/summary -update` rewrites it.
+  runs docs/20's Figma screens show, and `testdata/live.golden.json`, a run recorded on a real
+  machine (`testdata/<runId>/`: manifest, conversation, steps, first frame lines) replayed at
+  nine moments; `go test ./internal/summary -update` rewrites both. `found_test.go` holds each
+  rule that run taught.
 - `internal/diskimage` - a stopped VM's raw disk read on the host (`MountReadOnly`): a
   clonefile copy attached read-only with `hdiutil -nomount`, only its APFS Data volume
   mounted, read-only and `nobrowse`; `Close` unmounts, detaches and removes it. Shells out to
