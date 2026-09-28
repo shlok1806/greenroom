@@ -125,3 +125,24 @@ func testTheCheckLogChargesWaitsToTheCheckThatHeldUp() {
     expectEqual((wire[5]["detail"] as? [String: Any])?["of"] as? Int, 2)
     expect(JSONSerialization.isValidJSONObject(["checks": wire]), "the log is JSON")
 }
+
+func testAPointIsAmbiguousOnlyOnAControlWithARef() {
+    // A line of a text area (the text area has a ref): a press by ref cannot aim at that line.
+    expect(pointAliasIndex(roles: ["AXTextArea", "AXScrollArea", "AXWindow"], hasRef: [true, true, true]) == nil,
+           "a text area's line")
+    expect(pointAliasIndex(roles: ["AXWebArea", "AXScrollArea"], hasRef: [true, true]) == nil, "a web area")
+    expect(pointAliasIndex(roles: ["AXImage", "AXGroup", "AXWindow"], hasRef: [true, true, true]) == nil, "an image")
+    expect(pointAliasIndex(roles: ["AXGroup", "AXWindow"], hasRef: [true, true]) == nil, "a canvas group")
+    // A control is one thing to press, wherever the point is on it.
+    expectEqual(pointAliasIndex(roles: ["AXButton", "AXGroup", "AXWindow"], hasRef: [true, false, true]), 0, "a button")
+    expectEqual(pointAliasIndex(roles: ["AXTextField", "AXWindow"], hasRef: [true, true]), 0, "a text field")
+    // A label inside a button names the button.
+    expectEqual(pointAliasIndex(roles: ["AXStaticText", "AXButton", "AXWindow"], hasRef: [true, true, true]), 1,
+                "a label inside a button")
+    expectEqual(pointAliasIndex(roles: ["AXStaticText", "AXLink", "AXWebArea"], hasRef: [false, true, true]), 1,
+                "text inside a link")
+    // A control without a ref is pressed at its point; so is one beyond what holds the hit.
+    expect(pointAliasIndex(roles: ["AXButton", "AXWindow"], hasRef: [false, true]) == nil, "a button with no ref")
+    expect(pointAliasIndex(roles: ["AXStaticText", "AXGroup", "AXButton"], hasRef: [true, true, true]) == nil,
+           "a button outside the group that holds the hit")
+}

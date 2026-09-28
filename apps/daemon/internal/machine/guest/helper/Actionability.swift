@@ -37,9 +37,9 @@ struct ActionTarget {
     let waitedMs: Int
     /// The element had the keyboard focus already.
     let focused: Bool
-    /// The checks scrolled something or brought an app to the front, so the before tree the
-    /// caller read is out of date.
-    let changedUI: Bool
+    /// The ref's own element was gone and its fingerprint found this one, in any try of the
+    /// checks (a later try finds the ref already rebound).
+    let reResolved: Bool
 }
 
 private enum TryOutcome {
@@ -62,6 +62,7 @@ func actionable(_ ref: String, call: Call, timeoutMs: Int, plan: CheckPlan, rese
     var log = CheckLog()
     var notes: [String] = []
     var changedUI = false
+    var reResolved = false
     var attempt = 0
     var lastLook: Look?
     var lastFailure: (check: ActionCheck, reason: String, detail: [String: Any]?, cause: [String: Any]?, message: String)?
@@ -98,7 +99,10 @@ func actionable(_ ref: String, call: Call, timeoutMs: Int, plan: CheckPlan, rese
             pid = look.pid
             watch(look.pid)
         }
-        if look.reResolved { log.note(.attached, ["reResolved": true]) }
+        if look.reResolved {
+            reResolved = true
+            log.note(.attached, ["reResolved": true])
+        }
 
         let outcome = busy("ax") {
             tryChecks(look, call: call, plan: plan, log: &log, notes: &notes, changedUI: &changedUI, until: end)
@@ -109,7 +113,7 @@ func actionable(_ ref: String, call: Call, timeoutMs: Int, plan: CheckPlan, rese
             // action reports as its target.
             let final = changedUI ? ((try? busy("ax") { try lookForAction(ref, call: call, until: call.deadline) }) ?? look) : look
             return ActionTarget(look: final, point: point, tried: tried, log: log, notes: notes,
-                                waitedMs: elapsedMs(), focused: focused, changedUI: changedUI)
+                                waitedMs: elapsedMs(), focused: focused, reResolved: reResolved)
         case let .failed(check, reason, detail, cause, message):
             log.note(check, detail)
             lastFailure = (check, reason, detail, cause, message)

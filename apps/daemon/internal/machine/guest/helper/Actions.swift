@@ -36,6 +36,11 @@ func registerActionOps() {
 /// checks end: the settle's 2 s, a tree, and room to answer.
 private let effectReserve: TimeInterval = 3.5
 
+/// What the checks leave of a call's deadline: the effect's reserve and the before tree, which is
+/// read once the checks pass. Read before the checks, it would count what changed during their
+/// wait (a button becoming enabled) as the action's effect.
+private let checksReserve: TimeInterval = effectReserve + 1.5
+
 // MARK: - The run of one action
 
 /// The part every action shares: the before tree, the settle and the after tree of its app.
@@ -55,8 +60,10 @@ final class ActionRun {
         max(0.2, min(1.5, call.remaining - keep))
     }
 
-    /// Reads the before tree. A fresh agent's first read of a window can see its chrome add a
-    /// child, so one signature is taken first to let that happen before the tree that counts.
+    /// Reads the before tree, once the checks have passed and right before the input, so what
+    /// changed while they waited is not the action's effect. A fresh agent's first read of a
+    /// window can see its chrome add a child, so one signature is taken first to let that happen
+    /// before the tree that counts.
     func readBefore() {
         _ = busy("ax") { treeSignature(app, call: call, budget: 0.5) }
         before = busy("ax") { appTree(app, reader: call.reader, call: call, budget: treeBudget(keep: effectReserve)) }
@@ -89,7 +96,7 @@ private func checkedFields(_ target: ActionTarget, via: String) -> [String: Any]
     if let point = target.point { result["point"] = wirePoint(point) }
     if !target.tried.isEmpty { result["tried"] = target.tried.map(wirePoint) }
     if !target.notes.isEmpty { result["notes"] = target.notes }
-    if target.look.reResolved { result["reResolved"] = true }
+    if target.reResolved { result["reResolved"] = true }
     return result
 }
 
@@ -281,9 +288,8 @@ private func pressRef(_ ref: String, button: String, count: Int, mods: [String],
     let timeoutMs = actionTimeoutMs(args.timeoutMs)
     let app = try appOfRef(ref, call: call)
     let run = ActionRun(app: app, call: call)
+    let target = try actionable(ref, call: call, timeoutMs: timeoutMs, plan: CheckPlan(), reserve: checksReserve)
     run.readBefore()
-    let target = try actionable(ref, call: call, timeoutMs: timeoutMs, plan: CheckPlan(), reserve: effectReserve)
-    if target.changedUI { run.readBefore() }
     guard let point = target.point else {
         throw AgentFailure("internal", "the checks cleared \(ref) without a point to press")
     }
@@ -300,11 +306,11 @@ private func pressByAX(_ ref: String, args: PressArgs, call: Call) throws -> [St
     let timeoutMs = actionTimeoutMs(args.timeoutMs)
     let app = try appOfRef(ref, call: call)
     let run = ActionRun(app: app, call: call)
-    run.readBefore()
     var plan = CheckPlan()
     plan.pointer = false
     plan.frontmost = false
-    let target = try actionable(ref, call: call, timeoutMs: timeoutMs, plan: plan, reserve: effectReserve)
+    let target = try actionable(ref, call: call, timeoutMs: timeoutMs, plan: plan, reserve: checksReserve)
+    run.readBefore()
     let listed = actionNames(target.look.element)
     guard let action = [kAXPressAction, kAXConfirmAction, kAXPickAction].first(where: listed.contains) else {
         throw AgentFailure("bad_request", "\(targetLabel(target.look)) lists no press action (it lists \(listed.isEmpty ? "none" : listed.joined(separator: ", "))); press it with the pointer")
@@ -329,17 +335,19 @@ private func pressByAX(_ ref: String, args: PressArgs, call: Call) throws -> [St
     return result.merging(run.finish(settled)) { $1 }
 }
 
-/// The element at a point that has a ref in the reader's table: the hit itself, or what holds it
-/// up to the first container (a label inside a button is the button's). A container's ref (a
-/// window, a scroll area, a canvas group) never makes a point ambiguous: a point is how content
-/// inside one is pressed.
+/// The control at a point that has a ref in the reader's table and that a press by that ref
+/// reaches the same way: the hit itself, or what holds it up to the first container (a label
+/// inside a button is the button's). Anything else with a ref (a window, a scroll area, a text
+/// area, a web area, a canvas group, an image) never makes a point ambiguous: a point is how a
+/// line of text or content inside one is pressed (`pointAliasIndex`).
 private func refAtPoint(_ hit: AXUIElement, reader: String) -> (ref: String, element: AXUIElement)? {
     guard let context = elementContext(hit).context else { return nil }
-    for (index, handle) in context.chain.enumerated() {
-        if holderRoles.contains(context.reads[index].role) { break }
-        if let ref = knownRef(handle.element, reader: reader) { return (ref, handle.element) }
-    }
-    return nil
+    let count = min(context.chain.count, context.reads.count)
+    let chain = context.chain.prefix(count)
+    let refs = chain.map { knownRef($0.element, reader: reader) }
+    guard let index = pointAliasIndex(roles: context.reads.prefix(count).map(\.role), hasRef: refs.map { $0 != nil }),
+          let ref = refs[index] else { return nil }
+    return (ref, chain[index].element)
 }
 
 private func pressPoint(_ values: [Double], button: String, count: Int, mods: [String], args: PressArgs, call: Call) throws -> [String: Any] {
@@ -446,12 +454,11 @@ private func typeText(_ args: TypeArgs, call: Call) throws -> [String: Any] {
     if let ref = meaningful(args.ref) {
         app = try appOfRef(ref, call: call)
         run = ActionRun(app: app, call: call)
-        run.readBefore()
         var plan = CheckPlan()
         plan.pointerUnlessFocused = true
         plan.editable = .text
-        let cleared = try actionable(ref, call: call, timeoutMs: timeoutMs, plan: plan, reserve: effectReserve)
-        if cleared.changedUI { run.readBefore() }
+        let cleared = try actionable(ref, call: call, timeoutMs: timeoutMs, plan: plan, reserve: checksReserve)
+        run.readBefore()
         target = cleared
         element = cleared.look.element
     } else {
@@ -597,12 +604,12 @@ private func setValue(_ args: SetValueArgs, call: Call) throws -> [String: Any] 
     let timeoutMs = actionTimeoutMs(args.timeoutMs)
     let app = try appOfRef(args.ref, call: call)
     let run = ActionRun(app: app, call: call)
-    run.readBefore()
     var plan = CheckPlan()
     plan.pointer = false
     plan.frontmost = false
     plan.editable = .value
-    let target = try actionable(args.ref, call: call, timeoutMs: timeoutMs, plan: plan, reserve: effectReserve)
+    let target = try actionable(args.ref, call: call, timeoutMs: timeoutMs, plan: plan, reserve: checksReserve)
+    run.readBefore()
     let element = target.look.element
     let asked = args.value.text
     let secret = target.look.read.secret
@@ -694,14 +701,13 @@ private func pressKey(_ args: KeyArgs, call: Call) throws -> [String: Any] {
     if let ref = meaningful(args.ref) {
         app = try appOfRef(ref, call: call)
         run = ActionRun(app: app, call: call)
-        run.readBefore()
         // Focus by AXFocused when the element takes it, else by a press with every check.
         let resolved = try resolveRef(ref, reader: call.reader, until: min(call.deadline, .now() + .seconds(3)))
         var plan = CheckPlan()
         plan.pointerUnlessFocused = true
         if isSettable(resolved.element, kAXFocusedAttribute) { plan.pointer = false }
-        let cleared = try actionable(ref, call: call, timeoutMs: timeoutMs, plan: plan, reserve: effectReserve)
-        if cleared.changedUI { run.readBefore() }
+        let cleared = try actionable(ref, call: call, timeoutMs: timeoutMs, plan: plan, reserve: checksReserve)
+        run.readBefore()
         target = cleared
         try call.check()
         if !cleared.focused {

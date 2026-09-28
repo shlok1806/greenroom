@@ -237,7 +237,7 @@ func TestActionTextPutsEverythingInOrder(t *testing.T) {
 	}
 	want := `pressed e41 Button "Open run" at (0.332, 0.469) (pointer click, point 2 of 9)
 waited 1.3 s for the target to become actionable (stable 1.1 s, receivesEvents 0.1 s)
-note: e41 named an element that was replaced; it was matched again by fingerprint, uniquely
+note: e41 was re-resolved (its element was rebuilt; it was matched again by fingerprint, uniquely)
 note: scrolled e41 into view in e20
 note: activated TipSplit effect: no change
 overlay: after the input the point hits e80 Sheet "Save changes?", not the target; something opened over it or took the input
@@ -253,6 +253,62 @@ effect: 1 change in "TipSplit"
 effect: no change in "TipSplit" after 0.3 s`
 	if got := ActionText(Action{Op: OpPress, Ref: "e41"}, quick, screen); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestActionTextNamesTheTargetByTheRefItHasNow(t *testing.T) {
+	amount := with(el("e143", "TextField", "Amount", 1), func(n *Node) { n.Frame, n.Vis = Rect{323, 196, 160, 24}, Rect{323, 196, 160, 24} })
+	set := Action{Op: OpSetValue, Ref: "e101", Value: "50"}
+	ok := true
+	for _, tc := range []struct {
+		name   string
+		target Node
+		listed string // the ref the before and after trees list the field under
+		re     bool
+		want   string
+	}{
+		{"the agent re-resolved e101 to the element the walks call e143", amount, "e143", true,
+			`set e143 TextField "Amount" to "50" through accessibility (not a user input); it shows "50"
+note: e101 was re-resolved to e143 (its element was rebuilt)
+effect: 1 change in "TipSplit"
+  e143 TextField "Amount": value "" -> "50"`},
+		{"the agent re-resolved e101 and it kept its ref", with(amount, func(n *Node) { n.Ref = "e101" }), "e101", true,
+			`set e101 TextField "Amount" to "50" through accessibility (not a user input); it shows "50"
+note: e101 was re-resolved (its element was rebuilt; it was matched again by fingerprint, uniquely)
+effect: 1 change in "TipSplit"
+  e101 TextField "Amount": value "" -> "50"`},
+		// The live run: e101's old element still answered, while the walks list the rebuilt one,
+		// in the same place, as e143.
+		{"e101's element still answers but the walks list it as e143", with(amount, func(n *Node) { n.Ref, n.Depth = "e101", 2 }), "e143", false,
+			`set e143 TextField "Amount" to "50" through accessibility (not a user input); it shows "50"
+note: e101 is listed as e143 now (its element was rebuilt); use e143 from here on
+effect: 1 change in "TipSplit"
+  e143 TextField "Amount": value "" -> "50"`},
+		{"a target the trees list under its own ref", with(amount, func(n *Node) { n.Ref = "e101" }), "e101", false,
+			`set e101 TextField "Amount" to "50" through accessibility (not a user input); it shows "50"
+effect: 1 change in "TipSplit"
+  e101 TextField "Amount": value "" -> "50"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			listed := with(amount, func(n *Node) { n.Ref = tc.listed })
+			filled := with(listed, func(n *Node) { n.Value = "50" })
+			before, after := tree(window("e1", "NavLab"), listed), tree(window("e1", "NavLab"), filled)
+			target := tc.target
+			r := ActionResult{Target: &target, Via: "ax", ReadBack: &filled.Value, ReadBackOK: &ok, ReResolved: tc.re,
+				Before: &before, After: &after, Settled: true, SettledMs: 300}
+			if got := ActionText(set, r, screen); got != tc.want {
+				t.Errorf("got:\n%s\nwant:\n%s", got, tc.want)
+			}
+		})
+	}
+
+	// Another element of the same role and frame in another window is not the target.
+	elsewhere := with(amount, func(n *Node) { n.Window = "e2" })
+	other := tree(window("e1", "NavLab"), window("e2", "Other"), elsewhere)
+	target := with(amount, func(n *Node) { n.Ref = "e101" })
+	r := ActionResult{Target: &target, Via: "ax", Before: &other, After: &other, Settled: true}
+	if got := ActionText(set, r, screen); !strings.HasPrefix(got, `set e101 TextField "Amount"`) || strings.Contains(got, "e143") {
+		t.Errorf("an element of another window was taken for the target:\n%s", got)
 	}
 }
 

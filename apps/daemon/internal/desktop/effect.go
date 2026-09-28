@@ -165,12 +165,24 @@ func (a Action) Redacted(r ActionResult) Action {
 // ActionText is everything a model reads after an action: the lead line, how long the checks
 // waited, the agent's notes, an overlay, and the effect.
 func ActionText(a Action, r ActionResult, s Screen) string {
+	now := currentRef(a, r)
+	if now != "" && r.Target != nil {
+		// The lead names the element by the ref the snapshots and the effect below use.
+		t := *r.Target
+		t.Ref = now
+		r.Target = &t
+	}
 	lines := []string{LeadLine(a, r, s)}
 	if w := waitedLine(r); w != "" {
 		lines = append(lines, w)
 	}
-	if r.ReResolved {
-		lines = append(lines, fmt.Sprintf("note: %s named an element that was replaced; it was matched again by fingerprint, uniquely", word(a.Ref)))
+	switch {
+	case r.ReResolved && now != "":
+		lines = append(lines, fmt.Sprintf("note: %s was re-resolved to %s (its element was rebuilt)", word(a.Ref), word(now)))
+	case r.ReResolved:
+		lines = append(lines, fmt.Sprintf("note: %s was re-resolved (its element was rebuilt; it was matched again by fingerprint, uniquely)", word(a.Ref)))
+	case now != "":
+		lines = append(lines, fmt.Sprintf("note: %s is listed as %s now (its element was rebuilt); use %s from here on", word(a.Ref), word(now), word(now)))
 	}
 	for _, n := range r.Notes {
 		lines = append(lines, "note: "+oneLine(n))
@@ -180,6 +192,38 @@ func ActionText(a Action, r ActionResult, s Screen) string {
 	}
 	lines = append(lines, EffectOf(r).Text())
 	return strings.Join(lines, "\n")
+}
+
+// currentRef is the ref the walks list an action's target under when that is not the ref the
+// call named, else "". Either the agent re-resolved the named ref to a rebuilt element that
+// already had a ref of its own (it sends the target under that ref), or the named ref's old
+// element still answers (a SwiftUI view rebuilt in place can keep its old element alive) while
+// the before tree lists the rebuilt one under another ref: the one element of the target's
+// window with its role, name and frame, where the named ref is not listed at all.
+func currentRef(a Action, r ActionResult) string {
+	if a.Ref == "" || r.Target == nil {
+		return ""
+	}
+	if t := r.Target.Ref; t != "" && t != a.Ref {
+		return t
+	}
+	if r.Before == nil || r.Target.Frame.Empty() {
+		return ""
+	}
+	found := ""
+	for _, n := range r.Before.Nodes {
+		if n.Ref == a.Ref {
+			return ""
+		}
+		if n.Role != r.Target.Role || n.Name != r.Target.Name || n.Frame != r.Target.Frame || n.Window != r.Target.Window {
+			continue
+		}
+		if found != "" {
+			return ""
+		}
+		found = n.Ref
+	}
+	return found
 }
 
 // LeadLine is the first line of an action's result, saying what was done to what:
