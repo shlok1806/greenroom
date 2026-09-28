@@ -1,6 +1,7 @@
 # 0005. A keyboard model with bare keys, and one action registry
 
 Date: 2026-09-23
+Update 2026-09-27: The hint bar is superseded by 0019; the keys stay, shown in menus and Cmd-K.
 Status: accepted. Builds on ADR 0004. Replaces the keyboard table of the round-2 spec.
 
 ## Context

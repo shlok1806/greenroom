@@ -262,3 +262,29 @@ func TestTheEventStreamSendsASummaryWhenARunChanges(t *testing.T) {
 		}
 	}
 }
+
+func TestASummaryWarnsWhenTheMacRunsLowOnFiles(t *testing.T) {
+	h := newHarness(t, machine.WithFileCheck(machine.FileCheck{
+		Interval: 20 * time.Millisecond,
+		Count:    func(context.Context, int) (int, error) { return 250, nil },
+		Limit:    func() (uint64, bool) { return 256, true },
+	}))
+	runID := h.create()
+	if _, err := h.mgr.Wait(context.Background(), runID, 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s := h.summary(runID)
+		if s.Machine.Warning == summary.LowOnFilesWarning {
+			if s.Group != summary.NeedsYou {
+				t.Fatalf("a Mac low on resources should need you, got %s", s.Group)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no low-resources warning: %+v", s.Machine)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

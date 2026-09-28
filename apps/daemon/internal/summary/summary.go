@@ -179,7 +179,17 @@ type CheckRef struct {
 	ID    string `json:"id,omitempty"`
 	Text  string `json:"text"`
 	State string `json:"state"` // pass, fail, pending
-	Saw   string `json:"saw,omitempty"`
+	// Saw is the value a failed check saw; for a passed check, the value it read when its
+	// words and its observation name the same one (Agreement).
+	Saw string `json:"saw,omitempty"`
+	// Expected, Observed, Step, Picture and Mark are a verdict check's proof, as for Failing:
+	// the Companion's check rows and evidence frame read them (companion ADR 0019). Absent on
+	// Current and on a plan's rows.
+	Expected string   `json:"expected,omitempty"`
+	Observed string   `json:"observed,omitempty"`
+	Step     int      `json:"step,omitempty"`
+	Picture  *Picture `json:"picture,omitempty"`
+	Mark     *Box     `json:"mark,omitempty"`
 }
 
 // Failing is the first failing check and what shows it.

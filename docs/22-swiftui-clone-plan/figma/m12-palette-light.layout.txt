@@ -1,0 +1,199 @@
+# Figma node 13:1560, "12 Cmd-K command palette (1280x800, light)", read with use_figma on 2026-09-28.
+# One layer per line: path;x;y;width;height[;text], points from the frame's top left. Paths are
+# layer names joined by "/", with [i] when a parent has more than one child of that name.
+Sidebar;0;0;248;800
+Sidebar/Titlebar;0;0;247;52
+Sidebar/Titlebar/Traffic lights;20;20;52;12
+Sidebar/Titlebar/Icon button;207;12;28;28
+Sidebar/Titlebar/Icon button/Icon/search;213;18;16;16
+Sidebar/Runs;0;52;247;704
+Sidebar/Runs/Group[0];8;52;231;30
+Sidebar/Runs/Group[0]/Text;16;64;57;14;Needs you
+Sidebar/Runs/Run row[0];8;84;231;32
+Sidebar/Runs/Run row[0]/Glyph;16;92;16;16
+Sidebar/Runs/Run row[0]/Name;40;91;144;18;TipSplit: split the bill
+Sidebar/Runs/Run row[0]/Meta;192;93;39;14;2 failed
+Sidebar/Runs/Run row[1];8;118;231;32
+Sidebar/Runs/Run row[1]/Glyph;16;126;16;16
+Sidebar/Runs/Run row[1]/Name;40;125;166;18;WordCount: case buttons
+Sidebar/Runs/Run row[1]/Meta;214;127;17;14;8m
+Sidebar/Runs/Group[1];8;152;231;30
+Sidebar/Runs/Group[1]/Text;16;164;44;14;Running
+Sidebar/Runs/Run row[2];8;184;231;32
+Sidebar/Runs/Run row[2]/Glyph;16;192;16;16
+Sidebar/Runs/Run row[2]/Name;40;191;163;18;UnitConvert: Temperature
+Sidebar/Runs/Run row[2]/Meta;211;193;20;14;1:12
+Sidebar/Runs/Run row[3];8;218;231;32
+Sidebar/Runs/Run row[3]/Glyph;16;226;16;16
+Sidebar/Runs/Run row[3]/Name;40;225;159;18;TodoList: summary line
+Sidebar/Runs/Run row[3]/Meta;207;227;24;14;0:24
+Sidebar/Runs/Group[2];8;252;231;30
+Sidebar/Runs/Group[2]/Text;16;264;28;14;Done
+Sidebar/Runs/Run row[4];8;284;231;32
+Sidebar/Runs/Run row[4]/Glyph;16;292;16;16
+Sidebar/Runs/Run row[4]/Name;40;291;169;18;WordCount: longest word
+Sidebar/Runs/Run row[4]/Meta;217;293;14;14;2h
+Sidebar/Runs/Run row[5];8;318;231;32
+Sidebar/Runs/Run row[5]/Glyph;16;326;16;16
+Sidebar/Runs/Run row[5]/Name;40;325;169;18;TodoList: Clear done
+Sidebar/Runs/Run row[5]/Meta;217;327;14;14;5h
+Sidebar/Runs/Run row[6];8;352;231;32
+Sidebar/Runs/Run row[6]/Glyph;16;360;16;16
+Sidebar/Runs/Run row[6]/Name;40;359;171;18;UnitConvert: result size
+Sidebar/Runs/Run row[6]/Meta;219;361;12;14;1d
+Sidebar/Runs/Run row[7];8;386;231;32
+Sidebar/Runs/Run row[7]/Glyph;16;394;16;16
+Sidebar/Runs/Run row[7]/Name;40;393;171;18;TodoList: add item
+Sidebar/Runs/Run row[7]/Meta;219;395;12;14;1d
+Sidebar/Runs/Run row[8];8;420;231;32
+Sidebar/Runs/Run row[8]/Glyph;16;428;16;16
+Sidebar/Runs/Run row[8]/Name;40;427;169;18;WordCount: keeps text
+Sidebar/Runs/Run row[8]/Meta;217;429;14;14;2d
+Sidebar/Runs/More;8;454;231;26
+Sidebar/Runs/More/Text;40;460;76;14;Show 38 more
+Sidebar/Footer;0;756;247;44
+Sidebar/Footer/Icon/machine;16;771.5;14;14
+Sidebar/Footer/Text;38;771.5;165;14;2 of 3 Macs free
+Sidebar/Footer/Icon button;211;764.5;28;28
+Sidebar/Footer/Icon button/Icon/settings;217;770.5;16;16
+Run;248;0;1032;800
+Run/Toolbar;248;0;1032;52
+Run/Toolbar/Run name;272;16.5;125;18;TipSplit: split the bill
+Run/Toolbar/Run meta;405;16.5;184;18;from Claude Code, 12 min ago
+Run/Toolbar/Toolbar button[0];1042;11.5;86;28
+Run/Toolbar/Toolbar button[0]/Icon/activity;1050;17.5;16;16
+Run/Toolbar/Toolbar button[0]/Text;1072;16.5;46;18;Activity
+Run/Toolbar/Toolbar button[1];1136;11.5;96;28
+Run/Toolbar/Toolbar button[1]/Icon/message;1144;17.5;16;16
+Run/Toolbar/Toolbar button[1]/Text;1166;16.5;56;18;Message
+Run/Toolbar/Icon button;1240;11.5;28;28
+Run/Toolbar/Icon button/Icon/more;1246;17.5;16;16
+Run/Header;248;52;1032;81
+Run/Header/Status;272;68;813;48
+Run/Header/Status/Outcome;272;68;198;28
+Run/Header/Status/Outcome/Glyph;272;72;20;20
+Run/Header/Status/Outcome/Status word;302;68;62;28;Failed
+Run/Header/Status/Outcome/Tally;374;72;96;20;2 of 4 checks
+Run/Header/Status/Now;272;98;240;18
+Run/Header/Status/Now/Now text;302;98;210;18;Proposed by the verifier after 3:26
+Run/Header/Button[0];1093;78;65;28
+Run/Header/Button[0]/Text;1106;83;39;18;Reject
+Run/Header/Button[1];1166;78;90;28
+Run/Header/Button[1]/Text;1178;83;66;18;Accept fail
+Run/Body;248;133;1032;667
+Run/Body/Checks;248;133;400;667
+Run/Body/Checks/Heading;264;149;367;24
+Run/Body/Checks/Heading/Text;276;153;41;14;Checks
+Run/Body/Checks/Check row[0];264;175;367;60
+Run/Body/Checks/Check row[0]/Top;276;185;343;18
+Run/Body/Checks/Check row[0]/Top/GlyphBox;276;185;16;18
+Run/Body/Checks/Check row[0]/Top/Label;302;185;237;18;Each pays becomes $50.00 at 25%
+Run/Body/Checks/Check row[0]/Top/Meta;549;185;70;18;saw $10.00
+Run/Body/Checks/Check row[0]/DetailWrap;276;207;343;18
+Run/Body/Checks/Check row[0]/DetailWrap/Detail;302;207;317;18;Bill 120, 3 people, then 25%.
+Run/Body/Checks/Check row[1];264;237;367;38
+Run/Body/Checks/Check row[1]/Top;276;247;343;18
+Run/Body/Checks/Check row[1]/Top/GlyphBox;276;247;16;18
+Run/Body/Checks/Check row[1]/Top/Label;302;247;243;18;Each pays is $48.00 for 3 people
+Run/Body/Checks/Check row[1]/Top/Meta;555;247;64;18;saw $8.00
+Run/Body/Checks/Check row[2];264;277;367;38
+Run/Body/Checks/Check row[2]/Top;276;287;343;18
+Run/Body/Checks/Check row[2]/Top/GlyphBox;276;287;16;18
+Run/Body/Checks/Check row[2]/Top/Label;302;287;317;18;Tip is $24.00 for $120 at 20%
+Run/Body/Checks/Check row[3];264;317;367;38
+Run/Body/Checks/Check row[3]/Top;276;327;343;18
+Run/Body/Checks/Check row[3]/Top/GlyphBox;276;327;16;18
+Run/Body/Checks/Check row[3]/Top/Label;302;327;317;18;Window shows Bill, Tip and People
+Run/Body/Stage;648;133;632;667
+Run/Body/Stage/Evidence;680;196.5;568;466
+Run/Body/Stage/Evidence/Screen;680;196.5;568;426
+Run/Body/Stage/Evidence/Screen/Evidence mark;854;466.5;141;26
+Run/Body/Stage/Evidence/Caption;680;634.5;568;28
+Run/Body/Stage/Evidence/Caption/Text;680;638.5;458;20;Expected $50.00, saw $10.00
+Run/Body/Stage/Evidence/Caption/Toolbar button;1146;634.5;102;28
+Run/Body/Stage/Evidence/Caption/Toolbar button/Icon/video;1154;640.5;16;16
+Run/Body/Stage/Evidence/Caption/Toolbar button/Text;1176;639.5;62;18;Recording
+Run/Body/Stage/Filmstrip;680;686.5;568;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[0];680;686.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[0]/Frame;680;686.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[0]/Mark;680;741.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[1];751.43;686.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[1]/Frame;751.43;686.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[1]/Mark;751.43;741.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[2];822.86;686.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[2]/Frame;822.86;686.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[2]/Mark;822.86;741.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[3];894.29;686.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[3]/Frame;894.29;686.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[3]/Mark;894.29;741.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[4];965.71;686.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[4]/Frame;965.71;686.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[4]/Mark;965.71;741.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[5];1037.14;686.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[5]/Frame;1037.14;686.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[5]/Mark;1037.14;741.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[6];1108.57;686.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[6]/Frame;1108.57;686.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[6]/Mark;1108.57;741.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[7];1180;686.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[7]/Frame;1180;686.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[7]/Mark;1180;741.5;68;3
+Scrim;0;0;1280;800
+Palette;360;112;560;444
+Palette/Query;360;112;560;52
+Palette/Query/Icon/search;376;129.5;16;16
+Palette/Query/Text;402;127.5;463;20;Search runs and actions
+Palette/Query/Keycap;875;127.5;29;20
+Palette/Query/Keycap/Text;880;130.5;19;14;esc
+Palette/Section[0];360;164;560;30
+Palette/Section[0]/Text;380;176;44;14;This run
+Palette/Frame[0];360;194;560;36
+Palette/Frame[0]/Palette row;368;194;544;36
+Palette/Frame[0]/Palette row/Icon/check;380;204;16;16
+Palette/Frame[0]/Palette row/Label;408;203;446;18;Accept fail
+Palette/Frame[0]/Palette row/Shortcut;866;202;34;20
+Palette/Frame[0]/Palette row/Shortcut/Text;871;205;24;14;⌘↩
+Palette/Frame[1];360;230;560;36
+Palette/Frame[1]/Palette row;368;230;544;36
+Palette/Frame[1]/Palette row/Icon;380;240;16;16
+Palette/Frame[1]/Palette row/Label;408;239;445;18;Reject
+Palette/Frame[1]/Palette row/Shortcut;865;238;35;20
+Palette/Frame[1]/Palette row/Shortcut/Text;870;241;25;14;⌘⌫
+Palette/Frame[2];360;266;560;36
+Palette/Frame[2]/Palette row;368;266;544;36
+Palette/Frame[2]/Palette row/Icon;380;276;16;16
+Palette/Frame[2]/Palette row/Label;408;275;462;18;Open activity
+Palette/Frame[2]/Palette row/Shortcut;882;274;18;20
+Palette/Frame[2]/Palette row/Shortcut/Text;887;277;8;14;A
+Palette/Frame[3];360;302;560;36
+Palette/Frame[3]/Palette row;368;302;544;36
+Palette/Frame[3]/Palette row/Icon;380;312;16;16
+Palette/Frame[3]/Palette row/Label;408;311;460;18;Message the verifier
+Palette/Frame[3]/Palette row/Shortcut;880;310;20;20
+Palette/Frame[3]/Palette row/Shortcut/Text;885;313;10;14;M
+Palette/Frame[4];360;338;560;36
+Palette/Frame[4]/Palette row;368;338;544;36
+Palette/Frame[4]/Palette row/Icon;380;348;16;16
+Palette/Frame[4]/Palette row/Label;408;347;462;18;Play the recording
+Palette/Frame[4]/Palette row/Shortcut;882;346;18;20
+Palette/Frame[4]/Palette row/Shortcut/Text;887;349;8;14;R
+Palette/Frame[5];360;374;560;36
+Palette/Frame[5]/Palette row;368;374;544;36
+Palette/Frame[5]/Palette row/Icon;380;384;16;16
+Palette/Frame[5]/Palette row/Label;408;383;450;18;Copy run link
+Palette/Frame[5]/Palette row/Shortcut;870;382;30;20
+Palette/Frame[5]/Palette row/Shortcut/Text;875;385;20;14;⌘C
+Palette/Section[1];360;410;560;30
+Palette/Section[1]/Text;380;422;50;14;Go to run
+Palette/Frame[6];360;440;560;36
+Palette/Frame[6]/Palette row;368;440;544;36
+Palette/Frame[6]/Palette row/Icon;380;450;16;16
+Palette/Frame[6]/Palette row/Label;408;449;492;18;WordCount: case buttons
+Palette/Frame[7];360;476;560;36
+Palette/Frame[7]/Palette row;368;476;544;36
+Palette/Frame[7]/Palette row/Icon;380;486;16;16
+Palette/Frame[7]/Palette row/Label;408;485;492;18;UnitConvert: Temperature
+Palette/Frame[8];360;512;560;36
+Palette/Frame[8]/Palette row;368;512;544;36
+Palette/Frame[8]/Palette row/Icon;380;522;16;16
+Palette/Frame[8]/Palette row/Label;408;521;492;18;TodoList: Clear done

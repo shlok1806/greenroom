@@ -171,8 +171,12 @@ func defaultWords(s Summary) []string {
 	}
 	for _, row := range s.Checks.Items {
 		parts = append(parts, row.Text)
-		if row.Saw != "" {
+		switch {
+		case row.Saw == "":
+		case row.State == "fail":
 			parts = append(parts, "saw "+row.Saw)
+		default:
+			parts = append(parts, row.Saw) // a pass shows the value it read, alone
 		}
 	}
 	if f := s.Failing; f != nil {

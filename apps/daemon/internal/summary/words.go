@@ -475,7 +475,7 @@ func tally(in Input, f derived, st State) Checks {
 	for _, want := range []string{"fail", "pending", "pass"} {
 		for _, c := range in.Verdict.Checks {
 			if row := checkRow(c); row.State == want {
-				out.Items = append(out.Items, row)
+				out.Items = append(out.Items, withProof(in, row, c))
 			}
 		}
 	}
@@ -506,9 +506,30 @@ func tally(in Input, f derived, st State) Checks {
 		out.Text = fmt.Sprintf("%d of %d %s passed", out.Passed, out.Total, plural(out.Total, "check"))
 	}
 	if first := out.Items[0]; first.State != "pass" {
-		out.Current = &first
+		out.Current = &CheckRef{ID: first.ID, Text: first.Text, State: first.State, Saw: first.Saw}
 	}
 	return out
+}
+
+// withProof adds a verdict check's values and proof to its row: what should have been, what
+// the evidence showed, and the picture and mark that show it (companion ADR 0019).
+func withProof(in Input, row CheckRef, c session.Check) CheckRef {
+	observed := plain(c.Observed)
+	row.Observed = clipWords(observed, observedWords)
+	switch row.State {
+	case "fail":
+		row.Expected, _ = Disagreement(c.Criterion, observed)
+	case "pass":
+		// A number the pass read ("$24.00"); quoted text would repeat the row's own words.
+		if v := Agreement(c.Criterion, observed); v != "" && valueKind(v) != "text" {
+			row.Saw = v
+		}
+	}
+	row.Step, row.Picture = evidencePicture(in, c.Evidence)
+	if row.Picture != nil && row.Saw != "" {
+		row.Mark = markFor(in.Steps, c.Evidence, row.Step, row.Saw)
+	}
+	return row
 }
 
 // checkRow is a check as a row. A check with no answer yet is pending.

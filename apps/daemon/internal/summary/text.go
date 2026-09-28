@@ -262,6 +262,18 @@ func has(vals []found, v string) bool {
 	return slices.ContainsFunc(vals, func(f found) bool { return f.v == v })
 }
 
+// Agreement is the value a passed check read: the first value its criterion names that its
+// observation names too. Empty when the words share none.
+func Agreement(criterion, observed string) string {
+	got := valuesAt(observed)
+	for _, v := range valuesAt(criterion) {
+		if has(got, v.v) {
+			return v.v
+		}
+	}
+	return ""
+}
+
 // valuesAt lists the quoted phrases and the numeric values in s, in the order they appear. A
 // number inside a quote is listed too, after its quote.
 func valuesAt(s string) []found {

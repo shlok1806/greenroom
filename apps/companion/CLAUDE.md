@@ -19,6 +19,48 @@ Design: `docs/design-spec.md`
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
 
+## The native redesign (companion ADR 0019), being built
+
+The window is being rebuilt in pure native SwiftUI from the approved Figma design (file
+041UmqtdMYVCufxO8g9Ius; `docs/20-companion-ux-research.md` section 12). No web technology,
+no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
+
+- `UI/Tokens.swift` is the Figma Tokens page: `ColorToken` (Light and Dark hex), `Palette`,
+  `TypeStyle` (SF Pro at 22/15/13/11, `.textStyle(_:)`), `Gap`, `Corner`, `Elevation`,
+  `Motion`, `WindowClass`, `Metrics`. No colour, size, gap, radius or duration literal
+  elsewhere in `UI/`. `TokensTests` holds every text token to 4.5:1 on every surface.
+- `Model/Summary.swift` decodes the daemon's run summary (root ADR 0036; `RunStore.board`,
+  the `summary` event, `DaemonClient.summaryBoard`/`summary`/`reboot`). The status word,
+  group, tone, sentence, "now", each check's row (`checks.items`) and the actions are the
+  daemon's; `UI/Presentation.swift` only lays them out (glyphs, times, tallies), with a test
+  per rule (`SummaryTests`, over the daemon's golden board read in place).
+- `UI/Sidebar.swift` (`RunsSidebar`) is the runs list; its rows are `UI/RunsTable.swift`, an
+  `NSTableView` with fixed row heights and reused `NSHostingView` cells. Never a SwiftUI
+  `List` there: it measured all 2,000 rows (2.8 s first layout, 578 ms scroll stalls).
+  `SidebarPerformanceTests` holds the table to its numbers (129 ms, 3.7 ms per step).
+  `SidebarLayout` (pure) says which rows show; `\.frozenNow` holds the clock for snapshots.
+- `UI/Motion.swift` (docs/22 C06): `Curve` (CSS timing functions, exact as `timingCurve`;
+  never SwiftUI's `.easeOut`, which is not CSS's), `CSSKeyframes` (the curve applies per
+  segment; `value(at:)` is pure), `MotionClock` and `Clocked` (every loop works out its phase
+  from the clock; never `repeatForever`, so the harness can render any moment),
+  `MotionSpring` (Motion's springs as SwiftUI's), `TableCurve` (CSS `linear()`, NumberFlow's
+  roll). `MotionTests` holds them to the browser's sampled frames in
+  `docs/22-swiftui-clone-plan/specs/` and to `Tests/CompanionTests/Golden/` (made with node
+  from the pinned sources; regenerate when a source sha is bumped).
+- `UI/Icons.swift`: the design's icons as paths (the Figma icon components exported as SVG,
+  Lucide's outlines). Never an SF Symbol in `UI/`: it is not what the design draws.
+- `UI/CommandScore.swift` is cmdk's ranking, ported line for line; change it only with its
+  golden file.
+- `TypeStyle` carries the design's tracking and line box: `.textStyle(_:)` pads each line to
+  the style's line height, so a row of text is as tall as the design's.
+- `UI/Components/` is the Figma Components page with every state; `UI/KeyPalette.swift` is
+  Ghostty's palette adapted (MIT). Copied or ported code is credited in `ACKNOWLEDGEMENTS.md`.
+- `GREENROOM_REDESIGN_SNAPSHOTS=<dir> .build/out/Products/Debug/CompanionSnapshots` renders
+  the redesign's scenarios at 2x and writes what Apple's text recogniser reads beside each
+  (`VisibleWords`, `WordBudget`). Needs no daemon for the component board.
+
+## The window before the redesign
+
 ADR 0004 to 0006, as amended by 0008, describe the new window being built layer by layer.
 Layer 1 (foundation and restyle) has landed: the theme, the two bundled faces, the spacing
 and radii, the window's own chrome, and every view restyled in that language. Layer 2

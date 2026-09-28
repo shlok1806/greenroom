@@ -109,7 +109,11 @@ send either). The companion and smoke client send a loopback Host and no Origin.
   sent but for `elapsedSeconds`, `updatedAt` and `lastFrame`. Steps are read only for an open run or a
   failed check's picture; a run with no live machine is cached (`summaries`) until its
   conversation length or manifest mtime changes. `macs` counts the manager's machines only,
-  never other VMs on the host (that needs `tart list`).
+  never other VMs on the host (that needs `tart list`). `checks.items` is every check as the
+  Companion's check rows read it (failed, not checked, passed; a pass carries the value it read
+  as `saw`, `Agreement`), with each check's picture and mark, so steps are read for any verdict
+  whose checks cite evidence (`citesEvidence`). `machine.warning` follows the files watch
+  (`Machine.Files.Warning`).
   Example, the failed TipSplit run of the golden fixture:
 
   ```json
@@ -122,6 +126,8 @@ send either). The companion and smoke client send a loopback Host and no Origin.
                         {"id": "each", "text": "Each pays is $48.00 for 3 people", "state": "fail", "saw": "$8.00"},
                         {"id": "window", "text": "Window shows Bill, Tip and People", "state": "pass"},
                         {"id": "tip", "text": "Tip is $24.00 for $120 at 20%", "state": "pass"}]},
+   (each verdict row also carries its proof for the Companion: "expected", "observed", "step",
+    "picture", "mark"; a pass's "saw" is the number it read, `withProof`)
    "failing": {"text": "Each pays becomes $50.00 at 25%", "expected": "$50.00", "saw": "$10.00",
                "observed": "After choosing 25%, Each pays reads $10.00.", "step": 5,
                "picture": {"kind": "screenshot", "file": "005-screenshot.png", "url": "/api/runs/<id>/artifacts/005-screenshot.png"},

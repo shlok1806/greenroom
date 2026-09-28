@@ -83,23 +83,52 @@
                 "id": "each-25",
                 "text": "Each pays becomes $50.00 at 25%",
                 "state": "fail",
-                "saw": "$10.00"
+                "saw": "$10.00",
+                "expected": "$50.00",
+                "observed": "After choosing 25%, Each pays reads $10.00.",
+                "step": 5,
+                "picture": {
+                  "kind": "screenshot",
+                  "file": "005-screenshot.png",
+                  "url": "/api/runs/20260923-044138-de31017819a86d84/artifacts/005-screenshot.png",
+                  "at": "2026-09-23T04:44:19Z",
+                  "step": 5
+                },
+                "mark": {
+                  "x": 0.515,
+                  "y": 0.635,
+                  "w": 0.23,
+                  "h": 0.05
+                }
               },
               {
                 "id": "each",
                 "text": "Each pays is $48.00 for 3 people",
                 "state": "fail",
-                "saw": "$8.00"
+                "saw": "$8.00",
+                "expected": "$48.00",
+                "observed": "With Bill 120 and 3 people, Each pays reads $8.00.",
+                "step": 2,
+                "picture": {
+                  "kind": "screenshot",
+                  "file": "002-screenshot.png",
+                  "url": "/api/runs/20260923-044138-de31017819a86d84/artifacts/002-screenshot.png",
+                  "at": "2026-09-23T04:43:19Z",
+                  "step": 2
+                }
               },
               {
                 "id": "window",
                 "text": "Window shows Bill, Tip and People",
-                "state": "pass"
+                "state": "pass",
+                "observed": "The window shows Bill, Tip and People."
               },
               {
                 "id": "tip",
                 "text": "Tip is $24.00 for $120 at 20%",
-                "state": "pass"
+                "state": "pass",
+                "saw": "$24.00",
+                "observed": "Tip reads $24.00."
               }
             ]
           },
@@ -168,22 +197,27 @@
               {
                 "id": "upper",
                 "text": "UPPERCASE turns the text to capitals",
-                "state": "pass"
+                "state": "pass",
+                "observed": "The text reads HELLO WORLD."
               },
               {
                 "id": "lower",
                 "text": "lowercase turns the text to small letters",
-                "state": "pass"
+                "state": "pass",
+                "observed": "The text reads hello world."
               },
               {
                 "id": "count",
                 "text": "The word count stays 2",
-                "state": "pass"
+                "state": "pass",
+                "saw": "2",
+                "observed": "Words: 2"
               },
               {
                 "id": "window",
                 "text": "Window shows the text and both buttons",
-                "state": "pass"
+                "state": "pass",
+                "observed": "Both buttons show."
               }
             ]
           },
@@ -379,7 +413,8 @@
               {
                 "id": "keeps",
                 "text": "The text is kept after switching case",
-                "state": "pass"
+                "state": "pass",
+                "observed": "The text reads the same."
               }
             ]
           },

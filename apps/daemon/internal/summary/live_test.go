@@ -205,8 +205,16 @@ func TestTheLiveRunsFailingCheck(t *testing.T) {
 		{ID: "tip-20", Text: "Tip reads $24.00", State: "pending"},
 		{ID: "labels-present", Text: "The window shows Bill, Tip and People labels", State: "pass"},
 	}
-	if !slices.Equal(s.Checks.Items, rows) {
-		t.Errorf("rows = %+v\nwant   %+v", s.Checks.Items, rows)
+	// The rows as a list shows them; each also carries its proof (withProof), checked below.
+	shown := make([]CheckRef, 0, len(s.Checks.Items))
+	for _, row := range s.Checks.Items {
+		shown = append(shown, CheckRef{ID: row.ID, Text: row.Text, State: row.State, Saw: row.Saw})
+	}
+	if !slices.Equal(shown, rows) {
+		t.Errorf("rows = %+v\nwant   %+v", shown, rows)
+	}
+	if p := s.Checks.Items[0]; p.Expected != "$48.00" || p.Picture == nil || p.Step != 17 {
+		t.Errorf("the first row's proof = expected %q, step %d, picture %v", p.Expected, p.Step, p.Picture)
 	}
 	if s.Checks.Current == nil || *s.Checks.Current != rows[0] {
 		t.Errorf("the current check = %+v, want the first failed row", s.Checks.Current)

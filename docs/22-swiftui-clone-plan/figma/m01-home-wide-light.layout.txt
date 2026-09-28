@@ -1,0 +1,162 @@
+# Figma node 12:620, "01 Home: runs list, selected run open (1600x1000, light)", read with use_figma on 2026-09-28.
+# One layer per line: path;x;y;width;height[;text], points from the frame's top left. Paths are
+# layer names joined by "/", with [i] when a parent has more than one child of that name.
+Sidebar;0;0;272;1000
+Sidebar/Titlebar;0;0;271;52
+Sidebar/Titlebar/Traffic lights;20;20;52;12
+Sidebar/Titlebar/Icon button;231;12;28;28
+Sidebar/Titlebar/Icon button/Icon/search;237;18;16;16
+Sidebar/Runs;0;52;271;904
+Sidebar/Runs/Group[0];8;52;255;30
+Sidebar/Runs/Group[0]/Text;16;64;57;14;Needs you
+Sidebar/Runs/Run row[0];8;84;255;32
+Sidebar/Runs/Run row[0]/Glyph;16;92;16;16
+Sidebar/Runs/Run row[0]/Name;40;91;168;18;TipSplit: split the bill
+Sidebar/Runs/Run row[0]/Meta;216;93;39;14;2 failed
+Sidebar/Runs/Run row[1];8;118;255;32
+Sidebar/Runs/Run row[1]/Glyph;16;126;16;16
+Sidebar/Runs/Run row[1]/Name;40;125;190;18;WordCount: case buttons
+Sidebar/Runs/Run row[1]/Meta;238;127;17;14;8m
+Sidebar/Runs/Run row[2];8;152;255;32
+Sidebar/Runs/Run row[2]/Glyph;16;160;16;16
+Sidebar/Runs/Run row[2]/Name;40;159;170;18;TodoList: Clear done
+Sidebar/Runs/Run row[2]/Meta;218;161;37;14;1 failed
+Sidebar/Runs/Group[1];8;186;255;30
+Sidebar/Runs/Group[1]/Text;16;198;44;14;Running
+Sidebar/Runs/Run row[3];8;218;255;32
+Sidebar/Runs/Run row[3]/Glyph;16;226;16;16
+Sidebar/Runs/Run row[3]/Name;40;225;187;18;UnitConvert: Temperature
+Sidebar/Runs/Run row[3]/Meta;235;227;20;14;1:12
+Sidebar/Runs/Run row[4];8;252;255;32
+Sidebar/Runs/Run row[4]/Glyph;16;260;16;16
+Sidebar/Runs/Run row[4]/Name;40;259;178;18;WordCount: longest word
+Sidebar/Runs/Run row[4]/Meta;226;261;29;14;10:00
+Sidebar/Runs/Run row[5];8;286;255;32
+Sidebar/Runs/Run row[5]/Glyph;16;294;16;16
+Sidebar/Runs/Run row[5]/Name;40;293;183;18;TodoList: summary line
+Sidebar/Runs/Run row[5]/Meta;231;295;24;14;0:24
+Sidebar/Runs/Group[2];8;320;255;30
+Sidebar/Runs/Group[2]/Text;16;332;28;14;Done
+Sidebar/Runs/Run row[6];8;352;255;32
+Sidebar/Runs/Run row[6]/Glyph;16;360;16;16
+Sidebar/Runs/Run row[6]/Name;40;359;195;18;TipSplit: fix each pays
+Sidebar/Runs/Run row[6]/Meta;243;361;12;14;1h
+Sidebar/Runs/Run row[7];8;386;255;32
+Sidebar/Runs/Run row[7]/Glyph;16;394;16;16
+Sidebar/Runs/Run row[7]/Name;40;393;193;18;WordCount: keeps text
+Sidebar/Runs/Run row[7]/Meta;241;395;14;14;2h
+Sidebar/Runs/Run row[8];8;420;255;32
+Sidebar/Runs/Run row[8]/Glyph;16;428;16;16
+Sidebar/Runs/Run row[8]/Name;40;427;193;18;UnitConvert: result size
+Sidebar/Runs/Run row[8]/Meta;241;429;14;14;3h
+Sidebar/Runs/Run row[9];8;454;255;32
+Sidebar/Runs/Run row[9]/Glyph;16;462;16;16
+Sidebar/Runs/Run row[9]/Name;40;461;193;18;TodoList: add item
+Sidebar/Runs/Run row[9]/Meta;241;463;14;14;5h
+Sidebar/Runs/Run row[10];8;488;255;32
+Sidebar/Runs/Run row[10]/Glyph;16;496;16;16
+Sidebar/Runs/Run row[10]/Name;40;495;195;18;WordCount: empty input
+Sidebar/Runs/Run row[10]/Meta;243;497;12;14;1d
+Sidebar/Runs/Run row[11];8;522;255;32
+Sidebar/Runs/Run row[11]/Glyph;16;530;16;16
+Sidebar/Runs/Run row[11]/Name;40;529;195;18;UnitConvert: miles to km
+Sidebar/Runs/Run row[11]/Meta;243;531;12;14;1d
+Sidebar/Runs/Run row[12];8;556;255;32
+Sidebar/Runs/Run row[12]/Glyph;16;564;16;16
+Sidebar/Runs/Run row[12]/Name;40;563;193;18;TipSplit: round cents
+Sidebar/Runs/Run row[12]/Meta;241;565;14;14;2d
+Sidebar/Runs/More;8;590;255;26
+Sidebar/Runs/More/Text;40;596;76;14;Show 34 more
+Sidebar/Footer;0;956;271;44
+Sidebar/Footer/Icon/machine;16;971.5;14;14
+Sidebar/Footer/Text;38;971.5;189;14;2 of 3 Macs free
+Sidebar/Footer/Icon button;235;964.5;28;28
+Sidebar/Footer/Icon button/Icon/settings;241;970.5;16;16
+Run;272;0;1328;1000
+Run/Toolbar;272;0;1328;52
+Run/Toolbar/Run name;296;16.5;125;18;TipSplit: split the bill
+Run/Toolbar/Run meta;429;16.5;184;18;from Claude Code, 12 min ago
+Run/Toolbar/Toolbar button[0];1362;11.5;86;28
+Run/Toolbar/Toolbar button[0]/Icon/activity;1370;17.5;16;16
+Run/Toolbar/Toolbar button[0]/Text;1392;16.5;46;18;Activity
+Run/Toolbar/Toolbar button[1];1456;11.5;96;28
+Run/Toolbar/Toolbar button[1]/Icon/message;1464;17.5;16;16
+Run/Toolbar/Toolbar button[1]/Text;1486;16.5;56;18;Message
+Run/Toolbar/Icon button;1560;11.5;28;28
+Run/Toolbar/Icon button/Icon/more;1566;17.5;16;16
+Run/Header;272;52;1328;81
+Run/Header/Status;296;68;1109;48
+Run/Header/Status/Outcome;296;68;198;28
+Run/Header/Status/Outcome/Glyph;296;72;20;20
+Run/Header/Status/Outcome/Status word;326;68;62;28;Failed
+Run/Header/Status/Outcome/Tally;398;72;96;20;2 of 4 checks
+Run/Header/Status/Now;296;98;240;18
+Run/Header/Status/Now/Now text;326;98;210;18;Proposed by the verifier after 3:26
+Run/Header/Button[0];1413;78;65;28
+Run/Header/Button[0]/Text;1426;83;39;18;Reject
+Run/Header/Button[1];1486;78;90;28
+Run/Header/Button[1]/Text;1498;83;66;18;Accept fail
+Run/Body;272;133;1328;867
+Run/Body/Checks;272;133;440;867
+Run/Body/Checks/Heading;288;149;407;24
+Run/Body/Checks/Heading/Text;300;153;41;14;Checks
+Run/Body/Checks/Check row[0];288;175;407;60
+Run/Body/Checks/Check row[0]/Top;300;185;383;18
+Run/Body/Checks/Check row[0]/Top/GlyphBox;300;185;16;18
+Run/Body/Checks/Check row[0]/Top/Label;326;185;277;18;Each pays becomes $50.00 at 25%
+Run/Body/Checks/Check row[0]/Top/Meta;613;185;70;18;saw $10.00
+Run/Body/Checks/Check row[0]/DetailWrap;300;207;383;18
+Run/Body/Checks/Check row[0]/DetailWrap/Detail;326;207;357;18;Bill 120, 3 people, then 25%.
+Run/Body/Checks/Check row[1];288;237;407;38
+Run/Body/Checks/Check row[1]/Top;300;247;383;18
+Run/Body/Checks/Check row[1]/Top/GlyphBox;300;247;16;18
+Run/Body/Checks/Check row[1]/Top/Label;326;247;283;18;Each pays is $48.00 for 3 people
+Run/Body/Checks/Check row[1]/Top/Meta;619;247;64;18;saw $8.00
+Run/Body/Checks/Check row[2];288;277;407;38
+Run/Body/Checks/Check row[2]/Top;300;287;383;18
+Run/Body/Checks/Check row[2]/Top/GlyphBox;300;287;16;18
+Run/Body/Checks/Check row[2]/Top/Label;326;287;357;18;Tip is $24.00 for $120 at 20%
+Run/Body/Checks/Check row[3];288;317;407;38
+Run/Body/Checks/Check row[3]/Top;300;327;383;18
+Run/Body/Checks/Check row[3]/Top/GlyphBox;300;327;16;18
+Run/Body/Checks/Check row[3]/Top/Label;326;327;357;18;Window shows Bill, Tip and People
+Run/Body/Stage;712;133;888;867
+Run/Body/Stage/Evidence;776;224.5;760;610
+Run/Body/Stage/Evidence/Screen;776;224.5;760;570
+Run/Body/Stage/Evidence/Screen/Evidence mark;1009;585.5;189;34
+Run/Body/Stage/Evidence/Caption;776;806.5;760;28
+Run/Body/Stage/Evidence/Caption/Text;776;810.5;650;20;Expected $50.00, saw $10.00
+Run/Body/Stage/Evidence/Caption/Toolbar button;1434;806.5;102;28
+Run/Body/Stage/Evidence/Caption/Toolbar button/Icon/video;1442;812.5;16;16
+Run/Body/Stage/Evidence/Caption/Toolbar button/Text;1464;811.5;62;18;Recording
+Run/Body/Stage/Filmstrip;776;858.5;760;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[0];776;858.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[0]/Frame;776;858.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[0]/Mark;776;913.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[1];852.89;858.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[1]/Frame;852.89;858.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[1]/Mark;852.89;913.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[2];929.78;858.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[2]/Frame;929.78;858.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[2]/Mark;929.78;913.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[3];1006.67;858.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[3]/Frame;1006.67;858.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[3]/Mark;1006.67;913.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[4];1083.56;858.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[4]/Frame;1083.56;858.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[4]/Mark;1083.56;913.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[5];1160.44;858.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[5]/Frame;1160.44;858.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[5]/Mark;1160.44;913.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[6];1237.33;858.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[6]/Frame;1237.33;858.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[6]/Mark;1237.33;913.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[7];1314.22;858.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[7]/Frame;1314.22;858.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[7]/Mark;1314.22;913.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[8];1391.11;858.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[8]/Frame;1391.11;858.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[8]/Mark;1391.11;913.5;68;3
+Run/Body/Stage/Filmstrip/Filmstrip thumb[9];1468;858.5;68;58
+Run/Body/Stage/Filmstrip/Filmstrip thumb[9]/Frame;1468;858.5;68;51
+Run/Body/Stage/Filmstrip/Filmstrip thumb[9]/Mark;1468;913.5;68;3

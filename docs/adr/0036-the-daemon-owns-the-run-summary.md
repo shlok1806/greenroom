@@ -44,7 +44,7 @@ end inside one app.
    | `now` | what an open run is doing, in plain words ("Clicking 25% in TipSplit") |
    | `since` | when the run entered its status |
    | `startedAt`, `endedAt`, `elapsedSeconds` | the run's span; `endedAt` absent while open |
-   | `checks` | `{total, passed, failed, pending, text, current, items}`; each item is a row `{id, text, state, saw}` |
+   | `checks` | `{total, passed, failed, pending, text, current, items}`; each item is a row `{id, text, state, saw}`, and a verdict's rows also carry their proof `{expected, observed, step, picture, mark}` (a pass's `saw` is the number it read), for the native Companion's check rows and evidence (companion ADR 0019) |
    | `failing` | the first failed check: `{text, setup, expected, saw, observed, step, picture, mark}` |
    | `primaryAction`, `secondaryActions` | `{id, label}`; the one prominent action, and the rest |
    | `machine` | `{status, warning, ended}` in words |

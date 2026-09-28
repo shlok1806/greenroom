@@ -1,6 +1,7 @@
 # 0008. Readable type and an olive brand
 
 Date: 2026-09-24
+Update 2026-09-27: Superseded by 0019 (SF Pro and the Figma tokens).
 Status: accepted. Amends 0004 (decisions 5 and 6, the type and colour tables) and its
 spec. Builds on 0004 to 0007; nothing else in them changes.
 
