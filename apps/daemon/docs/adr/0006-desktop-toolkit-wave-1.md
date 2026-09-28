@@ -131,9 +131,12 @@ Additions from the control catalog (docs/21a, its comment on #212):
 6. **Points need a reason.** `press {point}` needs `reason`; a point whose hit element has a
    ref in the caller's table is refused with "use e41" (the coder may pass `force` to skip that
    rule, root ADR 0037's open question 6: coders are not held to the verifier's rule).
-7. **Typing reads back.** `type` presses the ref to focus it (skipped when it already has
-   focus), selects all first when `replace`, posts each character and waits for the window
-   server to apply it, presses `submit`, then reads the element's value (waiting up to 1 s for
+7. **Typing is paced and reads back.** `type` presses the ref to focus it (skipped when it
+   already has focus), selects all first when `replace`, posts each character, waits for the
+   window server to apply it and leaves at least `paceMs` (default 20, 0 to 100) between
+   characters: an app that is busy drops keys that arrive faster than any hand types them
+   (docs/14 case 5), and 20 ms a key is still 50 characters a second. It then presses `submit`
+   and reads the element's value (waiting up to 1 s for
    it to settle) and compares: with `replace` the whole value, else that it contains the text.
    A difference is reported as `typed "120" but e4 shows "12"`, never retyped. A secure field
    compares lengths only.
