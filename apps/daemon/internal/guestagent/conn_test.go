@@ -305,6 +305,24 @@ func TestEOFFailsEveryPendingCallAtOnce(t *testing.T) {
 	}
 }
 
+// A read that was lost says nothing about inputs: only a request that may act can have acted.
+func TestALostReadDoesNotSpeakOfInputs(t *testing.T) {
+	a := newFakeAgent(t)
+	a.handle = func(*fakeAgent, wireRequest) {}
+	c := openFake(t, a)
+	errs := make(chan error, 1)
+	go func() {
+		_, err := c.Call(context.Background(), Request{Op: "capture", Deadline: 30 * time.Second})
+		errs <- err
+	}()
+	<-a.gotReq
+	a.die(errors.New("exit 1"))
+	err := <-errs
+	if !isLost(err) || strings.Contains(err.Error(), "posted") || !strings.Contains(err.Error(), "it only read") {
+		t.Fatalf("got %v, want ErrLost saying the read changed nothing", err)
+	}
+}
+
 func TestAnOversizeFrameFromTheAgentEndsTheChannel(t *testing.T) {
 	a := newFakeAgent(t)
 	a.handle = func(a *fakeAgent, _ wireRequest) {

@@ -241,10 +241,10 @@ const (
 // The errors a call ends with besides an agent's *Error. Each is wrapped with what happened, and
 // their texts are what a model reads, so they say what to do next.
 var (
-	// ErrLost is a channel that ended while the call was outstanding. An input it carried may
-	// or may not have been posted.
-	ErrLost = errors.New("the guest agent's channel was lost during the call; an input may or may not have been posted, " +
-		"so look at the screen before repeating one")
+	// ErrLost is a channel that ended while the call was outstanding. The call's error goes on
+	// to say what that means for it (lostAdvice): an input may or may not have been posted, a
+	// read changed nothing.
+	ErrLost = errors.New("the guest agent's channel was lost during the call")
 	// ErrDeadline is a call the agent did not answer within its deadline plus the grace.
 	ErrDeadline = errors.New("the guest agent did not answer in time")
 	// ErrUnavailable is no live connection: nothing was sent.

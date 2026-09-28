@@ -92,6 +92,7 @@ type Conn struct {
 // waiter, until the answer comes or its wedge time passes.
 type pending struct {
 	op      string
+	input   bool            // the request may act (Request.Input), which its lost error says
 	ch      chan callResult // buffered 1; gets exactly one result
 	wedgeAt time.Time
 }
@@ -195,7 +196,7 @@ func (c *Conn) Call(ctx context.Context, r Request) (Response, error) {
 	if args == nil {
 		args = struct{}{}
 	}
-	p := &pending{op: r.Op, ch: make(chan callResult, 1), wedgeAt: time.Now().Add(d + c.o.WedgeGrace)}
+	p := &pending{op: r.Op, input: r.Input, ch: make(chan callResult, 1), wedgeAt: time.Now().Add(d + c.o.WedgeGrace)}
 	c.mu.Lock()
 	if c.dead {
 		err := c.err
@@ -531,6 +532,15 @@ func (c *Conn) health(now time.Time) error {
 	return nil
 }
 
+// lostAdvice is what a lost call means for its caller. Only an input may have acted; saying so
+// on a read sent models looking for an input they never made.
+func lostAdvice(input bool) string {
+	if input {
+		return "the input may or may not have been posted, so look at the screen before repeating it"
+	}
+	return "it only read, so nothing changed: call it again in a few seconds"
+}
+
 // kill ends the connection once: every outstanding call fails with ErrLost at once, Done
 // closes, and the transport is closed in the background (it may take a second to stop).
 func (c *Conn) kill(cause error) {
@@ -540,9 +550,8 @@ func (c *Conn) kill(cause error) {
 		pend := c.pending
 		c.pending, c.blobs, c.blobBytes = map[uint32]*pending{}, map[uint32]*blobBuf{}, 0
 		c.mu.Unlock()
-		lost := fmt.Errorf("%w (%v)", ErrLost, cause)
 		for _, p := range pend {
-			p.ch <- callResult{err: lost}
+			p.ch <- callResult{err: fmt.Errorf("%w; %s (%v)", ErrLost, lostAdvice(p.input), cause)}
 		}
 		close(c.done)
 		if cause != errClosed {
