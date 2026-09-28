@@ -141,6 +141,9 @@ final class SummaryTests: XCTestCase {
         XCTAssertEqual(SummaryState.notAnswering.glyph, .warning)
         XCTAssertEqual(SummaryState.restarting.glyph, .starting)
         XCTAssertEqual(SummaryState.stopped.glyph, .stopped)
+        XCTAssertEqual(SummaryState("ready"), .ready)
+        XCTAssertEqual(SummaryState.ready.glyph, .pending, "a Mac that is up with nobody checking turns nothing")
+        XCTAssertTrue(SummaryState.ready.isWorking)
         XCTAssertEqual(SummaryTone.quiet.color, .secondary, "an unreviewed outcome keeps its shape, not its colour")
         XCTAssertEqual(SummaryTone.live.color, .accent)
     }

@@ -37,8 +37,8 @@ func detail(in Input, f derived, st State) string {
 		return "The Mac's screen stopped answering. Restart it? Your files are kept."
 	case Restarting:
 		return "Restarting the Mac. Your files are kept."
-	case Checking:
-		if in.Verdict.Status == session.Rejected && f.owed == nil {
+	case Ready:
+		if in.Verdict.Status == session.Rejected {
 			return rejectedSentence(in)
 		}
 	case Stopped:
@@ -123,6 +123,8 @@ func stoppedSentence(in Input) string {
 		switch {
 		case strings.HasPrefix(m.Text, "human destroyed"):
 			return "You shut down the Mac."
+		case strings.HasPrefix(m.Text, "machine failed to reboot"):
+			return "The Mac did not restart. Its files are kept."
 		case strings.HasPrefix(m.Text, "machine failed"):
 			return "The Mac did not start."
 		case strings.HasPrefix(m.Text, "machine stopped"):
@@ -154,7 +156,7 @@ func now(in Input, f derived, st State) string {
 	switch st {
 	case Starting, Restarting:
 		return bootWords(in.Machine.Boot)
-	case Checking:
+	case Ready, Checking:
 	default:
 		return ""
 	}
@@ -179,17 +181,31 @@ func now(in Input, f derived, st State) string {
 		}
 		return "Reading the task"
 	}
-	return capitalise(stepWords(*step, in.Steps))
+	return capitalise(stepWords(actionOf(*step, in.Steps), in.Steps))
 }
 
-// bootWords names the boot phase in progress (machine.Phase*; "stop" is machine_reboot's).
+// actionOf is the input a verifier's effect read followed (machine.StepEffect.Of), else st: a
+// person watching sees the click, not the read that checked what it changed.
+func actionOf(st machine.Step, steps []machine.Step) machine.Step {
+	if st.Effect == nil || st.Effect.Of == 0 {
+		return st
+	}
+	for i := len(steps) - 1; i >= 0; i-- {
+		if steps[i].Seq == st.Effect.Of {
+			return steps[i]
+		}
+	}
+	return st
+}
+
+// bootWords names the boot phase in progress (machine.Phase*; PhaseStop is machine_reboot's).
 func bootWords(phases []machine.BootPhase) string {
 	if len(phases) == 0 {
 		return "Starting the Mac"
 	}
 	p := phases[len(phases)-1]
 	switch p.Phase {
-	case "stop":
+	case machine.PhaseStop:
 		return "Shutting down the Mac"
 	case machine.PhaseClone:
 		return "Copying the Mac"
@@ -250,7 +266,7 @@ func commandWords(command string) string {
 	switch {
 	case has(" test ", "xcodebuild test", " test;", " test&"):
 		return "running tests"
-	case has("xcodebuild", "swift build", "go build", " make ", "pnpm build", "npm run build", "cargo build", "swiftc "):
+	case has("xcodebuild", "swift build", "build.sh", "go build", " make ", "pnpm build", "npm run build", "cargo build", "swiftc "):
 		return "building the app"
 	case has(" open ", "launchctl"):
 		return "opening the app"

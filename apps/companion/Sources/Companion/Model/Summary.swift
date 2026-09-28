@@ -12,12 +12,13 @@ import Foundation
 
 /// A status word's stable id (the ADR's vocabulary).
 enum SummaryState: Hashable, Sendable {
-    case starting, checking, paused, notAnswering, restarting, passed, failed, inconclusive, stopped
+    case starting, ready, checking, paused, notAnswering, restarting, passed, failed, inconclusive, stopped
     case unknown(String)
 
     init(_ raw: String) {
         switch raw {
         case "starting": self = .starting
+        case "ready": self = .ready
         case "checking": self = .checking
         case "paused": self = .paused
         case "not-answering": self = .notAnswering
@@ -34,7 +35,7 @@ enum SummaryState: Hashable, Sendable {
     var isOutcome: Bool { self == .passed || self == .failed || self == .inconclusive }
 
     /// Whether the Mac is working on the run: the header's time counts up.
-    var isWorking: Bool { self == .starting || self == .checking || self == .restarting }
+    var isWorking: Bool { self == .starting || self == .ready || self == .checking || self == .restarting }
 }
 
 /// The one colour a status may carry.

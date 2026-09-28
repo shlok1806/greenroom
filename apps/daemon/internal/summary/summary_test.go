@@ -43,14 +43,14 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 		{
 			"a machine machine_reboot is restarting is Restarting, with no button",
 			func(b *builder) *builder {
-				return b.live("rebooting").boot("stop").task(tipTask, 30).event("machine is rebooting", 300)
+				return b.live(machine.Rebooting).boot(machine.PhaseStop).task(tipTask, 30).event("machine is rebooting", 300)
 			},
 			want{Restarting, Running, ToneLive, "", nil, "Your files are kept", "Shutting down the Mac", ""},
 		},
 		{
-			"a ready machine nobody has asked anything is Checking and waits for the coding agent",
+			"a ready machine nobody has asked anything is Ready and waits for the coding agent",
 			func(b *builder) *builder { return b.live(machine.Ready).event("machine is ready", 40) },
-			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Waiting for the coding agent", ""},
+			want{Ready, Running, ToneLive, ActTakeControl, nil, "", "Waiting for the coding agent", ""},
 		},
 		{
 			"a task with no step yet is being read",
@@ -74,7 +74,7 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 				return b.live(machine.Ready).event("machine is ready", 40).task(tipTask, 60).
 					msg(session.Verifier, session.Reply, "It works.", 120).now(120 + 20*60)
 			},
-			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Idle for 20 minutes", ""},
+			want{Ready, Running, ToneLive, ActTakeControl, nil, "", "Idle for 20 minutes", ""},
 		},
 		{
 			"a person driving the screen gives control back",
@@ -84,12 +84,12 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 			want{Checking, Running, ToneLive, ActGiveBack, nil, "", "You have control", ""},
 		},
 		{
-			"a daemon with no verifier closes the task, so the run waits for the coding agent",
+			"a daemon with no verifier closes the task, so the run is Ready for the coding agent",
 			func(b *builder) *builder {
 				return b.live(machine.Ready).event("machine is ready", 40).task(tipTask, 60).
 					event("no verifier is configured on this daemon; nobody will answer this task", 61)
 			},
-			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Waiting for the coding agent", ""},
+			want{Ready, Running, ToneLive, ActTakeControl, nil, "", "Waiting for the coding agent", ""},
 		},
 		{
 			"a verifier stopped at its time limit is Paused and needs you to continue",
@@ -148,6 +148,24 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 					step("machine_screenshot", 200, nil, nil, notAnswering).event("machine is ready", 300)
 			},
 			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Reading the task", ""},
+		},
+		{
+			"a machine_reboot's ready ends Not answering",
+			func(b *builder) *builder {
+				return b.live(machine.Ready).event("machine is ready", 40).task(tipTask, 60).
+					step("machine_screenshot", 200, nil, nil, notAnswering).
+					event("machine is rebooting (machine_reboot): its sessions, running commands and apps end; its disk stays", 250).
+					event("machine rebooted and is ready", 300)
+			},
+			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Reading the task", ""},
+		},
+		{
+			"a reboot that failed is Stopped and keeps the files",
+			func(b *builder) *builder {
+				return b.live(machine.Failed).task(tipTask, 60).
+					event("machine failed to reboot: tart run exited", 300)
+			},
+			want{Stopped, Done, ToneQuiet, "", nil, "The Mac did not restart. Its files are kept.", "-", ""},
 		},
 		{
 			"a machine low on files needs you while it keeps checking, and offers a plain restart",
@@ -240,12 +258,12 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Reading the task", ""},
 		},
 		{
-			"a verdict you rejected gives no outcome; the run checks again",
+			"a verdict you rejected gives no outcome; the run is Ready again",
 			func(b *builder) *builder {
 				return b.live(machine.Ready).task(tipTask, 60).verdict("pass", 120, pass("a", "Tip is $24.00", "Tip reads $24.00")).
 					dispute(session.Human, 130).msg(session.Verifier, session.Reply, "I will look again later.", 140).now(150)
 			},
-			want{Checking, Running, ToneLive, ActTakeControl, nil, "You rejected the verifier's pass.", "Waiting for the coding agent", ""},
+			want{Ready, Running, ToneLive, ActTakeControl, nil, "You rejected the verifier's pass.", "Waiting for the coding agent", ""},
 		},
 		{
 			"a verdict with no checks has no tally and no failing check",
@@ -360,7 +378,7 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 
 // Every word of the vocabulary is reachable, and nothing else is: the table above covers each.
 func TestTheVocabularyIsFixed(t *testing.T) {
-	want := []string{"Starting", "Checking", "Paused", "Not answering", "Restarting", "Passed", "Failed", "Inconclusive", "Stopped"}
+	want := []string{"Starting", "Ready", "Checking", "Paused", "Not answering", "Restarting", "Passed", "Failed", "Inconclusive", "Stopped"}
 	var got []string
 	for _, s := range States {
 		got = append(got, s.Word())
@@ -561,7 +579,7 @@ func TestTheMachineIsWorded(t *testing.T) {
 	cases := []struct {
 		st   machine.Status
 		want string
-	}{{machine.Booting, "starting"}, {machine.Ready, "on"}, {"rebooting", "restarting"}, {machine.Failed, "not running"}}
+	}{{machine.Booting, "starting"}, {machine.Ready, "on"}, {machine.Rebooting, "restarting"}, {machine.Failed, "not running"}}
 	for _, c := range cases {
 		if got := newRun(t, "r1").live(c.st).derive().Machine.Status; got != c.want {
 			t.Errorf("%s: machine status %q, want %q", c.st, got, c.want)
@@ -591,6 +609,11 @@ func TestNowNamesEachKindOfStepInPlainWords(t *testing.T) {
 			return b.step("machine_input", 90, map[string]any{"actions": []map[string]any{{"type": "click", "x": 0.1, "y": 0.1, "clicks": 2}}}, nil, "")
 		}, "Double-clicking"},
 		{"a UI read", func(b *builder) *builder { return b.uiRead(90, "TipSplit") }, "Reading TipSplit"},
+		{"the read that checks a click's effect names the click", func(b *builder) *builder {
+			b = b.uiRead(80, "TipSplit", tip25).click(90, 0.55, 0.5).uiRead(91, "TipSplit", tip25)
+			b.in.Steps[len(b.in.Steps)-1].Effect = &machine.StepEffect{Of: b.in.Steps[len(b.in.Steps)-2].Seq, Kind: machine.EffectChanged}
+			return b
+		}, "Clicking 25% in TipSplit"},
 		{"a build", func(b *builder) *builder {
 			return b.step("machine_exec", 90, map[string]any{"command": "cd ~/work/TipSplit && swift build 2>&1 | tail"}, nil, "")
 		}, "Building the app"},
@@ -601,6 +624,9 @@ func TestNowNamesEachKindOfStepInPlainWords(t *testing.T) {
 			return b.step("machine_exec", 90, map[string]any{"command": "ls -la ~/work"}, nil, "")
 		}, "Running a command"},
 		{"a sync", func(b *builder) *builder { return b.step("machine_sync", 90, nil, nil, "") }, "Copying files to the Mac"},
+		{"a build script", func(b *builder) *builder {
+			return b.step("machine_exec", 90, map[string]any{"command": "cd ~/work/tipsplit && sh build.sh"}, nil, "")
+		}, "Building the app"},
 		{"a pull", func(b *builder) *builder { return b.step("machine_pull", 90, nil, nil, "") }, "Copying files from the Mac"},
 	}
 	for _, c := range cases {

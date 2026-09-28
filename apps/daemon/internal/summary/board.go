@@ -11,7 +11,7 @@ type Board struct {
 	Groups []GroupRuns `json:"groups"`
 	Macs   Macs        `json:"macs"`
 	// UpdatedAt is the newest summary's.
-	UpdatedAt time.Time `json:"updatedAt"`
+	UpdatedAt time.Time `json:"updatedAt,omitzero"`
 }
 
 // GroupRuns is one group of the board, newest first.

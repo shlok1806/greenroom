@@ -311,9 +311,12 @@ func (m *Manager) haltAfterFailedReboot(mc *Machine) {
 // forget drops what the daemon remembers of the running guest, which a reboot makes wrong:
 // the helper's screen size (the next UI call checks the helper again), every reader's UI tree
 // and its looks. A look taken before the reboot is older than the screen; element ids from it
-// aim at nothing. The capture approval's state stays: the boot phases write it again.
+// aim at nothing. The capture gate starts over (captureGate.reset): a capture stuck on the old,
+// wedged screen must not hold the slot or fail a look on the new one. The capture approval's
+// state stays: the boot phases write it again.
 func (st *inputState) forget() {
 	st.screen.Store(nil)
+	st.capture.reset()
 	st.uiMu.Lock()
 	st.ui, st.looks = nil, nil
 	st.uiMu.Unlock()

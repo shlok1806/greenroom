@@ -37,7 +37,9 @@ let package = Package(
         .testTarget(
             name: "CompanionTests",
             dependencies: ["Companion"],
-            path: "Tests/CompanionTests"
+            path: "Tests/CompanionTests",
+            // Golden data the tests read in place (`MotionTests`): cmdk's scores, Motion's springs.
+            exclude: ["Golden"]
         ),
     ]
 )

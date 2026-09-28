@@ -22,7 +22,8 @@ type State string
 // The status vocabulary (root ADR 0036). Every run is in exactly one.
 const (
 	Starting     State = "starting"      // the Mac is booting
-	Checking     State = "checking"      // the run is live and has no outcome yet
+	Ready        State = "ready"         // the Mac is up and nobody is checking: the coding agent works or waits
+	Checking     State = "checking"      // the verifier owes an answer: it is checking
 	Paused       State = "paused"        // the verifier waits for a person: its limit, or a question
 	NotAnswering State = "not-answering" // the Mac's screen stopped answering
 	Restarting   State = "restarting"    // the Mac is rebooting on the same disk
@@ -37,6 +38,8 @@ func (s State) Word() string {
 	switch s {
 	case Starting:
 		return "Starting"
+	case Ready:
+		return "Ready"
 	case Checking:
 		return "Checking"
 	case Paused:
@@ -58,7 +61,7 @@ func (s State) Word() string {
 }
 
 // States is the whole vocabulary, in the order a run usually meets it.
-var States = []State{Starting, Checking, Paused, NotAnswering, Restarting, Passed, Failed, Inconclusive, Stopped}
+var States = []State{Starting, Ready, Checking, Paused, NotAnswering, Restarting, Passed, Failed, Inconclusive, Stopped}
 
 // Group is where a run sits in a list (root ADR 0036).
 type Group string
@@ -215,7 +218,7 @@ type Picture struct {
 	Kind string    `json:"kind"`
 	File string    `json:"file"`
 	URL  string    `json:"url"`
-	At   time.Time `json:"at,omitempty"`
+	At   time.Time `json:"at,omitzero"`
 	Step int       `json:"step,omitempty"`
 }
 
@@ -274,13 +277,13 @@ type LiveMachine struct {
 	// Controller is the seat holding the screen's lease, "" when nobody does.
 	Controller string
 	// LowOnFiles is set when the machine's tart run is near its open file limit (issue
-	// #186's files warning). The machine may die, so the person saves what they need.
+	// #186's files warning, machine.FileUse.Warning). The machine may die, so the person
+	// saves what they need.
 	LowOnFiles bool
 }
 
-// Machine statuses the summary knows by name beyond the machine package's own: machine_reboot's
-// (daemon ADR 0004) is compared as a string, so a daemon without it still builds.
-const statusRebooting machine.Status = "rebooting"
+// statusRebooting is machine_reboot's status (daemon ADR 0004).
+const statusRebooting = machine.Rebooting
 
 // open reports whether the run can still go on: its machine is up or coming up, and the coding
 // agent has not finished it.
@@ -357,7 +360,7 @@ func facts(in Input) derived {
 			f.verdict = m
 		case m.Kind == session.Accept && in.Verdict.Seq > 0 && m.ReplyTo == in.Verdict.Seq:
 			f.accept = m
-		case m.From == session.System && m.Kind == session.Event && strings.HasPrefix(m.Text, readyEvent):
+		case m.From == session.System && m.Kind == session.Event && readyText(m.Text):
 			f.readyAt = m.At
 		}
 	}
@@ -379,8 +382,11 @@ func facts(in Input) derived {
 	return f
 }
 
-// readyEvent is the lifecycle bridge's text when a machine becomes ready (main.go).
-const readyEvent = "machine is ready"
+// readyText reports whether an event is the lifecycle bridge's (main.go) for a machine that
+// became ready, after its boot or after machine_reboot.
+func readyText(text string) bool {
+	return strings.HasPrefix(text, "machine is ready") || strings.HasPrefix(text, "machine rebooted and is ready")
+}
 
 // owedTurn is the newest human or coder message that starts a verifier turn with no verifier
 // word after it, as the Companion's awaitingVerifier reads it: a system event saying nobody or
@@ -522,7 +528,7 @@ func state(in Input, f derived) (State, time.Time) {
 		if f.verdict != nil { // a rejected verdict: the run is back to having no outcome
 			since = laterOf(since, lastAt(in.Messages))
 		}
-		return Checking, since
+		return Ready, since
 	}
 	return Stopped, stoppedSince(in)
 }
@@ -568,7 +574,7 @@ func group(in Input, st State) Group {
 
 func tone(in Input, st State) Tone {
 	switch st {
-	case Starting, Checking, Restarting:
+	case Starting, Ready, Checking, Restarting:
 		return ToneLive
 	case Paused, NotAnswering:
 		return ToneWait
@@ -617,7 +623,7 @@ func actions(in Input, f derived, st State) (*Action, []Action) {
 		return &Action{ActContinue, "Continue"}, secondary
 	case NotAnswering:
 		return &Action{ActRestart, "Restart the Mac"}, append(secondary, Action{ActKeepWaiting, "Keep waiting"})
-	case Checking:
+	case Ready, Checking:
 		if in.Machine.LowOnFiles {
 			secondary = append(secondary, Action{ActRestart, "Restart the Mac"})
 		}

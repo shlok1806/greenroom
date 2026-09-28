@@ -3,6 +3,7 @@ package machine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -60,19 +61,35 @@ func frameJPEG(pngBytes []byte) ([]byte, error) {
 }
 
 // recordFrames captures the screen until ctx is cancelled or tart exits.
-// Failures are logged once per run and never fail it (ADR 0008).
+// Failures are logged once per run and never fail it (ADR 0008). While the guest
+// screen does not answer, it backs off (frameBackoff) instead of queueing captures
+// behind a hung WindowServer, and logs only when that starts and when it ends
+// (daemon ADR 0003).
 func (m *Manager) recordFrames(ctx context.Context, mc *Machine) {
 	dir := filepath.Join(mc.Dir, "frames")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		m.Log.Warn("cannot create the frames directory; recording is off for this run", "runId", mc.RunID, "err", err)
 		return
 	}
+	backingOff := false
 	for ctx.Err() == nil && (mc.proc == nil || !mc.proc.Exited()) {
 		m.captureFrame(ctx, mc, dir)
+		wait := m.captureInterval(mc)
+		streak := mc.input.capture.timeoutStreak()
+		switch {
+		case streak > 0 && !backingOff:
+			backingOff = true
+			m.Log.Warn("the guest screen is not answering; frames back off (2 s doubling to 1 min) until a capture works",
+				"runId", mc.RunID, "timedOutCaptures", streak)
+		case streak == 0 && backingOff:
+			backingOff = false
+			m.Log.Info("the guest screen answers again; frames are back to their interval", "runId", mc.RunID)
+		}
+		wait = max(wait, frameBackoff(streak))
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(m.captureInterval(mc)):
+		case <-time.After(wait):
 		}
 	}
 }
@@ -87,9 +104,14 @@ func (m *Manager) captureInterval(mc *Machine) time.Duration {
 // captureFrame logs the run's first failure and the first recovery after it;
 // the rest are silent (ADR 0008). A host that sleeps suspends the VM, and the
 // first capture after it wakes can fail once with "could not create image
-// from display", then work again.
+// from display", then work again. A frame skipped because another capture is
+// outstanding is no failure, and a timeout is recordFrames' to report.
 func (m *Manager) captureFrame(ctx context.Context, mc *Machine, dir string) {
-	if err := m.writeFrame(ctx, mc, dir); err != nil {
+	err := m.writeFrame(ctx, mc, dir)
+	switch {
+	case errors.Is(err, errCaptureBusy), errors.Is(err, ErrScreenNotAnswering), err != nil && ctx.Err() != nil:
+		return
+	case err != nil:
 		if mc.rec.frameFailed() {
 			m.Log.Warn("frame capture failed; will keep retrying, and log once when it recovers", "runId", mc.RunID, "err", err)
 		}
@@ -101,10 +123,10 @@ func (m *Manager) captureFrame(ctx context.Context, mc *Machine, dir string) {
 	}
 }
 
+// writeFrame captures one frame unless a capture is already outstanding (errCaptureBusy).
+// The capture's own limits bound it (captureScreen), so it needs no deadline here.
 func (m *Manager) writeFrame(ctx context.Context, mc *Machine, dir string) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	pngBytes, err := m.captureScreen(ctx, mc)
+	pngBytes, err := m.captureScreen(ctx, mc, false)
 	if err != nil {
 		return err
 	}

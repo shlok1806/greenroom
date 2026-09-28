@@ -4,8 +4,8 @@ import SwiftUI
 // `macos/Sources/Features/Command Palette/CommandPalette.swift` (MIT, Mitchell Hashimoto and
 // Ghostty contributors; see ACKNOWLEDGEMENTS.md): the query field that turns arrows, Return
 // and Escape into events, the option list with keyboard selection that scrolls to follow it,
-// hover selection, and the match (a substring first, then word initials) and ranking. Restyled
-// to the Figma file: sections ("This run", "Go to run"), a keycap per row, 560 pt wide.
+// and hover selection. The ranking is cmdk's (`CommandScore`). Restyled to the Figma file:
+// sections ("This run", "Go to run"), a keycap per row, 560 pt wide.
 
 /// One thing the palette can do.
 struct PaletteOption: Identifiable {
@@ -31,8 +31,7 @@ struct CommandPaletteView: View {
 
     private var query: String { rawQuery.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    /// The options that match the query, best first (Ghostty's `filteredAndSorted`): a title
-    /// match beats a section match.
+    /// The options that match the query, best first.
     var filtered: [PaletteOption] { PaletteMatch.filter(options, query: query) }
 
     private var selectedOption: PaletteOption? {
@@ -168,29 +167,18 @@ private struct PaletteTable: View {
     }
 }
 
-/// Ghostty's matching, kept pure for tests: `matchedIndices` (a substring, else the first
-/// letters of words) and its ranking by where the match is.
+/// Which options a query shows and in what order: cmdk's ranking (`CommandScore`), the
+/// section counting as the option's keywords, as cmdk's `keywords` do. An empty query shows
+/// everything in its own order; equal scores keep their order.
 enum PaletteMatch {
     static func filter(_ options: [PaletteOption], query: String) -> [PaletteOption] {
         guard !query.isEmpty else { return options }
-        return options.enumerated().compactMap { index, option -> (Int, Int, PaletteOption)? in
-            if matches(option.title, query) { return (2, index, option) }
-            if matches(option.section, query) { return (1, index, option) }
-            return nil
+        var scored: [(score: Double, index: Int, option: PaletteOption)] = []
+        for (index, option) in options.enumerated() {
+            let score = CommandScore.score(option.title, query, aliases: [option.section])
+            if score > 0 { scored.append((score, index, option)) }
         }
-        .sorted { ($0.0, -$0.1) > ($1.0, -$1.1) }
-        .map(\.2)
-    }
-
-    /// A case-insensitive substring, else every query letter the first letter of a word in order.
-    static func matches(_ text: String, _ query: String) -> Bool {
-        guard !query.isEmpty else { return true }
-        if text.range(of: query, options: .caseInsensitive) != nil { return true }
-        var remaining = Substring(query.lowercased())
-        for word in text.split(whereSeparator: \.isWhitespace) {
-            guard let first = remaining.first else { break }
-            if word.first?.lowercased() == String(first) { remaining = remaining.dropFirst() }
-        }
-        return remaining.isEmpty
+        scored.sort { a, b in a.score != b.score ? a.score > b.score : a.index < b.index }
+        return scored.map(\.option)
     }
 }
