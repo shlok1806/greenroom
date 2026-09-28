@@ -114,7 +114,7 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 					msg(session.Verifier, session.Reply, "Out of time.", 660, func(m *session.Message) { m.Stop = session.StopTime }).
 					msg(session.Human, session.Note, "Continue.", 700).now(710)
 			},
-			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Reading the task", ""},
+			want{Checking, Running, ToneLive, ActTakeControl, nil, "", "Reading your message", ""},
 		},
 		{
 			"a verifier question is Paused and needs your answer",
@@ -180,14 +180,14 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 				return b.live(machine.Ready).task(tipTask, 60).
 					verdict("fail", 266, pass("a", "Tip is $24.00", "Tip reads $24.00"), fail("b", "Each pays becomes $50.00 at 25%", "Each pays reads $10.00"))
 			},
-			want{Failed, NeedsYou, ToneFail, ActAccept, []string{ActReject}, "Proposed by the verifier after 3:26.", "-", "1 of 2 checks failed"},
+			want{Failed, NeedsYou, ToneFail, ActAccept, []string{ActReject}, "Proposed by the verifier after 3:26.", "-", "1 of 2 checks"},
 		},
 		{
 			"a proposed pass on a live machine needs you: Accept pass",
 			func(b *builder) *builder {
 				return b.live(machine.Ready).task(tipTask, 60).verdict("pass", 120, pass("a", "Tip is $24.00", "Tip reads $24.00"))
 			},
-			want{Passed, NeedsYou, TonePass, ActAccept, []string{ActReject}, "Proposed by the verifier after 1:00.", "-", "1 of 1 check passed"},
+			want{Passed, NeedsYou, TonePass, ActAccept, []string{ActReject}, "Proposed by the verifier after 1:00.", "-", "1 of 1 check"},
 		},
 		{
 			"a contested verdict needs you and says only you can close it",
@@ -196,14 +196,14 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 					dispute(session.Coder, 110).verdict("fail", 150, fail("b", "Each pays is $48.00", "Each pays reads $8.00")).
 					dispute(session.Coder, 160).verdict("fail", 200, fail("b", "Each pays is $48.00", "Each pays reads $8.00"))
 			},
-			want{Failed, NeedsYou, ToneFail, ActAccept, []string{ActReject}, "Only you can accept or reject it now.", "-", "1 of 1 check failed"},
+			want{Failed, NeedsYou, ToneFail, ActAccept, []string{ActReject}, "Only you can accept or reject it now.", "-", "1 of 1 check"},
 		},
 		{
 			"a pass the coding agent accepted on a live machine runs on, unreviewed and uncoloured",
 			func(b *builder) *builder {
 				return b.live(machine.Ready).task(tipTask, 60).verdict("pass", 120, pass("a", "Tip is $24.00", "Tip reads $24.00")).accept(session.Coder, 130)
 			},
-			want{Passed, Running, ToneQuiet, "", []string{ActRecheck}, "you have not reviewed it", "-", "1 of 1 check passed"},
+			want{Passed, Running, ToneQuiet, "", []string{ActRecheck}, "you have not reviewed it", "-", "1 of 1 check"},
 		},
 		{
 			"a pass you accepted, machine gone, is Done and green",
@@ -211,7 +211,7 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 				return b.task(tipTask, 60).verdict("pass", 120, pass("a", "Tip is $24.00", "Tip reads $24.00")).accept(session.Human, 130).
 					event("machine destroyed", 140).ended(140)
 			},
-			want{Passed, Done, TonePass, "", nil, "You accepted it.", "-", "1 of 1 check passed"},
+			want{Passed, Done, TonePass, "", nil, "You accepted it.", "-", "1 of 1 check"},
 		},
 		{
 			"a proposed verdict whose machine is gone is Done, still reviewable, not Needs you",
@@ -219,7 +219,7 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 				return b.task(tipTask, 60).verdict("fail", 266, fail("b", "Each pays becomes $50.00 at 25%", "Each pays reads $10.00")).
 					event("machine destroyed", 300).ended(300)
 			},
-			want{Failed, Done, ToneFail, ActAccept, []string{ActReject}, "Proposed by the verifier", "-", "1 of 1 check failed"},
+			want{Failed, Done, ToneFail, ActAccept, []string{ActReject}, "Proposed by the verifier", "-", "1 of 1 check"},
 		},
 		{
 			"a finished run is Done even with its machine kept and a verdict open",
@@ -227,7 +227,7 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 				return b.live(machine.Ready).task(tipTask, 60).verdict("fail", 266, fail("b", "Each pays is $48.00", "Each pays reads $8.00")).
 					finish(session.OutcomeUnverified, 300)
 			},
-			want{Failed, Done, ToneFail, ActAccept, []string{ActReject}, "Proposed by the verifier", "-", "1 of 1 check failed"},
+			want{Failed, Done, ToneFail, ActAccept, []string{ActReject}, "Proposed by the verifier", "-", "1 of 1 check"},
 		},
 		{
 			"a verified finish is Done and Passed",
@@ -235,7 +235,7 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 				return b.task(tipTask, 60).verdict("pass", 120, pass("a", "Tip is $24.00", "Tip reads $24.00")).accept(session.Coder, 130).
 					finish(session.OutcomeVerified, 140).ended(141)
 			},
-			want{Passed, Done, TonePass, "", nil, "you have not reviewed it", "-", "1 of 1 check passed"},
+			want{Passed, Done, TonePass, "", nil, "you have not reviewed it", "-", "1 of 1 check"},
 		},
 		{
 			"a finish with no verdict is Stopped and says so",

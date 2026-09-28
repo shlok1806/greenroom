@@ -1,0 +1,1694 @@
+[
+  {
+    "stage": "starting",
+    "summary": {
+      "runId": "20260928-000221-d9a2350ea69e1d91",
+      "name": "TipSplit: split the bill",
+      "source": "Claude Code",
+      "state": "starting",
+      "status": "Starting",
+      "tone": "live",
+      "group": "running",
+      "now": "Waiting for the Mac",
+      "since": "2026-09-28T00:02:21.1289Z",
+      "startedAt": "2026-09-28T00:02:21.1289Z",
+      "elapsedSeconds": 2,
+      "checks": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "pending": 0,
+        "current": null,
+        "items": []
+      },
+      "failing": null,
+      "primaryAction": null,
+      "secondaryActions": [],
+      "machine": {
+        "status": "starting"
+      },
+      "lastFrame": null,
+      "updatedAt": "2026-09-28T00:02:23.1289Z"
+    }
+  },
+  {
+    "stage": "ready, before any task",
+    "summary": {
+      "runId": "20260928-000221-d9a2350ea69e1d91",
+      "name": "TipSplit: split the bill",
+      "source": "Claude Code",
+      "state": "ready",
+      "status": "Ready",
+      "tone": "live",
+      "group": "running",
+      "now": "Waiting for the coding agent",
+      "since": "2026-09-28T00:03:03.303207Z",
+      "startedAt": "2026-09-28T00:02:21.1289Z",
+      "elapsedSeconds": 48,
+      "checks": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "pending": 0,
+        "current": null,
+        "items": []
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790553787480.jpg",
+        "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553787480.jpg",
+        "at": "2026-09-28T00:03:07.480765Z",
+        "step": 2
+      },
+      "updatedAt": "2026-09-28T00:03:03.303207Z"
+    }
+  },
+  {
+    "stage": "ready, the coding agent builds the app",
+    "summary": {
+      "runId": "20260928-000221-d9a2350ea69e1d91",
+      "name": "TipSplit: split the bill",
+      "source": "Claude Code",
+      "state": "ready",
+      "status": "Ready",
+      "tone": "live",
+      "group": "running",
+      "now": "Building the app",
+      "since": "2026-09-28T00:03:03.303207Z",
+      "startedAt": "2026-09-28T00:02:21.1289Z",
+      "elapsedSeconds": 63,
+      "checks": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "pending": 0,
+        "current": null,
+        "items": []
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790553803110.jpg",
+        "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553803110.jpg",
+        "at": "2026-09-28T00:03:23.110196Z",
+        "step": 4
+      },
+      "updatedAt": "2026-09-28T00:03:18.376303Z"
+    }
+  },
+  {
+    "stage": "checking, the task just sent",
+    "summary": {
+      "runId": "20260928-000221-d9a2350ea69e1d91",
+      "name": "TipSplit: split the bill",
+      "source": "Claude Code",
+      "state": "checking",
+      "status": "Checking",
+      "tone": "live",
+      "group": "running",
+      "now": "Reading the task",
+      "since": "2026-09-28T00:03:40.436814Z",
+      "startedAt": "2026-09-28T00:02:21.1289Z",
+      "elapsedSeconds": 83,
+      "checks": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "pending": 0,
+        "current": null,
+        "items": []
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790553823793.jpg",
+        "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553823793.jpg",
+        "at": "2026-09-28T00:03:43.79366Z",
+        "step": 5
+      },
+      "updatedAt": "2026-09-28T00:03:40.436814Z"
+    }
+  },
+  {
+    "stage": "checking, the verifier sets People to 3",
+    "summary": {
+      "runId": "20260928-000221-d9a2350ea69e1d91",
+      "name": "TipSplit: split the bill",
+      "source": "Claude Code",
+      "state": "checking",
+      "status": "Checking",
+      "tone": "live",
+      "group": "running",
+      "now": "Clicking the up arrow in TipSplit",
+      "since": "2026-09-28T00:03:40.436814Z",
+      "startedAt": "2026-09-28T00:02:21.1289Z",
+      "elapsedSeconds": 138,
+      "checks": {
+        "total": 4,
+        "passed": 0,
+        "failed": 0,
+        "pending": 4,
+        "text": "4 checks planned",
+        "current": null,
+        "items": [
+          {
+            "id": "labels-present",
+            "text": "The window shows Bill, Tip and People labels",
+            "state": "pending"
+          },
+          {
+            "id": "tip-20",
+            "text": "Tip reads $24.00",
+            "state": "pending"
+          },
+          {
+            "id": "each-pays-48",
+            "text": "Each pays reads $48.00",
+            "state": "pending"
+          },
+          {
+            "id": "each-pays-50",
+            "text": "After picking 25% tip, Each pays reads $50.00",
+            "state": "pending"
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790553879212.jpg",
+        "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553879212.jpg",
+        "at": "2026-09-28T00:04:39.212599Z",
+        "step": 17
+      },
+      "updatedAt": "2026-09-28T00:04:39.362644Z"
+    }
+  },
+  {
+    "stage": "failed, proposed, the Mac still on",
+    "summary": {
+      "runId": "20260928-000221-d9a2350ea69e1d91",
+      "name": "TipSplit: split the bill",
+      "source": "Claude Code",
+      "state": "failed",
+      "status": "Failed",
+      "tone": "fail",
+      "group": "needs-you",
+      "detail": "Proposed by the verifier after 2:47.",
+      "since": "2026-09-28T00:06:28.360018Z",
+      "startedAt": "2026-09-28T00:02:21.1289Z",
+      "elapsedSeconds": 263,
+      "checks": {
+        "total": 4,
+        "passed": 1,
+        "failed": 2,
+        "pending": 1,
+        "text": "2 of 4 checks",
+        "current": {
+          "id": "each-pays-48",
+          "text": "Each pays reads $48.00",
+          "state": "fail",
+          "saw": "$8.00"
+        },
+        "items": [
+          {
+            "id": "each-pays-48",
+            "text": "Each pays reads $48.00",
+            "state": "fail",
+            "saw": "$8.00",
+            "expected": "$48.00",
+            "observed": "Each pays reads $8.00, not $48.00",
+            "step": 17,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553879212.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553879212.jpg",
+              "at": "2026-09-28T00:04:39.212599Z",
+              "step": 17
+            },
+            "mark": {
+              "x": 0.317,
+              "y": 0.615,
+              "w": 0.217,
+              "h": 0.043
+            }
+          },
+          {
+            "id": "each-pays-50",
+            "text": "After picking 25% tip, Each pays reads $50.00",
+            "state": "fail",
+            "saw": "$10.00",
+            "expected": "$50.00",
+            "observed": "Each pays reads $10.00, not $50.00",
+            "step": 19,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553932119.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553932119.jpg",
+              "at": "2026-09-28T00:05:32.119008Z",
+              "step": 19
+            },
+            "mark": {
+              "x": 0.317,
+              "y": 0.615,
+              "w": 0.229,
+              "h": 0.043
+            }
+          },
+          {
+            "id": "tip-20",
+            "text": "Tip reads $24.00",
+            "state": "pending",
+            "observed": "Not verified: freshness: no evidence step comes after action step 16; observe the result after the last action and cite that step",
+            "step": 15,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553876782.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553876782.jpg",
+              "at": "2026-09-28T00:04:36.782308Z",
+              "step": 15
+            }
+          },
+          {
+            "id": "labels-present",
+            "text": "The window shows Bill, Tip and People labels",
+            "state": "pass",
+            "observed": "Window shows Bill, Tip, and People labels",
+            "step": 7,
+            "picture": {
+              "kind": "screenshot",
+              "file": "007-screenshot.png",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/artifacts/007-screenshot.png",
+              "at": "2026-09-28T00:04:08.517469Z",
+              "step": 7
+            }
+          }
+        ]
+      },
+      "failing": {
+        "text": "Each pays reads $48.00",
+        "setup": "With Bill 120, 20% tip, People 3",
+        "expected": "$48.00",
+        "saw": "$8.00",
+        "observed": "Each pays reads $8.00, not $48.00",
+        "step": 17,
+        "picture": {
+          "kind": "frame",
+          "file": "1790553879212.jpg",
+          "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553879212.jpg",
+          "at": "2026-09-28T00:04:39.212599Z",
+          "step": 17
+        },
+        "mark": {
+          "x": 0.317,
+          "y": 0.615,
+          "w": 0.217,
+          "h": 0.043
+        }
+      },
+      "primaryAction": {
+        "id": "accept",
+        "label": "Accept fail"
+      },
+      "secondaryActions": [
+        {
+          "id": "reject",
+          "label": "Reject"
+        }
+      ],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790554003599.jpg",
+        "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790554003599.jpg",
+        "at": "2026-09-28T00:06:43.599202Z",
+        "step": 20
+      },
+      "updatedAt": "2026-09-28T00:06:28.360018Z"
+    }
+  },
+  {
+    "stage": "failed, proposed, the Mac stopped on its own",
+    "summary": {
+      "runId": "20260928-000221-d9a2350ea69e1d91",
+      "name": "TipSplit: split the bill",
+      "source": "Claude Code",
+      "state": "failed",
+      "status": "Failed",
+      "tone": "fail",
+      "group": "done",
+      "detail": "Proposed by the verifier after 2:47.",
+      "since": "2026-09-28T00:06:28.360018Z",
+      "startedAt": "2026-09-28T00:02:21.1289Z",
+      "endedAt": "2026-09-28T01:36:36.084775Z",
+      "elapsedSeconds": 5654,
+      "checks": {
+        "total": 4,
+        "passed": 1,
+        "failed": 2,
+        "pending": 1,
+        "text": "2 of 4 checks",
+        "current": {
+          "id": "each-pays-48",
+          "text": "Each pays reads $48.00",
+          "state": "fail",
+          "saw": "$8.00"
+        },
+        "items": [
+          {
+            "id": "each-pays-48",
+            "text": "Each pays reads $48.00",
+            "state": "fail",
+            "saw": "$8.00",
+            "expected": "$48.00",
+            "observed": "Each pays reads $8.00, not $48.00",
+            "step": 17,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553879212.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553879212.jpg",
+              "at": "2026-09-28T00:04:39.212599Z",
+              "step": 17
+            },
+            "mark": {
+              "x": 0.317,
+              "y": 0.615,
+              "w": 0.217,
+              "h": 0.043
+            }
+          },
+          {
+            "id": "each-pays-50",
+            "text": "After picking 25% tip, Each pays reads $50.00",
+            "state": "fail",
+            "saw": "$10.00",
+            "expected": "$50.00",
+            "observed": "Each pays reads $10.00, not $50.00",
+            "step": 19,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553932119.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553932119.jpg",
+              "at": "2026-09-28T00:05:32.119008Z",
+              "step": 19
+            },
+            "mark": {
+              "x": 0.317,
+              "y": 0.615,
+              "w": 0.229,
+              "h": 0.043
+            }
+          },
+          {
+            "id": "tip-20",
+            "text": "Tip reads $24.00",
+            "state": "pending",
+            "observed": "Not verified: freshness: no evidence step comes after action step 16; observe the result after the last action and cite that step",
+            "step": 15,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553876782.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553876782.jpg",
+              "at": "2026-09-28T00:04:36.782308Z",
+              "step": 15
+            }
+          },
+          {
+            "id": "labels-present",
+            "text": "The window shows Bill, Tip and People labels",
+            "state": "pass",
+            "observed": "Window shows Bill, Tip, and People labels",
+            "step": 7,
+            "picture": {
+              "kind": "screenshot",
+              "file": "007-screenshot.png",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/artifacts/007-screenshot.png",
+              "at": "2026-09-28T00:04:08.517469Z",
+              "step": 7
+            }
+          }
+        ]
+      },
+      "failing": {
+        "text": "Each pays reads $48.00",
+        "setup": "With Bill 120, 20% tip, People 3",
+        "expected": "$48.00",
+        "saw": "$8.00",
+        "observed": "Each pays reads $8.00, not $48.00",
+        "step": 17,
+        "picture": {
+          "kind": "frame",
+          "file": "1790553879212.jpg",
+          "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553879212.jpg",
+          "at": "2026-09-28T00:04:39.212599Z",
+          "step": 17
+        },
+        "mark": {
+          "x": 0.317,
+          "y": 0.615,
+          "w": 0.217,
+          "h": 0.043
+        }
+      },
+      "primaryAction": {
+        "id": "accept",
+        "label": "Accept fail"
+      },
+      "secondaryActions": [
+        {
+          "id": "reject",
+          "label": "Reject"
+        }
+      ],
+      "machine": {
+        "status": "off",
+        "ended": "The Mac stopped on its own."
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790554155437.jpg",
+        "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790554155437.jpg",
+        "at": "2026-09-28T00:09:15.437188Z",
+        "step": 20
+      },
+      "updatedAt": "2026-09-28T01:36:36.095766Z"
+    }
+  },
+  {
+    "stage": "failed, accepted by a person",
+    "summary": {
+      "runId": "20260928-000221-d9a2350ea69e1d91",
+      "name": "TipSplit: split the bill",
+      "source": "Claude Code",
+      "state": "failed",
+      "status": "Failed",
+      "tone": "fail",
+      "group": "done",
+      "detail": "You accepted it.",
+      "since": "2026-09-28T01:38:13.074984Z",
+      "startedAt": "2026-09-28T00:02:21.1289Z",
+      "endedAt": "2026-09-28T01:36:36.084775Z",
+      "elapsedSeconds": 5654,
+      "checks": {
+        "total": 4,
+        "passed": 1,
+        "failed": 2,
+        "pending": 1,
+        "text": "2 of 4 checks",
+        "current": {
+          "id": "each-pays-48",
+          "text": "Each pays reads $48.00",
+          "state": "fail",
+          "saw": "$8.00"
+        },
+        "items": [
+          {
+            "id": "each-pays-48",
+            "text": "Each pays reads $48.00",
+            "state": "fail",
+            "saw": "$8.00",
+            "expected": "$48.00",
+            "observed": "Each pays reads $8.00, not $48.00",
+            "step": 17,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553879212.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553879212.jpg",
+              "at": "2026-09-28T00:04:39.212599Z",
+              "step": 17
+            },
+            "mark": {
+              "x": 0.317,
+              "y": 0.615,
+              "w": 0.217,
+              "h": 0.043
+            }
+          },
+          {
+            "id": "each-pays-50",
+            "text": "After picking 25% tip, Each pays reads $50.00",
+            "state": "fail",
+            "saw": "$10.00",
+            "expected": "$50.00",
+            "observed": "Each pays reads $10.00, not $50.00",
+            "step": 19,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553932119.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553932119.jpg",
+              "at": "2026-09-28T00:05:32.119008Z",
+              "step": 19
+            },
+            "mark": {
+              "x": 0.317,
+              "y": 0.615,
+              "w": 0.229,
+              "h": 0.043
+            }
+          },
+          {
+            "id": "tip-20",
+            "text": "Tip reads $24.00",
+            "state": "pending",
+            "observed": "Not verified: freshness: no evidence step comes after action step 16; observe the result after the last action and cite that step",
+            "step": 15,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553876782.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553876782.jpg",
+              "at": "2026-09-28T00:04:36.782308Z",
+              "step": 15
+            }
+          },
+          {
+            "id": "labels-present",
+            "text": "The window shows Bill, Tip and People labels",
+            "state": "pass",
+            "observed": "Window shows Bill, Tip, and People labels",
+            "step": 7,
+            "picture": {
+              "kind": "screenshot",
+              "file": "007-screenshot.png",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/artifacts/007-screenshot.png",
+              "at": "2026-09-28T00:04:08.517469Z",
+              "step": 7
+            }
+          }
+        ]
+      },
+      "failing": {
+        "text": "Each pays reads $48.00",
+        "setup": "With Bill 120, 20% tip, People 3",
+        "expected": "$48.00",
+        "saw": "$8.00",
+        "observed": "Each pays reads $8.00, not $48.00",
+        "step": 17,
+        "picture": {
+          "kind": "frame",
+          "file": "1790553879212.jpg",
+          "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553879212.jpg",
+          "at": "2026-09-28T00:04:39.212599Z",
+          "step": 17
+        },
+        "mark": {
+          "x": 0.317,
+          "y": 0.615,
+          "w": 0.217,
+          "h": 0.043
+        }
+      },
+      "primaryAction": null,
+      "secondaryActions": [],
+      "machine": {
+        "status": "off",
+        "ended": "The Mac stopped on its own."
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790554155437.jpg",
+        "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790554155437.jpg",
+        "at": "2026-09-28T00:09:15.437188Z",
+        "step": 20
+      },
+      "updatedAt": "2026-09-28T01:38:13.074984Z"
+    }
+  },
+  {
+    "stage": "finished as abandoned",
+    "summary": {
+      "runId": "20260928-000221-d9a2350ea69e1d91",
+      "name": "TipSplit: split the bill",
+      "source": "Claude Code",
+      "state": "failed",
+      "status": "Failed",
+      "tone": "fail",
+      "group": "done",
+      "detail": "You accepted it.",
+      "since": "2026-09-28T01:38:13.074984Z",
+      "startedAt": "2026-09-28T00:02:21.1289Z",
+      "endedAt": "2026-09-28T01:36:36.084775Z",
+      "elapsedSeconds": 5654,
+      "checks": {
+        "total": 4,
+        "passed": 1,
+        "failed": 2,
+        "pending": 1,
+        "text": "2 of 4 checks",
+        "current": {
+          "id": "each-pays-48",
+          "text": "Each pays reads $48.00",
+          "state": "fail",
+          "saw": "$8.00"
+        },
+        "items": [
+          {
+            "id": "each-pays-48",
+            "text": "Each pays reads $48.00",
+            "state": "fail",
+            "saw": "$8.00",
+            "expected": "$48.00",
+            "observed": "Each pays reads $8.00, not $48.00",
+            "step": 17,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553879212.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553879212.jpg",
+              "at": "2026-09-28T00:04:39.212599Z",
+              "step": 17
+            },
+            "mark": {
+              "x": 0.317,
+              "y": 0.615,
+              "w": 0.217,
+              "h": 0.043
+            }
+          },
+          {
+            "id": "each-pays-50",
+            "text": "After picking 25% tip, Each pays reads $50.00",
+            "state": "fail",
+            "saw": "$10.00",
+            "expected": "$50.00",
+            "observed": "Each pays reads $10.00, not $50.00",
+            "step": 19,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553932119.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553932119.jpg",
+              "at": "2026-09-28T00:05:32.119008Z",
+              "step": 19
+            },
+            "mark": {
+              "x": 0.317,
+              "y": 0.615,
+              "w": 0.229,
+              "h": 0.043
+            }
+          },
+          {
+            "id": "tip-20",
+            "text": "Tip reads $24.00",
+            "state": "pending",
+            "observed": "Not verified: freshness: no evidence step comes after action step 16; observe the result after the last action and cite that step",
+            "step": 15,
+            "picture": {
+              "kind": "frame",
+              "file": "1790553876782.jpg",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553876782.jpg",
+              "at": "2026-09-28T00:04:36.782308Z",
+              "step": 15
+            }
+          },
+          {
+            "id": "labels-present",
+            "text": "The window shows Bill, Tip and People labels",
+            "state": "pass",
+            "observed": "Window shows Bill, Tip, and People labels",
+            "step": 7,
+            "picture": {
+              "kind": "screenshot",
+              "file": "007-screenshot.png",
+              "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/artifacts/007-screenshot.png",
+              "at": "2026-09-28T00:04:08.517469Z",
+              "step": 7
+            }
+          }
+        ]
+      },
+      "failing": {
+        "text": "Each pays reads $48.00",
+        "setup": "With Bill 120, 20% tip, People 3",
+        "expected": "$48.00",
+        "saw": "$8.00",
+        "observed": "Each pays reads $8.00, not $48.00",
+        "step": 17,
+        "picture": {
+          "kind": "frame",
+          "file": "1790553879212.jpg",
+          "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790553879212.jpg",
+          "at": "2026-09-28T00:04:39.212599Z",
+          "step": 17
+        },
+        "mark": {
+          "x": 0.317,
+          "y": 0.615,
+          "w": 0.217,
+          "h": 0.043
+        }
+      },
+      "primaryAction": null,
+      "secondaryActions": [],
+      "machine": {
+        "status": "off",
+        "ended": "The Mac stopped on its own."
+      },
+      "outcome": "Abandoned",
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790554155437.jpg",
+        "url": "/api/runs/20260928-000221-d9a2350ea69e1d91/frames/1790554155437.jpg",
+        "at": "2026-09-28T00:09:15.437188Z",
+        "step": 20
+      },
+      "updatedAt": "2026-09-28T01:38:14.156353Z"
+    }
+  },
+  {
+    "stage": "check run: ready, its daemon started in the Mac",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "ready",
+      "status": "Ready",
+      "tone": "live",
+      "group": "running",
+      "now": "Running a command",
+      "since": "2026-09-28T03:53:01.150376Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 40,
+      "checks": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "pending": 0,
+        "current": null,
+        "items": []
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567591498.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567591498.jpg",
+        "at": "2026-09-28T03:53:11.498397Z",
+        "step": 2
+      },
+      "updatedAt": "2026-09-28T03:53:11.775798Z"
+    }
+  },
+  {
+    "stage": "check run: checking, reading the summary routes",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "checking",
+      "status": "Checking",
+      "tone": "live",
+      "group": "running",
+      "now": "Running a command",
+      "since": "2026-09-28T03:53:50.511306Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 86,
+      "checks": {
+        "total": 4,
+        "passed": 0,
+        "failed": 0,
+        "pending": 4,
+        "text": "4 checks planned",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pending"
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pending"
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pending"
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pending"
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567637551.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+        "at": "2026-09-28T03:53:57.551925Z",
+        "step": 7
+      },
+      "updatedAt": "2026-09-28T03:53:56.583782Z"
+    }
+  },
+  {
+    "stage": "check run: passed, proposed",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "passed",
+      "status": "Passed",
+      "tone": "pass",
+      "group": "needs-you",
+      "detail": "Proposed by the verifier after 0:23.",
+      "since": "2026-09-28T03:54:13.835141Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 104,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass",
+            "observed": "Response has status=\"Failed\", group=\"done\", name=\"TipSplit: split the bill\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass",
+            "observed": "checks.text is \"2 of 4 checks\"; checks.items has 4 rows with the two failed rows (each-pays-48, each-pays-50) first",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass",
+            "observed": "failing.expected is \"$48.00\" and failing.saw is \"$8.00\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass",
+            "observed": "GET /api/summary lists the run under group id \"done\" and macs.text is \"2 of 2 Macs free\"",
+            "step": 8,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567642729.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567642729.jpg",
+              "at": "2026-09-28T03:54:02.729074Z",
+              "step": 8
+            }
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "accept",
+        "label": "Accept pass"
+      },
+      "secondaryActions": [
+        {
+          "id": "reject",
+          "label": "Reject"
+        }
+      ],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567654184.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567654184.jpg",
+        "at": "2026-09-28T03:54:14.184806Z",
+        "step": 8
+      },
+      "updatedAt": "2026-09-28T03:54:13.835141Z"
+    }
+  },
+  {
+    "stage": "check run: passed, accepted by the coding agent",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "passed",
+      "status": "Passed",
+      "tone": "quiet",
+      "group": "running",
+      "detail": "The coding agent accepted it; you have not reviewed it.",
+      "since": "2026-09-28T03:54:53.347612Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 143,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass",
+            "observed": "Response has status=\"Failed\", group=\"done\", name=\"TipSplit: split the bill\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass",
+            "observed": "checks.text is \"2 of 4 checks\"; checks.items has 4 rows with the two failed rows (each-pays-48, each-pays-50) first",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass",
+            "observed": "failing.expected is \"$48.00\" and failing.saw is \"$8.00\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass",
+            "observed": "GET /api/summary lists the run under group id \"done\" and macs.text is \"2 of 2 Macs free\"",
+            "step": 8,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567642729.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567642729.jpg",
+              "at": "2026-09-28T03:54:02.729074Z",
+              "step": 8
+            }
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": null,
+      "secondaryActions": [
+        {
+          "id": "recheck",
+          "label": "Ask for a re-check"
+        }
+      ],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567693114.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567693114.jpg",
+        "at": "2026-09-28T03:54:53.114786Z",
+        "step": 8
+      },
+      "updatedAt": "2026-09-28T03:54:53.347612Z"
+    }
+  },
+  {
+    "stage": "check run: restarting",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "restarting",
+      "status": "Restarting",
+      "tone": "live",
+      "group": "running",
+      "detail": "Your files are kept.",
+      "now": "Shutting down the Mac",
+      "since": "2026-09-28T03:55:31Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 181,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks passed",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass",
+            "observed": "Response has status=\"Failed\", group=\"done\", name=\"TipSplit: split the bill\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass",
+            "observed": "checks.text is \"2 of 4 checks\"; checks.items has 4 rows with the two failed rows (each-pays-48, each-pays-50) first",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass",
+            "observed": "failing.expected is \"$48.00\" and failing.saw is \"$8.00\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass",
+            "observed": "GET /api/summary lists the run under group id \"done\" and macs.text is \"2 of 2 Macs free\"",
+            "step": 8,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567642729.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567642729.jpg",
+              "at": "2026-09-28T03:54:02.729074Z",
+              "step": 8
+            }
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": null,
+      "secondaryActions": [],
+      "machine": {
+        "status": "restarting"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567730045.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567730045.jpg",
+        "at": "2026-09-28T03:55:30.045018Z",
+        "step": 8
+      },
+      "updatedAt": "2026-09-28T03:55:31.224374Z"
+    }
+  },
+  {
+    "stage": "check run: restarted",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "passed",
+      "status": "Passed",
+      "tone": "quiet",
+      "group": "running",
+      "detail": "The coding agent accepted it; you have not reviewed it.",
+      "since": "2026-09-28T03:54:53.347612Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 206,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass",
+            "observed": "Response has status=\"Failed\", group=\"done\", name=\"TipSplit: split the bill\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass",
+            "observed": "checks.text is \"2 of 4 checks\"; checks.items has 4 rows with the two failed rows (each-pays-48, each-pays-50) first",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass",
+            "observed": "failing.expected is \"$48.00\" and failing.saw is \"$8.00\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass",
+            "observed": "GET /api/summary lists the run under group id \"done\" and macs.text is \"2 of 2 Macs free\"",
+            "step": 8,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567642729.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567642729.jpg",
+              "at": "2026-09-28T03:54:02.729074Z",
+              "step": 8
+            }
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": null,
+      "secondaryActions": [
+        {
+          "id": "recheck",
+          "label": "Ask for a re-check"
+        }
+      ],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567756870.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567756870.jpg",
+        "at": "2026-09-28T03:55:56.870327Z",
+        "step": 9
+      },
+      "updatedAt": "2026-09-28T03:55:56.390085Z"
+    }
+  },
+  {
+    "stage": "check run: checking your note",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "checking",
+      "status": "Checking",
+      "tone": "live",
+      "group": "running",
+      "now": "Reading your message",
+      "since": "2026-09-28T03:57:01.055848Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 270,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks passed",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass",
+            "observed": "Response has status=\"Failed\", group=\"done\", name=\"TipSplit: split the bill\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass",
+            "observed": "checks.text is \"2 of 4 checks\"; checks.items has 4 rows with the two failed rows (each-pays-48, each-pays-50) first",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass",
+            "observed": "failing.expected is \"$48.00\" and failing.saw is \"$8.00\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass",
+            "observed": "GET /api/summary lists the run under group id \"done\" and macs.text is \"2 of 2 Macs free\"",
+            "step": 8,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567642729.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567642729.jpg",
+              "at": "2026-09-28T03:54:02.729074Z",
+              "step": 8
+            }
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567821517.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567821517.jpg",
+        "at": "2026-09-28T03:57:01.517535Z",
+        "step": 9
+      },
+      "updatedAt": "2026-09-28T03:57:01.055848Z"
+    }
+  },
+  {
+    "stage": "check run: paused at the verifier's limit",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "paused",
+      "status": "Paused",
+      "tone": "wait",
+      "group": "needs-you",
+      "detail": "The verifier used up its actions for this turn. Continue lets it go on.",
+      "since": "2026-09-28T03:57:06.516541Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 276,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks passed",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass",
+            "observed": "Response has status=\"Failed\", group=\"done\", name=\"TipSplit: split the bill\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass",
+            "observed": "checks.text is \"2 of 4 checks\"; checks.items has 4 rows with the two failed rows (each-pays-48, each-pays-50) first",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass",
+            "observed": "failing.expected is \"$48.00\" and failing.saw is \"$8.00\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass",
+            "observed": "GET /api/summary lists the run under group id \"done\" and macs.text is \"2 of 2 Macs free\"",
+            "step": 8,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567642729.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567642729.jpg",
+              "at": "2026-09-28T03:54:02.729074Z",
+              "step": 8
+            }
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "continue",
+        "label": "Continue"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567826144.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567826144.jpg",
+        "at": "2026-09-28T03:57:06.144954Z",
+        "step": 11
+      },
+      "updatedAt": "2026-09-28T03:57:06.516541Z"
+    }
+  },
+  {
+    "stage": "check run: continued",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "checking",
+      "status": "Checking",
+      "tone": "live",
+      "group": "running",
+      "now": "Opening the app",
+      "since": "2026-09-28T03:58:01.737696Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "elapsedSeconds": 338,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks passed",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass",
+            "observed": "Response has status=\"Failed\", group=\"done\", name=\"TipSplit: split the bill\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass",
+            "observed": "checks.text is \"2 of 4 checks\"; checks.items has 4 rows with the two failed rows (each-pays-48, each-pays-50) first",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass",
+            "observed": "failing.expected is \"$48.00\" and failing.saw is \"$8.00\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass",
+            "observed": "GET /api/summary lists the run under group id \"done\" and macs.text is \"2 of 2 Macs free\"",
+            "step": 8,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567642729.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567642729.jpg",
+              "at": "2026-09-28T03:54:02.729074Z",
+              "step": 8
+            }
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": {
+        "id": "take-control",
+        "label": "Take control"
+      },
+      "secondaryActions": [],
+      "machine": {
+        "status": "on"
+      },
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567889232.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567889232.jpg",
+        "at": "2026-09-28T03:58:09.232726Z",
+        "step": 12
+      },
+      "updatedAt": "2026-09-28T03:58:09.251139Z"
+    }
+  },
+  {
+    "stage": "check run: finished as verified",
+    "summary": {
+      "runId": "20260928-035231-77e16574bcfba03a",
+      "name": "Run summary: the recorded TipSplit…",
+      "source": "Claude Code",
+      "state": "passed",
+      "status": "Passed",
+      "tone": "pass",
+      "group": "done",
+      "detail": "The coding agent accepted it; you have not reviewed it.",
+      "since": "2026-09-28T03:54:53.347612Z",
+      "startedAt": "2026-09-28T03:52:31.763936Z",
+      "endedAt": "2026-09-28T03:58:54.572038Z",
+      "elapsedSeconds": 382,
+      "checks": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "pending": 0,
+        "text": "4 of 4 checks",
+        "current": null,
+        "items": [
+          {
+            "id": "summary-status",
+            "text": "GET /api/runs/20260928-000221-d9a2350ea69e1d91/summary returns status \"Failed\", group \"done\" and…",
+            "state": "pass",
+            "observed": "Response has status=\"Failed\", group=\"done\", name=\"TipSplit: split the bill\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-checks",
+            "text": "In that summary checks.text is…",
+            "state": "pass",
+            "observed": "checks.text is \"2 of 4 checks\"; checks.items has 4 rows with the two failed rows (each-pays-48, each-pays-50) first",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-failing",
+            "text": "In that summary failing.expected is \"$48.00\" and failing.saw…",
+            "state": "pass",
+            "observed": "failing.expected is \"$48.00\" and failing.saw is \"$8.00\"",
+            "step": 7,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567637551.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567637551.jpg",
+              "at": "2026-09-28T03:53:57.551925Z",
+              "step": 7
+            }
+          },
+          {
+            "id": "summary-list",
+            "text": "GET /api/summary lists that run under the group…",
+            "state": "pass",
+            "observed": "GET /api/summary lists the run under group id \"done\" and macs.text is \"2 of 2 Macs free\"",
+            "step": 8,
+            "picture": {
+              "kind": "frame",
+              "file": "1790567642729.jpg",
+              "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567642729.jpg",
+              "at": "2026-09-28T03:54:02.729074Z",
+              "step": 8
+            }
+          }
+        ]
+      },
+      "failing": null,
+      "primaryAction": null,
+      "secondaryActions": [],
+      "machine": {
+        "status": "off",
+        "ended": "The coding agent shut down the Mac."
+      },
+      "outcome": "Verified",
+      "lastFrame": {
+        "kind": "frame",
+        "file": "1790567933138.jpg",
+        "url": "/api/runs/20260928-035231-77e16574bcfba03a/frames/1790567933138.jpg",
+        "at": "2026-09-28T03:58:53.138529Z",
+        "step": 13
+      },
+      "updatedAt": "2026-09-28T03:58:54.582204Z"
+    }
+  }
+]
