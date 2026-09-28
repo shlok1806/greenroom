@@ -653,7 +653,12 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
   clock (it jumps on a re-encoded keyframe); samples display on arrival. A still screen
   sends nothing, which is not a stall.
 - An `AVSampleBufferDisplayLayer` outside a window decodes nothing visible; tests that
-  read `displayedPixelBuffer()` host it in an offscreen `NSWindow` (`isReleasedWhenClosed = false`).
+  read `displayedPixelBuffer()` host it in an `NSWindow` (`isReleasedWhenClosed = false`)
+  that is on a display, under the desktop picture (`LiveScreenTests.hostedWindow`). Never
+  park that window off every display: a window whose `screen` is nil has no display it
+  can count on to refresh it. That worked on the CI runner for a while, then displayed
+  nothing on every run with no change to the code. Windows read with `cacheDisplay`
+  (`HostedViewTests`, the harness) need no refresh and stay off display.
   It also presents only on a display refresh: while the display sleeps (a locked, idle
   Mac, like the unattended CI runner) samples decode, status stays `.rendering`, and
   nothing is displayed until the display wakes, when the held frame appears unasked. Such
