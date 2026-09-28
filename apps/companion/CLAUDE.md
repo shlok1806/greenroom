@@ -707,6 +707,10 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
   (~1.7 ms) happens on first draw, on main. Forcing the decode means ~3.1 MB per cached
   frame (~189 MB at the 60-frame cache), so the cache must be re-bounded in bytes in the
   same change. Do not fix one half alone.
+- Never cancel the task you are running in before a request: its `URLSession` call is
+  cancelled too, and `RunStore.report` keeps cancellations quiet, so nothing goes out and
+  nothing says so. The undo timer did this and dropped held accepts (#183). A held choice
+  that did not go out always sets `lastError`.
 - Read streamed bodies in chunks (`DaemonClient.chunks`), never byte by byte off
   `URLSession.AsyncBytes`: too slow for video.
 - Build the H.264 format from the avcC's SPS and PPS

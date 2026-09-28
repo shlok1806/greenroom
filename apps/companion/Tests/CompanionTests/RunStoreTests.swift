@@ -483,6 +483,43 @@ final class RunStoreTests: XCTestCase {
         XCTAssertNil(store.heldVerdictChoice("run-1"))
     }
 
+    /// #183: the held accept goes out when its own timer ends the window, the way it does in
+    /// the app, not only when a test calls `sendHeldVerdictChoice` from outside. The timer
+    /// used to cancel itself before sending, so the request was cancelled and nothing said so.
+    func testAHeldAcceptIsSentByItsOwnTimer() async throws {
+        let posts = Counter()
+        let client = StubURLProtocol.client { request in
+            if request.httpMethod == "POST" { posts.add(); return .json("{}") }
+            if request.url?.path(percentEncoded: true) == "/api/runs" { return .json("[]") }
+            return .json(#"{"messages": []}"#)
+        }
+        let store = RunStore(client: client)
+        store.runs = [RunSummary(runId: "run-1", createdAt: Date(timeIntervalSince1970: 0), status: .ready,
+                                 verdict: VerdictState(seq: 5, verdict: "pass", status: .proposed))]
+        await store.holdAccept(runId: "run-1")
+        XCTAssertNotNil(store.heldVerdictChoice("run-1"))
+        try await Task.sleep(for: .seconds(UndoWindow<PendingVerdictChoice>.length + 1.5))
+        XCTAssertEqual(posts.value, 1, "the held accept never went out")
+        XCTAssertNil(store.heldVerdictChoice("run-1"))
+        XCTAssertNil(store.lastError)
+    }
+
+    /// #183: a held accept that does not go out says so, even when its request was cancelled
+    /// (which `report` keeps quiet about everywhere else).
+    func testAHeldAcceptThatDidNotGoOutSaysSo() async {
+        let client = StubURLProtocol.client { request in
+            if request.httpMethod == "POST" { return StubURLProtocol.Reply(failure: .cancelled) }
+            return .json(#"{"messages": []}"#)
+        }
+        let store = RunStore(client: client)
+        store.runs = [RunSummary(runId: "run-1", createdAt: Date(timeIntervalSince1970: 0), status: .ready,
+                                 verdict: VerdictState(seq: 5, verdict: "pass", status: .proposed))]
+        await store.holdAccept(runId: "run-1")
+        await store.sendHeldVerdictChoice(now: Date().addingTimeInterval(60))
+        XCTAssertEqual(store.lastError, "Your accept did not go out. Accept again.")
+        XCTAssertNil(store.heldVerdictChoice("run-1"), "the card offers Accept again")
+    }
+
     /// Undo inside the window: nothing ever reaches the daemon, and the timer that would
     /// have sent it finds nothing.
     func testUndoingAHeldDisputeSendsNothingAndKeepsTheReason() async {
