@@ -70,6 +70,8 @@ let tests: [(String, () -> Void)] = [
     ("a scroll bar's value is the position", testAScrollBarsValueIsThePosition),
     ("without scroll bars the content's frame is the position", testWithoutScrollBarsTheContentsFrameIsThePosition),
     ("content that fits does not scroll", testContentThatFitsDoesNotScroll),
+    ("an axis at its end cannot move on", testAnAxisAtItsEndCannotMoveOn),
+    ("a disabled scroll bar does not scroll", testADisabledScrollBarDoesNotScroll),
     ("the scroll bar wins over the rows a lazy list has made", testTheScrollBarWinsOverTheRowsALazyListHasMade),
     ("a scroll area's content is the union of its children", testAScrollAreasContentIsTheUnionOfItsChildren),
     ("a name is the title, then the description, then the placeholder", testANameIsTheTitleThenTheDescriptionThenThePlaceholder),

@@ -108,8 +108,11 @@ let holderRoles: Set<String> = layoutRoles.union(frameRoles).union([
 ])
 
 /// Whether a walk in `mode` lists an element. `named` is whether it has a name, `valued` a
-/// value, `described` a description, `identified` an identifier worth sending.
+/// value, `described` a description, `identified` an identifier worth sending. A scroll bar is
+/// listed only in `all`: its scroll area's `scroll` already says where it is and which ways it
+/// moves, and its value changing on every scroll would fill an action's effect with noise.
 func isListed(mode: WalkMode, role: String, named: Bool, valued: Bool, described: Bool, identified: Bool) -> Bool {
+    if mode != .all, role == "AXScrollBar" { return false }
     switch mode {
     case .all:
         return true

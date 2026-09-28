@@ -100,6 +100,9 @@ func readScroll(_ read: AXRead, cache: inout [AXHandle: AXRead]) -> ScrollPositi
     guard let view = read.frame else { return nil }
     let vertical = read.verticalBar.flatMap { numberAttribute($0, kAXValueAttribute) }
     let horizontal = read.horizontalBar.flatMap { numberAttribute($0, kAXValueAttribute) }
+    // A bar that is there but disabled (its content fits) says its axis does not scroll.
+    let verticalEnabled = read.verticalBar.flatMap { flagAttribute($0, kAXEnabledAttribute) } ?? true
+    let horizontalEnabled = read.horizontalBar.flatMap { flagAttribute($0, kAXEnabledAttribute) } ?? true
     var content: CGRect?
     if vertical == nil, horizontal == nil {
         var frames: [CGRect] = []
@@ -111,7 +114,8 @@ func readScroll(_ read: AXRead, cache: inout [AXHandle: AXRead]) -> ScrollPositi
         }
         content = contentFrame(of: frames)
     }
-    let position = scrollPosition(vertical: vertical, horizontal: horizontal, view: view, content: content)
+    let position = scrollPosition(vertical: vertical, horizontal: horizontal, view: view, content: content,
+                                  verticalEnabled: verticalEnabled, horizontalEnabled: horizontalEnabled)
     return position.scrolls ? position : nil
 }
 

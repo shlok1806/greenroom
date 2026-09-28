@@ -31,6 +31,9 @@ const (
 // now, or no longer has.
 const fieldEdited = "edited"
 
+// roleScrollBar is a scroll bar's role on the wire; its value never counts as a change.
+const roleScrollBar = "ScrollBar"
+
 // The visibility aspects a ChangeVisibility names in Field.
 const (
 	VisCovered   = "covered"   // From and To are the coverer's ref ("" for none)
@@ -204,6 +207,9 @@ func nodeChanges(b, a Node) []Change {
 		add(Change{Kind: ChangeName, From: b.Name, To: a.Name})
 	}
 	switch {
+	case a.Role == roleScrollBar:
+		// A scroll bar's value is where its scroll area is, which that area's `scroll` already
+		// says; as a change it would fill every scroll's effect with a number.
 	case b.Secret() || a.Secret():
 		if b.Chars != a.Chars {
 			add(Change{Kind: ChangeValue, Field: StateSecret, From: strconv.Itoa(b.Chars), To: strconv.Itoa(a.Chars)})

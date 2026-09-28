@@ -73,10 +73,16 @@ func appWithPID(a AppInfo) string {
 	return appName(a)
 }
 
-// sameApp reports whether two app infos name one process.
+// sameApp reports whether two app infos name one process: the same pid, and the same start
+// time when both carry one. A pid is recycled, so two start times that differ are two
+// processes; but the agent's `frontmost` has no start time while its `app` has one, and an
+// unknown start time on one side does not make the same pid another app.
 func sameApp(a, b AppInfo) bool {
 	if a.PID != 0 || b.PID != 0 {
-		return a.PID == b.PID && a.Started == b.Started
+		if a.PID != b.PID {
+			return false
+		}
+		return a.Started == "" || b.Started == "" || a.Started == b.Started
 	}
 	return a.BundleID == b.BundleID && a.Name == b.Name
 }

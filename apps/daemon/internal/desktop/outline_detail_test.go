@@ -75,6 +75,8 @@ func TestOutlineNamesAppsHoweverLittleIsKnown(t *testing.T) {
 		{"the same app by name, no pids", Snapshot{Frontmost: AppInfo{Name: "TipSplit"}, App: AppInfo{Name: "TipSplit"}}, `screen 0x0 · frontmost "TipSplit"` + "\n"},
 		{"a recycled pid is another app", Snapshot{Frontmost: AppInfo{Name: "A", PID: 5, Started: "1"}, App: AppInfo{Name: "B", PID: 5, Started: "2"}},
 			`screen 0x0 · frontmost "A" (pid 5) · showing "B" (pid 5), not frontmost` + "\n"},
+		{"the frontmost app without its start time is the app shown", Snapshot{Frontmost: AppInfo{Name: "NavLab", PID: 866}, App: AppInfo{Name: "NavLab", PID: 866, Started: "1790588650.871463"}},
+			`screen 0x0 · frontmost "NavLab" (pid 866)` + "\n"},
 		{"not responding names the app shown", Snapshot{Frontmost: AppInfo{Name: "Finder", PID: 1}, App: AppInfo{Name: "Notes", PID: 2}, Responding: &no},
 			"\n" + `"Notes" is not responding to accessibility`},
 		{"not responding with no app known", Snapshot{Responding: &no}, "\nthe app is not responding to accessibility"},
