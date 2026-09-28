@@ -101,7 +101,10 @@ func attentionText(a Attention) string {
 	if kind == "" {
 		kind = "window"
 	}
-	s := word(kind) + " " + word(a.Ref)
+	s := word(kind)
+	if a.Ref != "" {
+		s += " " + word(a.Ref)
+	}
 	if a.Role != "" && !strings.EqualFold(a.Role, kind) {
 		s += " " + word(a.Role)
 	}
