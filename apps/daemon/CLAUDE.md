@@ -198,7 +198,13 @@ Each layer depends only on the ones below. Keep it that way.
 - `internal/mcpserver` - the only agent-facing surface. Tool schemas, defaults, PNG to
   JPEG. No VM logic. `recoverPanics` turns a handler panic into that call's error: the SDK
   runs handlers on its own goroutines, beyond net/http's recovery, so a panic there ends the
-  whole daemon (issue #50).
+  whole daemon (issue #50). Register every tool with `addTool`, never `mcp.AddTool`
+  (daemon ADR 0007): it declares the output schema open at every depth, because clients keep
+  the schemas of the build they connected to (`/mcp` is stateless, a restart never makes them
+  re-list), and a closed schema turns every field added since into a client-side error
+  (#251). Adding a result field is compatible; removing, renaming or retyping one is not.
+  `TestOutputSchemasAreOpen` and `TestEveryToolsOutputMatchesItsSchema` (which must call
+  every tool that declares an output schema) pin it.
 - `internal/api` - the companion's routes and SSE stream (ADR 0007). Sibling of
   `mcpserver`. Neither holds logic the other needs.
 - `internal/verifier` - greenroom's agent, one actor per run. `Verifier` (NIM) and

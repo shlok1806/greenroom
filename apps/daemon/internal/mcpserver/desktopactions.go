@@ -57,7 +57,7 @@ func addActionTools(s *mcp.Server, mgr *machine.Manager) {
 		Force     bool     `json:"force,omitempty" jsonschema:"Press the point even when an element with a ref is there."`
 		TimeoutMs int      `json:"timeoutMs,omitempty" jsonschema:"How long to wait for the element to become pressable. Default 5000, max 30000."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_press",
 		Description: "Press an element by ref, as a person clicks it: it waits until the element is attached, " +
 			"visible (scrolling it into view), enabled, still and not covered, brings its app to the front, then " +
@@ -73,7 +73,7 @@ func addActionTools(s *mcp.Server, mgr *machine.Manager) {
 		Value     string `json:"value" jsonschema:"The value to set; empty clears a field."`
 		TimeoutMs int    `json:"timeoutMs,omitempty" jsonschema:"How long to wait for the element. Default 5000, max 30000."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_set_value",
 		Description: "Set an element's value through accessibility, not as a user types it: for setup (a slider, a " +
 			"long field), never for the input a check is about; use machine_type for that." + effectNote + humanDriving,
@@ -91,7 +91,7 @@ func addActionTools(s *mcp.Server, mgr *machine.Manager) {
 		PaceMs    *int   `json:"paceMs,omitempty" jsonschema:"Milliseconds between characters, 0 to 100. Default 20: a busy app drops faster keys."`
 		TimeoutMs int    `json:"timeoutMs,omitempty" jsonschema:"How long to wait for the field. Default 5000, max 30000."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_type",
 		Description: "Type text into a field by ref (pressed first to focus it), paced so no key is dropped, then read " +
 			"the field back and say whether it shows what was typed. Without ref or any other option it types into " +
@@ -111,7 +111,7 @@ func addActionTools(s *mcp.Server, mgr *machine.Manager) {
 		Ref       string   `json:"ref,omitempty" jsonschema:"An element to focus first. Without ref (and timeoutMs) the key goes to the frontmost app, as before."`
 		TimeoutMs int      `json:"timeoutMs,omitempty" jsonschema:"How long to wait for the element. Default 5000, max 30000."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_key",
 		Description: "Press one key with modifiers held, for example key f with mods [cmd] for command-F. With ref " +
 			"it focuses that element first and returns the key's effect; without it the key goes to the frontmost " +
@@ -133,7 +133,7 @@ func addActionTools(s *mcp.Server, mgr *machine.Manager) {
 		DeltaX    float64  `json:"deltaX,omitempty" jsonschema:"Without ref: horizontal scroll in points. Positive scrolls right."`
 		DeltaY    float64  `json:"deltaY,omitempty" jsonschema:"Without ref: vertical scroll in points. Positive scrolls down."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_scroll",
 		Description: "Scroll a scroll area by ref to the top, the bottom, by pages or points, or until an element is in " +
 			"view, and return where it went and what came into view. Without ref, the old raw scroll under x,y " +
