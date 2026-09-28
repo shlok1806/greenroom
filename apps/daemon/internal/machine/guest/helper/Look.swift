@@ -46,7 +46,12 @@ func look(ref: String, reader: String, full: Bool = false, hitTest: Bool = true,
         throw AgentFailure("stale_ref", "\(ref) went away while it was being read; take a new machine_snapshot",
                            detail: ["ref": ref, "reason": "gone"])
     }
-    return look(context, ref: ref, reResolved: resolved.reResolved, reader: reader, full: full, hitTest: hitTest)
+    // A re-resolved ref names a rebuilt element that a walk may already have given a ref of its
+    // own; walks keep finding it under that one (from the first re-resolution on, not only in
+    // the call that re-resolved it), so the node carries it and the daemon's lead line says
+    // "e101 was re-resolved to e143".
+    let current = knownRef(resolved.element, reader: reader) ?? ref
+    return look(context, ref: current, reResolved: resolved.reResolved, reader: reader, full: full, hitTest: hitTest)
 }
 
 /// Looks at an element met without a ref, giving it the reader's ref. Nil when it cannot be

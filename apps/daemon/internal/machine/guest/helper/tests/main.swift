@@ -105,6 +105,7 @@ let tests: [(String, () -> Void)] = [
     ("a sliver is not tried nine times", testASliverIsNotTriedNineTimes),
     ("a hit reaches the element, its inside and for labels what holds them", testAHitReachesTheElementItsInsideAndForLabelsWhatHoldsThem),
     ("a modal blocks what is not inside it", testAModalBlocksWhatIsNotInsideIt),
+    ("a point is ambiguous only on a control with a ref", testAPointIsAmbiguousOnlyOnAControlWithARef),
     ("the check log charges waits to the check that held up", testTheCheckLogChargesWaitsToTheCheckThatHeldUp),
     ("clicks carry state 1, 2, 3 in pairs", testClicksCarryStateOneTwoThreeInPairs),
     ("modifiers are known by their names", testModifiersAreKnownByTheirNames),
