@@ -232,6 +232,13 @@ func (v *Verifier) machineTool(ctx context.Context, runID string, call nim.ToolC
 		if why := unusable(ctx, v.mgr, runID); why != "" {
 			return "error: the machine is not usable: " + why, 0
 		}
+	default:
+		if isToolkitTool(call.Name) && v.mgr.DesktopToolkit() {
+			if why := unusable(ctx, v.mgr, runID); why != "" {
+				return "error: the machine is not usable: " + why, 0
+			}
+			return deskTool(ctx, v.mgr, runID, call)
+		}
 	}
 	args := []byte(call.Arguments)
 	switch call.Name {

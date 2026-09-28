@@ -49,12 +49,18 @@ func newHarness(t *testing.T) *harness {
 // newHarnessWith is newHarness with the server built with opts.
 func newHarnessWith(t *testing.T, opts ...Option) *harness {
 	t.Helper()
+	return newHarnessOn(t, nil, opts...)
+}
+
+// newHarnessOn is newHarnessWith on a manager built with mgrOpts too.
+func newHarnessOn(t *testing.T, mgrOpts []machine.Option, opts ...Option) *harness {
+	t.Helper()
 	bin, control := testsupport.FakeTart(t)
 	root := t.TempDir()
 	mgr, err := machine.NewManager(root, slog.New(slog.NewTextHandler(io.Discard, nil)),
-		machine.WithTartBin(bin), machine.WithReadyTimeout(10*time.Second),
-		machine.WithSSHProbe(func(context.Context, string, string) error { return nil }),
-		machine.WithFrameInterval(0))
+		append([]machine.Option{machine.WithTartBin(bin), machine.WithReadyTimeout(10 * time.Second),
+			machine.WithSSHProbe(func(context.Context, string, string) error { return nil }),
+			machine.WithFrameInterval(0)}, mgrOpts...)...)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}

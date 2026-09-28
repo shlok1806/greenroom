@@ -3,6 +3,7 @@ package verifier
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/shlok1806/greenroom/apps/daemon/internal/nim"
@@ -34,7 +35,7 @@ type repeats map[string]int
 func (r repeats) record(call nim.ToolCall, result string) int {
 	key := callKey(call) + "\x00"
 	if !strings.HasPrefix(result, "error:") {
-		look := call.Name == "machine_ui" || call.Name == "machine_screenshot"
+		look := call.Name == "machine_ui" || call.Name == "machine_screenshot" || slices.Contains(toolkitLooks, call.Name)
 		for k := range r {
 			if strings.HasPrefix(k, key) || look && strings.Contains(k, "\x00"+staleLookPrefix) {
 				delete(r, k)

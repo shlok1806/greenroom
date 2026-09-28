@@ -65,20 +65,7 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		opt(&o)
 	}
 	s := mcp.NewServer(&mcp.Implementation{Name: "greenroom", Version: Version}, &mcp.ServerOptions{
-		Instructions: "greenroom gives you a disposable macOS machine. Call machine_create once and keep its runId, " +
-			"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_pull to copy files out, machine_exec to build " +
-			"and run (a command still going after 45 s comes back running, with an execId for machine_exec_wait), " +
-			"machine_screenshot to look at the screen, machine_ui to find controls and their centers before " +
-			"machine_click. " +
-			"Every run also owns one conversation: agent_send posts into it, agent_wait blocks for what comes " +
-			"back, and agent_transcript reads it. That is how you reach greenroom's verifier and how a watching " +
-			"human reaches you. " +
-			"A job ends like this: send the verifier a task, agent_wait for its verdict, accept a pass (agent_send " +
-			"kind accept), then call run_finish with the outcome, a summary and the ref (branch, commit, PR). " +
-			"run_finish records how the run ended, destroys the machine and returns the run's report, Markdown for " +
-			"the PR body with every check and its evidence; run_report reads the same report at any time. Only an " +
-			"accepted pass finishes as verified; without one, finish as unverified or abandoned. " +
-			"Every run is recorded under ~/.greenroom/runs/<runId>.",
+		Instructions: instructions(mgr.DesktopToolkit()),
 	})
 
 	type createIn struct {
@@ -301,9 +288,35 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 	addAgentTools(s, reg)
 	addFinishTools(s, mgr, reg, o)
 	addInputTools(s, mgr)
+	addDesktopTools(s, mgr)
 	addSessionTools(s, mgr)
 	s.AddReceivingMiddleware(recoverPanics)
 	return s
+}
+
+// instructions is what the server tells an agent at the start. With the desktop toolkit its
+// sentence on the screen points at the toolkit's tools (docs/21 section 7.5); without it the text
+// is what it always was.
+func instructions(toolkit bool) string {
+	screen := "machine_screenshot to look at the screen, machine_ui to find controls and their centers before " +
+		"machine_click. "
+	if toolkit {
+		screen = "machine_snapshot to read the screen as elements with refs (and machine_find to find one by text), " +
+			"then act by ref; machine_screenshot when you need to see how it looks. "
+	}
+	return "greenroom gives you a disposable macOS machine. Call machine_create once and keep its runId, " +
+		"then machine_wait until status is ready. Use machine_sync to copy a project in, machine_pull to copy files out, machine_exec to build " +
+		"and run (a command still going after 45 s comes back running, with an execId for machine_exec_wait), " +
+		screen +
+		"Every run also owns one conversation: agent_send posts into it, agent_wait blocks for what comes " +
+		"back, and agent_transcript reads it. That is how you reach greenroom's verifier and how a watching " +
+		"human reaches you. " +
+		"A job ends like this: send the verifier a task, agent_wait for its verdict, accept a pass (agent_send " +
+		"kind accept), then call run_finish with the outcome, a summary and the ref (branch, commit, PR). " +
+		"run_finish records how the run ended, destroys the machine and returns the run's report, Markdown for " +
+		"the PR body with every check and its evidence; run_report reads the same report at any time. Only an " +
+		"accepted pass finishes as verified; without one, finish as unverified or abandoned. " +
+		"Every run is recorded under ~/.greenroom/runs/<runId>."
 }
 
 // recoverPanics turns a panic in any handler into that one call's error. The SDK runs handlers
