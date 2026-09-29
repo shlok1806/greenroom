@@ -43,6 +43,15 @@ func clientName(req *mcp.CallToolRequest) string {
 	return agentProduct(req.Extra.Header.Get("User-Agent"))
 }
 
+// agentCaller names the agent that sent req for a run's record (daemon ADR 0008): "agent
+// (claude-code)", or "agent" when the client did not say which it is.
+func agentCaller(req *mcp.CallToolRequest) string {
+	if name := clientName(req); name != "" {
+		return "agent (" + name + ")"
+	}
+	return "agent"
+}
+
 // agentProduct is a User-Agent's first product name ("claude-code/2.1.3 (cli)" is
 // "claude-code"), or "" for an HTTP library's.
 func agentProduct(ua string) string {

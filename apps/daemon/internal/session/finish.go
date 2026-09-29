@@ -42,6 +42,9 @@ type Finish struct {
 	Summary string    `json:"summary"`
 	Ref     *Ref      `json:"ref,omitempty"`
 	At      time.Time `json:"at"`
+	// By is who called run_finish, such as "agent (claude-code)" (daemon ADR 0008). Absent in
+	// finishes from before it.
+	By string `json:"by,omitempty"`
 }
 
 // FinishText is the text of the event that records f.

@@ -143,7 +143,7 @@ func (a *api) reboot(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (a *api) destroy(w http.ResponseWriter, r *http.Request, id string) {
-	if err := a.mgr.Destroy(r.Context(), id); err != nil {
+	if err := a.mgr.DestroyBy(r.Context(), id, humanSeat, "the companion"); err != nil {
 		a.failMachine(w, id, err)
 		return
 	}

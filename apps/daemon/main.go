@@ -367,6 +367,20 @@ func checkPublicAccess(publicHost, token, envFile string) error {
 	return nil
 }
 
+// destroyedText is the transcript event for a destroyed machine: "machine destroyed", then who
+// asked and through what when the caller said (daemon ADR 0008). Every reader matches the
+// "machine destroyed" prefix, so it stays first.
+func destroyedText(ev machine.LifecycleEvent) string {
+	text := "machine destroyed"
+	if ev.By != "" {
+		text += " by " + ev.By
+	}
+	if ev.Via != "" {
+		text += " through " + ev.Via
+	}
+	return text
+}
+
 // bridgeLifecycle posts the manager's lifecycle into each run's conversation. It is the only poster of
 // ready/failed/stopped/destroyed. Without a verifier it also says nobody will answer each message that starts a turn.
 func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnabled bool) {
@@ -405,7 +419,7 @@ func bridgeLifecycle(mgr *machine.Manager, reg *session.Registry, verifierEnable
 		case "stopped":
 			text = withError("machine stopped", ev.Machine) // a ready machine's VM went away, not a boot failure
 		case "destroyed":
-			post(ev.RunID, "machine destroyed")
+			post(ev.RunID, destroyedText(ev))
 			reg.Evict(ev.RunID)
 			return
 		default:

@@ -115,22 +115,25 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		*machine.Machine
 		LastActivity time.Time `json:"lastActivity" jsonschema:"When a step or message last happened on this run. Screen frames do not count."`
 		IdleSeconds  int       `json:"idleSeconds" jsonschema:"Seconds since lastActivity"`
+		machine.Presence
 	}
 	type listOut struct {
 		Machines []listedMachine `json:"machines"`
 	}
 	addTool(s, &mcp.Tool{
 		Name: "machine_list",
-		Description: "List live machines with their runIds, status and how long each has been idle (idleSeconds: no " +
-			"tool step or message since lastActivity), for example to pick up a machine from an earlier session or " +
-			"to tell a stale run from a busy one when the host is at its machine limit.",
+		Description: "List live machines on this daemon with their runIds, status, how long each has been idle " +
+			"(idleSeconds: no tool step or message since lastActivity), and who is at it (watchers on its live screen, " +
+			"a person driving it), for example to pick up a machine from an earlier session. Other agents and people " +
+			"share this daemon, and greenroom cannot tell which runs you created: a run is yours only if your own " +
+			"machine_create returned its runId. Never destroy or finish another run, however idle it looks.",
 	}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, listOut, error) {
 		out := listOut{Machines: []listedMachine{}}
 		for _, mc := range mgr.List() {
 			steps, _ := machine.ReadStepLog(mc.Dir) // unreadable counts as no steps, as in /api/runs
 			last := mgr.ActivityFrom(mc.RunID, mc.CreatedAt, steps)
 			out.Machines = append(out.Machines, listedMachine{Machine: mc, LastActivity: last,
-				IdleSeconds: int(max(0, time.Since(last)).Seconds())})
+				IdleSeconds: int(max(0, time.Since(last)).Seconds()), Presence: mgr.Presence(mc.RunID)})
 		}
 		return nil, out, nil
 	})
@@ -265,10 +268,12 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 	addTool(s, &mcp.Tool{
 		Name: "machine_destroy",
 		Description: "Stop and delete the machine. The run's recording stays on disk. To end a job, prefer run_finish: it " +
-			"records how the run ended and destroys the machine in one call.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, destroyOut, error) {
+			"records how the run ended and destroys the machine in one call. Only destroy a run your own " +
+			"machine_create returned: other agents and people share this daemon, and their runs are their work however " +
+			"idle they look. The run's record names who destroyed it.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, destroyOut, error) {
 		// Nothing is posted here: main.go's lifecycle bridge announces the destroy once it has happened.
-		if err := mgr.Destroy(ctx, in.RunID); err != nil {
+		if err := mgr.DestroyBy(ctx, in.RunID, agentCaller(req), "machine_destroy"); err != nil {
 			return nil, destroyOut{}, err
 		}
 		return nil, destroyOut{OK: true}, nil
