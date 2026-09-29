@@ -213,7 +213,7 @@ Each layer depends only on the ones below. Keep it that way.
   `machine.PTYSession`; never name that type `Session`.
 - `internal/machine` - lifecycle and source of truth. `Manager`, the recorder
   (`manifest.json`, `steps.jsonl`, `frames/`, `frames.jsonl`), computer use (`input.go`,
-  `ui.go`, guest helper in `guest/input.swift`), the live screen (`screen.go`), pty sessions
+  `ui.go`, the guest helper in `guest/helper/`), the live screen (`screen.go`), pty sessions
   (`ptysession.go`).
 - `internal/nim` - OpenAI-compatible client for NVIDIA NIM.
 - `internal/tart` - the only package that knows tart's arguments and output.
@@ -598,7 +598,7 @@ Conversation and verifier
   request-body test in `nim/client_test.go`, never a new environment variable.
 - muse-glimmer (thinking off) is the built-in default describer (ADR 0032). A set
   `GREENROOM_VISION_MODEL` always beats it: an old `.env` line pinning omni or kimi-k3 silently
-  keeps the slower describer, as the maintainer's did until 2026-09-26 (#154). Check the
+  keeps the slower describer (#154). Check the
   "verifier enabled" log line for `vision=` after a restart.
 - `Verifier.describe` retries once any answer `readableDescription` refuses: `<unk>` (omni),
   empty (all three describers; muse about 1 in 40 even with thinking off) or under 10
@@ -883,7 +883,7 @@ Computer use (ADR 0009)
   `scale`; never hardcode Retina 2 (the tahoe guest is 1024x768 at scale 1).
 - The input helper is compiled in the guest with `swiftc` to
   `~/.greenroom/bin/greenroom-input-<inputHelperVersion>`. Bump `inputHelperVersion`
-  when `guest/input.swift` changes, then rebuild the image `install.sh` serves by default:
+  when anything under `guest/helper/` changes, then rebuild the image `install.sh` serves by default:
   `greenroom-lean-a` when it exists (`build-image.sh -lean -name greenroom-lean-a -force`),
   and `greenroom-base` as the rollback target (`build-image.sh -force`). Locally boot detects a
   stale image, warns and compiles the helper (see Boot and lifecycle). The VM suite workflow bakes and tests
@@ -895,10 +895,10 @@ Computer use (ADR 0009)
   (issue #36). The helper never sees the tools' sign; the companion converts AppKit's.
 - `validateActions` refuses an unknown action type, button or modifier before a batch posts
   anything, because the helper drops an unknown modifier and makes an unknown button a left
-  click (issue #31). Its name lists mirror `flags` and `mouseButton` in `input.swift`; change
+  click (issue #31). Its name lists mirror `flags` and `mouseButton` in `helper/Input.swift`; change
   them together.
 - A batch returns only after the window server applied it (`perform`/`settle` in
-  `input.swift`): the session's event counter (`CGEventSource.counterForEventType`, any
+  `helper/Input.swift`): the session's event counter (`CGEventSource.counterForEventType`, any
   type) must move by as many events as the batch posted, within 3 s, or the batch fails.
   A batch whose action fails part way still waits for what it posted.
   A post only queues the event; the window server checks the poster's TCC PostEvent grant
@@ -907,7 +907,7 @@ Computer use (ADR 0009)
   (the pointer stayed at boot's (10,10), about one `TestEndToEndInput` run in ten). Every
   post goes through `post()`, which counts it; a new post site that bypasses it breaks this.
 - A shortcut posts real modifier key downs and ups around the key (`press` in
-  `input.swift`). A flag on the key event alone leaves the window server thinking the
+  `helper/Input.swift`). A flag on the key event alone leaves the window server thinking the
   modifier is held, and the next typed text arrives as command-1, command-2.
 
 UI tree (ADR 0012)
@@ -969,7 +969,7 @@ Screen looks (daemon ADR 0003, issue #187)
 - `ensureInput` starts one detached install (`installJob`) per machine; callers wait with their
   own ctx. The helper check runs under the watchdog; only a missing or stale helper compiles.
   `inputState.mu` is never held across a guest call.
-- `input.swift` answers `--version` before any top-level code that touches WindowServer. Keep
+- `helper/main.swift` answers `--version` before any top-level code that touches WindowServer. Keep
   it first: the install and boot checks run `--version` on a guest whose screen may be wedged.
 - Tests shorten the limits with `withLookTimes`; the fake tart hangs a capture with
   `shot-hang` and a UI read with `ui-hang`, and slows the compile with `input-install-sleep`.
