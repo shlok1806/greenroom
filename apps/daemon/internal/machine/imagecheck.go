@@ -235,6 +235,76 @@ osascript -e 'tell application "Safari" to do JavaScript "1+1" in document 1'`, 
 	// privacy or developer tools prompt) left for the window check. A cold build in a fresh
 	// clone takes about a minute.
 	{"xcodebuild", xcodebuildExercise, 240},
+	// An app outside base.sh's old fixed nine-target list, scripted over Apple Events: ADR 0038's
+	// build-time enumeration must cover it with no machine_approve_control call. It asks for the
+	// app's name, which needs the grant (no grant prompts and times out, or fails with -1743) but
+	// no window: issue #252's "name of every window" fails with -1728 when Calculator has none.
+	{"appleevent-calculator", `osascript -e 'tell application "Calculator" to get name'`, 30},
+	{"quit-calculator", quitAppScript("Calculator"), 0},
+	// A freshly built app, never in any built-time list, approved by machine_approve_control's
+	// guest script (tccgrant.sh) and then scripting itself (ADR 0038, issue #252 point 3).
+	{"appleevent-freshbuild", selfScriptingAppExercise(), 60},
+}
+
+// quitAppScript asks name to quit over Apple Events and waits up to 10 s for it to leave, as
+// the xcodebuild list's own "quit-safari" step does.
+func quitAppScript(name string) string {
+	return fmt.Sprintf(`osascript -e 'tell application %q to quit'; n=0
+while pgrep -x %q >/dev/null && [ $n -lt 100 ]; do sleep 0.1; n=$((n+1)); done
+! pgrep -x %q >/dev/null`, name, name, name)
+}
+
+// selfScriptingAppExercise builds a minimal .app in the guest's /tmp with swiftc (no Xcode
+// project needed), approves it with tccgrant.sh (machine_approve_control's guest half), then
+// has it run an AppleScript that targets its own bundle id: `tell application id "<its id>"`.
+// A prompt here would mean either the approval script or the grants it writes are wrong.
+func selfScriptingAppExercise() string {
+	return `set -e
+d=/tmp/greenroom-check-selfbuild && rm -rf "$d" && mkdir -p "$d/TestApp.app/Contents/MacOS"
+bid=com.greenroom.check.testapp
+cat > "$d/TestApp.app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key><string>$bid</string>
+	<key>CFBundleExecutable</key><string>TestApp</string>
+	<key>CFBundleName</key><string>TestApp</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>LSUIElement</key><true/>
+</dict>
+</plist>
+PLIST
+result=/tmp/greenroom-check-selfbuild-result
+rm -f "$result"
+cat > "$d/main.swift" <<'SWIFT'
+import Foundation
+// activate alone (not "get name of every window"): this app has no AppKit run loop or
+// windows, and a property Apple Events cannot answer would raise its own error unrelated
+// to what this exercise checks, which is only that scripting itself never prompts.
+let bid = Bundle.main.bundleIdentifier ?? ""
+let src = "tell application id \"\(bid)\" to activate"
+var err: NSDictionary?
+let script = NSAppleScript(source: src)
+let out = script?.executeAndReturnError(&err)
+let text: String
+if let err { text = "error: \(err)" } else { text = "ok: \(out?.stringValue ?? "")" }
+try? text.write(toFile: "/tmp/greenroom-check-selfbuild-result", atomically: true, encoding: .utf8)
+SWIFT
+swiftc -o "$d/TestApp.app/Contents/MacOS/TestApp" "$d/main.swift"
+cat > "$d/grant.sh" <<'GRANTEOF'
+` + tccGrantScript + `
+GRANTEOF
+grant_out="$(sh "$d/grant.sh" "$d/TestApp.app" 2>&1)" || { echo "machine_approve_control's script failed: $grant_out" >&2; exit 1; }
+open "$d/TestApp.app"
+n=0
+while [ ! -f "$result" ] && [ $n -lt 100 ]; do sleep 0.1; n=$((n+1)); done
+[ -f "$result" ] || { echo "the freshly built app never finished scripting itself" >&2; exit 1; }
+res="$(cat "$result")"
+rm -f "$result"
+osascript -e "tell application id \"$bid\" to quit" >/dev/null 2>&1 || true
+n=0; while pgrep -x TestApp >/dev/null && [ $n -lt 50 ]; do sleep 0.1; n=$((n+1)); done
+case "$res" in ok:*) echo "$res" ;; *) echo "self-scripting failed: $res" >&2; exit 1 ;; esac`
 }
 
 // xcodebuildExercise builds a one-file package with xcodebuild in the guest's /tmp.

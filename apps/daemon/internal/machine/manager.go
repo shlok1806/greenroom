@@ -174,7 +174,7 @@ type Manager struct {
 
 // LifecycleEvent is one change a listener may care about.
 type LifecycleEvent struct {
-	Kind    string   `json:"kind"` // created, ready, failed, stopped, destroyed, rebooting, step, frame, control, boot
+	Kind    string   `json:"kind"` // created, ready, failed, stopped, destroyed, rebooting, step, frame, control, boot, desktop
 	RunID   string   `json:"runId"`
 	Machine *Machine `json:"machine,omitempty"`
 	Step    int      `json:"step,omitempty"`

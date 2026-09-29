@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/shlok1806/greenroom/apps/daemon/internal/testsupport"
 )
 
 // Issue #29: however much a command prints, what is kept stays bounded, keeps
@@ -79,5 +81,77 @@ func TestDestroyEndsARunningCommand(t *testing.T) {
 	}
 	if j.err == nil {
 		t.Error("a command ended by destroy reported success")
+	}
+}
+
+// A command still running when ExecWait's own wait elapses is exactly the shape of a stall
+// on a system prompt (ADR 0038, issue #252): the exact Calculator repro blocks osascript on
+// "tart-guest-agent wants access to control Calculator" with nothing to answer it. ExecWait
+// takes a look and reports what is on screen, without touching it.
+func TestExecWaitLooksAtTheScreenWhenACommandIsStillRunning(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	mc := readyMachine(t, mgr)
+	if err := os.WriteFile(filepath.Join(control, "exec-sleep"), []byte("5"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(control, "desktop.json"), []byte(promptAndTerminal), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := mgr.ExecStart(context.Background(), mc.RunID, "osascript -e 'tell application \"Calculator\" to activate'", "", time.Minute)
+	if err != nil || !st.Running {
+		t.Fatalf("ExecStart: %+v, %v", st, err)
+	}
+	got, err := mgr.ExecWait(context.Background(), mc.RunID, st.ExecID, 200*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Running {
+		t.Fatal("the command finished before its own sleep; the test cannot exercise the look")
+	}
+	if got.Desktop == nil || got.Desktop.Clean {
+		t.Fatalf("a running command with a prompt on screen reported no desktop finding: %+v", got.Desktop)
+	}
+	if s := strings.Join(got.Desktop.Findings(), "\n"); !strings.Contains(s, "UserNotificationCenter") {
+		t.Errorf("findings do not name the prompt: %s", s)
+	}
+	live, err := mgr.get(mc.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.mu.Lock()
+	desktop := live.Desktop
+	mgr.mu.Unlock()
+	if desktop == nil || desktop.Clean {
+		t.Error("the machine's own Desktop field was not updated, so machine_wait would not see it either")
+	}
+	if calls := testsupport.Calls(t, control); strings.Contains(calls, "pkill") || strings.Contains(calls, "killall") ||
+		strings.Contains(calls, "to quit") {
+		t.Errorf("the look closed or killed something instead of only reporting it:\n%s", calls)
+	}
+}
+
+// A command that returns within its wait is not stalled, so the extra look never runs, and a
+// clean desktop never sets Desktop even when it is checked.
+func TestExecWaitDoesNotLookAtAFinishedCommand(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	mc := readyMachine(t, mgr) // boot's own desktop check already logged one --desktop read
+	before := strings.Count(testsupport.Calls(t, control), "--desktop")
+
+	st, err := mgr.ExecStart(context.Background(), mc.RunID, "echo hi", "", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := mgr.ExecWait(context.Background(), mc.RunID, st.ExecID, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Running {
+		t.Fatal("echo did not finish within a second")
+	}
+	if got.Desktop != nil {
+		t.Errorf("a finished command carries a desktop finding: %+v", got.Desktop)
+	}
+	if after := strings.Count(testsupport.Calls(t, control), "--desktop"); after != before {
+		t.Errorf("a command that finished within its wait was still looked at (%d --desktop reads before, %d after)", before, after)
 	}
 }

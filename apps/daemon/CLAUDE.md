@@ -418,6 +418,26 @@ Boot and lifecycle
   screen lock off (a sleeping guest display makes every capture black, with no error).
   Also never fatal. `prepare-image`
   bakes both with the same scripts, so build time and boot time cannot disagree.
+- Apple Events and the rest of the TCC family (`tccgrant.go`, ADR 0038, issue #252):
+  `base.sh` grants `kTCCServiceAppleEvents` for every app bundle it walks under
+  `/Applications`, `/System/Applications` and `/System/Applications/Utilities` (bundle ids
+  resolved at build time, never pinned; `GREENROOM_TCC_APP_DIRS` overrides the directories
+  for the test harness only), plus Finder and System Events, which live in
+  `/System/Library/CoreServices` outside those three. An app built or synced at run time has
+  a bundle id the image cannot know: `machine_approve_control` (`ApproveControl`,
+  `guest/tccgrant.sh`) grants the same Apple Events rows for it, plus Accessibility, screen
+  capture (the plain TCC row; `machine_approve_capture` is the separate replayd bypass
+  alert), the Desktop/Documents/Downloads folders, the camera and the microphone, all keyed
+  to the app's own resolved executable. Call it once the app is built, before anything
+  controls, scripts or otherwise touches it: a TCC.db write only prevents the *next* Apple
+  Event, measured live it does not cancel a prompt already on screen. `ExecWait` looks at the
+  desktop (`attachDesktopIfRunning`, `desktopcheck.go`'s `readDesktop`/`Report`, not
+  `machine_ui`, which only reads the frontmost regular app and cannot see a system prompt,
+  issue #223) whenever a command has not returned within its wait, exactly the shape of a
+  stall on an unanswered prompt; a finding lands in the exec result's `desktop` field and the
+  machine's own `Desktop`, never auto-clicked or closed. `check-image`'s exercises include the
+  issue's own repro (Calculator, outside the old fixed list) and a freshly built app scripting
+  itself, approved by the same guest script.
 - Image drift (issue #159, `machine/drift.go`, `imagestatus.go`): `greenroom image-status` reads
   each default image's disk while it is stopped (never a running one) and judges it by the
   helpers under `Users/*/.greenroom/bin` and the manifest at `ToolchainPath` on the Data
