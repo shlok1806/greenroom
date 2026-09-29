@@ -37,6 +37,9 @@ enum MarkdownText {
         var step: Int?
         /// A link's destination, as written.
         var link: String?
+        /// While a message streams in (`StreamReveal.cut`), the word this run is part of
+        /// when that word is still fading in; nil for settled text.
+        var arriving: Int?
 
         init(_ text: String, _ style: Style = [], step: Int? = nil, link: String? = nil) {
             self.text = text

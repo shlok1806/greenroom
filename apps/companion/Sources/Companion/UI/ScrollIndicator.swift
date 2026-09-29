@@ -44,6 +44,10 @@ struct VisibleScroller: View {
     var metrics: ScrollMetrics
     /// "25-48 of 2,000", shown beside the knob while it matters.
     var position: String?
+    /// Whether a move of the list is the person's own. A list following new content (the
+    /// conversation keeping a streaming message in view) moves without showing the position,
+    /// which would otherwise sit over the words arriving.
+    var personScrolling = true
     var scrollTo: (CGFloat) -> Void
 
     @State private var hovering = false
@@ -100,6 +104,7 @@ struct VisibleScroller: View {
         .allowsHitTesting(metrics.scrollable)
         .animation(Motion.easeOut(Motion.press), value: hovering)
         .onChange(of: metrics.offset) { _, _ in
+            guard personScrolling || hovering || dragStart != nil else { return }
             recentlyMoved = true
             fade?.cancel()
             fade = Task {
@@ -116,6 +121,7 @@ struct VisibleScrollerModifier: ViewModifier {
     var position: ((ScrollMetrics) -> String?)?
     @State private var metrics = ScrollMetrics()
     @State private var scroll = ScrollPosition()
+    @State private var phase = ScrollPhase.idle
 
     func body(content: Content) -> some View {
         content
@@ -127,8 +133,10 @@ struct VisibleScrollerModifier: ViewModifier {
             } action: { _, new in
                 metrics = new
             }
+            .onScrollPhaseChange { _, new in phase = new }
             .overlay(alignment: .trailing) {
-                VisibleScroller(metrics: metrics, position: position?(metrics)) { offset in
+                VisibleScroller(metrics: metrics, position: position?(metrics),
+                                personScrolling: phase == .tracking || phase == .interacting || phase == .decelerating) { offset in
                     scroll.scrollTo(y: offset)
                 }
             }

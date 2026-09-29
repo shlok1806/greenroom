@@ -48,7 +48,7 @@ func addTreeTools(s *mcp.Server, mgr *machine.Manager) {
 		Limit    int      `json:"limit,omitempty" jsonschema:"Most elements to list. Default 250, max 1000."`
 		FullText []string `json:"fullText,omitempty" jsonschema:"Refs whose long text is sent whole instead of cut at 240 characters."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_snapshot",
 		Description: "Read an app's windows as one element a line, each with a ref (e17) that stays the same while " +
 			"the element lives, its state, and flags from real hit-testing: covered by what, offscreen in which scroll " +
@@ -73,7 +73,7 @@ func addTreeTools(s *mcp.Server, mgr *machine.Manager) {
 		IncludeOffscreen *bool  `json:"includeOffscreen,omitempty" jsonschema:"Also match rows scrolled out of view. Default true."`
 		Limit            int    `json:"limit,omitempty" jsonschema:"Most matches. Default 50, max 200."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_find",
 		Description: "Find elements by text in an app's whole tree, rows scrolled out of view included, and return " +
 			"them with their refs and where they are (in which window, offscreen in which scroll area). Use it " +

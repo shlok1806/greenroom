@@ -35,7 +35,7 @@ func addRebootTool(s *mcp.Server, mgr *machine.Manager) {
 		*machine.Machine
 		Step int `json:"step" jsonschema:"The reboot's step in the run record, written when the reboot ends"`
 	}
-	mcp.AddTool(s, &mcp.Tool{Name: "machine_reboot", Description: rebootDescription},
+	addTool(s, &mcp.Tool{Name: "machine_reboot", Description: rebootDescription},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in rebootIn) (*mcp.CallToolResult, rebootOut, error) {
 			// Nothing is posted here: main.go's lifecycle bridge announces the reboot and how it ended.
 			mc, step, err := mgr.Reboot(ctx, in.RunID)

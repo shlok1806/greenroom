@@ -14,7 +14,7 @@ struct TimelineBar: View {
 
     var body: some View {
         Group {
-            if ShellModel.isLive(summary), frozenNow == nil {
+            if ShellModel.isLive(summary), frozenNow == nil, OnScreen.shared.visible {
                 TimelineView(.periodic(from: .now, by: 1)) { context in content(now: context.date) }
             } else {
                 content(now: frozenNow ?? Date())

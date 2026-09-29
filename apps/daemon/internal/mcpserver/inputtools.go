@@ -34,7 +34,7 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	if mgr.DesktopToolkit() {
 		uiDescription = uiDescriptionToolkit
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "machine_ui",
 		Description: uiDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in uiIn) (*mcp.CallToolResult, machine.UITree, error) {
@@ -70,7 +70,7 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	if mgr.DesktopToolkit() {
 		clickDescription = clickDescriptionToolkit
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "machine_click",
 		Description: clickDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in clickIn) (*mcp.CallToolResult, clickOut, error) {
@@ -128,7 +128,7 @@ func addInputTools(s *mcp.Server, mgr *machine.Manager) {
 	if mgr.DesktopToolkit() {
 		inputDescription = inputDescriptionToolkit
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "machine_input",
 		Description: inputDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in inputIn) (*mcp.CallToolResult, machine.InputResult, error) {
@@ -149,7 +149,7 @@ func addOldTypeKeyScroll(s *mcp.Server, post func(ctx context.Context, runID str
 		Text  string `json:"text" jsonschema:"The text to type, one character event at a time, into whatever has focus. Click into a field first if nothing does."`
 		App   string `json:"app,omitempty" jsonschema:"Optional application to bring to the front first, a name or bundle id as machine_ui takes. Without it the text goes to the frontmost app."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_type",
 		Description: "Type text into the machine, into whatever currently has keyboard focus in the frontmost app. An " +
 			"app started with machine_exec is not frontmost: pass app, or click one of its elements first." + humanDriving,
@@ -163,7 +163,7 @@ func addOldTypeKeyScroll(s *mcp.Server, post func(ctx context.Context, runID str
 		Mods  []string `json:"mods,omitempty" jsonschema:"Modifiers held with the key: cmd, shift, alt, ctrl, fn (also command, option, control, function). Any other name is an error."`
 		App   string   `json:"app,omitempty" jsonschema:"Optional application to bring to the front first, a name or bundle id as machine_ui takes. Without it the key goes to the frontmost app."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_key",
 		Description: "Press one key, optionally with modifiers held, for example key f with mods [cmd] for " +
 			"command-F. The key goes to the frontmost app; an app started with machine_exec is not frontmost, so " +
@@ -180,7 +180,7 @@ func addOldTypeKeyScroll(s *mcp.Server, post func(ctx context.Context, runID str
 		DeltaY float64  `json:"deltaY,omitempty" jsonschema:"Vertical scroll amount, in points. Positive scrolls down, negative scrolls up."`
 		App    string   `json:"app,omitempty" jsonschema:"Optional application to bring to the front first, a name or bundle id as machine_ui takes."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name:        "machine_scroll",
 		Description: "Scroll the machine's screen under the pointer's current position, or under x,y if given." + humanDriving,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in scrollIn) (*mcp.CallToolResult, machine.InputResult, error) {

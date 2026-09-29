@@ -13,7 +13,8 @@ the Markdown renderer), `0010` (run thumbnails from the last frame, superseded b
 `0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict), `0013` (one
 primary in the top bar, Give Back on the driving bar), `0014` (evidence marks on the picture), `0015` (a
 verifier stopped at its limit is a card with Continue), `0016` (a finished run says Done, only Verified is
-green), `0017` (in-window menus are drawn by the app) and `0018` (twins say what tells them apart).
+green), `0017` (in-window menus are drawn by the app), `0018` (twins say what tells them apart) and `0020`
+(agent text streams in by the word).
 Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
@@ -47,6 +48,11 @@ no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
   roll). `MotionTests` holds them to the browser's sampled frames in
   `docs/22-swiftui-clone-plan/specs/` and to `Tests/CompanionTests/Golden/` (made with node
   from the pinned sources; regenerate when a source sha is bumped).
+- Off screen, nothing ticks (ADR 0021, #219): `OnScreen.shared.visible` follows the run
+  window's `occlusionState` (`OnScreenReader` at the shell's root; other windows never change
+  it). `Clocked` and every periodic `TimelineView` in `UI/` draw once while it is false, and
+  the live screen disconnects. A new clock in `UI/` checks it too. Measured with a run
+  starting: 16% of a core in another Space before, 0% after.
 - `UI/Icons.swift`: the design's icons as paths (the Figma icon components exported as SVG,
   Lucide's outlines). Never an SF Symbol in `UI/`: it is not what the design draws.
 - `UI/CommandScore.swift` is cmdk's ranking, ported line for line; change it only with its
@@ -61,6 +67,12 @@ no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
     one-line places (a check's claim and what it observed, expected and saw, the Now line,
     task row and section titles) through `AgentMarkdown.inline`, which sets presentation
     intents only, so the place keeps its own type. Never `Text(check.text)` for agent words.
+  - A message that arrives while the conversation shows streams in by the word (ADR 0020,
+    `StreamReveal`): the parsed blocks are cut between words (never mid-word or mid-token),
+    30 words a second, the whole reveal capped at 2 s, each arriving word marked
+    `Span.arriving` and faded up by the `ArrivingWords` text renderer. Its end is checked on
+    the first frame too (`onChange(initial: true)`), or a reveal already over never hands
+    back and its `TimelineView` ticks forever.
   - Beautiful UI's agent entrances use `AgentMotion` (the originals' timings, held to the
     specs by `AgentAnimationTests`) through `.fadeUp`, and `Arrivals` decides what is new:
     only what arrives while a view shows moves; what was there when it opened never does.
@@ -707,6 +719,10 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
   (~1.7 ms) happens on first draw, on main. Forcing the decode means ~3.1 MB per cached
   frame (~189 MB at the 60-frame cache), so the cache must be re-bounded in bytes in the
   same change. Do not fix one half alone.
+- Never cancel the task you are running in before a request: its `URLSession` call is
+  cancelled too, and `RunStore.report` keeps cancellations quiet, so nothing goes out and
+  nothing says so. The undo timer did this and dropped held accepts (#183). A held choice
+  that did not go out always sets `lastError`.
 - Read streamed bodies in chunks (`DaemonClient.chunks`), never byte by byte off
   `URLSession.AsyncBytes`: too slow for video.
 - Build the H.264 format from the avcC's SPS and PPS

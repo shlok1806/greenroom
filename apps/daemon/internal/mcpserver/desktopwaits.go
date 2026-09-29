@@ -34,7 +34,7 @@ func addWaitTools(s *mcp.Server, mgr *machine.Manager) {
 		Value     any    `json:"value,omitempty" jsonschema:"With state value: {\"op\": \"equals\", \"contains\" or \"matches\", \"expected\": \"42\"}."`
 		TimeoutMs int    `json:"timeoutMs,omitempty" jsonschema:"How long to wait. Default 10000, max 40000."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_wait_for",
 		Description: "Wait in the machine until an element, a window or an app reaches a state (appears, goes away, " +
 			"becomes enabled, changes, shows a value) or the app goes idle, and return how long it took, its value, and " +
@@ -69,7 +69,7 @@ func addWaitTools(s *mcp.Server, mgr *machine.Manager) {
 		Expected  any    `json:"expected,omitempty" jsonschema:"A string for value and name, true or false for the flags (default true), a whole number for count."`
 		TimeoutMs int    `json:"timeoutMs,omitempty" jsonschema:"How long it may take to hold. Default 2000, max 40000."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "machine_expect",
 		Description: "Assert what an element, window or app shows, waiting up to timeoutMs for it to hold, and record " +
 			"the assertion as a step: what was expected, what was observed (exact text), when, and a crop of the " +
@@ -94,7 +94,7 @@ func addWaitTools(s *mcp.Server, mgr *machine.Manager) {
 		Region []float64 `json:"region,omitempty" jsonschema:"Crop to [x, y, w, h], fractions of the screen 0 to 1."`
 		Margin *int      `json:"margin,omitempty" jsonschema:"Points of margin around ref (default 24) or window (default 0)."`
 	}
-	mcp.AddTool(s, &mcp.Tool{Name: "machine_screenshot", Description: screenshotDescriptionToolkit},
+	addTool(s, &mcp.Tool{Name: "machine_screenshot", Description: screenshotDescriptionToolkit},
 		func(ctx context.Context, req *mcp.CallToolRequest, in shotIn) (*mcp.CallToolResult, any, error) {
 			if !desktop.ToolkitCall("machine_screenshot", req.Params.Arguments) {
 				return screenshot(ctx, mgr, in.RunID)

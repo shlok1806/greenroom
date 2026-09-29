@@ -31,7 +31,7 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 		Seq int       `json:"seq"`
 		At  time.Time `json:"at"`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "agent_send",
 		Description: "Post into the run's conversation, which is how you reach greenroom's verifier. Send a task " +
 			"to set it working, then call agent_wait in a loop until it replies. A note adds context it reads on " +
@@ -59,7 +59,7 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 		After          int    `json:"after" jsonschema:"Return messages with a seq above this. Pass the last you have seen, or 0 for the whole transcript."`
 		TimeoutSeconds int    `json:"timeoutSeconds,omitempty" jsonschema:"How long to block before returning. Default 45, max 50."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "agent_wait",
 		Description: "Block until the conversation has something newer than after, then return it. The verifier's " +
 			"progress lines (one per tool call it makes) do not end the wait: it returns when its turn ends with a " +
@@ -88,7 +88,7 @@ func addAgentTools(s *mcp.Server, reg *session.Registry) {
 		RunID string `json:"runId" jsonschema:"runId from machine_create"`
 		After int    `json:"after,omitempty" jsonschema:"Return messages with a seq above this. Omit for the whole transcript."`
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, &mcp.Tool{
 		Name: "agent_transcript",
 		Description: "Read the run's conversation without waiting: every message from you, greenroom's verifier, " +
 			"a watching human and the daemon, plus the current verdict and its status. It includes what the " +
