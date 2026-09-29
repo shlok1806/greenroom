@@ -434,6 +434,10 @@ func (s *screenStream) input(ctx context.Context, actions []InputAction) error {
 
 // inputCost is about how long the helper takes to post actions: its sleeps
 // and the pause after each typed key.
+// focusCost is the most a focus action waits for its app to come to the front (the helper's
+// focusWait), with room for the raise (daemon ADR 0009).
+const focusCost = 1500 * time.Millisecond
+
 func inputCost(actions []InputAction) time.Duration {
 	var d time.Duration
 	for _, a := range actions {
@@ -442,6 +446,8 @@ func inputCost(actions []InputAction) time.Duration {
 			d += time.Duration(min(max(a.MS, 0), screenMaxSleep)) * time.Millisecond
 		case "type":
 			d += time.Duration(utf8.RuneCountInString(a.Text)) * screenTypeCost
+		case "focus":
+			d += focusCost
 		}
 	}
 	return d

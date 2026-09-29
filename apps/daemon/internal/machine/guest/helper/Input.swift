@@ -18,6 +18,13 @@ struct Action: Decodable {
     var key: String?
     var mods: [String]?
     var ms: Int?
+    /// For focus: the application to bring to the front, a name or bundle id (daemon ADR 0009).
+    var app: String?
+    /// For focus, and for a click by element: the application's process id. A click with a pid
+    /// lands on a point of the element that app owns (`w` and `h` are the element's size).
+    var pid: Int?
+    var w: Double?
+    var h: Double?
 }
 
 struct Request: Decodable {
@@ -305,7 +312,13 @@ func run(_ action: Action) throws {
         move(to: point(action), dragging: held)
     case "click":
         let (button, down, up, _) = mouseButton(action.button)
-        click(at: point(action), button: button, down: down, up: up, times: action.clicks ?? 1)
+        var target = point(action)
+        if let pid = action.pid {
+            target = try ownedPoint(of: action, pid: pid_t(pid), center: target)
+        }
+        click(at: target, button: button, down: down, up: up, times: action.clicks ?? 1)
+    case "focus":
+        try focus(action)
     case "down":
         let (button, down, _, _) = mouseButton(action.button)
         // The click count comes from the window the person clicked in, so a

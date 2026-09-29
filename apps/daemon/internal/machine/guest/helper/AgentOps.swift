@@ -68,7 +68,7 @@ private func registerCoreOps() {
     }
 }
 
-private let actionTypes: Set<String> = ["move", "click", "down", "up", "scroll", "type", "key", "sleep"]
+private let actionTypes: Set<String> = ["move", "click", "down", "up", "scroll", "type", "key", "sleep", "focus"]
 
 /// Refuses a batch the one-shot helper would fail part way through, before anything of it is
 /// posted.

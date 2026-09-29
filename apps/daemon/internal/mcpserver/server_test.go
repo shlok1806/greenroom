@@ -1301,8 +1301,8 @@ func TestAnElementClickUsesTheCallersOwnTree(t *testing.T) {
 	if out.Element == nil || out.Element.Label != "25%" || out.App != "TipSplit" || out.UIStep != coder.Step {
 		t.Fatalf("clicked %+v in %q (tree step %d), want TipSplit's 25%% segment from the coder's step %d", out.Element, out.App, out.UIStep, coder.Step)
 	}
-	if posted := postedActions(t, h.control); len(posted) != 1 || posted[0]["x"] != 610.0 || posted[0]["y"] != 359.0 {
-		t.Errorf("posted %+v, want one click at TipSplit's 25%% segment (610,359)", posted)
+	if posted := postedActions(t, h.control); !focusThenClickAt(posted, 7, 610, 359) {
+		t.Errorf("posted %+v, want TipSplit (pid 7) focused, then a click at its 25%% segment (610,359)", posted)
 	}
 
 	// Element 3 exists only in the verifier's tree.
@@ -1316,6 +1316,41 @@ func TestAnElementClickUsesTheCallersOwnTree(t *testing.T) {
 	res := h.raw("machine_click", map[string]any{"runId": runID, "element": 2, "uiStep": coder.Step})
 	if !res.IsError || !strings.Contains(text(res), "machine_ui") {
 		t.Errorf("a click pinned to a stale read: %s, want an error that says to read machine_ui again", text(res))
+	}
+}
+
+// focusThenClickAt reports whether posted is a click by element (daemon ADR 0009): a focus on
+// the element's app, then a click at x,y (points) that carries the app's pid and the element's
+// size, so the helper clicks the part of it that shows.
+func focusThenClickAt(posted []map[string]any, pid, x, y float64) bool {
+	if len(posted) != 2 {
+		return false
+	}
+	focus, click := posted[0], posted[1]
+	return focus["type"] == "focus" && focus["pid"] == pid &&
+		click["type"] == "click" && click["pid"] == pid && click["x"] == x && click["y"] == y &&
+		click["w"] != nil && click["h"] != nil
+}
+
+// Issue #220: keys and text sent with app bring that app to the front first; without app they
+// go as before. A focus with neither app nor pid is refused before anything is posted.
+func TestKeysAndTextWithAppFocusItFirst(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	for tool, args := range map[string]map[string]any{
+		"machine_key":    {"runId": runID, "key": "7", "app": "Calculator"},
+		"machine_type":   {"runId": runID, "text": "12", "app": "com.apple.calculator"},
+		"machine_scroll": {"runId": runID, "deltaY": 3, "app": "Calculator"},
+	} {
+		h.call(tool, args, nil)
+		posted := postedActions(t, h.control)
+		if len(posted) != 2 || posted[0]["type"] != "focus" || posted[0]["app"] != args["app"] {
+			t.Errorf("%s posted %+v, want a focus on %v first", tool, posted, args["app"])
+		}
+	}
+	res := h.raw("machine_input", map[string]any{"runId": runID, "actions": []map[string]any{{"type": "focus"}}})
+	if !res.IsError || !strings.Contains(text(res), "focus needs app") {
+		t.Errorf("a focus without app = %q, want a readable refusal", text(res))
 	}
 }
 
@@ -1363,8 +1398,8 @@ func TestClickAnElementFromTheLatestUIRead(t *testing.T) {
 	}
 	posted := postedActions(t, h.control)
 	// 0.596 x 1024 and 0.467 x 768, rounded to points: the segment's middle.
-	if len(posted) != 1 || posted[0]["x"] != 610.0 || posted[0]["y"] != 359.0 {
-		t.Errorf("posted %+v, want one click at 610,359", posted)
+	if !focusThenClickAt(posted, 7, 610, 359) {
+		t.Errorf("posted %+v, want a focus on the element's app, then one click at 610,359", posted)
 	}
 	if res := h.raw("machine_click", map[string]any{"runId": runID}); !res.IsError {
 		t.Error("a click with neither an element nor x and y was accepted")

@@ -650,7 +650,7 @@
     }
   },
   {
-    "description": "Click the machine's screen. Pass element, an id from your latest machine_ui, to click that element's center (add uiStep, that read's step, to be refused rather than aimed at a newer read); or x and y as fractions of the screen (0 to 1), never pixels. Ids are yours alone: greenroom's verifier reading the UI never changes what they point at. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
+    "description": "Click the machine's screen. Pass element, an id from your latest machine_ui, to click that element (add uiStep, that read's step, to be refused rather than aimed at a newer read): its app is brought to the front with its window raised first, and the click lands on the part of the element that shows, or is refused naming what covers it (the Dock, another window). Or pass x and y as fractions of the screen (0 to 1), never pixels, to click whatever is on top there. Ids are yours alone: greenroom's verifier reading the UI never changes what they point at. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1077,7 +1077,7 @@
     }
   },
   {
-    "description": "Run a shell command inside the machine and return stdout, stderr and the exit code. The shell is a login zsh that is not interactive (zsh -lc). One call waits at most waitSeconds (default 45, max 50, under MCP clients' 60 s limit on a call): a command still going then comes back with running true, no exitCode, and an execId, and it keeps running; collect its result with machine_exec_wait. A command returns when its shell exits: it may leave a process running in the background (./App \u0026), whose later output is not returned. Output arrives when the command ends, never while it runs; to watch a build or type into a program, use machine_session_start. stdout and stderr each keep their first 8 KiB and last 24 KiB; when bytes were left out, stdoutTruncated or stderrTruncated is true, a marker line in the text says where, and stdoutBytes and stderrBytes give the full sizes. To see more of a big output, write it to a file in the guest and read parts of it (grep, tail, sed -n). Before running a project's tests, read toolchain in machine_wait's result: it says whether this machine's image can run XCTest and swift-testing. Never delete, skip or exclude a project's existing tests to get a green run; if the machine cannot run them, say so.",
+    "description": "Run a shell command inside the machine and return stdout, stderr and the exit code. The shell is a login zsh that is not interactive (zsh -lc). One call waits at most waitSeconds (default 45, max 50, under MCP clients' 60 s limit on a call): a command still going then comes back with running true, no exitCode, and an execId, and it keeps running; collect its result with machine_exec_wait. A command returns when its shell exits: it may leave a process running in the background (./App \u0026), whose later output is not returned; an app started so is not made frontmost, so pass app to machine_type or machine_key, or click one of its elements, which brings it to the front. Output arrives when the command ends, never while it runs; to watch a build or type into a program, use machine_session_start. stdout and stderr each keep their first 8 KiB and last 24 KiB; when bytes were left out, stdoutTruncated or stderrTruncated is true, a marker line in the text says where, and stdoutBytes and stderrBytes give the full sizes. To see more of a big output, write it to a file in the guest and read parts of it (grep, tail, sed -n). Before running a project's tests, read toolchain in machine_wait's result: it says whether this machine's image can run XCTest and swift-testing. Never delete, skip or exclude a project's existing tests to get a green run; if the machine cannot run them, say so.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1245,7 +1245,7 @@
     }
   },
   {
-    "description": "Post an ordered batch of actions (move, click, down, up, scroll, type, key, sleep) in one round trip; compose a drag from down, move and up. machine_click, machine_type, machine_key and machine_scroll are shortcuts for a single action. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
+    "description": "Post an ordered batch of actions (move, click, down, up, scroll, type, key, sleep, focus) in one round trip; compose a drag from down, move and up. Keys and text go to the frontmost app: start a batch with focus and app to bring the app you mean to the front first. machine_click, machine_type, machine_key and machine_scroll are shortcuts for a single action. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1254,6 +1254,10 @@
           "items": {
             "additionalProperties": false,
             "properties": {
+              "app": {
+                "description": "For focus: the application to bring to the front before the actions after it, a name or bundle id as machine_ui takes.",
+                "type": "string"
+              },
               "button": {
                 "description": "left (default), right, or middle. For click, down and up. Any other name is an error.",
                 "type": "string"
@@ -1293,7 +1297,7 @@
                 "type": "string"
               },
               "type": {
-                "description": "One of: move, click, down, up, scroll, type, key, sleep.",
+                "description": "One of: move, click, down, up, scroll, type, key, sleep, focus.",
                 "type": "string"
               },
               "x": {
@@ -1373,10 +1377,14 @@
     }
   },
   {
-    "description": "Press one key, optionally with modifiers held, for example key f with mods [cmd] for command-F. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
+    "description": "Press one key, optionally with modifiers held, for example key f with mods [cmd] for command-F. The key goes to the frontmost app; an app started with machine_exec is not frontmost, so pass app to bring it to the front first. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "app": {
+          "description": "Optional application to bring to the front first, a name or bundle id as machine_ui takes. Without it the key goes to the frontmost app.",
+          "type": "string"
+        },
         "key": {
           "description": "A key name: a letter, digit or punctuation character, or one of return, enter, tab, space, delete, forwarddelete, escape, left, right, up, down, home, end, pageup, pagedown, capslock, help, f1-f12.",
           "type": "string"
@@ -2067,6 +2075,10 @@
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "app": {
+          "description": "Optional application to bring to the front first, a name or bundle id as machine_ui takes.",
+          "type": "string"
+        },
         "deltaX": {
           "description": "Horizontal scroll amount, in points. Positive scrolls right, negative scrolls left.",
           "type": "number"
@@ -2418,10 +2430,14 @@
     }
   },
   {
-    "description": "Type text into the machine, into whatever currently has keyboard focus. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
+    "description": "Type text into the machine, into whatever currently has keyboard focus in the frontmost app. An app started with machine_exec is not frontmost: pass app, or click one of its elements first. If a human is driving the machine, this returns an error naming them and the machine is untouched.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "app": {
+          "description": "Optional application to bring to the front first, a name or bundle id as machine_ui takes. Without it the text goes to the frontmost app.",
+          "type": "string"
+        },
         "runId": {
           "description": "runId from machine_create",
           "type": "string"

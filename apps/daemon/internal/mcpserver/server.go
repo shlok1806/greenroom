@@ -196,7 +196,9 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 			"One call waits at most waitSeconds (default 45, max 50, under MCP clients' 60 s limit on a call): a "+
 			"command still going then comes back with running true, no exitCode, and an execId, and it keeps "+
 			"running; collect its result with machine_exec_wait. A command returns when its shell exits: it may "+
-			"leave a process running in the background (./App &), whose later output is not returned. Output "+
+			"leave a process running in the background (./App &), whose later output is not returned; an app "+
+			"started so is not made frontmost, so pass app to machine_type or machine_key, or click one of its "+
+			"elements, which brings it to the front. Output "+
 			"arrives when the command ends, never while it runs; to watch a build or type into a program, use "+
 			"machine_session_start. stdout and stderr each keep their first %d KiB and last %d KiB; when bytes "+
 			"were left out, stdoutTruncated or stderrTruncated is true, a marker line in the text says where, "+

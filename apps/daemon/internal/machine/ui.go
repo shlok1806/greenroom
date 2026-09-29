@@ -266,6 +266,7 @@ var ErrNoUITree = errors.New("you have not read a UI tree on this machine; call 
 type ElementTarget struct {
 	UIElement
 	App    string // the application the tree was read from
+	PID    int    // its process id, which a click by element focuses first (daemon ADR 0009)
 	UIStep int    // the machine_ui step of that read
 }
 
@@ -291,7 +292,7 @@ func (m *Manager) ElementCenter(runID, reader string, id, uiStep int) (ElementTa
 	}
 	for _, e := range tree.Elements {
 		if e.ID == id {
-			return ElementTarget{UIElement: e, App: tree.App, UIStep: tree.Step}, nil
+			return ElementTarget{UIElement: e, App: tree.App, PID: tree.PID, UIStep: tree.Step}, nil
 		}
 	}
 	return ElementTarget{}, fmt.Errorf("your last machine_ui read (step %d, %s) has no element %d; call machine_ui again", tree.Step, tree.App, id)
