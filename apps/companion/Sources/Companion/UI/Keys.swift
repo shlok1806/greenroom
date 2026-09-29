@@ -22,7 +22,13 @@ final class Keys {
 
     func install() {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel]) { [weak self] event in
+            // A scroll anywhere in the window hides the scrub bar's preview and goes on as
+            // usual (companion ADR 0023).
+            if event.type == .scrollWheel {
+                MainActor.assumeIsolated { self?.shell.dismissScrubPreview() }
+                return event
+            }
             let ours = MainActor.assumeIsolated { self?.handle(event, responder: event.window?.firstResponder) ?? false }
             return ours ? nil : event
         }

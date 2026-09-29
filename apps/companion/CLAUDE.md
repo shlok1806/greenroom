@@ -13,8 +13,9 @@ the Markdown renderer), `0010` (run thumbnails from the last frame, superseded b
 `0012`), `0011` (the verdict as a ledger), `0012` (a run's row says its verdict), `0013` (one
 primary in the top bar, Give Back on the driving bar), `0014` (evidence marks on the picture), `0015` (a
 verifier stopped at its limit is a card with Continue), `0016` (a finished run says Done, only Verified is
-green), `0017` (in-window menus are drawn by the app), `0018` (twins say what tells them apart) and `0020`
-(agent text streams in by the word).
+green), `0017` (in-window menus are drawn by the app), `0018` (twins say what tells them apart), `0020`
+(agent text streams in by the word), `0022` (at a reading pace) and `0023` (the scrub preview floats
+and never sticks).
 Design: `docs/design-spec.md`
 (spacing and the accent, type, roles and the brand, layout, motion, states, keys),
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
@@ -69,7 +70,7 @@ no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
     intents only, so the place keeps its own type. Never `Text(check.text)` for agent words.
   - A message that arrives while the conversation shows streams in by the word (ADR 0020,
     `StreamReveal`): the parsed blocks are cut between words (never mid-word or mid-token),
-    30 words a second, the whole reveal capped at 2 s, each arriving word marked
+    15 words a second, the whole reveal capped at 6 s (ADR 0022), each arriving word marked
     `Span.arriving` and faded up by the `ArrivingWords` text renderer. Its end is checked on
     the first frame too (`onChange(initial: true)`), or a reveal already over never hands
     back and its `TimelineView` ticks forever.
@@ -80,6 +81,13 @@ no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
     between them as `ToolTraceView` (the Thinking state whose trace is tool chips).
   - A step failed when `Step.failed` (a tool error or a non-zero exit, `Step.outcome`);
     never test `step.error` alone. `Step.failure` is the words.
+  - The scrub bar's hover preview (ADR 0023) is an overlay standing on the track's top edge,
+    never a child of the track's stack: an alignment guide in a stack grows the stack, which
+    once pushed the bar out of sight. Whether it shows is `ShellModel.scrubPreview`
+    (`ScrubPreview`, pure); every way nobody is pointing at the bar any more (exit, a press
+    released away, resign key, deactivation, off screen, scroll, run change) hides it. A new
+    floating overlay follows the same rules: an overlay, and a state that something always
+    clears, never one that waits for a hover end.
   - In-window menus are `Components/Dropdown.swift` (`DropdownCenter`, keys while open go to
     it first in `Keys.handle`); choices are `SegmentedControl`. No `Menu`, `Picker`,
     `.contextMenu` or `NSMenu` in `UI/`; the macOS menu bar (`ShellCommands`) is the one

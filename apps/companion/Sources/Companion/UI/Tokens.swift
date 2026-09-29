@@ -287,6 +287,11 @@ enum Elevation {
     static let raisedRadius: CGFloat = 64
     static let raisedY: CGFloat = 24
     static let raisedOpacity: Double = 0.22
+    /// A preview that floats over the window's content (the scrub bar's frame card): a
+    /// tight shadow, so it never shades the controls beside it (companion ADR 0023).
+    static let floatRadius: CGFloat = 8
+    static let floatY: CGFloat = 2
+    static let floatOpacity: Double = 0.18
 }
 
 /// The window's layout (Figma Tokens, Layout). Three window classes: compact (1024 x 680),

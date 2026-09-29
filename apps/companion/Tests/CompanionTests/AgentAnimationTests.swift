@@ -130,27 +130,35 @@ final class AgentAnimationTests: XCTestCase {
         MarkdownText.plain(StreamReveal.cut(MarkdownText.blocks(text), shown: count, settled: count))
     }
 
-    func testAShortReplyStreamsAtThirtyWordsASecondFirstWordAtOnce() {
-        XCTAssertEqual(StreamReveal.rate(20), 30)
+    /// Companion ADR 0022: 15 words a second, capped at 6 s, each word's fade 180 ms.
+    func testAShortReplyStreamsAtFifteenWordsASecondFirstWordAtOnce() {
+        XCTAssertEqual(StreamReveal.wordsPerSecond, 15)
+        XCTAssertEqual(StreamReveal.longestReveal, 6)
+        XCTAssertEqual(StreamReveal.wordFade, 0.18)
+        XCTAssertEqual(StreamReveal.rate(20), 15)
         XCTAssertEqual(StreamReveal.revealed(20, elapsed: 0), 1, "the first word shows at once")
-        XCTAssertEqual(StreamReveal.revealed(20, elapsed: 0.1), 4)
-        XCTAssertEqual(StreamReveal.revealed(20, elapsed: 0.5), 16)
+        XCTAssertEqual(StreamReveal.revealed(20, elapsed: 0.1), 2)
+        XCTAssertEqual(StreamReveal.revealed(20, elapsed: 0.5), 8)
+        XCTAssertEqual(StreamReveal.revealed(20, elapsed: 1), 16)
         XCTAssertEqual(StreamReveal.revealed(20, elapsed: 5), 20)
         XCTAssertEqual(StreamReveal.revealed(0, elapsed: 1), 0)
-        XCTAssertEqual(StreamReveal.duration(20), 19.0 / 30 + 0.18, accuracy: 1e-9)
+        XCTAssertEqual(StreamReveal.duration(20), 19.0 / 15 + 0.18, accuracy: 1e-9)
     }
 
-    func testALongMessageCatchesUpAndNeverTakesMoreThanTwoSeconds() {
-        for words in [60, 61, 200, 1_000, 10_000] {
+    func testALongMessageCatchesUpAndNeverTakesMoreThanSixSeconds() {
+        // Up to 90 words the steady pace holds; past it the reveal speeds up to end in 6 s.
+        XCTAssertEqual(StreamReveal.rate(90), 15)
+        XCTAssertEqual(StreamReveal.rate(91), 91.0 / 6, accuracy: 1e-9)
+        for words in [90, 91, 200, 1_000, 10_000] {
             XCTAssertLessThanOrEqual(StreamReveal.duration(words), StreamReveal.longestReveal + StreamReveal.wordFade, "\(words)")
             XCTAssertEqual(StreamReveal.revealed(words, elapsed: StreamReveal.longestReveal), words, "\(words)")
         }
-        XCTAssertEqual(StreamReveal.rate(600), 300)
+        XCTAssertEqual(StreamReveal.rate(600), 100)
     }
 
     func testRevealIsMonotonicAsTheClockRuns() {
         var last = 0
-        for frame in 0...200 {
+        for frame in 0...400 {
             let count = StreamReveal.revealed(90, elapsed: Double(frame) / 60)
             XCTAssertGreaterThanOrEqual(count, last)
             last = count

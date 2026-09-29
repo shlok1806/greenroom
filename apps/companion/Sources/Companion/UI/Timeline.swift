@@ -326,6 +326,60 @@ struct RecordingTimeline: Equatable, Sendable {
         }
         return kept.sorted { ($0.at, $0.step) < ($1.at, $1.step) }
     }
+
+    /// A check number (or several) drawn above the bar.
+    struct CheckLabel: Equatable, Sendable {
+        /// The label's centre, in points from the bar's leading edge.
+        var x: Double
+        /// Its checks' numbers, ascending.
+        var numbers: [Int]
+        /// One of its checks failed: the label is red.
+        var failed: Bool
+
+        /// "2", "2,3", or "4-9" for a run of three or more.
+        var text: String {
+            if numbers.count >= 3, let first = numbers.first, let last = numbers.last, last - first == numbers.count - 1 {
+                return "\(first)-\(last)"
+            }
+            return numbers.map(String.init).joined(separator: ",")
+        }
+
+        /// About how wide the label draws (9 pt semibold digits, 2 pt of ground a side), enough
+        /// to tell whether two would touch.
+        var width: Double { Double(text.count) * 5.5 + 4 }
+    }
+
+    /// The check numbers over `marks` at a bar `width` points wide: each proven check's
+    /// number over its mark; numbers whose labels would touch are merged into one ("2,3") at
+    /// the middle of the marks they name, until no two labels touch (companion ADR 0023).
+    func checkLabels(_ marks: [Mark], width: Double, gap: Double = 2) -> [CheckLabel] {
+        struct Cluster {
+            var xs: [Double]
+            var label: CheckLabel
+        }
+        let keyed = marks
+            .filter { ($0.kind == .keyFrame || $0.kind == .failure) && $0.check != nil }
+            .map { (x: fraction(of: $0.at) * width, mark: $0) }
+            .sorted { $0.x < $1.x }
+        var clusters: [Cluster] = []
+        for item in keyed {
+            let numbers = item.mark.checks.isEmpty ? [item.mark.check ?? 0] : item.mark.checks
+            clusters.append(Cluster(xs: [item.x], label: CheckLabel(x: item.x, numbers: numbers.sorted(),
+                                                                    failed: item.mark.kind == .failure)))
+            // Merging moves and widens a label, so it can touch the one before it again.
+            while clusters.count >= 2 {
+                let b = clusters[clusters.count - 1], a = clusters[clusters.count - 2]
+                guard b.label.x - a.label.x < (a.label.width + b.label.width) / 2 + gap else { break }
+                let xs = a.xs + b.xs
+                let merged = CheckLabel(x: ((xs.min() ?? 0) + (xs.max() ?? 0)) / 2,
+                                        numbers: Array(Set(a.label.numbers + b.label.numbers)).sorted(),
+                                        failed: a.label.failed || b.label.failed)
+                clusters.removeLast(2)
+                clusters.append(Cluster(xs: xs, label: merged))
+            }
+        }
+        return clusters.map(\.label)
+    }
 }
 
 /// How the bar reads in figures and words (hover text and the clock).

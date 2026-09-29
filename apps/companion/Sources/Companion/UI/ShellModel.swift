@@ -45,6 +45,8 @@ final class ShellModel {
     private(set) var liveRequested: Set<String> = []
     /// 1x, 2x or 4x (F).
     private(set) var speed: Double = 1
+    /// The scrub bar's hover preview (companion ADR 0023).
+    private(set) var scrubPreview = ScrubPreview()
     /// What the inspector column at the right of the player shows (redesign 7): the checks by
     /// default, Activity (A) or the conversation and composer (M). The player always stays.
     var inspectorTab: InspectorTab = .checks
@@ -133,6 +135,7 @@ final class ShellModel {
     func select(run id: String) {
         guard id != store.selectedRunId else { return }
         pause()
+        dismissScrubPreview()
         store.selectedRunId = id
         composer = nil
         confirmingDestroy = false
@@ -299,6 +302,9 @@ final class ShellModel {
                 let now = Date()
                 let elapsed = now.timeIntervalSince(last)
                 last = now
+                // Nobody can see the window: the playhead holds and picks up where it was
+                // (companion ADR 0021, 0023).
+                guard OnScreen.shared.visible else { continue }
                 let t = self.timeline(now: now)
                 if let next = t.advance(from: self.playheads[runId] ?? 0, by: elapsed, speed: self.speed) {
                     self.playheads[runId] = next
@@ -310,6 +316,18 @@ final class ShellModel {
             }
         }
     }
+
+    /// Feeds the scrub bar's preview one event; nothing changes (and nothing redraws) when
+    /// the event leaves it as it was.
+    func scrubPreview(_ event: ScrubPreview.Event) {
+        var next = scrubPreview
+        next.handle(event)
+        if next != scrubPreview { scrubPreview = next }
+    }
+
+    /// Hides the scrub bar's preview: the window resigned key, the app went to the back, the
+    /// window went off screen, a scroll, a run change.
+    func dismissScrubPreview() { scrubPreview(.dismissed) }
 
     func pause() {
         playing = false

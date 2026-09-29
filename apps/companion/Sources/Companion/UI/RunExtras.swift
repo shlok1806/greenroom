@@ -203,10 +203,10 @@ struct InspectorDivider: View {
             .frame(width: hovering || start != nil ? 2 : 1)
             .frame(width: 9)
             .contentShape(Rectangle())
-            .onHover { inside in
-                hovering = inside
-                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-            }
+            // The system's pointer style, never an NSCursor push: a hover end that never comes
+            // (the app sent to the back mid-hover) left a pushed cursor on the stack.
+            .pointerStyle(.columnResize)
+            .onHover { hovering = $0 }
             .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                 .onChanged { value in
                     if start == nil { start = width }
