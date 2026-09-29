@@ -313,10 +313,11 @@ struct AgentTable: View {
 /// pace that catches up on a long message. The daemon sends each message whole, so the reveal
 /// knows every word from the start and nothing here fakes tokens. Pure, so tests hold it.
 enum StreamReveal {
-    /// The steady pace, in words a second.
-    static let wordsPerSecond = 30.0
-    /// The longest a reveal runs (before its last word's fade): a long message speeds up.
-    static let longestReveal = 2.0
+    /// The steady pace, in words a second (companion ADR 0022, amending 0020's 30).
+    static let wordsPerSecond = 15.0
+    /// The longest a reveal runs (before its last word's fade): a long message speeds up
+    /// (ADR 0022, amending 0020's 2 s).
+    static let longestReveal = 6.0
     /// Each word's fade up: opacity 0 to 1 and a small rise, on the design's curve.
     static let wordFade = 0.18
     static let wordRise: CGFloat = 3

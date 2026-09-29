@@ -147,8 +147,8 @@ struct LivePin: View {
     }
 }
 
-/// The bar itself: drawn in one `Canvas` (a run can hold thousands of steps), with the hover
-/// card and the drag on top.
+/// The bar itself: drawn in one `Canvas` (a run can hold thousands of steps), with the drag
+/// on it and the hover preview floating above it (companion ADR 0023).
 struct TimelineTrack: View {
     @Bindable var shell: ShellModel
     var summary: Summary
@@ -156,46 +156,39 @@ struct TimelineTrack: View {
     var current: TimeInterval
     var steps: [Step]
 
-    @State private var hover: CGFloat?
-    @State private var dragging = false
     @Environment(\.redactsGuestScreen) private var redacted
 
     /// The rail's centre from the top: room above for the numbers and flags.
     static let railY: CGFloat = 20
     static let height: CGFloat = 32
+    /// The gap between the preview's bottom edge and the track's top.
+    static let previewGap: CGFloat = Gap.x8
 
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
             let t = timeline
             let marks = t.visibleMarks(width: Double(width))
-            ZStack(alignment: .topLeading) {
-                Canvas { context, size in
-                    draw(t, marks: marks, in: &context, size: size)
-                }
-                .accessibilityHidden(true)
-                if let hover {
-                    hoverCard(at: hover, width: width)
-                }
+            Canvas { context, size in
+                draw(t, marks: marks, in: &context, size: size)
             }
+            .accessibilityHidden(true)
+            // Only the track itself answers the pointer; the preview never does.
             .contentShape(Rectangle())
             .onContinuousHover { phase in
                 switch phase {
-                case .active(let point): hover = min(max(0, point.x), width)
-                case .ended: hover = nil
+                case .active(let point): shell.scrubPreview(.hovered(x: point.x, width: width))
+                case .ended: shell.scrubPreview(.exited)
                 }
             }
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    if !dragging {
-                        dragging = true
-                        shell.pause()
-                    }
-                    hover = min(max(0, value.location.x), width)
+                    if !shell.scrubPreview.dragging { shell.pause() }
+                    shell.scrubPreview(.dragged(x: value.location.x, width: width))
                     shell.seek(to: t.seconds(atFraction: Double(value.location.x / max(width, 1))))
                 }
                 .onEnded { value in
-                    dragging = false
+                    shell.scrubPreview(.released(inside: ScrubPreview.inside(value.location, width: width, height: Self.height)))
                     // A click on a mark lands on it exactly (a failed check shows its proof).
                     if abs(value.translation.width) < 3,
                        let mark = t.mark(near: Double(value.location.x / max(width, 1)), tolerance: Double(6 / max(width, 1))) {
@@ -208,8 +201,12 @@ struct TimelineTrack: View {
                         }
                     }
                 })
+            .background(ScrubPreviewDismisser { shell.dismissScrubPreview() })
         }
         .frame(height: TimelineTrack.height)
+        .onChange(of: OnScreen.shared.visible) { _, visible in
+            if !visible { shell.dismissScrubPreview() }
+        }
         .accessibilityElement()
         .accessibilityLabel("Recording")
         .accessibilityValue(accessibilityValue)
@@ -218,6 +215,22 @@ struct TimelineTrack: View {
             shell.moveFrame(by: direction == .increment ? 1 : -1)
         }
         .accessibilityAction(named: "Next failure") { shell.jumpToFailure() }
+        // An overlay, so the preview never takes the bar's room or moves it: it floats above
+        // the track's top edge, over the caption and picture, never over the controls under
+        // the bar. Outside the track's accessibility element, so that element stays the bar.
+        .overlay(alignment: .topLeading) {
+            GeometryReader { geo in
+                // A line of no height along the track's top edge, with the card standing on it.
+                Color.clear.frame(width: geo.size.width, height: 0)
+                    .overlay(alignment: .bottomLeading) {
+                        if let x = shell.scrubPreview.x {
+                            hoverCard(at: min(x, geo.size.width), width: geo.size.width)
+                                .padding(.bottom, Self.previewGap)
+                        }
+                    }
+            }
+            .allowsHitTesting(false)
+        }
     }
 
     private var accessibilityValue: String {
@@ -294,17 +307,17 @@ struct TimelineTrack: View {
         context.fill(Path(roundedRect: CGRect(x: px - 1, y: y - 10, width: 2, height: 20), cornerRadius: 1), with: .color(Palette.text))
         context.fill(Path(ellipseIn: CGRect(x: px - 5, y: y - 5, width: 10, height: 10)), with: .color(Palette.text))
         context.stroke(Path(ellipseIn: CGRect(x: px - 5, y: y - 5, width: 10, height: 10)), with: .color(Palette.bgStage), lineWidth: 1.5)
-        // The checks' numbers last, on the stage's ground, so the playhead never runs through them.
-        for mark in marks where (mark.kind == .keyFrame || mark.kind == .failure) && mark.check != nil {
-            let numbers = mark.checks.isEmpty ? [mark.check ?? 0] : mark.checks
-            let color = mark.kind == .failure ? Palette.fail : Palette.textSecondary
-            let label = context.resolve(Text(numbers.map(String.init).joined(separator: ","))
-                .font(.system(size: 9, weight: .semibold)).foregroundStyle(color))
-            let size = label.measure(in: CGSize(width: 200, height: 20))
-            let center = CGPoint(x: x(mark.at), y: y - 13)
-            let ground = CGRect(x: center.x - size.width / 2 - 2, y: center.y - size.height / 2, width: size.width + 4, height: size.height)
+        // The checks' numbers last, on the stage's ground, so the playhead never runs through
+        // them; numbers whose labels would touch share one ("2,3").
+        for label in t.checkLabels(marks, width: Double(width)) {
+            let color = label.failed ? Palette.fail : Palette.textSecondary
+            let text = context.resolve(Text(label.text).font(.system(size: 9, weight: .semibold)).foregroundStyle(color))
+            let size = text.measure(in: CGSize(width: 200, height: 20))
+            let half = size.width / 2 + 2
+            let center = CGPoint(x: min(max(CGFloat(label.x), half), max(half, width - half)), y: y - 13)
+            let ground = CGRect(x: center.x - half, y: center.y - size.height / 2, width: half * 2, height: size.height)
             context.fill(Path(roundedRect: ground, cornerRadius: 3), with: .color(Palette.bgStage))
-            context.draw(label, at: center, anchor: .center)
+            context.draw(text, at: center, anchor: .center)
         }
     }
 
@@ -353,9 +366,8 @@ struct TimelineTrack: View {
         .frame(width: cardWidth, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Corner.row).fill(Palette.bgRaised))
         .overlay(RoundedRectangle(cornerRadius: Corner.row).strokeBorder(Palette.border, lineWidth: 1))
-        .shadow(color: .black.opacity(Elevation.raisedOpacity), radius: Elevation.raisedRadius / 2, y: Elevation.raisedY)
+        .shadow(color: .black.opacity(Elevation.floatOpacity), radius: Elevation.floatRadius, y: Elevation.floatY)
         .fixedSize()
-        .alignmentGuide(.top) { d in d.height + 4 }
         .offset(x: left)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
