@@ -164,6 +164,7 @@ func TestEveryToolsOutputMatchesItsSchema(t *testing.T) {
 	decode(t, check("machine_exec", map[string]any{"runId": runID, "command": "echo hi"}), &st)
 	check("machine_exec_wait", map[string]any{"runId": runID, "execId": st.ExecID})
 	check("machine_approve_capture", map[string]any{"runId": runID, "app": "~/work/Shot/Shot.app"})
+	check("machine_approve_control", map[string]any{"runId": runID, "app": "~/work/Shot/Shot.app"})
 	h.putShot()
 	check("machine_screenshot", map[string]any{"runId": runID})
 	h.putUI(tipSplitUI)

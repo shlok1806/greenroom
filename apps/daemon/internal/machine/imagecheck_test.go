@@ -139,8 +139,11 @@ func TestCheckImageFailsOnAPromptAnUnaskedAppAndABanner(t *testing.T) {
 		t.Errorf("the menu bar is on every desktop and must not be a finding:\n%s", findings)
 	}
 	// Surface, never sweep: the check reports the window and leaves it. The guest agent's start
-	// pkills an orphaned agent of its own (agentScript), which is not something the check found.
+	// pkills an orphaned agent of its own (agentScript), and the appleevent-freshbuild exercise
+	// flushes tccd's cache after granting its test app (tccgrant.sh, ADR 0038) the same way
+	// base.sh does; neither is the check closing something it found.
 	calls := regexp.MustCompile(`pkill -f '\[g\]reenroom-input-\d+ --agent'`).ReplaceAllString(testsupport.Calls(t, control), "")
+	calls = regexp.MustCompile(`(sudo -n )?killall tccd[^\n]*`).ReplaceAllString(calls, "")
 	if regexp.MustCompile(`pkill|killall|quit app "Terminal"|to quit\b.*Terminal`).MatchString(calls) {
 		t.Errorf("the check closed something it found:\n%s", calls)
 	}

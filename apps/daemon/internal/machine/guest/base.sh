@@ -22,7 +22,7 @@ check() { # check <name> <command...>
 }
 is() { [ "$1" = "$2" ]; }
 
-# --- Apple Events: no "tart-guest-agent wants access to control X" prompt (issue #25). ------
+# --- Apple Events: no "tart-guest-agent wants access to control X" prompt (issue #25, #252). -
 # TCC checks the responsible process, which is tart-guest-agent for everything run through
 # `tart exec` (the daemon's commands, the input helper) and sshd-keygen-wrapper for anything
 # over ssh. Apple Events are granted per target bundle id. The sender path is resolved here,
@@ -30,10 +30,28 @@ is() { [ "$1" = "$2" ]; }
 # to a path that no longer exists. SIP is off in the Cirrus base, which is what lets root
 # write TCC.db; no csreq is needed then. Named columns, never positional: the table gained
 # columns in Sonoma. Both databases get the rows: tccd consults the user one for Apple Events.
+#
+# Targets are every app bundle under /Applications, /System/Applications and
+# /System/Applications/Utilities, resolved at build time rather than pinned (issue #252): a
+# fixed list prompts for every app not on it, which is most of them, and always includes every
+# app under test (built at run time; machine_approve_control grants those, base.go/tccgrant.go).
+# GREENROOM_TCC_APP_DIRS overrides the directories; only the test harness sets it, so the real
+# recipe always walks the guest's actual /Applications. Finder and System Events live in
+# /System/Library/CoreServices, outside those three directories, and stay explicit.
 agent="$(realpath "$(command -v tart-guest-agent || echo /opt/homebrew/bin/tart-guest-agent)")"
 keygen="$(realpath /usr/libexec/sshd-keygen-wrapper)"
-targets="com.apple.finder com.apple.Terminal com.apple.systempreferences com.apple.Safari com.apple.TextEdit
-  com.apple.Preview com.apple.ActivityMonitor com.apple.Console com.apple.systemevents"
+apps_dirs="${GREENROOM_TCC_APP_DIRS:-/Applications /System/Applications /System/Applications/Utilities}"
+list_bundle_ids() {
+  for d in $apps_dirs; do
+    [ -d "$d" ] || continue
+    find "$d" -maxdepth 1 -iname '*.app' -print0 2>/dev/null
+  done | while IFS= read -r -d '' app; do
+    bid="$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist" 2>/dev/null)" || continue
+    [ -n "$bid" ] && printf '%s\n' "$bid"
+  done
+}
+targets="$(list_bundle_ids | sort -u) com.apple.finder com.apple.systemevents"
+targets="$(printf '%s\n' $targets | sort -u)"
 system_db="/Library/Application Support/com.apple.TCC/TCC.db"
 # macOS 27 moved the per-user database; ask the running tccd which file it has open.
 user_db="$(sudo -n lsof -a -u "$uid" -c tccd -Fn 2>/dev/null | sed -n 's|^n\(/.*/com\.apple\.TCC/TCC\.db\)$|\1|p' | grep -v '^/Library/' | sort -u | head -n 1)"

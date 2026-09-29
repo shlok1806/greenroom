@@ -46,6 +46,11 @@ type ExecStatus struct {
 	TimedOut        bool    `json:"timedOut,omitempty"`
 	Seconds         float64 `json:"seconds"` // so far, while it runs
 	Step            int     `json:"step"`    // the command's step in steps.jsonl, written when it ends
+	// Desktop is set only when Running is true and something besides the clean desktop is on
+	// screen (ADR 0038, issue #252): a command that has not returned within its wait may be
+	// blocked on a system prompt nothing has answered. Never set for a finished command; never
+	// auto-clicked or closed, as ADR 0018 requires.
+	Desktop *DesktopReport `json:"desktop,omitempty"`
 }
 
 // execJob is one command running or run in a guest. res and err are written
@@ -122,10 +127,49 @@ func (m *Manager) ExecWait(ctx context.Context, runID, execID string, wait time.
 	case <-j.done:
 		return j.status(), j.err
 	case <-timer.C:
-		return j.status(), nil
+		return m.attachDesktopIfRunning(mc, j.status()), nil
 	case <-ctx.Done():
 		return ExecStatus{}, ctx.Err()
 	}
+}
+
+// execDesktopLookTimeout bounds the extra look attachDesktopIfRunning takes: long enough for
+// one screen read (a tart exec round trip), short enough not to make an already-slow poll
+// much slower. It runs on its own budget, not the caller's ctx, which may be nearly spent.
+const execDesktopLookTimeout = 8 * time.Second
+
+// attachDesktopIfRunning looks at the screen when st reports a command still running (ADR
+// 0038, issue #252): that is exactly the shape of a stall on a system prompt (TCC, a crash
+// dialog, Software Update) nothing has answered, which machine_ui cannot see (it reads only
+// the frontmost regular app's accessibility tree; issue #223). It reuses the same window-level
+// check the dialog gate and boot's snapshot already use (desktopcheck.go): every on-screen
+// window regardless of which process owns it. A clean desktop, or a look that fails, leaves st
+// untouched, so this never punishes a command that is simply slow. It never clicks or closes
+// anything (ADR 0018 point 4); it only says what is on screen, in the exec result and in the
+// machine's own Desktop field, which machine_wait and the Companion already read.
+func (m *Manager) attachDesktopIfRunning(mc *Machine, st ExecStatus) ExecStatus {
+	if !st.Running {
+		return st
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), execDesktopLookTimeout)
+	defer cancel()
+	d, err := readDesktop(ctx, m.tart, mc.Name)
+	if err != nil {
+		return st
+	}
+	r := d.Report()
+	if r.Clean {
+		return st
+	}
+	st.Desktop = &r
+	m.mu.Lock()
+	mc.Desktop = &r
+	m.mu.Unlock()
+	m.Log.Warn("a command is still running with something besides the desktop on screen; it may be blocked on a "+
+		"system prompt that greenroom never auto-clicks or closes (ADR 0018)",
+		"runId", mc.RunID, "execId", st.ExecID, "found", strings.Join(r.Findings(), "; "))
+	m.emit(LifecycleEvent{Kind: "desktop", RunID: mc.RunID, Machine: m.snapshot(mc)})
+	return st
 }
 
 // startExec claims the step, registers the job and starts the command.

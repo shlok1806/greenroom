@@ -26,7 +26,11 @@ const prepareTimeout = 12 * time.Minute
 // (xcode.sh waits for it, base.sh closes it), so it is not on every clone's screen.
 // 3: helper 9, the guest agent (daemon ADR 0005), baked in, and the dialog gate checks it
 // (agentSmoke: its permissions, a Finder snapshot, a capture that is not flat, idle).
-const imageRecipeVersion = 3
+// 4: base.sh grants Apple Events to every app bundle it finds in /Applications,
+// /System/Applications and /System/Applications/Utilities, resolved at build time, instead of
+// a fixed nine-target list (ADR 0038, issue #252); the dialog gate exercises an app outside
+// the old list (Calculator) and a freshly built app scripting itself.
+const imageRecipeVersion = 4
 
 // InputHelperVersion is the helper version PrepareGuest bakes into an image.
 func InputHelperVersion() int { return inputHelperVersion }

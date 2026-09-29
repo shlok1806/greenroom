@@ -195,7 +195,11 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 			"The shell is a login zsh that is not interactive (zsh -lc). "+
 			"One call waits at most waitSeconds (default 45, max 50, under MCP clients' 60 s limit on a call): a "+
 			"command still going then comes back with running true, no exitCode, and an execId, and it keeps "+
-			"running; collect its result with machine_exec_wait. A command returns when its shell exits: it may "+
+			"running; collect its result with machine_exec_wait. running true also carries desktop when something "+
+			"besides the clean desktop is on screen: the command may be blocked on a system prompt (TCC, a crash "+
+			"dialog) nothing has answered, which greenroom never auto-clicks or closes; approve the app first "+
+			"(machine_approve_control for an Apple Events or other TCC prompt, machine_approve_capture for a "+
+			"screen-capture one) or tell a person. A command returns when its shell exits: it may "+
 			"leave a process running in the background (./App &), whose later output is not returned; an app "+
 			"started so is not made frontmost, so pass app to machine_type or machine_key, or click one of its "+
 			"elements, which brings it to the front. Output "+
@@ -258,6 +262,27 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in approveIn) (*mcp.CallToolResult, approveOut, error) {
 		client, step, err := mgr.ApproveCapture(ctx, in.RunID, in.App)
 		return nil, approveOut{Client: client, Step: step}, err
+	})
+
+	type approveControlOut struct {
+		BundleID   string   `json:"bundleId" jsonschema:"The app's resolved bundle id"`
+		Executable string   `json:"executable" jsonschema:"The app's main executable, resolved"`
+		Granted    []string `json:"granted" jsonschema:"The TCC services now granted"`
+		Step       int      `json:"step"`
+	}
+	addTool(s, &mcp.Tool{
+		Name: "machine_approve_control",
+		Description: "Pre-approve an app under test so macOS never asks \"<X> wants access to control <App>\" (Apple " +
+			"Events) or a Files and Folders, Accessibility, screen capture, camera or microphone prompt for it. The " +
+			"base image already grants this for every pre-installed app; call this once for an app built or synced " +
+			"in the guest, whose bundle id the image cannot know ahead of it. Call it after the app is built and " +
+			"before the first thing that controls, scripts or otherwise touches it (with osascript, machine_exec, " +
+			"or the app scripting itself): a TCC grant only prevents the next prompt, it does not dismiss one " +
+			"already on screen. The approval is by bundle path; a bare executable outside an .app cannot be " +
+			"approved this way.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in approveIn) (*mcp.CallToolResult, approveControlOut, error) {
+		grant, step, err := mgr.ApproveControl(ctx, in.RunID, in.App)
+		return nil, approveControlOut{BundleID: grant.BundleID, Executable: grant.Executable, Granted: grant.Granted, Step: step}, err
 	})
 	// With the toolkit, machine_screenshot also crops (desktopwaits.go); its old call is this one.
 	if !mgr.DesktopToolkit() {

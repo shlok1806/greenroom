@@ -164,6 +164,12 @@ case "$sub" in
       *greenroom-base-profile*)
         [ -f "$C/fail-base" ] && { echo "base: check failed: appleevents-user-tart-guest-agent-com.apple.Safari" >&2; exit 1; }
         echo "base: ok"; exit 0 ;;
+      *greenroom-tcc-grant*)
+        [ -f "$C/fail-tcc-grant" ] && { echo "the Apple Events row for com.example.testapp did not take" >&2; exit 1; }
+        if [ -f "$C/tcc-grant.json" ]; then cat "$C/tcc-grant.json"; else
+          echo '{"bundleId":"com.example.testapp","executable":"/Users/admin/work/TestApp.app/Contents/MacOS/TestApp","granted":["kTCCServiceAppleEvents","kTCCServiceAccessibility","kTCCServiceScreenCapture","kTCCServiceSystemPolicyDesktopFolder","kTCCServiceSystemPolicyDocumentsFolder","kTCCServiceSystemPolicyDownloadsFolder","kTCCServiceCamera","kTCCServiceMicrophone"]}'
+        fi
+        exit 0 ;;
       *greenroom-grow-disk*)
         [ -f "$C/fail-disk" ] && { echo "disk: disk0s2 is 44 GB of disk0's 90 GB: the container does not fill the disk" >&2; exit 1; }
         echo "disk: ok, disk0s2 fills disk0 (90 GB), 49Gi free on /"; exit 0 ;;

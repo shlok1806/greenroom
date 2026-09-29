@@ -27,7 +27,7 @@ import (
 // Given a text it closes the first alert holding it, as the script's AppleScript does, and
 // logs it to <dir>/closed; given none it lists them.
 type baseGuest struct {
-	dir, home, sys, user string
+	dir, home, sys, user, apps string
 }
 
 func newBaseGuest(t *testing.T) *baseGuest {
@@ -138,7 +138,31 @@ echo "closed: $line "`,
 		}
 	}
 	g.alert(t, xcodeExtensionsAlert)
+
+	// A fake /Applications, so the dynamic enumeration (ADR 0038, issue #252) has something
+	// real to walk: two apps, including one ("FakeCalculator") that was never on the old
+	// fixed nine-target list, proving the build no longer needs one.
+	g.apps = filepath.Join(g.dir, "Applications")
+	g.fakeApp(t, "FakeSafari.app", "com.example.fakesafari")
+	g.fakeApp(t, "FakeCalculator.app", "com.example.fakecalculator")
 	return g
+}
+
+// fakeApp makes a minimal .app bundle under g.apps with an Info.plist plutil can read
+// CFBundleIdentifier from, as the real /Applications has for base.sh to walk.
+func (g *baseGuest) fakeApp(t *testing.T, name, bundleID string) {
+	t.Helper()
+	dir := filepath.Join(g.apps, name, "Contents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plist := filepath.Join(dir, "Info.plist")
+	if out, err := exec.Command("plutil", "-create", "xml1", plist).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if out, err := exec.Command("plutil", "-insert", "CFBundleIdentifier", "-string", bundleID, plist).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
 }
 
 // xcodeExtensionsAlert is the text of the alert Login Items & Extensions posts when Xcode is
@@ -158,7 +182,8 @@ func (g *baseGuest) alert(t *testing.T, text string) {
 func (g *baseGuest) run(t *testing.T, env ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command("/bin/sh", "-c", baseScript)
-	cmd.Env = append(os.Environ(), "PATH="+filepath.Join(g.dir, "bin")+":/usr/bin:/bin", "HOME="+g.home)
+	cmd.Env = append(os.Environ(), "PATH="+filepath.Join(g.dir, "bin")+":/usr/bin:/bin", "HOME="+g.home,
+		"GREENROOM_TCC_APP_DIRS="+g.apps)
 	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -186,8 +211,9 @@ func TestBaseScriptGrantsAppleEventsAndLeavesOnlyFinderToRelaunch(t *testing.T) 
 	}
 	for _, db := range []string{g.sys, g.user} {
 		for _, sender := range []string{agent, keygen} {
-			for _, target := range []string{"com.apple.Safari", "com.apple.systemevents", "com.apple.finder", "com.apple.Terminal",
-				"com.apple.systempreferences", "com.apple.TextEdit", "com.apple.Preview", "com.apple.ActivityMonitor", "com.apple.Console"} {
+			// com.example.fakecalculator was never on the old fixed nine-target list: the
+			// dynamic enumeration (ADR 0038, issue #252) is what grants it now.
+			for _, target := range []string{"com.example.fakesafari", "com.example.fakecalculator", "com.apple.finder", "com.apple.systemevents"} {
 				if got := g.sql(t, db, "SELECT auth_value FROM access WHERE service='kTCCServiceAppleEvents' AND client='"+sender+"' AND indirect_object_identifier='"+target+"'"); got != "2" {
 					t.Errorf("%s: no allowed Apple Events row from %s to %s (got %q)", filepath.Base(db), sender, target, got)
 				}
@@ -228,7 +254,7 @@ func TestBaseScriptGrantsAppleEventsAndLeavesOnlyFinderToRelaunch(t *testing.T) 
 func TestBaseScriptFailsTheBuildByName(t *testing.T) {
 	for env, check := range map[string]string{
 		"BASE_RELAUNCH=com.apple.ical": "relaunch-list-finder-only",
-		"BASE_TCC_READONLY=1":          "appleevents-system-tart-guest-agent-com.apple.Safari",
+		"BASE_TCC_READONLY=1":          "appleevents-system-tart-guest-agent-com.apple.finder",
 		"BASE_LAUNCHD_FORGET=1":        "diagnostics-reporter",
 		"BASE_ALERT_STUCK=1":           "notification-alerts: " + xcodeExtensionsAlert,
 	} {
