@@ -235,9 +235,11 @@ osascript -e 'tell application "Safari" to do JavaScript "1+1" in document 1'`, 
 	// privacy or developer tools prompt) left for the window check. A cold build in a fresh
 	// clone takes about a minute.
 	{"xcodebuild", xcodebuildExercise, 240},
-	// The issue #252 repro exactly: an app outside base.sh's old fixed nine-target list.
-	// ADR 0038's build-time enumeration must cover it with no machine_approve_control call.
-	{"appleevent-calculator", `osascript -e 'tell application "Calculator" to get name of every window'`, 30},
+	// An app outside base.sh's old fixed nine-target list, scripted over Apple Events: ADR 0038's
+	// build-time enumeration must cover it with no machine_approve_control call. It asks for the
+	// app's name, which needs the grant (no grant prompts and times out, or fails with -1743) but
+	// no window: issue #252's "name of every window" fails with -1728 when Calculator has none.
+	{"appleevent-calculator", `osascript -e 'tell application "Calculator" to get name'`, 30},
 	{"quit-calculator", quitAppScript("Calculator"), 0},
 	// A freshly built app, never in any built-time list, approved by machine_approve_control's
 	// guest script (tccgrant.sh) and then scripting itself (ADR 0038, issue #252 point 3).

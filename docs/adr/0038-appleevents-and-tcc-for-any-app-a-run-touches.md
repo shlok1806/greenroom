@@ -127,13 +127,14 @@ captures the screen itself still needs both.
 
 ### 5. The dialog gate scripts an app outside the old list, and a fresh build
 
-`check-image`'s exercises gain two cases: `tell application "Calculator" to get name of every
-window` (the exact repro), quitting Calculator after, proving point 1's enumeration covers a
-built-in app that was never in the old fixed list; and a minimal `.app` built fresh in the
-clone with `swiftc` (an `Info.plist` with its own bundle id, no Xcode project needed), whose
-`main.swift` runs `NSAppleScript` for `tell application id "<its own id>" to activate` and
-`get name of every window`, after the check calls `machine_approve_control`'s script directly on
-it. This is the two cases issue #252 names: a built-in app outside the old list, and a freshly
+`check-image`'s exercises gain two cases: `tell application "Calculator" to get name`, quitting
+Calculator after, proving point 1's enumeration covers a built-in app that was never in the old
+fixed list (the query needs the Apple Events grant but no window; the issue's "name of every
+window" fails with -1728 whenever Calculator has no window open, which is not a permission
+answer); and a minimal `.app` built fresh in the clone with `swiftc` (an `Info.plist` with its
+own bundle id, no Xcode project needed), whose `main.swift` runs `NSAppleScript` for
+`tell application id "<its own id>" to activate`, after the check calls
+`machine_approve_control`'s script directly on it. This is the two cases issue #252 names: a built-in app outside the old list, and a freshly
 built test app scripting itself.
 
 `imageRecipeVersion` moves from 3 to 4: an image built before this ADR has the fixed nine-target
