@@ -425,8 +425,18 @@ func (v *Verifier) describeWith(ctx context.Context, png []byte, prompt string) 
 	// told it could not see rather than handed noise or an empty description.
 	for attempt := 0; ; attempt++ {
 		text, err := v.llm.Describe(ctx, v.cfg.VisionModel, jpeg, prompt)
-		if err != nil || readableDescription(text) {
+		if err != nil {
 			return text, err
+		}
+		if readableDescription(text) {
+			// Positions outside the image, or in points or on a 0 to 1000 grid, never reach the
+			// verifier as if they were fractions (daemon ADR 0010).
+			text, removed := checkPositions(text)
+			if removed > 0 {
+				v.log.Info("screenshot description gave positions that are not fractions of the image",
+					"model", v.cfg.VisionModel, "removed", removed)
+			}
+			return text, nil
 		}
 		if attempt == 1 {
 			return "", errors.New("the vision model gave no readable description twice")

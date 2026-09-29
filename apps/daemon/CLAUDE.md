@@ -610,6 +610,10 @@ Conversation and verifier
 - `Verifier.describe` retries once any answer `readableDescription` refuses: `<unk>` (omni),
   empty (all three describers; muse about 1 in 40 even with thinking off) or under 10
   letters (kimi-k3's "!!!!"). A second one is an error the brain sees, never the noise.
+  A readable one goes through `checkPositions` (daemon ADR 0010): every unquoted `(x, y)` or
+  `[x, y]` pair that is not two fractions 0 to 1 becomes `(position unknown)`, never rescaled
+  (describers also answer in points and on a 0 to 1000 grid, indistinguishable per pair), and
+  a line says how many went and to use `machine_ui`.
 - Model failures retry: `nim.RetryBackoff` (1, 2, 4, 8 s on 429/5xx/transport, honours
   `Retry-After`; a timeout is never retried), then `verifier.TurnRetryDelays` (30, 60, 120 s). After the last, the
   actor posts that it gave up. Both are package vars so tests can zero them.
