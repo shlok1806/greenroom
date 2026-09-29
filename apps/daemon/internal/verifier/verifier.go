@@ -40,7 +40,7 @@ Operating a user interface:
 - To replace a text field's contents: click the field, press key a with mods [cmd] to select all, then machine_type the new text, then press tab or return so the app commits it.
 - Each input's result ends with its effect: the elements that changed, "no change detected" (the input may have been lost) or "unknown". Read machine_ui again to check values; it is exact text, so use it to check numbers. Take a machine_screenshot when you need the visual evidence a verdict cites.
 - Never click where machine_ui lists nothing, such as the desktop wallpaper. Use screenshot positions only for content machine_ui cannot see (a canvas, a game, a web view with no accessibility).
-- If a click did not change what you expected, do not repeat it: read machine_ui again and work out why.
+- If a click did not change what you expected, read machine_ui again and work out why before the next input. Repeat a click only as the rule below allows for a control the task names.
 
 Rules:
 - Work in small steps. Run one command, read the result, then decide.

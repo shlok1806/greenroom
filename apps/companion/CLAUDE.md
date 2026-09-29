@@ -20,9 +20,9 @@ Design: `docs/design-spec.md`
 `docs/design-research.md`. Design data: `design/themes/*.json` and `design/tokens.json`
 at the repo root.
 
-## The native redesign (companion ADR 0019), being built
+## The window (companion ADR 0019)
 
-The window is being rebuilt in pure native SwiftUI from the approved Figma design (file
+The window is pure native SwiftUI, built from the approved Figma design (file
 041UmqtdMYVCufxO8g9Ius; `docs/20-companion-ux-research.md` section 12). No web technology,
 no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
 
@@ -91,9 +91,12 @@ no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
   the redesign's scenarios at 2x and writes what Apple's text recogniser reads beside each
   (`VisibleWords`, `WordBudget`). Needs no daemon for the component board.
 
-## The window before the redesign
+## The window before the redesign (not shown)
 
-ADR 0004 to 0006, as amended by 0008, describe the new window being built layer by layer.
+The app opens `CompanionShell` from `UI/`. The views in `Views/` below are no longer shown,
+apart from `Views/InputSurface.swift`, which `UI/` still uses; they go in ADR 0019's last PR.
+Put new behaviour in `UI/`, not here. ADR 0004 to 0006, as amended by 0008, describe that
+window as it was built, layer by layer.
 Layer 1 (foundation and restyle) has landed: the theme, the two bundled faces, the spacing
 and radii, the window's own chrome, and every view restyled in that language. Layer 2
 (keys) has landed: the action registry, the key router, the hint bar with its `?` help,
