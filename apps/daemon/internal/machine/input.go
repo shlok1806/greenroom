@@ -542,7 +542,7 @@ func (e *ScreenTakenError) Error() string {
 // Is makes errors.Is(err, ErrScreenTaken) true.
 func (e *ScreenTakenError) Is(target error) bool { return target == ErrScreenTaken }
 
-// The names the helper posts (input.swift `flags`, `mouseButton`, `run`). Anything else is
+// The names the helper posts (helper/Input.swift `flags`, `mouseButton`, `run`). Anything else is
 // refused here, before a batch posts anything: the helper drops an unknown modifier and makes an
 // unknown button a left click, so a typo in cmd-Q would type a q (issue #31).
 var (
@@ -763,7 +763,7 @@ func (m *Manager) installInput(ctx context.Context, mc *Machine) (Screen, error)
 	}
 	res, timedOut, err := guestLook(ctx, m.tart, mc.Name, helperCheck, "/bin/sh", "-c", helperCheckScript())
 	if timedOut {
-		// The helper's --version touches nothing but its own binary (input.swift), so a check
+		// The helper's --version touches nothing but its own binary (helper/main.swift), so a check
 		// that hangs is a guest that hangs, and the install script's own check would too.
 		return Screen{}, &ScreenNotAnsweringError{What: "the input helper's version check", After: helperCheck.guest}
 	}

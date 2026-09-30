@@ -258,7 +258,7 @@ func quoteAll(names []string) []string {
 }
 
 // The modifier and button names the helper posts, mirroring machine's validateActions (and
-// input.swift's `flags` and `mouseButton`): an unknown name would be dropped or read as a left
+// helper/Input.swift's `flags` and `mouseButton`): an unknown name would be dropped or read as a left
 // click, so a typo in cmd-Q would type a q (issue #31).
 var (
 	modifierNames = []string{"cmd", "command", "meta", "shift", "alt", "option", "opt", "ctrl", "control", "fn", "function"}
