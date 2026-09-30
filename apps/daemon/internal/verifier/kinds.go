@@ -123,6 +123,10 @@ func applyKinds(id, criterion string, declared []string, within float64) (kinds 
 	return kinds, min(window, session.MaxWithin), strings.Join(notes, "; ")
 }
 
+// evidencePlanGuidance keeps evidence selection consistent in the prompt, tool and result.
+// It changes planning, never the review rules or a declaration's applied kinds (ADR 0040).
+const evidencePlanGuidance = `Choose kinds by the criterion: exact text, counts, selection and membership use value with machine_ui ("headers read To Do (1), Doing (1), Done (1)"; "Write spec belongs to Doing"). Layout, color, clipping, readability and actual visibility use visual. Preserve the task's appearance requirements; do not add them to value checks. Word value criteria as reads, equals or contains; shown or visible claims appearance. Review kinds before your first input, while redeclaration is free. Cite each intermediate value state's recorded UI/effect read even after moving on. Capture a visual state's screenshot before moving, clearing, dismissing or changing it; a final screenshot cannot prove an earlier state. Never weaken checks after acting or pass text marked not drawn, offscreen or covered.`
+
 // kindLabel is how the declaration result names a check's kinds and what each needs.
 func kindLabel(c session.Check) string {
 	var needs []string
