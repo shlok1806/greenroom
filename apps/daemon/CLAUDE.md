@@ -914,7 +914,10 @@ Computer use (ADR 0009)
   `scale`; never hardcode Retina 2 (the tahoe guest is 1024x768 at scale 1).
 - The input helper is compiled in the guest with `swiftc` to
   `~/.greenroom/bin/greenroom-input-<inputHelperVersion>`. Bump `inputHelperVersion`
-  when anything under `guest/helper/` changes, then rebuild the image `install.sh` serves by default:
+  when the helper's behaviour changes in a way a daemon relies on (a new mode or op); any
+  other change under `guest/helper/` needs no bump, because `--version` also carries the
+  sources' hash (`helperVersionLine`) and the install and boot checks recompile on it. After
+  a bump, rebuild the image `install.sh` serves by default:
   `greenroom-lean-a` when it exists (`build-image.sh -lean -name greenroom-lean-a -force`),
   and `greenroom-base` as the rollback target (`build-image.sh -force`). Locally boot detects a
   stale image, warns and compiles the helper (see Boot and lifecycle). The VM suite workflow bakes and tests
