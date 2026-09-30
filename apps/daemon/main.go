@@ -113,7 +113,7 @@ func serveFlags() (*flag.FlagSet, *serveOpts) {
 	fs.StringVar(&o.tartBin, "tart", "", tartUsage)
 	fs.DurationVar(&o.frameInterval, "frame-interval", 2*time.Second, "screen frame capture interval for the run recording; 0 disables")
 	fs.StringVar(&o.verifierKind, "verifier", "", "verifier brain: nim (model-driven) or manual (a person types instructions in the conversation); default nim, overridden by GREENROOM_VERIFIER when this flag is not set")
-	fs.IntVar(&o.verifierMaxSteps, "verifier-max-steps", verifier.DefaultMaxSteps, "tool calls a verifier turn may make before it stops and asks to be continued with another message")
+	fs.IntVar(&o.verifierMaxSteps, "verifier-max-steps", 0, "fixed model rounds per verifier turn; 0 scales with declared checks (40 to 108)")
 	fs.DurationVar(&o.verifierBudget, "verifier-budget", verifier.DefaultBudget, "wall-clock budget for a single verifier turn before it stops and asks to be continued")
 	fs.StringVar(&o.publicHost, "public-host", "", "hostname a tunnel forwards to this daemon; requests for it need GREENROOM_TOKEN (ADR 0021); default GREENROOM_PUBLIC_HOST, empty for local only")
 	fs.StringVar(&o.dist, "dist", "", "directory holding install.sh and the files under /dl/; default <root>/dist")
