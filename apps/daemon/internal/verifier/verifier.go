@@ -94,7 +94,7 @@ const visionPrompt = `This is the screen of a macOS machine under test. Describe
 3. Window text: quote every piece of text visible in the frontmost window, exactly as shown, one per line, top to bottom: titles, labels, the contents of every field, button and segment labels, values, results, totals, and status or error messages. Copy numbers, currency and punctuation exactly. Never skip text because it looks unimportant, and never summarize it. Write "(empty)" for an empty field and "(unreadable)" for text you cannot read.
 4. Controls: each interactive element (buttons, text fields, segmented controls and each of their segments, checkboxes, steppers, menus, links) with its label, whether it looks selected, and its approximate center as fractions of the image width and height, for example: "25% segment at (0.60, 0.47), not selected". Both numbers are between 0 and 1, never pixels; give no position for an element you cannot place.
 5. Errors: quote any visible error text exactly, or write "none".
-Be factual. Do not guess at anything you cannot read.`
+Be factual. Do not guess at anything you cannot read. Keep control rows short and omit commentary. Prioritize exact window text over control descriptions; do not repeat window text outside part 3 except for control labels and errors.`
 
 // Config names the endpoint and the two models.
 type Config struct {

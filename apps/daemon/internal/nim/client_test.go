@@ -251,8 +251,8 @@ func describeBody(t *testing.T, model string) map[string]any {
 	if text != "hello" {
 		t.Errorf("Describe = %q, want the endpoint's answer", text)
 	}
-	if body["model"] != model || body["max_tokens"] != float64(700) {
-		t.Errorf("model, max_tokens = %v, %v; want %s, 700", body["model"], body["max_tokens"], model)
+	if body["model"] != model || body["max_tokens"] != float64(2048) {
+		t.Errorf("model, max_tokens = %v, %v; want %s, 2048", body["model"], body["max_tokens"], model)
 	}
 	return body
 }
@@ -332,5 +332,24 @@ func TestTheRecordedOptionsAreWhatTheRequestsSend(t *testing.T) {
 	want, _ := json.Marshal(ChatOptions())
 	if got, _ := json.Marshal(body); string(got) != string(want) {
 		t.Errorf("chat request options = %s, recorded %s", got, want)
+	}
+}
+
+// Issue #258: a token-limited description is never returned as an observation.
+func TestDescribeRefusesCutOffOutput(t *testing.T) {
+	for _, content := range []string{"File menu at (0", ""} {
+		t.Run(content, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+					"message":       map[string]any{"role": "assistant", "content": content},
+					"finish_reason": "length",
+				}}})
+			}))
+			t.Cleanup(ts.Close)
+			text, err := New(ts.URL, "k").Describe(context.Background(), "vision", []byte{0xff, 0xd8}, "Describe the screen.")
+			if !errors.Is(err, ErrDescriptionCutOff) || text != "" {
+				t.Fatalf("Describe = %q, %v; want no fragment and ErrDescriptionCutOff", text, err)
+			}
+		})
 	}
 }
