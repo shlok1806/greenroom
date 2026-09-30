@@ -99,7 +99,7 @@ func (v *Verifier) closingCall(parent context.Context, msgs []nim.Message, stop 
 	ctx, cancel := context.WithTimeout(parent, closingTimeout)
 	defer cancel()
 	msgs = append(msgs[:len(msgs):len(msgs)], nim.Message{Role: "user", Content: closingPrompt(stop)})
-	msg, usage, err := v.llm.Chat(ctx, v.cfg.Model, msgs, closingTools)
+	msg, usage, err := v.llm.Chat(ctx, v.cfg.Model, compactContext(msgs), closingTools)
 	res.Tokens += usage.PromptTokens + usage.CompletionTokens
 	if err != nil || cutOff(msg) {
 		return session.Message{}, nim.ToolCall{}, err

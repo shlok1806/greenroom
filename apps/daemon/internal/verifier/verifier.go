@@ -299,7 +299,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			msgs = append(msgs, nim.Message{Role: "user", Content: "[machine status changed] " + now})
 		}
 
-		msg, usage, err := v.llm.Chat(ctx, v.cfg.Model, msgs, offered)
+		msg, usage, err := v.llm.Chat(ctx, v.cfg.Model, compactContext(msgs), offered)
 		res.Tokens += usage.PromptTokens + usage.CompletionTokens
 		res.Seconds = since(started)
 		if err != nil {
