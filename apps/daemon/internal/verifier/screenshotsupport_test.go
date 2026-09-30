@@ -212,3 +212,29 @@ func TestScreenshotToolsRecordDescriptionFailureAndSanitizedText(t *testing.T) {
 		}
 	}
 }
+
+func TestScreenshotSupportChecksNumericBoundariesInsideQuotedPhrases(t *testing.T) {
+	for _, text := range []string{"Total: $49.56.0", "Total: $49.56.0, another amount $49.56", "Total: -$49.56"} {
+		if screenshotAffirmsText(text, "total: $49.56") {
+			t.Fatalf("quoted phrase accepted mismatching amount: %s", text)
+		}
+	}
+	if !screenshotAffirmsText("Total: $49.56", "total: $49.56") {
+		t.Fatal("exact quoted numeric phrase lost")
+	}
+	c := session.Check{Status: session.CheckPass, Kinds: []string{session.CheckVisual}, Observed: `It reads "Total: $49.56".`, Evidence: []int{2}}
+	steps := map[int]stepFact{2: {tool: "machine_screenshot", by: machine.HolderVerifier, description: &machine.ScreenshotDescription{Text: "Total: $49.56.0"}}}
+	if got := checkEvidence(c, steps, 0); len(got) == 0 {
+		t.Fatal("quoted numeric claim bypassed support rule")
+	}
+}
+
+func TestScreenshotSupportNormalizesUnquotedAmountWhitespace(t *testing.T) {
+	terms := screenshotClaimText("The total is $  49.56.")
+	if len(terms) != 1 || terms[0] != "$ 49.56" {
+		t.Fatalf("unnormalized terms %v", terms)
+	}
+	if !screenshotAffirmsText(normalizeScreenshotText("The total is $  49.56."), terms[0]) {
+		t.Fatal("same spaced amount failed support")
+	}
+}

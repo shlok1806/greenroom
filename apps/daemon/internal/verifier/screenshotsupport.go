@@ -35,7 +35,7 @@ func screenshotClaimText(observed string) []string {
 		}
 		for _, number := range screenshotNumbersRE.FindAllString(outside, -1) {
 			if strings.ContainsAny(number, ".,") {
-				terms = append(terms, number)
+				terms = append(terms, normalizeScreenshotText(number))
 			}
 		}
 	}
@@ -116,7 +116,18 @@ func screenshotContainsText(clause, term string) bool {
 		}
 		return false
 	}
-	return wordsRE([]string{term}).MatchString(clause)
+	// A number embedded in a longer quoted phrase needs the same token boundary. Otherwise
+	// "Total: $49.56" would match the prefix of "Total: $49.56.0". Validate the actual phrase
+	// occurrence, rather than finding the desired amount somewhere else in the clause.
+	for _, match := range wordsRE([]string{term}).FindAllStringIndex(clause, -1) {
+		cutToken := slices.ContainsFunc(screenshotNumbersRE.FindAllStringIndex(clause, -1), func(token []int) bool {
+			return token[0] < match[1] && token[1] > match[0] && (token[0] < match[0] || token[1] > match[1])
+		})
+		if !cutToken {
+			return true
+		}
+	}
+	return false
 }
 
 // screenshotAffirmsText requires an occurrence outside a negated description clause. This is
