@@ -139,7 +139,14 @@ func writeFileAtomic(path string, data []byte) error {
 
 // ReadSteps loads a run's step log. A run with no steps yet has none.
 func ReadSteps(dir string) ([]Step, error) {
-	return readJSONL[Step](dir, "steps.jsonl")
+	steps, err := readJSONL[Step](dir, "steps.jsonl")
+	if err != nil {
+		return nil, err
+	}
+	if err := loadScreenshotDescriptions(dir, steps); err != nil {
+		return nil, err
+	}
+	return steps, nil
 }
 
 // readJSONL decodes one T per line of dir/name. A missing file is empty. A
@@ -309,6 +316,8 @@ type Step struct {
 	// Effect is set on the verifier's UI read after one of its inputs (ADR 0024): what that
 	// input changed. Of names the input step.
 	Effect *StepEffect `json:"effect,omitempty"`
+	// ScreenshotDescription is joined from the capture's write-once sidecar (ADR 0041).
+	ScreenshotDescription *ScreenshotDescription `json:"screenshotDescription,omitempty"`
 }
 
 // StepEffect is what an input changed on the screen, found by the UI read it is recorded on.

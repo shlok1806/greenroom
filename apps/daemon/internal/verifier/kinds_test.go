@@ -112,21 +112,21 @@ func kindSteps() []machine.Step {
 	}}
 	return []machine.Step{
 		{Seq: 3, Tool: "machine_ui", By: v, At: at(0), DurationMS: 500},
-		{Seq: 4, Tool: "machine_screenshot", By: v, At: at(5), DurationMS: 300},
+		{Seq: 4, Tool: "machine_screenshot", By: v, ScreenshotDescription: &machine.ScreenshotDescription{Text: "The TipSplit window displays Tip: $8.40 and the Each pays label."}, At: at(5), DurationMS: 300},
 		{Seq: 5, Tool: "machine_input", By: v, At: at(10), DurationMS: 200},
 		{Seq: 6, Tool: "machine_ui", By: v, At: at(10.4), DurationMS: 800, Effect: &machine.StepEffect{Of: 5, Kind: machine.EffectChanged}},
 		{Seq: 7, Tool: "machine_ui", By: v, At: at(19), DurationMS: 500},
-		{Seq: 8, Tool: "machine_screenshot", By: v, At: at(20), DurationMS: 300},
+		{Seq: 8, Tool: "machine_screenshot", By: v, ScreenshotDescription: &machine.ScreenshotDescription{Text: "The TipSplit window displays Tip: $8.40 and the Each pays label."}, At: at(20), DurationMS: 300},
 		{Seq: 9, Tool: "machine_input", By: v, At: at(30), DurationMS: 200},
 		{Seq: 10, Tool: "machine_ui", By: v, At: at(30.5), DurationMS: 500, Effect: &machine.StepEffect{Of: 9, Kind: machine.EffectNone}},
 		{Seq: 11, Tool: "machine_ui", By: v, At: at(31.5), DurationMS: 500},
 		{Seq: 12, Tool: "machine_ui", By: v, At: at(40), DurationMS: 500, Output: marked},
-		{Seq: 13, Tool: "machine_screenshot", By: v, At: at(41), DurationMS: 300},
+		{Seq: 13, Tool: "machine_screenshot", By: v, ScreenshotDescription: &machine.ScreenshotDescription{Text: "The TipSplit window displays Tip: $8.40 and the Each pays label."}, At: at(41), DurationMS: 300},
 		{Seq: 14, Tool: "machine_ui", By: v, At: at(50), DurationMS: 500, Output: machine.UITree{App: "TipSplit"}},
 		{Seq: 15, Tool: "machine_input", By: v, At: at(60), DurationMS: 200},
 		{Seq: 16, Tool: "machine_ui", By: v, At: at(60.4), DurationMS: 500, Effect: &machine.StepEffect{Of: 15, Kind: machine.EffectChanged}},
-		{Seq: 17, Tool: "machine_screenshot", By: v, At: at(61.5), DurationMS: 300},
-		{Seq: 18, Tool: "machine_screenshot", By: v, At: at(70), DurationMS: 300},
+		{Seq: 17, Tool: "machine_screenshot", By: v, ScreenshotDescription: &machine.ScreenshotDescription{Text: "The TipSplit window displays Tip: $8.40 and the Each pays label."}, At: at(61.5), DurationMS: 300},
+		{Seq: 18, Tool: "machine_screenshot", By: v, ScreenshotDescription: &machine.ScreenshotDescription{Text: "The TipSplit window displays Tip: $8.40 and the Each pays label."}, At: at(70), DurationMS: 300},
 		{Seq: 19, Tool: "machine_ui", By: v, At: at(71), DurationMS: 500},
 	}
 }
@@ -294,7 +294,7 @@ func unitConvertSteps() []machine.Step {
 	}}
 	return []machine.Step{
 		{Seq: 6, Tool: "machine_ui", By: v, At: t0, DurationMS: 500, Output: read},
-		{Seq: 7, Tool: "machine_screenshot", By: v, At: t0.Add(5 * time.Second), DurationMS: 300},
+		{Seq: 7, Tool: "machine_screenshot", By: v, ScreenshotDescription: &machine.ScreenshotDescription{Text: "UnitConvert displays the Value field reading 10, km, and Decimals: 2. The result area is blank."}, At: t0.Add(5 * time.Second), DurationMS: 300},
 		{Seq: 8, Tool: "machine_ui", By: v, At: t0.Add(9 * time.Second), DurationMS: 500, Output: split},
 	}
 }

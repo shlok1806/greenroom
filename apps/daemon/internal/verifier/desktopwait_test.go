@@ -63,7 +63,8 @@ func TestACroppedScreenshotAsksTheDescriberTheQuestion(t *testing.T) {
 		t.Error("the describer was not asked the question")
 	}
 	steps, _ := mgr.Steps(runID)
-	if s := steps[len(steps)-1]; s.Tool != "machine_screenshot" || s.Error != "" || s.By != "verifier" {
+	if s := steps[len(steps)-1]; s.Tool != "machine_screenshot" || s.Error != "" || s.By != "verifier" ||
+		s.ScreenshotDescription == nil || s.ScreenshotDescription.Text != model.vision {
 		t.Errorf("step %+v", s)
 	}
 }

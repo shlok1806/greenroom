@@ -195,7 +195,8 @@ type stepFact struct {
 	at, end time.Time
 	// elements is, for a verifier UI read, what it listed, with each element's
 	// machine.UIElement.Rendered mark (ADR 0027).
-	elements []machine.UIElement
+	elements    []machine.UIElement
+	description *machine.ScreenshotDescription
 }
 
 // ledger is every step of the run by number. An input's effect is on the verifier's UI read
@@ -204,7 +205,7 @@ func ledger(steps []machine.Step) map[int]stepFact {
 	out := make(map[int]stepFact, len(steps))
 	for _, s := range steps {
 		f := stepFact{tool: s.Tool, by: s.By, failed: s.Error != "", at: s.At,
-			end: s.At.Add(time.Duration(s.DurationMS) * time.Millisecond)}
+			end: s.At.Add(time.Duration(s.DurationMS) * time.Millisecond), description: s.ScreenshotDescription}
 		if s.Tool == "machine_ui" && s.By == machine.HolderVerifier && s.Error == "" {
 			f.elements = readElements(s.Output)
 		}
@@ -598,6 +599,9 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 	}
 	if c.Status == session.CheckPass {
 		out = append(out, drawnRule(c, steps, newest)...)
+		if c.Is(session.CheckVisual) {
+			out = append(out, screenshotSupportRule(c, fresh, steps, lastAction, handoverStep)...)
+		}
 	}
 	return out
 }
