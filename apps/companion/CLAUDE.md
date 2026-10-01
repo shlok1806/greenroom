@@ -25,7 +25,7 @@ at the repo root.
 
 The window is pure native SwiftUI, built from the approved Figma design (file
 041UmqtdMYVCufxO8g9Ius; `docs/20-companion-ux-research.md` section 12). No web technology,
-no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
+no `WKWebView`. Its code lives in `Sources/Companion/UI/`:
 
 - `UI/Tokens.swift` is the Figma Tokens page: `ColorToken` (Light and Dark hex), `Palette`,
   `TypeStyle` (SF Pro at 22/15/13/11, `.textStyle(_:)`), `Gap`, `Corner`, `Elevation`,
@@ -101,11 +101,22 @@ no `WKWebView`. The new code lives in `Sources/Companion/UI/`:
 
 ## The window before the redesign (not shown)
 
-The app opens `CompanionShell` from `UI/`. The views in `Views/` below are no longer shown,
-apart from `Views/InputSurface.swift`, which `UI/` still uses; they go in ADR 0019's last PR.
-Put new behaviour in `UI/`, not here. ADR 0004 to 0006, as amended by 0008, describe that
-window as it was built, layer by layer.
-Layer 1 (foundation and restyle) has landed: the theme, the two bundled faces, the spacing
+The app opens `CompanionShell` from `UI/`; the old window's views are no longer shown. Put
+new behaviour in `UI/`, not in `Views/`. ADR 0019's last checklist item removes the old
+views, but `UI/`, `Model/` and `CompanionApp.swift` still use these files in `Views/`, so
+move what they use before deleting one:
+
+- `InputSurface.swift`: `InputSurface` (the stage's take-control surface) and
+  `InputSurfaceView` (`UI/Keys.swift`).
+- `LiveScreenView.swift`: the live screen `UI/Stage.swift` shows.
+- `MarkdownView.swift`: `EvidenceURL`, for evidence links in agent text.
+- `RunView.swift`: `RunLayout`, the window's default and fitted size.
+- `Keyboard.swift`: `KeyboardModel`, which performs the menu bar's entries.
+- `Chrome.swift` and `Components.swift`: the `Chrome` formatters (`outcomeTitle`,
+  `outcomeGlyph`, `shortTime`, `duration` and the rest), used across `Model/` and `UI/`.
+
+ADR 0004 to 0006, as amended by 0008, describe the old window as it was built, layer by
+layer. Layer 1 (foundation and restyle) has landed: the theme, the two bundled faces, the spacing
 and radii, the window's own chrome, and every view restyled in that language. Layer 2
 (keys) has landed: the action registry, the key router, the hint bar with its `?` help,
 the Cmd-K palette, the menu bar built from the registry, and the 5 s undo on accept and
@@ -117,9 +128,9 @@ steps as a thinking trace (below). Layer 5 (transcript cards) has landed: Markdo
 swift-markdown, evidence chips in prose, the verdict card's proposed and closed framing,
 the question card, and tool-call rows (ADR 0009). Layer 6 (signature moments) has landed:
 the boot lines and reveal, house lights, click marks (`m`) and the power-down (below). The
-verdict-lands moment has landed with the decode and draw it uses (below). Not yet built:
-decode and draw anywhere else, glide, the welcome moment, the cursor, `GridMetrics`. Until
-a layer lands, the rules below that name round-2 behaviour describe the code as it is.
+verdict-lands moment has landed with the decode and draw it uses (below). The rest of the
+old plan (decode and draw anywhere else, glide, the welcome moment, the cursor,
+`GridMetrics`) was never built and will not be: the redesign replaced that window.
 
 ## Commands
 
