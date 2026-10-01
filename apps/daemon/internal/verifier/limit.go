@@ -51,11 +51,11 @@ const continueHint = "Send a task, or a note from a person, and I will continue 
 	"A coding agent's note does not start a turn."
 
 // limitReply is what the turn posts at a limit when it has no verdict to give.
-func (v *Verifier) limitReply(stop string) string {
+func (v *Verifier) limitReply(stop string, steps int) string {
 	if stop == session.StopTime {
 		return fmt.Sprintf("I ran out of time after %s. %s", v.cfg.Budget, continueHint)
 	}
-	return fmt.Sprintf("I used all %d tool calls for this turn and did not finish. %s", v.cfg.MaxSteps, continueHint)
+	return fmt.Sprintf("I used all %d tool calls for this turn and did not finish. %s", steps, continueHint)
 }
 
 // endAtLimit ends a turn that hit its step cap or budget (stop). A limit is not a verdict, but a
@@ -89,7 +89,7 @@ func (v *Verifier) endAtLimit(parent context.Context, runID string, store *sessi
 		}
 	}
 	res.Ended = session.Reply
-	v.post(store, session.Message{From: session.Verifier, Kind: session.Reply, Text: v.limitReply(stop), Stop: stop})
+	v.post(store, session.Message{From: session.Verifier, Kind: session.Reply, Text: v.limitReply(stop, res.Steps), Stop: stop})
 	return res, nil
 }
 

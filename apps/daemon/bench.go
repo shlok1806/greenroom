@@ -68,7 +68,7 @@ func benchRunFlags() (*flag.FlagSet, *benchRunOpts) {
 	fs.IntVar(&o.parallel, "parallel", 2, "machines at once; the host allows 2 macOS guests in all, the daemon's included")
 	fs.StringVar(&o.envFile, "env-file", ".env", "file of KEY=VALUE lines holding the model credentials")
 	fs.StringVar(&o.tartBin, "tart", "", tartUsage)
-	fs.IntVar(&o.verifierMaxSteps, "verifier-max-steps", verifier.DefaultMaxSteps, "tool calls a verifier turn may make")
+	fs.IntVar(&o.verifierMaxSteps, "verifier-max-steps", 0, "fixed model rounds per verifier turn; 0 scales with declared checks (40 to 108)")
 	fs.DurationVar(&o.verifierBudget, "verifier-budget", verifier.DefaultBudget, "wall-clock budget for one verifier turn")
 	fs.DurationVar(&o.turnTimeout, "turn-timeout", 30*time.Minute, "how long to wait for the verifier's turn to end, from the task, before recording a timeout")
 	fs.Float64Var(&o.minFreeGB, "min-free-gb", float64(bench.DefaultMinFreeDisk)/(1<<30), "no trial starts with less free space (GB) on tart's volume ($TART_HOME, else ~/.tart); 0 turns the check off")
