@@ -151,7 +151,7 @@ var tools = []nim.Tool{
 			"whether it can be seen: needs a machine_screenshot after its actions) or " +
 			"timing (it happens within some seconds of its last action: needs an observation that started in time); " +
 			"a check can be visual and timing. greenroom adds a kind when the criterion's words claim appearance or " +
-			"speed, and says so.",
+			"speed, and says so. " + evidencePlanGuidance,
 		Schema: object(map[string]any{
 			"checks": map[string]any{
 				"type":     "array",

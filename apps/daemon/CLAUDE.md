@@ -676,6 +676,12 @@ Conversation and verifier
     asks for (a todolist run declared "three items appear" and "Milk and Eggs are ticked" as
     visual checks and ended inconclusive), and visual is for claims about appearance or
     visibility only; a model may still declare visual on its own ("stricter is allowed"). The
+    planning guidance (ADR 0040, `evidencePlanGuidance`) is shared by the system prompt,
+    declaration tool and declaration result: text, counts, selection and membership use value
+    criteria; layout, color, clipping, readability and visibility use visual. Capture transient
+    visual states before changing them, and cite each intermediate value state's UI/effect
+    read rather than a final screenshot. This guides initial declarations, never downgrades
+    applied kinds or unlocks checks after inputs. The
     visual rule's refusal says to take a screenshot now if the state is still on screen, and
     otherwise to answer the check unchecked. While a task is open and has no declaration, the input tools (click, type,
     key, scroll, input) get `declareFirst`, an ordinary `error:` result with no step that counts
