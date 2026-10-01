@@ -236,15 +236,28 @@ osascript -e 'tell application "Safari" to do JavaScript "1+1" in document 1'`, 
 	// clone takes about a minute.
 	{"xcodebuild", xcodebuildExercise, 240},
 	// An app outside base.sh's old fixed nine-target list, scripted over Apple Events: ADR 0038's
-	// build-time enumeration must cover it with no machine_approve_control call. It asks for the
-	// app's name, which needs the grant (no grant prompts and times out, or fails with -1743) but
-	// no window: issue #252's "name of every window" fails with -1728 when Calculator has none.
-	{"appleevent-calculator", `osascript -e 'tell application "Calculator" to get name'`, 30},
+	// build-time enumeration must cover it with no machine_approve_control call (issue #282).
+	{"appleevent-calculator", calculatorExercise, 30},
+	// quit is exempt from the Apple Events grant (measured), so this closes Calculator's window
+	// whether or not the exercise above was answered, and a missing grant's prompt stays.
 	{"quit-calculator", quitAppScript("Calculator"), 0},
 	// A freshly built app, never in any built-time list, approved by machine_approve_control's
 	// guest script (tccgrant.sh) and then scripting itself (ADR 0038, issue #252 point 3).
 	{"appleevent-freshbuild", selfScriptingAppExercise(), 60},
 }
+
+// calculatorExercise sends Calculator an event TCC gates and only the running app can answer:
+// `count windows` launches it, and without the grant raises the prompt and blocks until the
+// watchdog's exit 124 (measured, issue #282). Calculator has no scripting dictionary, so with
+// the grant it answers "doesn't understand" (-1708): that error is the app's own reply, sent
+// after TCC let the event through, so it counts as answered. Anything else fails, -1743 (denied)
+// included. Measured without the grant, `get name`, `version`, `frontmost`, `activate` and
+// `quit` all succeed (AppleScript answers some from the bundle, TCC exempts the rest), so none
+// of them can prove a grant.
+const calculatorExercise = `out="$(osascript -e 'tell application "Calculator" to count windows' 2>&1)" && { echo "$out"; exit 0; }
+case "$out" in *"(-1708)"*) echo "answered: $out"; exit 0 ;; esac
+echo "$out" >&2
+exit 1`
 
 // quitAppScript asks name to quit over Apple Events and waits up to 10 s for it to leave, as
 // the xcodebuild list's own "quit-safari" step does.

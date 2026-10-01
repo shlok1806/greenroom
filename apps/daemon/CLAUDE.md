@@ -438,7 +438,9 @@ Boot and lifecycle
   stall on an unanswered prompt; a finding lands in the exec result's `desktop` field and the
   machine's own `Desktop`, never auto-clicked or closed. `check-image`'s exercises include the
   issue's own repro (Calculator, outside the old fixed list) and a freshly built app scripting
-  itself, approved by the same guest script.
+  itself, approved by the same guest script. The Calculator exercise sends `count windows` and
+  accepts Calculator's own -1708 as the answer (ADR 0045, issue #282): it has no scripting
+  dictionary, so no gated event gets a plain answer from it.
 - The verifier approves its run's apps itself (ADR 0044, issue #269): its
   `machine_approve_control` (and the manual brain's `approve <app>`, both `verifier/approve.go`)
   is `ApproveControlInHome`, the same `tccgrant.sh` with `home` as its second argument, which
@@ -452,9 +454,11 @@ Boot and lifecycle
   is the app's own Info.plist, so an unquoted one could write rows for any client and walk past
   the home scope. `TestEndToEndVerifierApprovesARunBuiltApp`
   (`e2e_approve_test.go`) proves it on a real guest. To prove an Apple Events grant, send an
-  event the app must answer (`count windows` to a scriptable app): measured live,
-  `tell application id "X" to get name` is answered by AppleScript from the bundle, sends no
-  event and never prompts, granted or not.
+  event the app must answer (`count windows`, or a property of an element such as System
+  Events' `name of first process`). Measured live, with no grant none of these prompts:
+  `get name`, `get version`, `get frontmost`, `activate` and `quit` (AppleScript answers some
+  from the bundle, TCC exempts the rest). `TestNoAppleEventExerciseProvesAGrantWithAnEventThatNeedsNone`
+  keeps them out of `check-image`.
 - Image drift (issue #159, `machine/drift.go`, `imagestatus.go`): `greenroom image-status` reads
   each default image's disk while it is stopped (never a running one) and judges it by the
   helpers under `Users/*/.greenroom/bin` and the manifest at `ToolchainPath` on the Data
