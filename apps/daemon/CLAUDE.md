@@ -651,6 +651,13 @@ Conversation and verifier
   with `openTaskNudge` for `report_verdict` or `ask`. A message arriving mid-turn made the
   model answer it and leave the task without a verdict (issue #89). Once per turn, never on
   the last step, so a model that replies again is heard.
+- Default step limits scale with accepted checks on an open task (ADR 0042, issue #192):
+  `max(40, 12 + 8 * checks)`, bounded at 108 by the twelve-check maximum. The loop counts
+  model rounds, including retries, rather than individual calls in a batched response.
+  A positive `Config.MaxSteps` is a fixed cap, even 40. Both serve and bench default
+  `-verifier-max-steps` to 0 for automatic sizing. A turn's local cap only grows,
+  never resets on redeclaration; another run cannot inherit it. Time budgets and guards
+  still apply. A limit reply reports rounds actually spent, including an expanded cap.
 - A limit is not a verdict, but a task left open at one says nothing to whoever waits on it
   (issue #127). At the step cap or the budget, with a task open, `endAtLimit` makes one
   closing call (`closingPrompt`, only `report_verdict` and `ask` offered) on a fresh

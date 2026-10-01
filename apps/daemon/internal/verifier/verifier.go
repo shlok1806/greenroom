@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	// DefaultMaxSteps is the per-turn tool-call cap when Config.MaxSteps is zero.
+	// DefaultMaxSteps is the minimum per-turn round cap when Config.MaxSteps is unspecified.
 	DefaultMaxSteps = 40
 	// DefaultBudget is the per-turn wall-clock budget when Config.Budget is zero.
 	DefaultBudget = 10 * time.Minute
@@ -102,16 +102,17 @@ type Config struct {
 	APIKey      string
 	Model       string // reasons and calls tools
 	VisionModel string // reads screenshots; the reasoning model cannot take images
-	MaxSteps    int    // tool calls per turn
+	MaxSteps    int    // fixed model rounds per turn; <= 0 scales with the checklist
 	Budget      time.Duration
 }
 
 // Verifier is the model-driven Brain. One Verifier serves every run.
 type Verifier struct {
-	mgr *machine.Manager
-	llm *nim.Client
-	cfg Config
-	log *slog.Logger
+	mgr            *machine.Manager
+	llm            *nim.Client
+	cfg            Config
+	log            *slog.Logger
+	checklistSteps bool // only an unspecified MaxSteps may scale (ADR 0042)
 }
 
 // New returns a Verifier, or an error if it has no key or no model.
@@ -122,13 +123,14 @@ func New(mgr *machine.Manager, cfg Config, log *slog.Logger) (*Verifier, error) 
 	if cfg.Model == "" {
 		return nil, errors.New("no model; set GREENROOM_VERIFIER_MODEL in .env")
 	}
-	if cfg.MaxSteps <= 0 {
+	checklistSteps := cfg.MaxSteps <= 0
+	if checklistSteps {
 		cfg.MaxSteps = DefaultMaxSteps
 	}
 	if cfg.Budget <= 0 {
 		cfg.Budget = DefaultBudget
 	}
-	return &Verifier{mgr: mgr, llm: nim.New(cfg.BaseURL, cfg.APIKey), cfg: cfg, log: log}, nil
+	return &Verifier{mgr: mgr, llm: nim.New(cfg.BaseURL, cfg.APIKey), cfg: cfg, log: log, checklistSteps: checklistSteps}, nil
 }
 
 // Model names the reasoning model, for reports.
@@ -287,7 +289,8 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 	failed := repeats{}     // failing tool calls this turn, by call and error (issue #125)
 	dead := &deadControls{} // clicks that changed nothing this turn, by control (ADR 0029)
 
-	for step := 1; step <= v.cfg.MaxSteps; step++ {
+	stepLimit := v.stepLimit(store.After(0))
+	for step := 1; step <= stepLimit; step++ {
 		// Feed in anything said mid-turn, and any machine status change.
 		if fresh := store.After(seen); len(fresh) > 0 {
 			msgs = append(msgs, projectLate(fresh)...)
@@ -319,7 +322,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			// half-written tool call is a verdict that did not arrive (issue #71). The fragment
 			// stays out of the context; the model is told to answer again, shorter.
 			res.Steps = step
-			if step == v.cfg.MaxSteps {
+			if step == stepLimit {
 				res.Ended = session.Reply
 				v.post(store, session.Message{From: session.Verifier, Kind: session.Reply, Text: cutOffReply})
 				return res, nil
@@ -329,7 +332,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 		}
 		msgs = append(msgs, msg)
 
-		if len(msg.ToolCalls) == 0 && !nudged && step < v.cfg.MaxSteps && proseVerdict.MatchString(msg.Content) {
+		if len(msg.ToolCalls) == 0 && !nudged && step < stepLimit && proseVerdict.MatchString(msg.Content) {
 			// Once per turn, and only with a step left to answer it: a verdict in prose
 			// would be stored as a reply, but on the last step the nudge would throw the
 			// model's words away, so they are posted as the reply below instead.
@@ -338,7 +341,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			res.Steps = step
 			continue
 		}
-		if len(msg.ToolCalls) == 0 && !taskNudged && step < v.cfg.MaxSteps && hasOpenTask(store.After(0)) {
+		if len(msg.ToolCalls) == 0 && !taskNudged && step < stepLimit && hasOpenTask(store.After(0)) {
 			// A task owes a verdict (issue #89): once per turn, a reply is sent back.
 			taskNudged = true
 			msgs = append(msgs, nim.Message{Role: "user", Content: openTaskNudge})
@@ -354,7 +357,7 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 
 		for i, call := range msg.ToolCalls {
 			if end, ok := endingMessage(call); ok && end.Kind == session.Reply && !taskNudged &&
-				step < v.cfg.MaxSteps && hasOpenTask(store.After(0)) {
+				step < stepLimit && hasOpenTask(store.After(0)) {
 				// A task in this turn is still open, often because a message arrived mid-turn
 				// and the model answered that instead (issue #89). Not posted; asked once for
 				// the verdict. Every other call of this message is dropped with it, and answered.
@@ -410,6 +413,9 @@ func (v *Verifier) Turn(ctx context.Context, runID string, store *session.Store)
 			// appended while the tool ran sits before it. projectLate skips ours.
 			v.post(store, session.Message{From: session.Verifier, Kind: session.Progress, Text: progressText(call, result),
 				Step: stepNo, Checks: checks})
+			if len(checks) > 0 {
+				stepLimit = max(stepLimit, v.stepLimit(store.After(0)))
+			}
 			msgs = append(msgs, nim.Message{Role: "tool", ToolCallID: call.ID, Content: result})
 			if taken {
 				if holder, held := v.screenHolder(runID); held {
