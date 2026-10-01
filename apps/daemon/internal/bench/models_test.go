@@ -27,7 +27,7 @@ func TestTheReportNamesTheDescriberAndBreaksDownMixedModels(t *testing.T) {
 	// The line on disk carries the models and their request options.
 	line, _ := json.Marshal(results[1])
 	for _, want := range []string{`"models":{"brain":"nim","model":"nvidia/ultra","vision":"meta/muse-glimmer-30b"`,
-		`"visionOptions":{"chat_template_kwargs":{"enable_thinking":false},"max_tokens":700,"temperature":0.2}`} {
+		`"visionOptions":{"chat_template_kwargs":{"enable_thinking":false},"max_tokens":2048,"temperature":0.2}`} {
 		if !strings.Contains(string(line), want) {
 			t.Errorf("result line lacks %s\n%s", want, line)
 		}

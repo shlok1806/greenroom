@@ -132,7 +132,7 @@ func (c *Client) Chat(ctx context.Context, model string, msgs []Message, tools [
 
 // describeFields are extra request fields a describer needs, by model id (ADR 0030). They are
 // part of the model, not a setting: with its default thinking on, muse-glimmer-30b spends the
-// whole 700-token budget reasoning and returns no description, so naming the model is enough to
+// whole output budget reasoning and returns no description, so naming the model is enough to
 // get the request that works. A model not listed gets the plain request.
 var describeFields = map[string]map[string]any{
 	"meta/muse-glimmer-30b": {"chat_template_kwargs": map[string]any{"enable_thinking": false}},
@@ -147,12 +147,16 @@ func ChatOptions() map[string]any {
 // DescribeOptions are the fields of a Describe request to model besides the model and the
 // message: the plain ones and the model's own (describeFields). Recorded like ChatOptions.
 func DescribeOptions(model string) map[string]any {
-	out := map[string]any{"max_tokens": 700, "temperature": 0.2}
+	out := map[string]any{"max_tokens": 2048, "temperature": 0.2}
 	for k, v := range describeFields[model] {
 		out[k] = v
 	}
 	return out
 }
+
+// ErrDescriptionCutOff means the endpoint exhausted its output budget. The incomplete
+// text is not an observation and must not reach the verifier (ADR 0039).
+var ErrDescriptionCutOff = errors.New("description cut off: the vision model reached its output token limit")
 
 // Describe asks a vision model what is in an image (ADR 0005: the reasoning
 // model cannot take images).
@@ -168,9 +172,12 @@ func (c *Client) Describe(ctx context.Context, model string, jpeg []byte, prompt
 			}},
 		},
 	}}
-	wm, _, _, err := c.complete(ctx, model, body)
+	wm, finish, _, err := c.complete(ctx, model, body)
 	if err != nil {
 		return "", err
+	}
+	if finish == "length" {
+		return "", ErrDescriptionCutOff
 	}
 	return strings.TrimSpace(textOf(wm.Content)), nil
 }
