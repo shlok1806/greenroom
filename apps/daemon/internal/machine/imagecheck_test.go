@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -251,5 +252,50 @@ func TestCheckImageBuildsWithXcodebuildAndFailsWhenItCannot(t *testing.T) {
 	}
 	if got := strings.Join(res.Passes[0].Findings, "\n"); !strings.Contains(got, "xcodebuild: exit 1") {
 		t.Errorf("the finding does not name the xcodebuild exercise:\n%s", got)
+	}
+}
+
+// Issue #282: the Calculator exercise counts only an answer from the running app, past TCC.
+// Measured live: without the grant `count windows` blocks on the prompt; with it Calculator,
+// which has no scripting dictionary, answers -1708. A fake osascript plays each answer here,
+// run through the exercise's own watchdog.
+func TestCalculatorExerciseCountsOnlyAnAnswerFromTheApp(t *testing.T) {
+	for name, tc := range map[string]struct {
+		osascript string
+		secs      string
+		exit      int
+	}{
+		"a scriptable answer":      {`echo 1`, "5", 0},
+		"the app's own -1708":      {`echo "33:46: execution error: Calculator got an error: every window doesn’t understand the “count” message. (-1708)" >&2; exit 1`, "5", 0},
+		"a -1708 not from the app": {`echo "33:46: execution error: Can’t make some data into the expected type. (-1708)" >&2; exit 1`, "5", 1},
+		"-1708 then more output":   {`echo "Calculator got an error: (-1708)"; echo "execution error: Not authorized to send Apple events to Calculator. (-1743)" >&2; exit 1`, "5", 1},
+		"denied, -1743":            {`echo "execution error: Not authorized to send Apple events to Calculator. (-1743)" >&2; exit 1`, "5", 1},
+		"no window, -1728":         {`echo "execution error: Can't get window 1. (-1728)" >&2; exit 1`, "5", 1},
+		"blocked on the prompt":    {`sleep 30`, "1", 124},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "osascript"), []byte("#!/bin/sh\n"+tc.osascript+"\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("/bin/sh", "-c", exerciseWatchdog, "sh", calculatorExercise, tc.secs)
+			cmd.Env = append(os.Environ(), "PATH="+dir+":/usr/bin:/bin")
+			out, _ := cmd.CombinedOutput()
+			if got := cmd.ProcessState.ExitCode(); got != tc.exit {
+				t.Errorf("exit %d, want %d: %s", got, tc.exit, out)
+			}
+		})
+	}
+}
+
+// AppleScript answers an application's name and version from its bundle, and TCC exempts
+// activate and quit (measured, issue #282 and ADR 0044 "Measured"): none of them proves a
+// grant. An exercise that proves one asks the app, or an element of it, for something else.
+func TestNoAppleEventExerciseProvesAGrantWithAnEventThatNeedsNone(t *testing.T) {
+	ungated := regexp.MustCompile(`tell application (id )?"[^"]+" to (get name|get version|get frontmost|activate|quit)'`)
+	for _, ex := range exercises {
+		if strings.HasPrefix(ex.name, "appleevent-") && ungated.MatchString(ex.script) {
+			t.Errorf("%s proves nothing about its grant: %s", ex.name, ungated.FindString(ex.script))
+		}
 	}
 }
