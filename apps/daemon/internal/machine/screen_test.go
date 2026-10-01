@@ -382,3 +382,30 @@ func TestInputUsesExecOnceTheScreenStops(t *testing.T) {
 		t.Errorf("a stopped screen took input: %+v", inputs)
 	}
 }
+
+// The log says how dense the live screen is, and why a 1x guest is 1x (ADR 0045).
+func TestHelloIsLoggedWithItsDensity(t *testing.T) {
+	cases := []struct {
+		hello, text string
+		scale       float64
+	}{
+		{`{"version":"v","screen":{"width":1024,"height":768},"pixels":{"width":2048,"height":1536}}`, "live screen started", 2},
+		{`{"version":"v","screen":{"width":1024,"height":768},"pixels":{"width":1024,"height":768}}`, "live screen started at 1x: the host's main display is not Retina", 1},
+	}
+	for _, c := range cases {
+		text, attrs := describeHello([]byte(c.hello))
+		if !strings.HasPrefix(text, c.text) {
+			t.Errorf("%s: logged %q, want it to start %q", c.hello, text, c.text)
+		}
+		got := map[string]any{}
+		for i := 0; i+1 < len(attrs); i += 2 {
+			got[attrs[i].(string)] = attrs[i+1]
+		}
+		if got["scale"] != c.scale || got["screen"] != "1024x768" {
+			t.Errorf("%s: attrs %v, want scale %v and screen 1024x768", c.hello, got, c.scale)
+		}
+	}
+	if text, _ := describeHello([]byte(`{}`)); !strings.Contains(text, "no screen size") {
+		t.Errorf("a HELLO without a screen logged %q", text)
+	}
+}

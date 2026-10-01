@@ -968,7 +968,8 @@ Computer use (ADR 0009)
   records no step and leaves no lease.
 - Coordinates are fractions 0 to 1. Only the manager converts to points (`ScreenOf`), and
   back for the UI tree; out-of-range is clamped. `machine.Shot` carries `width`, `height`,
-  `scale`; never hardcode Retina 2 (the tahoe guest is 1024x768 at scale 1).
+  `scale`; never hardcode either scale: the tahoe guest is 1024x768 points at 1x or 2x, by the host's
+  main display (see Live screen). `TestClicksLandOnTheSamePointAt1xAnd2x` pins both.
 - The input helper is compiled in the guest with `swiftc` to
   `~/.greenroom/bin/greenroom-input-<inputHelperVersion>`. Bump `inputHelperVersion`
   when the helper's behaviour changes in a way a daemon relies on (a new mode or op); any
@@ -1087,7 +1088,17 @@ Live screen (ADR 0011)
 - Fan-out never blocks the reader or another viewer. A full viewer loses its backlog, gets
   the cached FORMAT, and resumes at the next keyframe. Every new viewer and every drop sends
   KEYFRAME: a still screen sends nothing on its own.
-- LOG goes to the daemon log, never to viewers.
+- LOG goes to the daemon log, never to viewers. HELLO is logged once per stream with its
+  `screen`, `pixels` and `scale` (`describeHello`, root ADR 0045).
+- The guest's pixel density is the host's, not ours (root ADR 0045): the image's display is
+  1024x768 in Tart's default unit, points, and Tart sizes a macOS VM's display from the host's
+  main display (`NSScreen.main`), so a guest is 2048x1536 pixels at 2x when that display is
+  Retina and 1024x768 at 1x when it is not (a laptop in clamshell mode on an external
+  monitor). In pixel units (`tart set --display WxHpx`) Tart hardcodes 72 pixels per inch
+  and macOS offers no HiDPI mode at all, so never switch the image to pixels to make it
+  deterministic: that makes every guest 1x. The encoder is not the blur: measured
+  (`spikes/live-stream/measure.py`), text in the stream is within SSIM 0.997 of a lossless
+  screenshot at both densities, and a higher bitrate changed nothing.
 - `Manager.Input` uses the stream (INPUT, then its ACK) while it runs, else the one-shot
   exec. The ACK deadline is what the queued batches take to post (`inputCost`: sleeps and
   typed keys) plus 10 s, never a fixed limit: long sleeps and `type` are valid batches. It
