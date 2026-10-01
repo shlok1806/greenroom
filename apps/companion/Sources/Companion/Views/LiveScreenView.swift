@@ -1,16 +1,16 @@
-import AVFoundation
+import QuartzCore
 import SwiftUI
 
-/// Shows a `LiveScreen`'s display layer. The layer is placed on exactly the
-/// rectangle `ScreenGeometry.fitted` gives, so the picture and the fractions
-/// `InputSurface` sends cannot disagree about the letterbox.
+/// Shows a `LiveScreen`'s layer. The layer is placed on the rectangle `ScreenGeometry.fitted`
+/// gives, so the picture and the fractions `InputSurface` sends cannot disagree about the
+/// letterbox, snapped to whole display pixels (root ADR 0045).
 struct LiveScreenView: NSViewRepresentable {
-    let layer: AVSampleBufferDisplayLayer
+    let output: VideoOutput
     /// In pixels; zero until the stream says.
     var pixelSize: CGSize
 
     func makeNSView(context: Context) -> LiveScreenHostView {
-        LiveScreenHostView(displayLayer: layer)
+        LiveScreenHostView(output: output)
     }
 
     func updateNSView(_ view: LiveScreenHostView, context: Context) {
@@ -20,18 +20,19 @@ struct LiveScreenView: NSViewRepresentable {
 
 /// Layer-hosting: the view owns its layer tree, so AppKit leaves the display layer alone.
 final class LiveScreenHostView: NSView {
-    let displayLayer: AVSampleBufferDisplayLayer
+    let output: VideoOutput
+    var displayLayer: CAMetalLayer { output.layer }
 
     var pixelSize: CGSize = .zero {
         didSet { if pixelSize != oldValue { needsLayout = true } }
     }
 
-    init(displayLayer: AVSampleBufferDisplayLayer) {
-        self.displayLayer = displayLayer
+    init(output: VideoOutput) {
+        self.output = output
         super.init(frame: .zero)
         layer = CALayer()
         wantsLayer = true
-        layer?.addSublayer(displayLayer)
+        layer?.addSublayer(output.layer)
     }
 
     @available(*, unavailable)
@@ -43,12 +44,36 @@ final class LiveScreenHostView: NSView {
     /// Clicks belong to the `InputSurface` above.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsLayout = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        needsLayout = true
+    }
+
+    /// The display's pixels per point: the window's, else the main screen's.
+    var backingScale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1 }
+
+    /// Where the picture sits: the fitted rectangle with every edge on a whole display pixel,
+    /// so the drawable maps onto the display one to one.
+    var pictureRect: CGRect {
+        let fitted = ScreenGeometry.fitted(image: pixelSize, in: bounds.size)
+        let rect = fitted == .zero ? bounds : fitted
+        return window == nil ? rect : backingAlignedRect(rect, options: .alignAllEdgesNearest)
+    }
+
     override func layout() {
         super.layout()
-        let fitted = ScreenGeometry.fitted(image: pixelSize, in: bounds.size)
+        let rect = pictureRect
+        let scale = backingScale
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        displayLayer.frame = convertToLayer(fitted == .zero ? bounds : fitted)
+        displayLayer.contentsScale = scale
+        displayLayer.frame = convertToLayer(rect)
         CATransaction.commit()
+        output.place(drawableSize: CGSize(width: (rect.width * scale).rounded(), height: (rect.height * scale).rounded()))
     }
 }

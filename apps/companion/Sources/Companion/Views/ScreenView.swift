@@ -453,7 +453,7 @@ struct ScreenView: View {
                 }
                 // Mounted while connecting too, so the first frame shows the moment it decodes.
                 if wantsLive, let live {
-                    LiveScreenView(layer: live.output.layer, pixelSize: live.pixelSize ?? .zero)
+                    LiveScreenView(output: live.output, pixelSize: live.pixelSize ?? .zero)
                         .opacity(showsLive ? 1 : 0)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
