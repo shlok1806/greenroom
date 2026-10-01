@@ -651,6 +651,13 @@ Conversation and verifier
   with `openTaskNudge` for `report_verdict` or `ask`. A message arriving mid-turn made the
   model answer it and leave the task without a verdict (issue #89). Once per turn, never on
   the last step, so a model that replies again is heard.
+- Default step limits scale with accepted checks on an open task (ADR 0042, issue #192):
+  `max(40, 12 + 8 * checks)`, bounded at 108 by the twelve-check maximum. The loop counts
+  model rounds, including retries, rather than individual calls in a batched response.
+  A positive `Config.MaxSteps` is a fixed cap, even 40. Both serve and bench default
+  `-verifier-max-steps` to 0 for automatic sizing. A turn's local cap only grows,
+  never resets on redeclaration; another run cannot inherit it. Time budgets and guards
+  still apply. A limit reply reports rounds actually spent, including an expanded cap.
 - A limit is not a verdict, but a task left open at one says nothing to whoever waits on it
   (issue #127). At the step cap or the budget, with a task open, `endAtLimit` makes one
   closing call (`closingPrompt`, only `report_verdict` and `ask` offered) on a fresh
@@ -676,6 +683,12 @@ Conversation and verifier
     asks for (a todolist run declared "three items appear" and "Milk and Eggs are ticked" as
     visual checks and ended inconclusive), and visual is for claims about appearance or
     visibility only; a model may still declare visual on its own ("stricter is allowed"). The
+    planning guidance (ADR 0040, `evidencePlanGuidance`) is shared by the system prompt,
+    declaration tool and declaration result: text, counts, selection and membership use value
+    criteria; layout, color, clipping, readability and visibility use visual. Capture transient
+    visual states before changing them, and cite each intermediate value state's UI/effect
+    read rather than a final screenshot. This guides initial declarations, never downgrades
+    applied kinds or unlocks checks after inputs. The
     visual rule's refusal says to take a screenshot now if the state is still on screen, and
     otherwise to answer the check unchecked. While a task is open and has no declaration, the input tools (click, type,
     key, scroll, input) get `declareFirst`, an ordinary `error:` result with no step that counts

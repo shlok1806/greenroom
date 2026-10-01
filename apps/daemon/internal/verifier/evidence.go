@@ -178,7 +178,7 @@ func declaredResult(checks []session.Check, notes []string) string {
 	if len(notes) > 0 {
 		out += "\nKinds applied by greenroom: " + strings.Join(notes, "; ") + "."
 	}
-	return out
+	return out + "\n" + evidencePlanGuidance
 }
 
 // stepFact is what the step records say about one step.
