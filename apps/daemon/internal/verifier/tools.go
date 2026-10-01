@@ -420,11 +420,14 @@ func (v *Verifier) describeWith(ctx context.Context, png []byte, prompt string) 
 	if err != nil {
 		return "", err
 	}
-	// The vision model sometimes answers with noise or nothing (see readableDescription); one
-	// more try has been enough. A second such answer is an error, so the reasoning model is
-	// told it could not see rather than handed noise or an empty description.
+	// Retry unreadable or cut-off output once on this image (ADR 0030, ADR 0039).
+	// A second failure is an error, so the reasoning model never sees the fragment or noise.
 	for attempt := 0; ; attempt++ {
 		text, err := v.llm.Describe(ctx, v.cfg.VisionModel, jpeg, prompt)
+		if errors.Is(err, nim.ErrDescriptionCutOff) && attempt == 0 {
+			prompt += "\nYour previous answer was cut off. Answer more compactly: preserve every visible window string, use one short row per control, and omit commentary."
+			continue
+		}
 		if err != nil {
 			return text, err
 		}

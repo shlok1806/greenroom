@@ -33,7 +33,8 @@ type scriptedModel struct {
 	vision   string
 	visions  int
 	// visionReplies, when set, answer the vision calls in order before vision does.
-	visionReplies []string
+	visionReplies       []string
+	visionFinishReasons []string
 
 	// failures is how many requests get a 500 first; they consume no reply.
 	failures int
@@ -67,9 +68,13 @@ func (s *scriptedModel) start(t *testing.T) string {
 			if s.visions < len(s.visionReplies) {
 				answer = s.visionReplies[s.visions]
 			}
+			finish := "stop"
+			if s.visions < len(s.visionFinishReasons) {
+				finish = s.visionFinishReasons[s.visions]
+			}
 			s.visions++
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":`+quote(answer)+`}}],"usage":{}}`)
+			_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":`+quote(answer)+`},"finish_reason":`+quote(finish)+`}],"usage":{}}`)
 			return
 		}
 		n := len(s.requests) - s.visions - 1
@@ -1865,5 +1870,66 @@ func TestTheQuestionNamesTheCodingAgentWhenItHoldsTheScreen(t *testing.T) {
 	last := lastMessage(t, store)
 	if res.Ended != session.Question || !strings.Contains(last.Text, "coding agent") || strings.Contains(last.Text, "Give Back") {
 		t.Fatalf("ended %q with %q, want a question addressed to the coding agent", res.Ended, last.Text)
+	}
+}
+
+// Issue #258: recovery describes the same saved image, and a persistent truncation
+// is visible beside the evidence step without putting the fragment in context.
+func TestScreenshotDescriptionCutOff(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		replies  []string
+		finishes []string
+		want     string
+	}{
+		{"recovers", []string{"File menu at (0", "Window text: Each pays: $48.00"}, []string{"length", "stop"}, "Each pays: $48.00"},
+		{"cut off twice", []string{"File menu at (0", "File menu at (0"}, []string{"length", "length"}, "description cut off"},
+		{"empty cut off", []string{"", "Window text: Each pays: $48.00"}, []string{"length", "stop"}, "Each pays: $48.00"},
+		{"unreadable then cut off", []string{"<unk><unk>", "File menu at (0"}, []string{"stop", "length"}, "description cut off"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, runID, control := ready(t)
+			writeShot(t, control)
+			model := &scriptedModel{
+				visionReplies: tc.replies, visionFinishReasons: tc.finishes,
+				replies: []string{toolCall("machine_screenshot", map[string]any{}), verdictOf("inconclusive", "Nothing was checked.")},
+			}
+			v := newVerifier(t, mgr, model.start(t))
+			store := openStore(t, mgr, runID)
+			postTask(t, store, "Look at the screen.")
+			if _, err := v.Turn(context.Background(), runID, store); err != nil {
+				t.Fatal(err)
+			}
+			if model.visions != 2 {
+				t.Fatalf("description requests = %d, want 2", model.visions)
+			}
+			last := model.request(t, model.calls())
+			if !strings.Contains(last, tc.want) || strings.Contains(last, "File menu at (0") {
+				t.Fatalf("reasoner should see %q without the fragment: %s", tc.want, last)
+			}
+			progress := messagesOfKind(store, session.Progress)
+			if len(progress) != 1 || progress[0].Step == 0 || !strings.Contains(progress[0].Text, tc.want) {
+				t.Fatalf("screenshot progress must record the result with its step: %+v", progress)
+			}
+			steps, err := mgr.Steps(runID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			shots := 0
+			for _, step := range steps {
+				if step.Tool == "machine_screenshot" {
+					shots++
+					if step.Seq != progress[0].Step {
+						t.Fatalf("screenshot step = %d, progress step = %d", step.Seq, progress[0].Step)
+					}
+				}
+			}
+			if shots != 1 {
+				t.Fatalf("screenshots = %d, want one image described twice", shots)
+			}
+			if tc.finishes[0] == "length" && !strings.Contains(model.request(t, 3), "Answer more compactly") {
+				t.Error("retry did not request a compact description")
+			}
+		})
 	}
 }
