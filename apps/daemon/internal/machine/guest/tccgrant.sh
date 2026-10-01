@@ -58,11 +58,16 @@ system_db="/Library/Application Support/com.apple.TCC/TCC.db"
 user_db="$(sudo -n lsof -a -u "$uid" -c tccd -Fn 2>/dev/null | sed -n 's|^n\(/.*/com\.apple\.TCC/TCC\.db\)$|\1|p' | grep -v '^/Library/' | sort -u | head -n 1)"
 [ -n "$user_db" ] || user_db="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
 
+# Every value goes into SQL through q, which doubles its single quotes: a path such as
+# "Bob's Notes.app" is a legal app, and the bundle id is whatever the app's Info.plist says, so
+# without it a crafted id could write rows for any client, outside the home scope too.
+q() { printf '%s' "$1" | sed "s/'/''/g"; }
+
 ae() { # ae <client> <target bundle id>
-  printf "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier, flags) VALUES ('kTCCServiceAppleEvents', '%s', 1, 2, 0, 1, 0, '%s', 0);" "$1" "$2"
+  printf "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier, flags) VALUES ('kTCCServiceAppleEvents', '%s', 1, 2, 0, 1, 0, '%s', 0);" "$(q "$1")" "$(q "$2")"
 }
 svc() { # svc <service> <client>
-  printf "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier, flags) VALUES ('%s', '%s', 1, 2, 0, 1, 0, '', 0);" "$1" "$2"
+  printf "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier, flags) VALUES ('%s', '%s', 1, 2, 0, 1, 0, '', 0);" "$1" "$(q "$2")"
 }
 
 families="kTCCServiceAccessibility kTCCServiceScreenCapture kTCCServiceSystemPolicyDesktopFolder kTCCServiceSystemPolicyDocumentsFolder kTCCServiceSystemPolicyDownloadsFolder kTCCServiceCamera kTCCServiceMicrophone"
@@ -79,7 +84,7 @@ sudo -n killall tccd 2>/dev/null || true
 # Read back the row every caller needs first: the Apple Events grant from tart-guest-agent,
 # which is what machine_exec's osascript calls run as.
 for db in "$system_db" "$user_db"; do
-  got="$(sudo -n sqlite3 "$db" "SELECT auth_value FROM access WHERE service='kTCCServiceAppleEvents' AND client='$agent' AND indirect_object_identifier='$bid'")"
+  got="$(sudo -n sqlite3 "$db" "SELECT auth_value FROM access WHERE service='kTCCServiceAppleEvents' AND client='$(q "$agent")' AND indirect_object_identifier='$(q "$bid")'")"
   [ "$got" = 2 ] || { echo "the Apple Events row for $bid did not take in $db (got ${got:-nothing})" >&2; exit 1; }
 done
 

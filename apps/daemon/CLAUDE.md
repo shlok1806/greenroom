@@ -447,7 +447,10 @@ Boot and lifecycle
   installer. The verifier's `machine_exec` refuses any command naming `TCC.db`
   (`touchesTCCDatabase`, no step) and points at the tool. Neither is a security boundary (the
   verifier has `sudo` in its own guest); they keep its ordinary path narrow. Keep the scope check
-  in the guest script, after `realpath`, never only in Go. `TestEndToEndVerifierApprovesARunBuiltApp`
+  in the guest script, after `realpath`, never only in Go. Every value `tccgrant.sh` puts in SQL
+  goes through its `q` (single quotes doubled): an app path may hold a quote, and the bundle id
+  is the app's own Info.plist, so an unquoted one could write rows for any client and walk past
+  the home scope. `TestEndToEndVerifierApprovesARunBuiltApp`
   (`e2e_approve_test.go`) proves it on a real guest. To prove an Apple Events grant, send an
   event the app must answer (`count windows` to a scriptable app): measured live,
   `tell application id "X" to get name` is answered by AppleScript from the bundle, sends no

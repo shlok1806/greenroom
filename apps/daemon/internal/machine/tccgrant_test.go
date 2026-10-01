@@ -255,3 +255,39 @@ func TestApproveControlInHomeScopesTheScriptAndRecordsTheSeat(t *testing.T) {
 		t.Error("a path that is not an .app bundle was accepted")
 	}
 }
+
+// A quote in the app's path is data, never SQL: an app named "Bob's Notes" is approved, with
+// every row keyed to its real executable.
+func TestTCCGrantScriptQuotesWhatItWritesIntoSQL(t *testing.T) {
+	g := newBaseGuest(t)
+
+	quoted := g.tccGrantApp(t, "work/Bob's Notes.app", "com.example.bobs")
+	out, err := g.runTCCGrantScoped(t, quoted, "home")
+	if err != nil {
+		t.Fatalf("an app with a quote in its path was refused: %v\n%s", err, out)
+	}
+	var grant TCCGrant
+	if uerr := json.Unmarshal([]byte(strings.TrimSpace(out)), &grant); uerr != nil {
+		t.Fatalf("output is not the expected JSON: %v\n%s", uerr, out)
+	}
+	escaped := strings.ReplaceAll(grant.Executable, "'", "''")
+	if got := g.sql(t, g.user, "SELECT count(*) FROM access WHERE client='"+escaped+"'"); got != "9" {
+		t.Errorf("%s rows for %s, want the 2 Apple Events rows and the 7 services", got, grant.Executable)
+	}
+}
+
+// The bundle id is whatever the app's Info.plist says. One written to break out of its string
+// literal cannot add a row for another client, which would hand a system binary the grants the
+// home scope keeps from it.
+func TestTCCGrantScriptKeepsABundleIDOutOfTheSQL(t *testing.T) {
+	g := newBaseGuest(t)
+	evil := "com.example.evil', 0); INSERT OR REPLACE INTO access (service, client, client_type, auth_value, " +
+		"auth_reason, auth_version, indirect_object_identifier, flags) VALUES ('kTCCServiceAccessibility', '/bin/sh', 1, 2, 0, 1, '"
+	injected := g.tccGrantApp(t, "work/Evil.app", evil)
+	_, _ = g.runTCCGrantScoped(t, injected, "home")
+	for _, db := range []string{g.sys, g.user} {
+		if got := g.sql(t, db, "SELECT count(*) FROM access WHERE client='/bin/sh'"); got != "0" {
+			t.Errorf("%s: a bundle id wrote %s rows for /bin/sh", filepath.Base(db), got)
+		}
+	}
+}
