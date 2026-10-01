@@ -91,10 +91,14 @@ func project(msgs []session.Message) []nim.Message { return projectWith(systemPr
 // projectWith is project under the system prompt prompt.
 func projectWith(prompt string, msgs []session.Message) []nim.Message {
 	out := []nim.Message{{Role: "system", Content: prompt}}
-	for _, m := range msgs {
+	newTask := taskStart(msgs)
+	for i, m := range msgs {
 		switch m.Kind {
 		case session.Progress:
 			name, args, result := splitProgress(m.Text)
+			if i < newTask {
+				result = priorTaskResult(result)
+			}
 			out = append(out, toolTurn(fmt.Sprintf("p%d", m.Seq), name, args, result)...)
 		case session.Reply:
 			out = append(out, toolTurn(fmt.Sprintf("r%d", m.Seq), "reply", jsonArgs(map[string]any{"text": m.Text}),

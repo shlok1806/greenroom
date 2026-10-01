@@ -587,6 +587,13 @@ Exec
 
 Conversation and verifier
 
+- Verifier request context is compacted without altering the transcript or evidence ledger
+  (ADR 0043, issue #158). `projectWith` omits large earlier-task progress results only after
+  a new task. `compactContext` shares identical large UI/snapshot outputs with their newest
+  full copy; identity includes exact arguments and all output except the step header.
+  Original step IDs and all distinct current-task states remain, including transient states,
+  effects and visibility flags. Both normal and closing reasoning calls compact a copy.
+  Request-byte savings are not a measured live-model token or latency improvement.
 - Only `session.Store.Append` assigns message `seq`.
 - The verifier is reached only through the conversation. Nothing but the actor calls
   `Turn`. There is no `machine_verify` tool.
