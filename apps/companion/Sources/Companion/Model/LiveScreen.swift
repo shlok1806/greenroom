@@ -271,8 +271,20 @@ final class VideoOutput: @unchecked Sendable {
         guard removingImage else { return }
         queue.async { [self] in
             latest = nil
+            // A stopped screen holds no decoder; the next start makes one on its keyframe.
+            invalidateSession()
             clear()
         }
+    }
+
+    // VideoToolbox asks for an explicit invalidate before the last release; nothing else holds
+    // `self` here, so touching `session` off `queue` is safe.
+    deinit { invalidateSession() }
+
+    private func invalidateSession() {
+        guard let session else { return }
+        VTDecompressionSessionInvalidate(session)
+        self.session = nil
     }
 
     private enum Decoded {
@@ -290,8 +302,7 @@ final class VideoOutput: @unchecked Sendable {
     private func decode(_ sample: CMSampleBuffer) -> Decoded {
         guard let format = sample.formatDescription else { return .failed }
         if let session, !VTDecompressionSessionCanAcceptFormatDescription(session, formatDescription: format) {
-            VTDecompressionSessionInvalidate(session)
-            self.session = nil
+            invalidateSession()
         }
         if session == nil { session = makeSession(format) }
         guard let session else { return .failed }
@@ -305,8 +316,7 @@ final class VideoOutput: @unchecked Sendable {
         guard status == noErr, box.status == noErr else {
             // A session that failed (the GPU went away, a bad frame) is made again on the
             // next keyframe, which the reconnect asks for.
-            VTDecompressionSessionInvalidate(session)
-            self.session = nil
+            invalidateSession()
             return .failed
         }
         return box.image.map(Decoded.frame) ?? .none

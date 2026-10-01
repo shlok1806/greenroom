@@ -330,7 +330,8 @@ Approach C: real SwiftUI views, with small effect layers.
   first; the effect draws over it and then gets out of the way.
 - Accessibility sees the final state. A decoding title is announced as its final text,
   the dither is `accessibilityHidden`, the cursor mirrors real focus.
-- Live video stays on `AVSampleBufferDisplayLayer` (ADR 0011).
+- Live video is decoded by the app and drawn pixel-exact into a `CAMetalLayer` (root ADR
+  0045, amending ADR 0011's `AVSampleBufferDisplayLayer`).
 - Own window chrome: no system toolbar or sidebar. The hint bar and Cmd-K replace the
   toolbar and most of the menu bar's discovery. The standard menu bar stays, and every
   item in it comes from the action registry.
