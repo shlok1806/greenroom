@@ -439,7 +439,8 @@ Boot and lifecycle
   machine's own `Desktop`, never auto-clicked or closed. `check-image`'s exercises include the
   issue's own repro (Calculator, outside the old fixed list) and a freshly built app scripting
   itself, approved by the same guest script. The Calculator exercise sends `count windows` and
-  accepts Calculator's own -1708 as the answer (ADR 0045, issue #282): it has no scripting
+  accepts Calculator's own -1708 ("Calculator got an error: ... (-1708)", nothing else) as the
+  answer (ADR 0045, issue #282): it has no scripting
   dictionary, so no gated event gets a plain answer from it.
 - The verifier approves its run's apps itself (ADR 0044, issue #269): its
   `machine_approve_control` (and the manual brain's `approve <app>`, both `verifier/approve.go`)

@@ -250,12 +250,13 @@ osascript -e 'tell application "Safari" to do JavaScript "1+1" in document 1'`, 
 // `count windows` launches it, and without the grant raises the prompt and blocks until the
 // watchdog's exit 124 (measured, issue #282). Calculator has no scripting dictionary, so with
 // the grant it answers "doesn't understand" (-1708): that error is the app's own reply, sent
-// after TCC let the event through, so it counts as answered. Anything else fails, -1743 (denied)
-// included. Measured without the grant, `get name`, `version`, `frontmost`, `activate` and
+// after TCC let the event through, so it counts as answered. Only osascript's whole message
+// counts, "Calculator got an error: ..." ending in (-1708), so a -1708 raised anywhere else
+// cannot pass. Anything else fails, -1743 (denied) included. Measured without the grant, `get name`, `version`, `frontmost`, `activate` and
 // `quit` all succeed (AppleScript answers some from the bundle, TCC exempts the rest), so none
 // of them can prove a grant.
 const calculatorExercise = `out="$(osascript -e 'tell application "Calculator" to count windows' 2>&1)" && { echo "$out"; exit 0; }
-case "$out" in *"(-1708)"*) echo "answered: $out"; exit 0 ;; esac
+case "$out" in *"Calculator got an error: "*"(-1708)") echo "answered: $out"; exit 0 ;; esac
 echo "$out" >&2
 exit 1`
 

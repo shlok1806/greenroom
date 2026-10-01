@@ -29,7 +29,9 @@ Measured on clones of `greenroom-base-v10-r4` through `tart exec`, with both Cal
 ## Decision
 
 The Calculator exercise sends `count windows` and counts it answered when `osascript` exits 0
-or reports -1708. A -1708 is the app's own reply, sent only after TCC let the event through.
+or its whole output is Calculator's own error, "Calculator got an error: ..." ending in (-1708).
+That -1708 is the app's own reply, sent only after TCC let the event through; a -1708 that
+AppleScript raises itself, or one followed by other output, fails.
 Anything else fails the image, including a denial (-1743) and the watchdog's exit 124 on a
 prompt, which the window check then also reports. `quit-calculator` still follows it and works
 without the grant, so Calculator's window never outlives the exercise.

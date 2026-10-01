@@ -265,11 +265,13 @@ func TestCalculatorExerciseCountsOnlyAnAnswerFromTheApp(t *testing.T) {
 		secs      string
 		exit      int
 	}{
-		"a scriptable answer":   {`echo 1`, "5", 0},
-		"the app's own -1708":   {`echo "33:46: execution error: Calculator got an error: every window doesn't understand the count message. (-1708)" >&2; exit 1`, "5", 0},
-		"denied, -1743":         {`echo "execution error: Not authorized to send Apple events to Calculator. (-1743)" >&2; exit 1`, "5", 1},
-		"no window, -1728":      {`echo "execution error: Can't get window 1. (-1728)" >&2; exit 1`, "5", 1},
-		"blocked on the prompt": {`sleep 30`, "1", 124},
+		"a scriptable answer":      {`echo 1`, "5", 0},
+		"the app's own -1708":      {`echo "33:46: execution error: Calculator got an error: every window doesn’t understand the “count” message. (-1708)" >&2; exit 1`, "5", 0},
+		"a -1708 not from the app": {`echo "33:46: execution error: Can’t make some data into the expected type. (-1708)" >&2; exit 1`, "5", 1},
+		"-1708 then more output":   {`echo "Calculator got an error: (-1708)"; echo "execution error: Not authorized to send Apple events to Calculator. (-1743)" >&2; exit 1`, "5", 1},
+		"denied, -1743":            {`echo "execution error: Not authorized to send Apple events to Calculator. (-1743)" >&2; exit 1`, "5", 1},
+		"no window, -1728":         {`echo "execution error: Can't get window 1. (-1728)" >&2; exit 1`, "5", 1},
+		"blocked on the prompt":    {`sleep 30`, "1", 124},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
