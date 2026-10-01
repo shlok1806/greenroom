@@ -38,6 +38,24 @@ type TCCGrant struct {
 // measured live, a TCC.db write after a prompt is already on screen does not unblock the
 // process waiting on it, only the next Apple Event is affected.
 func (m *Manager) ApproveControl(ctx context.Context, runID, app string) (TCCGrant, int, error) {
+	return m.approveControl(ctx, runID, "", app, scopeAny)
+}
+
+// ApproveControlInHome is ApproveControl for a seat that may approve only what its run built or
+// synced (ADR 0044, issue #269): the verifier. The guest script refuses an .app bundle, or its
+// executable, that resolves outside the guest home, where every sync, checkout and Xcode build
+// lands; pre-installed apps already have their rows from the image. The step records the seat.
+func (m *Manager) ApproveControlInHome(ctx context.Context, runID, by, app string) (TCCGrant, int, error) {
+	return m.approveControl(ctx, runID, by, app, scopeHome)
+}
+
+// The scopes tccgrant.sh takes as its second argument.
+const (
+	scopeAny  = "any"
+	scopeHome = "home"
+)
+
+func (m *Manager) approveControl(ctx context.Context, runID, by, app, scope string) (TCCGrant, int, error) {
 	mc, err := m.get(runID)
 	if err != nil {
 		return TCCGrant{}, 0, err
@@ -46,14 +64,14 @@ func (m *Manager) ApproveControl(ctx context.Context, runID, app string) (TCCGra
 		return TCCGrant{}, 0, err
 	}
 	started := time.Now()
-	grant, err := m.approveControlApp(ctx, mc, app)
-	step := mc.rec.step("machine_approve_control", map[string]any{"app": app},
+	grant, err := m.approveControlApp(ctx, mc, app, scope)
+	step := mc.rec.stepAs(by, "machine_approve_control", map[string]any{"app": app},
 		map[string]any{"bundleId": grant.BundleID, "executable": grant.Executable, "granted": grant.Granted}, err, started)
 	m.emitStep(mc.RunID, step)
 	return grant, step, err
 }
 
-func (m *Manager) approveControlApp(ctx context.Context, mc *Machine, app string) (TCCGrant, error) {
+func (m *Manager) approveControlApp(ctx context.Context, mc *Machine, app, scope string) (TCCGrant, error) {
 	if rest, tilde := homeRelative(app); tilde {
 		app = rest
 	}
@@ -62,7 +80,11 @@ func (m *Manager) approveControlApp(ctx context.Context, mc *Machine, app string
 	}
 	ctx, cancel := context.WithTimeout(ctx, tccGrantTimeout)
 	defer cancel()
-	res, err := execChecked(ctx, m.tart, mc.Name, "/bin/sh", "-c", tccGrantScript, "sh", app)
+	args := []string{"/bin/sh", "-c", tccGrantScript, "sh", app}
+	if scope != scopeAny {
+		args = append(args, scope)
+	}
+	res, err := execChecked(ctx, m.tart, mc.Name, args...)
 	if err != nil {
 		return TCCGrant{}, fmt.Errorf("grant TCC for %s: %w", app, err)
 	}

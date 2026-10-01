@@ -16,6 +16,7 @@ go test -race ./...                             # before touching boot, recorder
 go test ./internal/machine -run TestFoo
 go test -tags tart -run TestEndToEnd -v -timeout 10m .         # real VM
 go test -tags tart -run TestEndToEndSession -v -timeout 12m .  # guest pty, ^C, a 3 MB flood and close in a real VM
+go test -tags tart -run TestEndToEndVerifierApprovesARunBuiltApp -v -timeout 15m .  # the verifier's TCC approval (ADR 0044)
 go test -tags tart -count=1 -timeout 45m ./...  # whole VM suite, as CI runs it
 # every e2e test clones the local GREENROOM_BASE_IMAGE (default greenroom-base), never pulls Cirrus
 golangci-lint run ./...
@@ -438,6 +439,19 @@ Boot and lifecycle
   machine's own `Desktop`, never auto-clicked or closed. `check-image`'s exercises include the
   issue's own repro (Calculator, outside the old fixed list) and a freshly built app scripting
   itself, approved by the same guest script.
+- The verifier approves its run's apps itself (ADR 0044, issue #269): its
+  `machine_approve_control` (and the manual brain's `approve <app>`, both `verifier/approve.go`)
+  is `ApproveControlInHome`, the same `tccgrant.sh` with `home` as its second argument, which
+  refuses a bundle or main executable whose `realpath` is outside the guest home. The step
+  records `by: verifier`. The MCP tool stays unscoped (`any`, the default): the coder may test an
+  installer. The verifier's `machine_exec` refuses any command naming `TCC.db`
+  (`touchesTCCDatabase`, no step) and points at the tool. Neither is a security boundary (the
+  verifier has `sudo` in its own guest); they keep its ordinary path narrow. Keep the scope check
+  in the guest script, after `realpath`, never only in Go. `TestEndToEndVerifierApprovesARunBuiltApp`
+  (`e2e_approve_test.go`) proves it on a real guest. To prove an Apple Events grant, send an
+  event the app must answer (`count windows` to a scriptable app): measured live,
+  `tell application id "X" to get name` is answered by AppleScript from the bundle, sends no
+  event and never prompts, granted or not.
 - Image drift (issue #159, `machine/drift.go`, `imagestatus.go`): `greenroom image-status` reads
   each default image's disk while it is stopped (never a running one) and judges it by the
   helpers under `Users/*/.greenroom/bin` and the manifest at `ToolchainPath` on the Data

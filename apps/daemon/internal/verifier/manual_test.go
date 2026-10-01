@@ -256,6 +256,32 @@ func TestManualAsk(t *testing.T) {
 	}
 }
 
+// A person typing for the verifier approves an app the same way the model does (ADR 0044).
+func TestManualApprovesAnApp(t *testing.T) {
+	mgr, runID, control := ready(t)
+	store := openStore(t, mgr, runID)
+	post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "approve work/TestApp.app\napprove"})
+
+	m := NewManual(mgr, testLog())
+	if _, err := m.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	progress := messagesOfKind(store, session.Progress)
+	if len(progress) != 2 {
+		t.Fatalf("got %d progress messages, want 2: %+v", len(progress), progress)
+	}
+	if progress[0].Step <= 0 || !strings.HasPrefix(progress[0].Text, "machine_approve_control") ||
+		!strings.Contains(progress[0].Text, "com.example.testapp") {
+		t.Errorf("approval progress = %+v, want the step and the bundle id", progress[0])
+	}
+	if !strings.Contains(progress[1].Text, "error: approve needs") {
+		t.Errorf("an approval with no app was not refused: %+v", progress[1])
+	}
+	if !strings.Contains(testsupport.Calls(t, control), "sh work/TestApp.app home") {
+		t.Errorf("the approval was not scoped to the guest home\n%s", testsupport.Calls(t, control))
+	}
+}
+
 func TestManualHelp(t *testing.T) {
 	mgr, runID, _ := ready(t)
 	store := openStore(t, mgr, runID)
@@ -271,7 +297,7 @@ func TestManualHelp(t *testing.T) {
 	}
 
 	last := lastMessage(t, store)
-	if last.Kind != session.Reply || !strings.Contains(last.Text, "run <") {
+	if last.Kind != session.Reply || !strings.Contains(last.Text, "run <") || !strings.Contains(last.Text, "approve <app>") {
 		t.Fatalf("last message = %+v, want a reply describing the grammar", last)
 	}
 }

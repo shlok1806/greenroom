@@ -49,6 +49,19 @@ var tools = []nim.Tool{
 		}, "command"),
 	},
 	{
+		Name: "machine_approve_control",
+		Description: "Approve an app built or synced in this run so macOS never blocks it, or a command driving " +
+			"it, on a permission prompt: \"<X> wants access to control <App>\" (Apple Events), Accessibility, " +
+			"screen recording, the Desktop, Documents and Downloads folders, the camera and the microphone. " +
+			"Call it once after the app is built and before you launch, script or click it: an approval does " +
+			"not answer a prompt already on screen. Only an .app bundle under the home directory can be " +
+			"approved; pre-installed apps already are. Never write TCC.db yourself.",
+		Schema: object(map[string]any{
+			"app": str("The .app bundle's guest path, relative to the home directory or absolute under it, " +
+				"for example work/MyApp/build/MyApp.app."),
+		}, "app"),
+	},
+	{
 		Name:        "machine_screenshot",
 		Description: "Capture the machine's screen. Returns a written description of what is on it and the path of the saved image.",
 		Schema:      object(map[string]any{}),
@@ -240,7 +253,7 @@ func (v *Verifier) runTool(ctx context.Context, runID string, call nim.ToolCall,
 // machineTool executes one machine tool call.
 func (v *Verifier) machineTool(ctx context.Context, runID string, call nim.ToolCall) (result string, step int) {
 	switch call.Name {
-	case "machine_exec", "machine_screenshot", "machine_ui",
+	case "machine_exec", "machine_screenshot", "machine_ui", "machine_approve_control",
 		"machine_click", "machine_type", "machine_key", "machine_scroll", "machine_input":
 		// Still costs a step, so a model retrying a booting machine cannot spin.
 		if why := unusable(ctx, v.mgr, runID); why != "" {
@@ -265,11 +278,24 @@ func (v *Verifier) machineTool(ctx context.Context, runID string, call nim.ToolC
 			return `error: machine_exec needs a command: pass the shell command to run in "command", like {"command": "ls"}` +
 				argsProblem(args, err), 0
 		}
+		if touchesTCCDatabase(in.Command) {
+			return tccDatabaseRefusal, 0
+		}
 		res, err := v.mgr.ExecAs(ctx, runID, machine.HolderVerifier, in.Command, in.Cwd, execTimeout)
 		if err != nil {
 			return "error: " + err.Error(), res.Step
 		}
 		return execResultText(res), res.Step
+
+	case "machine_approve_control":
+		var in struct {
+			App string `json:"app"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil || strings.TrimSpace(in.App) == "" {
+			return `error: machine_approve_control needs app: pass the guest path of the .app bundle in "app", ` +
+				`like {"app": "work/MyApp/build/MyApp.app"}` + argsProblem(args, err), 0
+		}
+		return approveControl(ctx, v.mgr, runID, strings.TrimSpace(in.App))
 
 	case "machine_screenshot":
 		if v.mgr.DesktopToolkit() && desktop.ToolkitCall(call.Name, args) {

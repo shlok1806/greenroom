@@ -166,3 +166,92 @@ func TestApproveControlRecordsAStepAndReturnsTheGrant(t *testing.T) {
 		t.Error("a failed grant was reported as approved")
 	}
 }
+
+// runTCCGrantScoped runs the real tccgrant.sh with scope as its second argument.
+func (g *baseGuest) runTCCGrantScoped(t *testing.T, app, scope string) (string, error) {
+	t.Helper()
+	cmd := exec.Command("/bin/sh", "-c", tccGrantScript, "sh", app, scope)
+	cmd.Env = append(os.Environ(), "PATH="+filepath.Join(g.dir, "bin")+":/usr/bin:/bin", "HOME="+g.home)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// The home scope, which the verifier's call uses, approves an app built or synced in the run
+// under the guest home, and nothing that resolves outside it: not a pre-installed app, not a
+// link in the home to one, and not a bundle whose executable is a link to a system binary
+// (ADR 0044, issue #269).
+func TestTCCGrantScriptInHomeScopeApprovesOnlyWhatResolvesUnderTheHome(t *testing.T) {
+	g := newBaseGuest(t)
+
+	inside := g.tccGrantApp(t, "work/Built.app", "com.example.built")
+	if out, err := g.runTCCGrantScoped(t, inside, "home"); err != nil {
+		t.Fatalf("an app under the home was refused: %v\n%s", err, out)
+	}
+	if out, err := g.runTCCGrantScoped(t, "work/Built.app", "home"); err != nil {
+		t.Fatalf("a home-relative path was refused: %v\n%s", err, out)
+	}
+
+	outside := g.tccGrantApp(t, "../Applications/Installed.app", "com.example.preinstalled")
+	link := filepath.Join(g.home, "work", "Linked.app")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	borrowed := g.tccGrantApp(t, "work/Borrowed.app", "com.example.borrowed")
+	exe := filepath.Join(borrowed, "Contents", "MacOS", "TestApp")
+	if err := os.Remove(exe); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/bin/sh", exe); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, app := range map[string]string{"an app outside the home": outside, "a link out of the home": link,
+		"an executable linked out of the home": borrowed} {
+		out, err := g.runTCCGrantScoped(t, app, "home")
+		if err == nil {
+			t.Errorf("%s was approved: %s", name, out)
+			continue
+		}
+		if !strings.Contains(out, "outside the guest home") {
+			t.Errorf("%s: the refusal does not say why: %s", name, out)
+		}
+	}
+	for _, id := range []string{"com.example.preinstalled", "com.example.borrowed"} {
+		if got := g.sql(t, g.sys, "SELECT count(*) FROM access WHERE indirect_object_identifier='"+id+"'"); got != "0" {
+			t.Errorf("a refused app still has %s Apple Events rows for %s", got, id)
+		}
+	}
+
+	// Unscoped, as the coder's machine_approve_control is, the same app outside is approved.
+	if out, err := g.runTCCGrant(t, outside); err != nil {
+		t.Errorf("the unscoped grant refused an app outside the home: %v\n%s", err, out)
+	}
+	if out, err := g.runTCCGrantScoped(t, inside, "everywhere"); err == nil {
+		t.Errorf("an unknown scope was accepted: %s", out)
+	}
+}
+
+// ApproveControlInHome is the verifier's call: the guest script gets the home scope, and the
+// step names the seat that approved (ADR 0044, issue #269).
+func TestApproveControlInHomeScopesTheScriptAndRecordsTheSeat(t *testing.T) {
+	mgr, _, control := newTestManager(t)
+	mc := readyMachine(t, mgr)
+
+	grant, step, err := mgr.ApproveControlInHome(context.Background(), mc.RunID, HolderVerifier, "work/TestApp.app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grant.BundleID != "com.example.testapp" || step == 0 {
+		t.Errorf("bundleId %q step %d, want the fake grant's bundle id and a step", grant.BundleID, step)
+	}
+	if !strings.Contains(testsupport.Calls(t, control), "sh work/TestApp.app home") {
+		t.Errorf("the script was not given the home scope\n%s", testsupport.Calls(t, control))
+	}
+	if s := stepsOf(t, mgr, mc.RunID)[step]; s.Tool != "machine_approve_control" || s.By != HolderVerifier {
+		t.Errorf("step %d = %s by %q, want machine_approve_control by the verifier", step, s.Tool, s.By)
+	}
+
+	if _, _, err := mgr.ApproveControlInHome(context.Background(), mc.RunID, HolderVerifier, "work/NotAnApp"); err == nil {
+		t.Error("a path that is not an .app bundle was accepted")
+	}
+}
