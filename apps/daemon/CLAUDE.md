@@ -746,6 +746,21 @@ Conversation and verifier
     ("10", "$10") or one of the element's words (2+ letters) is in the claim too. So "Value
     shows 10" rests on a drawn field reading 10, never on a blank "10 km = 6.21 mi", and a
     drawn "Each pays" label does not carry a blank "$49.56" beside it.
+  - Screenshot support (root ADR 0041, #193): the verifier stores accepted sanitized vision
+    text or its error in a write-once `NNN-screenshot-description.json` beside each capture.
+    `ReadSteps` joins it onto `Step.screenshotDescription`; timestamps and step numbers remain
+    those of capture, not description. Missing sidecars load old runs normally, but newly
+    reviewed visual pass answers need a successful recorded description. Corrupt sidecars
+    fail the ledger read. `screenshotSupportRule` names missing quoted text and decimal/comma
+    values in affirmative criterion and observation clauses; negated clauses are excluded.
+    Support may span multiple cited captures for transient comparisons. Numeric tokens retain
+    signs and any currency specified in the claim and ignore spaces inside the token;
+    substrings do not count. Unquoted durations ("within 1.5 s", `screenshotDurationRE`) are
+    timing, not screen text, and are never required: without that every visual and timing
+    check with a decimal deadline would be refused. This is a negative
+    guard only: matching text is not proof of foreground, position, colour or absence, and
+    never overrides `drawnRule`. Grounded fails and historical verdicts are unchanged. Capture
+    transient states before leaving them; cite that step rather than a later screen.
   - A crash is evidence (ADR 0028). A fail answer whose `actions` include an input whose effect
     read found the app gone (`quit`), and whose `evidence` cites that read, holds on it alone:
     no freshness, handover, visual or timing rule applies. A pass citing a `quit` read is

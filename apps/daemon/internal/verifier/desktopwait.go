@@ -118,6 +118,9 @@ func (v *Verifier) toolkitScreenshot(ctx context.Context, runID string, call nim
 		what = "The crop shows"
 	}
 	desc, err := v.describeWith(ctx, png, prompt)
+	if recordErr := v.mgr.RecordScreenshotDescription(runID, shot.Step, desc, err); recordErr != nil {
+		return fmt.Sprintf("step %d\nThe screenshot was saved to %s but its description could not be recorded: %v", shot.Step, shot.Path, recordErr), shot.Step
+	}
 	if err != nil {
 		return fmt.Sprintf("step %d\nThe screenshot was saved to %s but it could not be described: %v", shot.Step, shot.Path, err), shot.Step
 	}
