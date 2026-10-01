@@ -8,7 +8,8 @@ Part of issue #249.
 
 Small text on the Companion's live screen looked soft and blurry (issue #249). Measured on
 this host (MacBook Pro M3 Pro in clamshell mode, a 2560x1440 BenQ at scale 1 as the main
-display, Tart 2.32.1, macOS 26.6.2 guest), with `spikes/live-stream/measure.py` reading
+display, Tart 2.32.1 for the probes and the daemon's pinned 2.37.0 for the end-to-end run,
+macOS 26.6.2 guest), with `spikes/live-stream/measure.py` reading
 `greenroom-input --serve` straight from the guest and comparing against a lossless
 `screencapture` of the same still moment (SSIM and PSNR on a TextEdit window of 11 pt text):
 
@@ -29,10 +30,12 @@ The stream is effectively lossless for text. The blur is made after it:
    inch, and macOS then offers no HiDPI mode at all: probed at 1024x768 and 2048x1536, with
    and without a display override plist and `DisplayResolutionEnabled`.
 2. **The Companion resamples the picture by whatever factor the stage gives.**
-   `AVSampleBufferDisplayLayer` was stretched over `ScreenGeometry.fitted`, so a 1024 pixel
-   frame was drawn 490 device pixels wide in a 1280x720 window (0.48x) or about 1640 wide in a
-   maximized one (1.6x), with a filter we do not choose, at a fractional origin. Text
-   rendered at 1x does not survive a non-integer resample.
+   `AVSampleBufferDisplayLayer` was stretched over `ScreenGeometry.fitted`, with a filter we
+   do not choose, at a fractional origin. Measured with the app running in a 2560x1440 1x
+   guest display (the shape of this host's monitor) watching a 1024x768 1x machine: the
+   frame was drawn 605 pixels wide in the default window (0.59x, every other text line
+   visibly thinner from point sampling) and 1482 wide in a full-screen one (1.45x, a soft
+   bilinear upscale). Text rendered at 1x does not survive a non-integer resample.
 
 ## Decision
 
@@ -70,6 +73,12 @@ The stream is effectively lossless for text. The blur is made after it:
    explained from the log.
 
 ## Consequences
+
+- Measured after, in the same setup: the full-screen window draws the frame at exactly
+  1024x768 pixels on whole pixels (its text region against the machine's own lossless
+  screenshot: SSIM 0.9983, mean difference 1.7 of 255, the residue being the stream and
+  colour matching), and the default window draws it at 0.59x with Lanczos, every line of
+  text the same weight.
 
 - On a 1x host a maximized window shows a 1x guest at 1024x768 instead of stretching it;
   the remaining blur on such a host is the guest's own 1x rendering, which only a 2x guest
