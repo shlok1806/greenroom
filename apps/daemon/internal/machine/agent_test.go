@@ -123,7 +123,9 @@ func desktopWork(t *testing.T, mgr *Manager, runID string, n int) {
 // with it off, every operation is at least one exec.
 func TestTheDesktopToolkitDrivesTheDesktopThroughOneExec(t *testing.T) {
 	t.Run("on", func(t *testing.T) {
-		mgr, control := agentManager(t, fastAgent(), WithFrameInterval(20*time.Millisecond))
+		// Production liveness limits, not fastAgent's: this test counts reconnects, and a 300 ms
+		// pong deadline missed under a loaded CI runner restarted the agent once (issue #259).
+		mgr, control := agentManager(t, defaultAgentTimes, WithFrameInterval(20*time.Millisecond))
 		smallDesktop(t, control)
 		mc := readyMachine(t, mgr)
 		if n := testsupport.AgentStarts(t, control); n != 1 {

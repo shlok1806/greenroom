@@ -41,11 +41,12 @@ func compactContext(msgs []nim.Message) []nim.Message {
 	pending := make(map[string]nim.ToolCall)
 	calls := make(map[int]nim.ToolCall)
 	for i, msg := range msgs {
-		if msg.Role == "assistant" {
+		switch msg.Role {
+		case "assistant":
 			for _, call := range msg.ToolCalls {
 				pending[call.ID] = call
 			}
-		} else if msg.Role == "tool" {
+		case "tool":
 			if call, found := pending[msg.ToolCallID]; found {
 				calls[i] = call
 				delete(pending, msg.ToolCallID)
