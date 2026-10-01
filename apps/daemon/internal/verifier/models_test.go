@@ -14,7 +14,7 @@ func TestTheVerifierNamesItsModelsAndRequestOptions(t *testing.T) {
 	if m.Brain != machine.BrainNIM || m.Model != "reasoner" || m.Vision != "eyes" {
 		t.Errorf("models = %+v, want nim, reasoner and eyes", m)
 	}
-	if m.ModelOptions["max_tokens"] != nim.ChatMaxTokens || m.VisionOptions["max_tokens"] != 700 {
+	if m.ModelOptions["max_tokens"] != nim.ChatMaxTokens || m.VisionOptions["max_tokens"] != 2048 {
 		t.Errorf("options = %v and %v, want the requests'", m.ModelOptions, m.VisionOptions)
 	}
 	v, err := New(mgr, Config{APIKey: "k", Model: "reasoner"}, nil)

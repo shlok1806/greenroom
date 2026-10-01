@@ -40,7 +40,7 @@ Operating a user interface:
 - To replace a text field's contents: click the field, press key a with mods [cmd] to select all, then machine_type the new text, then press tab or return so the app commits it.
 - Each input's result ends with its effect: the elements that changed, "no change detected" (the input may have been lost) or "unknown". Read machine_ui again to check values; it is exact text, so use it to check numbers. Take a machine_screenshot when you need the visual evidence a verdict cites.
 - Never click where machine_ui lists nothing, such as the desktop wallpaper. Use screenshot positions only for content machine_ui cannot see (a canvas, a game, a web view with no accessibility).
-- If a click did not change what you expected, read machine_ui again and work out why before the next input. Repeat a click only as the rule below allows for a control the task names.
+- If a click did not change what you expected, read machine_ui again and work out why before the next input. Click it again only when it is a control the task says changes something (see the "no change detected" rule under Rules).
 
 Rules:
 - Work in small steps. Run one command, read the result, then decide.
@@ -94,7 +94,7 @@ const visionPrompt = `This is the screen of a macOS machine under test. Describe
 3. Window text: quote every piece of text visible in the frontmost window, exactly as shown, one per line, top to bottom: titles, labels, the contents of every field, button and segment labels, values, results, totals, and status or error messages. Copy numbers, currency and punctuation exactly. Never skip text because it looks unimportant, and never summarize it. Write "(empty)" for an empty field and "(unreadable)" for text you cannot read.
 4. Controls: each interactive element (buttons, text fields, segmented controls and each of their segments, checkboxes, steppers, menus, links) with its label, whether it looks selected, and its approximate center as fractions of the image width and height, for example: "25% segment at (0.60, 0.47), not selected". Both numbers are between 0 and 1, never pixels; give no position for an element you cannot place.
 5. Errors: quote any visible error text exactly, or write "none".
-Be factual. Do not guess at anything you cannot read.`
+Be factual. Do not guess at anything you cannot read. Keep control rows short and omit commentary. Prioritize exact window text over control descriptions; do not repeat window text outside part 3 except for control labels and errors.`
 
 // Config names the endpoint and the two models.
 type Config struct {

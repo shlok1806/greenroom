@@ -626,7 +626,7 @@ Conversation and verifier
   event appended right after `Start` returns is never skipped.
 - A describer's model-specific request fields live in `nim.describeFields`, keyed by model id,
   and only `Describe` sends them (ADR 0030). `meta/muse-glimmer-30b` gets
-  `chat_template_kwargs: {enable_thinking: false}`: with thinking on it spends the 700-token
+  `chat_template_kwargs: {enable_thinking: false}`: with thinking on it spent the original 700-token
   budget reasoning and returns no text. A model not in the table (kimi-k3, nano-omni) gets the
   plain request. Adding a describer that needs its own fields means a row there plus a
   request-body test in `nim/client_test.go`, never a new environment variable.
@@ -641,6 +641,11 @@ Conversation and verifier
   `[x, y]` pair that is not two fractions 0 to 1 becomes `(position unknown)`, never rescaled
   (describers also answer in points and on a 0 to 1000 grid, indistinguishable per pair), and
   a line says how many went and to use `machine_ui`.
+- Screenshot descriptions have a 2048-token output budget (ADR 0039, issue #258).
+  `nim.Describe` refuses `finish_reason: length` as `ErrDescriptionCutOff`, discarding the
+  fragment. `describeWith` retries once on the same image with a compact-answer request,
+  sharing the unreadable-answer retry limit. A second failure is recorded in the screenshot's
+  transcript progress with its evidence step; the saved image remains available.
 - Model failures retry: `nim.RetryBackoff` (1, 2, 4, 8 s on 429/5xx/transport, honours
   `Retry-After`; a timeout is never retried), then `verifier.TurnRetryDelays` (30, 60, 120 s). After the last, the
   actor posts that it gave up. Both are package vars so tests can zero them.
@@ -921,7 +926,10 @@ Computer use (ADR 0009)
   `scale`; never hardcode Retina 2 (the tahoe guest is 1024x768 at scale 1).
 - The input helper is compiled in the guest with `swiftc` to
   `~/.greenroom/bin/greenroom-input-<inputHelperVersion>`. Bump `inputHelperVersion`
-  when anything under `guest/helper/` changes, then rebuild the image `install.sh` serves by default:
+  when the helper's behaviour changes in a way a daemon relies on (a new mode or op); any
+  other change under `guest/helper/` needs no bump, because `--version` also carries the
+  sources' hash (`helperVersionLine`) and the install and boot checks recompile on it. After
+  a bump, rebuild the image `install.sh` serves by default:
   `greenroom-lean-a` when it exists (`build-image.sh -lean -name greenroom-lean-a -force`),
   and `greenroom-base` as the rollback target (`build-image.sh -force`). Locally boot detects a
   stale image, warns and compiles the helper (see Boot and lifecycle). The VM suite workflow bakes and tests
