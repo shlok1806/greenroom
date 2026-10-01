@@ -5,6 +5,10 @@
 # #252). This is machine_approve_control's guest half, the run-time twin of base.sh's build-time
 # enumeration: base.sh cannot know a bundle id that does not exist until something is built or
 # synced in the guest. $1 is the app's .app bundle path, absolute or relative to the guest home.
+# $2 is the scope: "any" (the default, the coder's machine_approve_control) or "home" (the
+# verifier's, ADR 0044, issue #269), which refuses a bundle or executable that resolves outside
+# the guest home, where everything a run builds or syncs lands. Pre-installed apps already have
+# their Apple Events rows from base.sh.
 #
 # Granted, all client_type 1 (path), auth_value 2 (allowed):
 #   - kTCCServiceAppleEvents: tart-guest-agent -> the app's bundle id, and sshd-keygen-wrapper
@@ -25,6 +29,8 @@
 set -eu
 
 app="$1"
+scope="${2:-any}"
+case "$scope" in any|home) : ;; *) echo "unknown scope $scope (want any or home)" >&2; exit 2 ;; esac
 case "$app" in /*) : ;; *) app="$HOME/$app" ;; esac
 [ -d "$app" ] || { echo "no application bundle at $app" >&2; exit 1; }
 app="$(realpath "$app")"
@@ -33,6 +39,18 @@ bid="$(plutil -extract CFBundleIdentifier raw -o - "$info" 2>/dev/null)" || { ec
 exe_name="$(plutil -extract CFBundleExecutable raw -o - "$info" 2>/dev/null)" || { echo "$app has no CFBundleExecutable" >&2; exit 1; }
 exe="$(realpath "$app/Contents/MacOS/$exe_name" 2>/dev/null)" || { echo "$app's executable ($exe_name) is missing" >&2; exit 1; }
 
+# Both resolved paths, so a link in the home to an installed app, or a bundle whose executable
+# links to a system binary, is refused too: the grants are keyed to the executable.
+if [ "$scope" = home ]; then
+  home="$(realpath "$HOME")"
+  for p in "$app" "$exe"; do
+    case "$p" in
+      "$home"/*) : ;;
+      *) echo "$p is outside the guest home ($home): only an app built or synced in this run can be approved here; pre-installed apps are approved in the image" >&2; exit 1 ;;
+    esac
+  done
+fi
+
 uid="$(id -u)"
 agent="$(realpath "$(command -v tart-guest-agent || echo /opt/homebrew/bin/tart-guest-agent)")"
 keygen="$(realpath /usr/libexec/sshd-keygen-wrapper)"
@@ -40,11 +58,16 @@ system_db="/Library/Application Support/com.apple.TCC/TCC.db"
 user_db="$(sudo -n lsof -a -u "$uid" -c tccd -Fn 2>/dev/null | sed -n 's|^n\(/.*/com\.apple\.TCC/TCC\.db\)$|\1|p' | grep -v '^/Library/' | sort -u | head -n 1)"
 [ -n "$user_db" ] || user_db="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
 
+# Every value goes into SQL through q, which doubles its single quotes: a path such as
+# "Bob's Notes.app" is a legal app, and the bundle id is whatever the app's Info.plist says, so
+# without it a crafted id could write rows for any client, outside the home scope too.
+q() { printf '%s' "$1" | sed "s/'/''/g"; }
+
 ae() { # ae <client> <target bundle id>
-  printf "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier, flags) VALUES ('kTCCServiceAppleEvents', '%s', 1, 2, 0, 1, 0, '%s', 0);" "$1" "$2"
+  printf "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier, flags) VALUES ('kTCCServiceAppleEvents', '%s', 1, 2, 0, 1, 0, '%s', 0);" "$(q "$1")" "$(q "$2")"
 }
 svc() { # svc <service> <client>
-  printf "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier, flags) VALUES ('%s', '%s', 1, 2, 0, 1, 0, '', 0);" "$1" "$2"
+  printf "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, indirect_object_identifier_type, indirect_object_identifier, flags) VALUES ('%s', '%s', 1, 2, 0, 1, 0, '', 0);" "$1" "$(q "$2")"
 }
 
 families="kTCCServiceAccessibility kTCCServiceScreenCapture kTCCServiceSystemPolicyDesktopFolder kTCCServiceSystemPolicyDocumentsFolder kTCCServiceSystemPolicyDownloadsFolder kTCCServiceCamera kTCCServiceMicrophone"
@@ -61,7 +84,7 @@ sudo -n killall tccd 2>/dev/null || true
 # Read back the row every caller needs first: the Apple Events grant from tart-guest-agent,
 # which is what machine_exec's osascript calls run as.
 for db in "$system_db" "$user_db"; do
-  got="$(sudo -n sqlite3 "$db" "SELECT auth_value FROM access WHERE service='kTCCServiceAppleEvents' AND client='$agent' AND indirect_object_identifier='$bid'")"
+  got="$(sudo -n sqlite3 "$db" "SELECT auth_value FROM access WHERE service='kTCCServiceAppleEvents' AND client='$(q "$agent")' AND indirect_object_identifier='$(q "$bid")'")"
   [ "$got" = 2 ] || { echo "the Apple Events row for $bid did not take in $db (got ${got:-nothing})" >&2; exit 1; }
 done
 

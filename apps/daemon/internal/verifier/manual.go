@@ -19,6 +19,7 @@ import (
 // manualHelp is the whole instruction grammar.
 const manualHelp = `Instructions, one per line, case-insensitive first word:
   run <shell command>                       run a command on the machine
+  approve <app>                             approve an .app built in this run for control and TCC
   screenshot                                capture the screen
   ui [app]                                  list the frontmost (or named) app's controls
   click <x> <y>                             click at a fraction of the screen, 0 to 1
@@ -131,7 +132,7 @@ func (m *Manual) follow(ctx context.Context, runID string, store *session.Store,
 		case "ask":
 			m.post(store, session.Message{Kind: session.Question, Text: orElse(strings.TrimSpace(arg), "(empty question)")})
 			return steps, session.Question
-		case "run", "screenshot", "ui", "click", "type", "key", "scroll", "snapshot", "find", "press", "setvalue", "waitfor", "expect":
+		case "run", "approve", "screenshot", "ui", "click", "type", "key", "scroll", "snapshot", "find", "press", "setvalue", "waitfor", "expect":
 			if manualToolkitVerbs[verb] && !m.mgr.DesktopToolkit() {
 				m.post(store, session.Message{Kind: session.Reply, Text: verb + " needs a daemon run with -desktop-toolkit\n\n" + m.help()})
 				return steps, session.Reply
@@ -171,6 +172,15 @@ func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (
 		t.exitCodes = append(t.exitCodes, res.ExitCode)
 		t.lastStdout = res.Stdout
 		return call, execResultText(res), res.Step
+
+	case "approve":
+		app := strings.TrimSpace(arg)
+		call = callOf("machine_approve_control", map[string]string{"app": app})
+		if app == "" {
+			return call, "error: approve needs the .app bundle's guest path, e.g. approve work/MyApp/build/MyApp.app", 0
+		}
+		result, step = approveControl(ctx, m.mgr, runID, app)
+		return call, result, step
 
 	case "screenshot":
 		if ref := strings.TrimSpace(arg); ref != "" && m.mgr.DesktopToolkit() {
