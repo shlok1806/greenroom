@@ -22,7 +22,10 @@ can support a visual pass despite not showing the text asserted by its observati
   in the criterion and observation against the cited screenshot descriptions together. Conjunctions split clauses outside quoted strings. A clause containing a
   negation is excluded: an assertion that text is absent does not require that text to appear.
   A mismatch names the cited steps and missing or negated text, and asks for the capture of the claimed
-  state or an unchecked answer. Numeric tokens retain signs and specified currency; substring matches cannot support them.
+  state or an unchecked answer. Numeric tokens retain signs and specified currency, ignore spaces
+  inside the token ("$ 49.56" is "$49.56"), and substring matches cannot support them. An
+  unquoted duration ("within 1.5 s") is a timing claim the step records measure, not screen
+  text, so it is not required in a description.
   Earlier described captures can support earlier states of a multi-action check; the existing
   visual rule still requires a capture after the last action, and captures before a handover
   are excluded from textual support. No new check is inferred from progress wording.

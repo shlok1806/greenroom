@@ -600,7 +600,7 @@ func checkEvidence(c session.Check, steps map[int]stepFact, handoverStep int) []
 	if c.Status == session.CheckPass {
 		out = append(out, drawnRule(c, steps, newest)...)
 		if c.Is(session.CheckVisual) {
-			out = append(out, screenshotSupportRule(c, fresh, steps, lastAction, handoverStep)...)
+			out = append(out, screenshotSupportRule(c, fresh, steps, handoverStep)...)
 		}
 	}
 	return out

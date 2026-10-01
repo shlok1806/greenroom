@@ -38,16 +38,16 @@ func TestScreenshotClaimText(t *testing.T) {
 func TestScreenshotSupportNamesWrongStateAndPreservesRenderedGuard(t *testing.T) {
 	c := session.Check{Status: session.CheckPass, Kinds: []string{session.CheckVisual}, Observed: `It reads "Run B" and $49.56`, Evidence: []int{2}}
 	shot := stepFact{tool: "machine_screenshot", by: machine.HolderVerifier, description: &machine.ScreenshotDescription{Text: "Run A. Total $149.56."}}
-	rules := screenshotSupportRule(c, []int{2}, map[int]stepFact{2: shot}, 0, 0)
+	rules := screenshotSupportRule(c, []int{2}, map[int]stepFact{2: shot}, 0)
 	if len(rules) != 2 || !strings.Contains(strings.Join(rules, " "), `"run b"`) {
 		t.Fatalf("rules %v", rules)
 	}
 	shot.description.Text = "Run B is not visible. Total $49.56."
-	if got := screenshotSupportRule(c, []int{2}, map[int]stepFact{2: shot}, 0, 0); len(got) == 0 {
+	if got := screenshotSupportRule(c, []int{2}, map[int]stepFact{2: shot}, 0); len(got) == 0 {
 		t.Fatal("negated mention supported pass")
 	}
 	shot.description.Text = "Run B. Total $49.56."
-	if got := screenshotSupportRule(c, []int{2}, map[int]stepFact{2: shot}, 0, 0); len(got) != 0 {
+	if got := screenshotSupportRule(c, []int{2}, map[int]stepFact{2: shot}, 0); len(got) != 0 {
 		t.Fatalf("supported text: %v", got)
 	}
 	// A matching description may quote text from behind another window: it must not waive the
@@ -236,5 +236,24 @@ func TestScreenshotSupportNormalizesUnquotedAmountWhitespace(t *testing.T) {
 	}
 	if !screenshotAffirmsText(normalizeScreenshotText("The total is $  49.56."), terms[0]) {
 		t.Fatal("same spaced amount failed support")
+	}
+	// The describer and the claim may space an amount differently; it is still one amount.
+	if !screenshotAffirmsText(normalizeScreenshotText("Window text: Total $ 49.56"), "$49.56") ||
+		!screenshotAffirmsText(normalizeScreenshotText("Window text: Total $49.56"), terms[0]) {
+		t.Fatal("differently spaced amount failed support")
+	}
+	if screenshotAffirmsText(normalizeScreenshotText("Window text: Total $ 149.56"), "$49.56") {
+		t.Fatal(`"$ 149.56" supported $49.56`)
+	}
+}
+
+// A duration is a timing claim the step records measure, not text a screenshot shows: a visual
+// and timing check saying "within 1.5 s" must not need "1.5" on the screen. A quoted duration
+// is still screen text.
+func TestScreenshotClaimTextSkipsUnquotedDurations(t *testing.T) {
+	got := screenshotClaimText("The total appears within 1.5 s\n" +
+		`The label "Saved" appeared 0.8 seconds after the click; total $49.56; the timer reads "12.5 s"`)
+	if want := []string{"$49.56", "12.5 s", "saved"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }

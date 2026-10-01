@@ -14,6 +14,9 @@ var (
 	screenshotClausesRE  = regexp.MustCompile(`(?i)[.!?;]\s+|\n+|,\s+|\s+(?:and|but|then)\s+`)
 	screenshotNumbersRE  = regexp.MustCompile(`[-+]?(?:[$€£]\s*)?[-+]?\d+(?:[.,]\d+)*`)
 	screenshotNegationRE = wordsRE([]string{"no", "not", "never", "without", "missing", "absent", "hidden", "blank", "covered", "obscured"})
+	// screenshotDurationRE is an unquoted duration such as "within 1.5 s" or "0.8 seconds after":
+	// a timing claim measured by the step records, not text a screenshot shows.
+	screenshotDurationRE = regexp.MustCompile(`(?i)[-+]?\d+(?:[.,]\d+)*\s*(?:ms|milliseconds?|s|secs?|seconds?|mins?|minutes?)\b`)
 )
 
 // screenshotClaimText extracts explicit text assertions from the observation. It excludes
@@ -33,7 +36,7 @@ func screenshotClaimText(observed string) []string {
 				}
 			}
 		}
-		for _, number := range screenshotNumbersRE.FindAllString(outside, -1) {
+		for _, number := range screenshotNumbersRE.FindAllString(screenshotDurationRE.ReplaceAllString(outside, " "), -1) {
 			if strings.ContainsAny(number, ".,") {
 				terms = append(terms, normalizeScreenshotText(number))
 			}
@@ -48,7 +51,7 @@ func normalizeScreenshotText(s string) string {
 
 // screenshotSupportRule is a negative guard: missing named text cannot support a visual pass.
 // Matching it does not waive rendered metadata or certify what is drawn (ADR 0041).
-func screenshotSupportRule(c session.Check, fresh []int, steps map[int]stepFact, _ int, handover int) []string {
+func screenshotSupportRule(c session.Check, fresh []int, steps map[int]stepFact, handover int) []string {
 	var out []string
 	var described []int
 	terms := screenshotClaimText(c.Criterion + "\n" + c.Observed)
@@ -110,7 +113,8 @@ func screenshotContainsText(clause, term string) bool {
 					return r
 				}, got)
 			}
-			if normalizeScreenshotText(got) == term {
+			// "$ 49.56" and "$49.56" are one amount: compare tokens without their spaces.
+			if strings.Join(strings.Fields(strings.ToLower(got)), "") == strings.Join(strings.Fields(term), "") {
 				return true
 			}
 		}

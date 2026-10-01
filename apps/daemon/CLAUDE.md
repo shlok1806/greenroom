@@ -734,7 +734,10 @@ Conversation and verifier
     fail the ledger read. `screenshotSupportRule` names missing quoted text and decimal/comma
     values in affirmative criterion and observation clauses; negated clauses are excluded.
     Support may span multiple cited captures for transient comparisons. Numeric tokens retain
-    signs and any currency specified in the claim; substrings do not count. This is a negative
+    signs and any currency specified in the claim and ignore spaces inside the token;
+    substrings do not count. Unquoted durations ("within 1.5 s", `screenshotDurationRE`) are
+    timing, not screen text, and are never required: without that every visual and timing
+    check with a decimal deadline would be refused. This is a negative
     guard only: matching text is not proof of foreground, position, colour or absence, and
     never overrides `drawnRule`. Grounded fails and historical verdicts are unchanged. Capture
     transient states before leaving them; cite that step rather than a later screen.
