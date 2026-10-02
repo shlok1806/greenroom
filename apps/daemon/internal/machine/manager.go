@@ -462,6 +462,11 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 	err = m.tart.Clone(ctx, image, name)
 	endClone(image, err)
 	if err != nil {
+		// tart says only that the VM does not exist; say what exists instead and how to build it
+		// (issue #285). Asked after the failure, so a create that clones pays no tart list for it.
+		if missing := m.MissingImage(ctx, image); missing != nil {
+			err = fmt.Errorf("%w (tart: %w)", missing, err)
+		}
 		return fail(err)
 	}
 	endStart := m.beginPhase(mc, PhaseStart)

@@ -94,9 +94,15 @@ func JudgeImage(image string, helpers []int, manifest map[string]any) ImageStatu
 	return st
 }
 
-// RebuildArgs are scripts/build-image.sh's arguments that rebuild image in place: the lean
-// profile for a lean image (greenroom-lean-*), the default name needs none.
+// RebuildArgs are scripts/build-image.sh's arguments that rebuild image in place: BuildArgs
+// and -force.
 func RebuildArgs(image string) string {
+	return strings.TrimSpace(BuildArgs(image) + " -force")
+}
+
+// BuildArgs are scripts/build-image.sh's arguments that build image: the lean profile for a
+// lean image (greenroom-lean-*), the default name needs none.
+func BuildArgs(image string) string {
 	args := []string{}
 	if strings.HasPrefix(image, "greenroom-lean") {
 		args = append(args, "-lean")
@@ -104,5 +110,5 @@ func RebuildArgs(image string) string {
 	if image != "greenroom-base" {
 		args = append(args, "-name", image)
 	}
-	return strings.Join(append(args, "-force"), " ")
+	return strings.Join(args, " ")
 }
