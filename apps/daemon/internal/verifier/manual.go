@@ -164,7 +164,7 @@ func (m *Manual) do(ctx context.Context, runID, verb, arg string, t *runTally) (
 	switch verb {
 	case "run":
 		call = callOf("machine_exec", map[string]string{"command": arg})
-		res, err := m.mgr.Exec(ctx, runID, arg, "", execTimeout)
+		res, err := m.mgr.ExecWatched(ctx, runID, "", arg, "", execTimeout)
 		if err != nil {
 			return call, "error: " + err.Error(), res.Step
 		}

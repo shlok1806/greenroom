@@ -197,9 +197,11 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 			"command still going then comes back with running true, no exitCode, and an execId, and it keeps "+
 			"running; collect its result with machine_exec_wait. running true also carries desktop when something "+
 			"besides the clean desktop is on screen: the command may be blocked on a system prompt (TCC, a crash "+
-			"dialog) nothing has answered, which greenroom never auto-clicks or closes; approve the app first "+
-			"(machine_approve_control for an Apple Events or other TCC prompt, machine_approve_capture for a "+
-			"screen-capture one) or tell a person. A command returns when its shell exits: it may "+
+			"dialog) nothing has answered, which greenroom never auto-clicks or closes, and desktop.prompts says what "+
+			"each prompt says. A TCC prompt stays until it is answered or times out, about 2 minutes after it "+
+			"appeared, whatever happens to the command, and its timeout undoes an approval made while it is up: "+
+			"once it is gone, approve the app (machine_approve_control for an Apple Events or other TCC prompt, "+
+			"machine_approve_capture for a screen-capture one) and run the command again, or tell a person. A command returns when its shell exits: it may "+
 			"leave a process running in the background (./App &), whose later output is not returned; an app "+
 			"started so is not made frontmost, so pass app to machine_type or machine_key, or click one of its "+
 			"elements, which brings it to the front. Output "+

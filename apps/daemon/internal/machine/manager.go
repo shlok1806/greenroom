@@ -99,6 +99,9 @@ type Machine struct {
 	// execs are machine_exec commands by execId (execjob.go), guarded by
 	// Manager.mu. Not persisted either; detachLocked ends the running ones.
 	execs map[string]*execJob
+	// promptsSeen are the prompts a watched exec already stopped a command for (execprompt.go),
+	// by promptKey, guarded by Manager.mu. A look that no longer finds one forgets it.
+	promptsSeen map[string]bool
 
 	frameCancel context.CancelFunc // guarded by Manager.mu
 	frameDone   chan struct{}      // guarded by Manager.mu; closed when the frame recorder returns
@@ -163,9 +166,10 @@ type Manager struct {
 	messageActivity  func(runID string) time.Time // guarded by mu; see SetMessageActivity
 	models           *Models                      // guarded by mu; see SetModels
 	fileCheck        FileCheck
-	lookTimes        lookTimes  // a look's limits (look.go); zero means defaultLookTimes
-	desktopToolkit   bool       // machines run the guest agent (agent.go, daemon ADR 0005)
-	agentT           agentTimes // the guest agent's limits; zero means defaultAgentTimes
+	lookTimes        lookTimes     // a look's limits (look.go); zero means defaultLookTimes
+	desktopToolkit   bool          // machines run the guest agent (agent.go, daemon ADR 0005)
+	agentT           agentTimes    // the guest agent's limits; zero means defaultAgentTimes
+	promptLook       time.Duration // how often ExecWatched looks for a prompt (execprompt.go)
 
 	listenMu  sync.Mutex
 	listeners map[int]func(LifecycleEvent)
@@ -239,6 +243,11 @@ func WithScreenInputSlack(d time.Duration) Option {
 	return func(m *Manager) { m.screenInputSlack = d }
 }
 
+// WithPromptLook sets how often ExecWatched looks at the screen for a prompt while a command runs.
+func WithPromptLook(d time.Duration) Option {
+	return func(m *Manager) { m.promptLook = d }
+}
+
 // WithSSHProbe replaces the check that guest sshd accepts connections.
 func WithSSHProbe(probe func(ctx context.Context, vmName, addr string) error) Option {
 	return func(m *Manager) { m.sshProbe = probe }
@@ -252,6 +261,7 @@ func NewManager(root string, log *slog.Logger, opts ...Option) (*Manager, error)
 		maxMachines: defaultMaxMachines, readyTimeout: readyTimeout, frameInterval: defaultFrameInterval,
 		vmPoll: defaultVMPollInterval, screenIdle: defaultScreenIdle, hostTimeZone: HostTimeZone, screenBuffer: defaultScreenBuffer,
 		screenInputSlack: screenInputSlack, fileCheck: defaultFileCheck(), rebootTimeout: defaultRebootTimeout,
+		promptLook: defaultPromptLook,
 	}
 	m.sshProbe = m.probeSSHInGuest
 	for _, opt := range opts {

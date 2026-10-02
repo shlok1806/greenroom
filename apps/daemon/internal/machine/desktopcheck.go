@@ -49,7 +49,44 @@ type DesktopReport struct {
 	Clean             bool            `json:"clean"`
 	UnexpectedWindows []DesktopWindow `json:"unexpectedWindows,omitempty"`
 	UnexpectedApps    []DesktopApp    `json:"unexpectedApps,omitempty"`
-	Error             string          `json:"error,omitempty"` // the check could not run; nothing is known
+	// Prompts are the unexpected windows that look like a system prompt waiting for an answer
+	// (ADR 0047): at a modal panel or alert level, drawn by a process that is not a regular app.
+	// Each is also in UnexpectedWindows. A look during a command (execprompt.go) also keeps only
+	// those macOS itself draws and fills their Text; boot's check does neither.
+	Prompts []DesktopPrompt `json:"prompts,omitempty"`
+	Error   string          `json:"error,omitempty"` // the check could not run; nothing is known
+}
+
+// DesktopPrompt is a window that looks like a system prompt, with what it says when that could
+// be read. The window's own name is empty for a TCC prompt; the text names the app that asked
+// and the app it wants, e.g. "“tart-guest-agent” wants access to control “PromptCheck”. ...".
+type DesktopPrompt struct {
+	DesktopWindow
+	Text string `json:"text,omitempty"`
+}
+
+// promptLayers are the window levels a prompt is drawn at: NSModalPanelWindowLevel (8), where
+// macOS draws a TCC prompt (measured: UserNotificationCenter at layer 8, ADR 0044), up to below
+// the Dock (20). A menu (101) or a floating panel (3) is not a prompt.
+const (
+	promptLayerMin = 8
+	promptLayerMax = 19
+)
+
+// isPrompt reports whether w, an unexpected window, looks like a prompt: at a prompt's level and
+// drawn by a process that is not one of apps (a regular app's own alert is that app's business,
+// and only a system process draws a TCC, Gatekeeper or authorization prompt). Notification
+// Center's banners are not prompts: they block nothing.
+func isPrompt(w DesktopWindow, apps []DesktopApp) bool {
+	if w.Layer < promptLayerMin || w.Layer > promptLayerMax || w.Owner == "Notification Center" {
+		return false
+	}
+	for _, a := range apps {
+		if a.PID == w.PID && w.PID != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // allowedOwners are the system processes that draw on every clean desktop, at any layer.
@@ -91,6 +128,9 @@ func (d Desktop) Report() DesktopReport {
 	for _, w := range d.Windows {
 		if !w.Expected() {
 			r.UnexpectedWindows = append(r.UnexpectedWindows, w)
+			if isPrompt(w, d.Apps) {
+				r.Prompts = append(r.Prompts, DesktopPrompt{DesktopWindow: w})
+			}
 		}
 	}
 	for _, a := range d.Apps {
@@ -114,6 +154,11 @@ func (r DesktopReport) Findings() []string {
 	}
 	for _, a := range r.UnexpectedApps {
 		out = append(out, fmt.Sprintf("app %s (%s) is running", a.Name, a.BundleID))
+	}
+	for _, p := range r.Prompts {
+		if p.Text != "" {
+			out = append(out, fmt.Sprintf("the prompt from %q says %q", p.Owner, p.Text))
+		}
 	}
 	return out
 }
