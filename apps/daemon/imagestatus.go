@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -59,7 +60,7 @@ func imageStatus(args []string) error {
 		return fmt.Errorf("list tart's VMs: %w", err)
 	}
 	statuses := checkImages(ctx, names, vms, tartHome())
-	if o.rebuildArgs {
+	if o.rebuildArgs { // only the images asked about: install.sh -rebuild never rebuilds another
 		for _, st := range statuses {
 			if st.State == machine.ImageStale {
 				fmt.Println(st.Rebuild)
@@ -68,7 +69,20 @@ func imageStatus(args []string) error {
 		return nil
 	}
 	printImageStatuses(os.Stdout, statuses)
+	printOtherImages(os.Stdout, checkImages(ctx, otherImages(names, vms), vms, tartHome()))
 	return nil
+}
+
+// otherImages are the local greenroom images (machine.LocalImages) not among names: what a
+// daemon whose default image is missing or stale could use instead (issue #285).
+func otherImages(names []string, vms []tart.VM) []string {
+	var out []string
+	for _, n := range machine.LocalImages(vms) {
+		if !slices.Contains(names, n) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // tartHome is where tart keeps its VMs: $TART_HOME, else ~/.tart.
@@ -129,10 +143,32 @@ func printImageStatuses(w io.Writer, statuses []machine.ImageStatus) {
 		case machine.ImageRunning:
 			_, _ = fmt.Fprintf(w, "%s: running, so not checked; the daemon warns when a machine from it boots stale\n", st.Image)
 		case machine.ImageAbsent:
-			_, _ = fmt.Fprintf(w, "%s: not on this host\n", st.Image)
+			_, _ = fmt.Fprintf(w, "%s: not on this host.\n  Build it (needs about 20 GB free): %s\n",
+				st.Image, strings.TrimSpace("scripts/build-image.sh "+machine.BuildArgs(st.Image)))
 		default:
 			_, _ = fmt.Fprintf(w, "%s: could not read its disk (%s); the daemon warns when a machine from it boots stale\n",
 				st.Image, strings.Join(st.Reasons, "; "))
+		}
+	}
+}
+
+// printOtherImages lists the other local greenroom images with their state, and how to make the
+// daemon use one. It never offers to rebuild them: they are not the default names.
+func printOtherImages(w io.Writer, statuses []machine.ImageStatus) {
+	if len(statuses) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w, "Other local greenroom images (serve one with greenroom serve -image <name>, or GREENROOM_IMAGE=<name> scripts/install.sh):")
+	for _, st := range statuses {
+		switch st.State {
+		case machine.ImageCurrent:
+			_, _ = fmt.Fprintf(w, "  %s: current (input helper %d, image recipe %d)\n", st.Image, machine.InputHelperVersion(), st.Recipe)
+		case machine.ImageStale:
+			_, _ = fmt.Fprintf(w, "  %s: stale: %s\n", st.Image, strings.Join(st.Reasons, "; "))
+		case machine.ImageRunning:
+			_, _ = fmt.Fprintf(w, "  %s: running, so not checked\n", st.Image)
+		default:
+			_, _ = fmt.Fprintf(w, "  %s: could not read its disk (%s)\n", st.Image, strings.Join(st.Reasons, "; "))
 		}
 	}
 }

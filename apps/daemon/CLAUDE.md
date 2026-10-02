@@ -487,7 +487,19 @@ Boot and lifecycle
   volume: stale unless it has `greenroom-input-<inputHelperVersion>` and recipe
   `imageRecipeVersion`. Unlike boot's `staleRecipe`, no manifest counts as stale here: the
   default images are always greenroom-built. `RebuildArgs` keeps the lean profile for
-  `greenroom-lean*`. It reports and exits 0; `install.sh` acts on `-rebuild-args`.
+  `greenroom-lean*`. It reports and exits 0; `install.sh` acts on `-rebuild-args`. An absent
+  default name gets its build command (`BuildArgs`, no `-force`), and the other local greenroom
+  images (`machine.LocalImages`) are listed after, read the same way, with how to serve one
+  (issue #285). They are never offered a rebuild and never reach `-rebuild-args`: `install.sh
+  -rebuild` rebuilds only the names it was asked about.
+- A missing default image (root ADR 0048, `machine/missingimage.go`): the daemon never swaps in
+  another image. `serve` logs one warning at start when the default is a local name (no `/`)
+  that `tart list` lacks, and keeps serving. `Create` asks `MissingImage` only after a clone
+  fails, so a working create pays no extra `tart list`, and leads the error with
+  `MissingImageError` (local images, those named `-v<helper>-r<recipe>` for this daemon first,
+  and the build command), tart's error after it. `LocalImages` leaves out run clones,
+  `<name>-building` and the gate's `<image>-check-<tag>`; a new transient VM name greenroom
+  makes belongs on that list. "Named for this daemon" is the name only; `image-status` reads the disk.
 - `finishBoot` writes the step before closing `ready`. `manifest.json` is written by
   temp file and rename.
 - A run's `models` (manifest and `Machine`) is what `Manager.SetModels` held when `Create` ran:
@@ -539,6 +551,7 @@ Boot and lifecycle
 - With no `-image`, the default image is `GREENROOM_IMAGE`, then the first local
   `machine.PreferredImages` (greenroom-lean-a, greenroom-base), then upstream Cirrus: the
   same choice `scripts/install.sh` makes, so a bare `serve` behaves like the installed one.
+  A chosen image that is not on the host is warned about at start, never replaced (ADR 0048).
 - `serve` takes an exclusive `flock` on `<root>/daemon.lock` (holding its pid) and binds
   `-addr` before it reads `state.json` or starts a verifier. A second daemon on the same root
   or address exits without touching either: one that got as far as its actors answered live

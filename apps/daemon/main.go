@@ -198,6 +198,7 @@ func serveUntil(ctx context.Context, args []string) error {
 	if o.image == "" {
 		o.image = mgr.PreferredImage(context.Background(), defaultImage)
 	}
+	warnMissingImage(log, mgr.MissingImage(context.Background(), o.image))
 
 	reg := session.NewRegistry(o.root, o.maxDisputes, session.WithOnVerdict(func(runID string, v session.VerdictState) { _ = mgr.RecordVerdict(runID, v) }))
 	mgr.SetMessageActivity(reg.LastMessageAt) // machine_list and the capacity error report idle time
@@ -273,6 +274,22 @@ func serveUntil(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
+}
+
+// warnMissingImage says at serve start that the default image is not on this host, with what is
+// and how to build it (issue #285, root ADR 0048). Serve still starts: a call naming an image of
+// its own works, and a daemon that exits under launchd restarts in a loop.
+func warnMissingImage(log *slog.Logger, err error) {
+	var missing *machine.MissingImageError
+	if !errors.As(err, &missing) {
+		return
+	}
+	local := missing.DescribeLocal()
+	if local == "" {
+		local = "none"
+	}
+	log.Warn("the default image is not on this host: every machine_create that names no image will fail until it is built or -image names one that exists",
+		"image", missing.Image, "localImages", local, "build", "cd apps/daemon && "+missing.BuildCommand(), "check", "greenroom image-status")
 }
 
 // raiseFileLimit raises the open file limit before any `tart run` starts, so each inherits it

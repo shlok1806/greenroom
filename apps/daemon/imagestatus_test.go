@@ -63,7 +63,7 @@ func TestImageStatusNamesStaleImagesAndTheirRebuild(t *testing.T) {
 		"  Rebuild it (needs about 20 GB free): scripts/build-image.sh -lean -name greenroom-lean-a -force\n",
 		"greenroom-base: current (input helper " + strconv.Itoa(machine.InputHelperVersion()) + ", image recipe " + strconv.Itoa(machine.ImageRecipeVersion()) + ")\n",
 		"greenroom-busy: running, so not checked",
-		"greenroom-gone: not on this host\n",
+		"greenroom-gone: not on this host.\n  Build it (needs about 20 GB free): scripts/build-image.sh -name greenroom-gone\n",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
