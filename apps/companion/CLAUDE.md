@@ -2,7 +2,8 @@
 
 SwiftPM macOS app that watches runs, speaks into their conversation and can take a
 machine's screen. Vocabulary and invariants: `CONTEXT.md`. Decisions: ADR 0006
-(messages), 0007 (the app), 0008 (recording), 0009 (control), 0011 (live screen), and the
+(messages), 0007 (the app), 0008 (recording), 0009 (control), 0011 (live screen), 0046 (the
+live screen drawn pixel-exact), and the
 package's own `docs/adr/0001` (the run window, superseded by 0004), `0002` (one derived
 run state, colour meanings, verdict trust, the snapshot tool), `0003` (verdict actions, one
 status vocabulary, the daemon changes the UI waits on), `0004` (the glyph-native interface
@@ -327,11 +328,27 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   else stops it, and the recording shows (also whenever the stream is down, with a status
   line under the track). `ScreenStream.swift` is the pure wire
   layer; `LiveScreen` owns the connection. Frames never hop through the main actor, and the
-  renderer is only touched on `VideoOutput`'s queue. A decoder failure reconnects, because a
-  new connection is how the daemon is asked for a keyframe.
-- `LiveScreenHostView` puts the display layer on `ScreenGeometry.fitted`, so the video
-  and `InputSurface` share one letterbox. Do not size the layer any other way; the stage
-  resizing (a zoom, the steps opening) only changes the view's bounds.
+  decoder and layer are only touched on `VideoOutput`'s queue. A decoder failure reconnects,
+  because a new connection is how the daemon is asked for a keyframe; it is noticed when the
+  next sample is enqueued, so a still screen keeps its last picture until then.
+- The live picture is drawn pixel-exact (root ADR 0046). `VideoOutput` decodes with
+  VideoToolbox to BGRA and `ScreenRenderer` draws the newest frame into a `CAMetalLayer`:
+  `ScreenFilter` copies at the drawable's own size, repeats whole pixels at a whole multiple
+  and uses Lanczos (`MPSImageLanczosScale`) otherwise. Never hand the frame to the compositor
+  to stretch, and never bring back `AVSampleBufferDisplayLayer`: its scaling is what blurred
+  small text. `PictureQualityTests` reads the drawn pixels back.
+- `LiveScreenHostView` puts the layer on `ScreenGeometry.fitted`, so the video and
+  `InputSurface` share one letterbox, with every edge snapped to a display pixel
+  (`backingAlignedRect`), and asks for a drawable of exactly that many display pixels
+  (`VideoOutput.place`), which also redraws a still screen after a resize. Do not size the
+  layer any other way; the stage resizing (a zoom, the steps opening) only changes the
+  view's bounds.
+- The stage sizes the picture by `PicturePlacement` (root ADR 0046): at most one picture
+  pixel per display pixel, or the guest's natural size when that is larger, and smaller only
+  to fit. It reads the run's `ScreenShape` from `RunStore.screenShapes` (the live screen's
+  HELLO, else the first recorded frame shown), for live and recorded pictures alike, so
+  following live and scrubbing never change the picture's size. `EvidenceFrame` draws a
+  recorded picture with no filter at a whole multiple and `.high` otherwise.
 - Stream errors: back off 1, 2, 4 ... 10 s, re-read everything open, reconnect. The
   backoff resets once a connection opens. A resync drops what is held for runs that are
   not open (the daemon may have restarted with other data), and a read that lands after
@@ -423,9 +440,9 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
     are then the create and boot steps, status, boot time and address. The first picture after the well waited (booting, connecting, no frame
     yet) resolves out of glyphs, once per open of the run; a finished run opening onto its
     recording does not reveal.
-  - Glyphs are sampled off the main actor from a picture already decoded: the live layer's
-    displayed pixel buffer (`VideoOutput.still()`, read on its own queue, so a request made
-    before a stop's flush still sees the frame) or the recording frame's `NSImage`. The
+  - Glyphs are sampled off the main actor from a picture already decoded: the live screen's
+    newest decoded frame (`VideoOutput.still()`, read on its own queue, so a request made
+    before a stop's reset still sees the frame) or the recording frame's `NSImage`. The
     main actor only receives the drawn still.
   - Power-down: a machine ending while its picture shows dissolves that picture into glyphs
     and holds it, then the well shows the recording. The moment itself is local to the view.
@@ -752,17 +769,15 @@ rules, adapted from stop-slop by Hardik Pandya (MIT, hvpandya.com):
   alone gives a 0x0 description and every decode fails with -6661. VIDEO `pts` is not a
   clock (it jumps on a re-encoded keyframe); samples display on arrival. A still screen
   sends nothing, which is not a stall.
-- An `AVSampleBufferDisplayLayer` outside a window decodes nothing visible; tests that
-  read `displayedPixelBuffer()` host it in an `NSWindow` (`isReleasedWhenClosed = false`)
-  that is on a display, under the desktop picture (`LiveScreenTests.hostedWindow`). Never
-  park that window off every display: a window whose `screen` is nil has no display it
-  can count on to refresh it. That worked on the CI runner for a while, then displayed
-  nothing on every run with no change to the code. Windows read with `cacheDisplay`
-  (`HostedViewTests`, the harness) need no refresh and stay off display.
-  It also presents only on a display refresh: while the display sleeps (a locked, idle
-  Mac, like the unattended CI runner) samples decode, status stays `.rendering`, and
-  nothing is displayed until the display wakes, when the held frame appears unasked. Such
-  tests wake it first (`LiveScreenTests.keepTheDisplayAwake`, a user-activity assertion).
+- The live layer decodes without a window or an awake display (`VideoOutput` runs
+  VideoToolbox itself), so its tests read `decodedSize()` and `still()` with no window.
+  `cacheDisplay` (the snapshot hook, the harness, `HostedViewTests`) cannot see a
+  `CAMetalLayer`: the live picture is blank in those pictures. To look at the real player,
+  run the app and capture the screen.
+- `ScreenRenderer.FrameTexture` keeps its `CVMetalTexture` until the command buffer
+  completes (`hold`); a texture whose owner is released first reads freed memory. The
+  layer is `framebufferOnly = false` because the repeat and Lanczos passes write the
+  drawable from a shader.
 - Unknown enum values decode to `unknown(String)`, never throw. Use `JSONDecoder.daemon()`
   (RFC3339 with or without fractional seconds).
 - `apps/daemon/internal/api/api.go` is the authority on shapes. A `step` event carries the

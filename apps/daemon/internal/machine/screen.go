@@ -288,6 +288,8 @@ func (s *screenStream) dispatch(msg ScreenMsg) error {
 		default:
 			s.helloMsg = msg
 			close(s.hello)
+			text, attrs := describeHello(msg.Payload)
+			s.log.Info(text, attrs...)
 		}
 	case ScreenFormat:
 		s.format = &msg
@@ -316,6 +318,33 @@ func (s *screenStream) dispatch(msg ScreenMsg) error {
 		return fmt.Errorf("unexpected screen message type 0x%02x", msg.Type)
 	}
 	return nil
+}
+
+// screenHelloBody is HELLO's payload: the display in points and in pixels (ADR 0011).
+type screenHelloBody struct {
+	Version string `json:"version"`
+	Screen  Screen `json:"screen"`
+	Pixels  Screen `json:"pixels"`
+}
+
+// describeHello is the log line for a live screen's HELLO: its size and pixel density (ADR
+// 0046). A guest at 1x is a host whose main display is not Retina: Tart sizes the guest's
+// display in that display's points, so its text is drawn at 1x however the Companion draws it.
+func describeHello(payload []byte) (string, []any) {
+	var h screenHelloBody
+	if err := json.Unmarshal(payload, &h); err != nil || h.Screen.Width <= 0 || h.Screen.Height <= 0 {
+		return "live screen started; its HELLO names no screen size", []any{"hello", string(payload)}
+	}
+	scale := float64(h.Pixels.Width) / float64(h.Screen.Width)
+	attrs := []any{
+		"screen", fmt.Sprintf("%dx%d", h.Screen.Width, h.Screen.Height),
+		"pixels", fmt.Sprintf("%dx%d", h.Pixels.Width, h.Pixels.Height),
+		"scale", scale,
+	}
+	if scale < 2 {
+		return "live screen started at 1x: the host's main display is not Retina, and Tart gives the guest its pixel density", attrs
+	}
+	return "live screen started", attrs
 }
 
 // broadcastLocked never blocks: a viewer whose buffer is full loses its

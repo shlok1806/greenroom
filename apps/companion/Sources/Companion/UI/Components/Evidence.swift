@@ -57,6 +57,9 @@ struct EvidenceFrame: View {
     var openRecording: (() -> Void)?
     var aspect: CGFloat = 4 / 3
     @Environment(\.redactsGuestScreen) private var redacted
+    @Environment(\.displayScale) private var displayScale
+    /// The picture's size on screen, for its filter.
+    @State private var drawn = CGSize.zero
 
     var body: some View {
         ZStack {
@@ -64,8 +67,10 @@ struct EvidenceFrame: View {
             case .image(let image):
                 Image(nsImage: image)
                     .resizable()
-                    .interpolation(.high)
+                    // At a whole multiple of its pixels a filter only blurs (root ADR 0046).
+                    .interpolation(PicturePlacement.isWholeMultiple(image.pixelSize, drawn: drawn, scale: displayScale) ? .none : .high)
                     .aspectRatio(contentMode: .fill)
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { drawn = $0 }
                     .overlay {
                         if let mark, !redacted {
                             GeometryReader { geo in

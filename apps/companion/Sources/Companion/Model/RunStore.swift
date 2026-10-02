@@ -159,6 +159,12 @@ final class RunStore: PilotHost {
     /// An accept or dispute shown as made but not yet sent: it waits out its undo
     /// (companion ADR 0005), since the daemon cannot take a recorded message back.
     private(set) var verdictUndo = UndoWindow<PendingVerdictChoice>()
+    /// Each run's screen as a picture (root ADR 0046): what its live screen's HELLO said, else
+    /// the size of the first recorded frame shown. The stage sizes the run's picture by it, live
+    /// or recorded alike, so following live and scrubbing never change its size.
+    private(set) var screenShapes: [String: ScreenShape] = [:]
+    /// Runs whose shape came from a live screen, which a recorded frame never replaces.
+    @ObservationIgnored private var liveShapes: Set<String> = []
     /// Sends the held choice when its window ends.
     @ObservationIgnored private var undoTimer: Task<Void, Never>?
 
@@ -816,7 +822,17 @@ final class RunStore: PilotHost {
 
     /// A fresh live screen (ADR 0011); the caller starts it and must stop it.
     func liveScreen(for runId: String) -> LiveScreen {
-        LiveScreen(runId: runId, source: screenSource)
+        LiveScreen(runId: runId, source: screenSource) { [weak self] shape in
+            self?.noteScreen(shape, runId: runId, live: true)
+        }
+    }
+
+    /// Records a run's screen shape (root ADR 0046): a live screen's always, a recorded
+    /// frame's only while nothing better is known.
+    func noteScreen(_ shape: ScreenShape, runId: String, live: Bool) {
+        guard !shape.isEmpty, live || !liveShapes.contains(runId) else { return }
+        if live { liveShapes.insert(runId) } else if screenShapes[runId] != nil { return }
+        if screenShapes[runId] != shape { screenShapes[runId] = shape }
     }
 
     var holdsControl: Bool {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -53,6 +54,62 @@ func TestAScreenshotReportsItsOwnSizeAndScale(t *testing.T) {
 	}
 	if shot.Scale != 2 {
 		t.Errorf("scale is %v, want 2 for an 800 pixel image of a 400 point desktop", shot.Scale)
+	}
+}
+
+// A guest's pixel density follows the host's main display (ADR 0046): the same 1024x768 point
+// desktop is 1024 or 2048 pixels wide. Clicks aimed from a screenshot, or from the UI tree, land
+// on the same guest point either way, because fractions become points and never pixels.
+func TestClicksLandOnTheSamePointAt1xAnd2x(t *testing.T) {
+	for _, scale := range []int{1, 2} {
+		t.Run(fmt.Sprintf("%dx", scale), func(t *testing.T) {
+			mgr, _, control := newTestManager(t)
+			mc := readyMachine(t, mgr)
+			if err := os.WriteFile(filepath.Join(control, "screen"), []byte("1024x768"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(control, "shot.b64"), []byte(shotBase64(t, 1024*scale, 768*scale)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			writeUI(t, control, tipSplitUI)
+			if _, err := mgr.ScreenOf(context.Background(), mc.RunID); err != nil {
+				t.Fatalf("ScreenOf: %v", err)
+			}
+			_, shot, err := mgr.Screenshot(context.Background(), mc.RunID)
+			if err != nil {
+				t.Fatalf("Screenshot: %v", err)
+			}
+			if shot.Scale != float64(scale) {
+				t.Fatalf("scale is %v, want %d", shot.Scale, scale)
+			}
+			tree, err := mgr.UI(context.Background(), mc.RunID, HolderCoder, "TipSplit", 0)
+			if err != nil {
+				t.Fatalf("UI: %v", err)
+			}
+			seg := tree.Elements[4] // the 25% segment, frame (586, 347) 48x24 points
+
+			// A pixel the agent picked on the picture, at (300, 200) points.
+			px, py := float64(300*scale), float64(200*scale)
+			if _, _, err := mgr.TakeControl(mc.RunID, "human", 0); err != nil {
+				t.Fatalf("TakeControl: %v", err)
+			}
+			if _, err := mgr.Input(context.Background(), mc.RunID, "human", []InputAction{
+				{Type: "click", X: frac(px / float64(shot.Width)), Y: frac(py / float64(shot.Height))},
+				{Type: "click", X: frac(seg.X), Y: frac(seg.Y)},
+			}); err != nil {
+				t.Fatalf("Input: %v", err)
+			}
+			posted := postedActions(t, control)
+			if len(posted) != 2 {
+				t.Fatalf("posted %d actions, want 2", len(posted))
+			}
+			if *posted[0].X != 300 || *posted[0].Y != 200 {
+				t.Errorf("a click at picture pixel (%v, %v) went out at %v,%v points, want 300,200", px, py, *posted[0].X, *posted[0].Y)
+			}
+			if *posted[1].X != 610 || *posted[1].Y != 359 {
+				t.Errorf("the segment's center went out at %v,%v points, want 610,359", *posted[1].X, *posted[1].Y)
+			}
+		})
 	}
 }
 

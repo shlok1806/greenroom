@@ -11,6 +11,7 @@ struct StageView: View {
     var summary: Summary
     var windowClass: WindowClass
     @Environment(\.frozenNow) private var frozenNow
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         let frames = shell.store.frames[summary.runId] ?? []
@@ -28,12 +29,18 @@ struct StageView: View {
             let padding = narrow ? (horizontal: Gap.x16, top: Gap.x16) : windowClass.stagePadding
             let chrome: CGFloat = 12 + captionHeight + (strip ? 20 + TimelineBar.height : 0)
             let tall = geo.size.height - padding.top - Gap.x16 - chrome
-            let room = min(geo.size.width - padding.horizontal * 2, tall * 4 / 3)
-            let width = max(120, room)
+            let room = max(120, min(geo.size.width - padding.horizontal * 2, tall * 4 / 3))
+            // The picture at its sharpest size (root ADR 0046) once the run's screen is known,
+            // else the whole room.
+            let placed = shell.store.screenShapes[summary.runId].map {
+                PicturePlacement.size($0, in: CGSize(width: room, height: room * 3 / 4), scale: displayScale)
+            } ?? .zero
+            let width = placed.width > 0 ? placed.width : room
+            let height = placed.height > 0 ? placed.height : room * 3 / 4
             VStack(alignment: .center, spacing: 20) {
                 VStack(alignment: .leading, spacing: Gap.x12) {
                     picture(content)
-                        .frame(width: width, height: width * 3 / 4)
+                        .frame(width: width, height: height)
                         .overlay {
                             if summary.state == .restarting {
                                 RestartProgress(phases: shell.store.details[summary.runId]?.machine?.boot ?? [])
@@ -206,7 +213,7 @@ struct LivePicture: View {
         ZStack {
             Palette.bgSelected
             if let live {
-                LiveScreenView(layer: live.output.layer, pixelSize: live.pixelSize ?? .zero)
+                LiveScreenView(output: live.output, pixelSize: live.pixelSize ?? .zero)
                 if let size = live.pixelSize {
                     InputSurface(imageSize: size, active: shell.driving) { actions in
                         shell.store.existingPilot(runId)?.send(actions)
@@ -313,16 +320,36 @@ struct StorePicture<Content: View>: View {
                 failed = false
                 if let held = PictureCache.shared.image(runId: runId, file: picture.file) {
                     image = held
+                    noteShape(held)
                     return
                 }
                 image = nil
                 let loaded = picture.isScreenshot
                     ? await store.artifactImage(runId: runId, name: picture.file)
                     : await store.frameImage(runId: runId, file: picture.file)
-                if let loaded { PictureCache.shared.store(loaded, runId: runId, file: picture.file) }
+                if let loaded {
+                    PictureCache.shared.store(loaded, runId: runId, file: picture.file)
+                    noteShape(loaded)
+                }
                 image = loaded
                 failed = loaded == nil
             }
+    }
+
+    /// A recorded frame says how big the run's screen is until its live screen does (root
+    /// ADR 0046). A screenshot artifact does not: it may be at another size than the frames.
+    private func noteShape(_ image: NSImage) {
+        guard !picture.isScreenshot else { return }
+        store.noteScreen(ScreenShape(picture: image.pixelSize), runId: runId, live: false)
+    }
+}
+
+extension NSImage {
+    /// The largest representation's size in pixels; `size` is in points and may differ.
+    var pixelSize: CGSize {
+        let largest = representations.max { $0.pixelsWide < $1.pixelsWide }
+        guard let largest, largest.pixelsWide > 0, largest.pixelsHigh > 0 else { return size }
+        return CGSize(width: largest.pixelsWide, height: largest.pixelsHigh)
     }
 }
 
