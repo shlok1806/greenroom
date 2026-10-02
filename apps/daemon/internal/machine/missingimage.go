@@ -81,6 +81,10 @@ func (m *Manager) MissingImage(ctx context.Context, image string) error {
 	return CheckImageOnHost(image, vms)
 }
 
+// gateCloneRE is the image gate's clones (imagecheck.go): <image>-check-<8 hex> and its
+// -clone. Matched exactly, so an image whose own name holds "-check-" is still an image.
+var gateCloneRE = regexp.MustCompile(`-check-[0-9a-f]{8}(-clone)?$`)
+
 // versionedImageRE is the VM suite's name for an image: greenroom-base-v<helper>-r<recipe>.
 var versionedImageRE = regexp.MustCompile(`-v([0-9]+)-r([0-9]+)$`)
 
@@ -99,13 +103,13 @@ func NamedForThisDaemon(name string) bool {
 
 // LocalImages are tart's local VMs that are greenroom images: named greenroom-*, and not a
 // run's clone, an image under construction (<name>-building) or check-image's clones
-// (<image>-check-<tag>). Those named for this daemon's helper and recipe come first, then by name.
+// (<image>-check-<tag>[-clone]). Those named for this daemon's helper and recipe come first, then by name.
 func LocalImages(vms []tart.VM) []string {
 	var out []string
 	for _, vm := range vms {
 		n := vm.Name
 		if vm.Source != "local" || !strings.HasPrefix(n, namePrefix) || runCloneRE.MatchString(n) ||
-			strings.HasSuffix(n, "-building") || strings.Contains(n, "-check-") || slices.Contains(out, n) {
+			strings.HasSuffix(n, "-building") || gateCloneRE.MatchString(n) || slices.Contains(out, n) {
 			continue
 		}
 		out = append(out, n)

@@ -128,11 +128,13 @@ func TestLocalImagesAreGreenroomImagesCurrentFirst(t *testing.T) {
 		{Source: "local", Name: "greenroom-20261002-000722-ff76250f706f68f6", State: "running"}, // a run's clone
 		{Source: "local", Name: "greenroom-lean-a-building"},
 		{Source: "local", Name: "greenroom-lean-a-check-0a1b2c3d"},
+		{Source: "local", Name: "greenroom-lean-a-check-0a1b2c3d-clone", State: "running"},
+		{Source: "local", Name: "greenroom-check-ui"}, // an image whose own name holds -check-
 		{Source: "local", Name: "gr282-norow"},
 		{Source: "OCI", Name: "ghcr.io/cirruslabs/macos-tahoe-base:latest"},
 	}
 	got := strings.Join(LocalImages(vms), ",")
-	want := current() + ",greenroom-base-v7-r2,greenroom-lean-a"
+	want := current() + ",greenroom-base-v7-r2,greenroom-check-ui,greenroom-lean-a"
 	if got != want {
 		t.Errorf("LocalImages = %s, want %s", got, want)
 	}

@@ -498,7 +498,7 @@ Boot and lifecycle
   fails, so a working create pays no extra `tart list`, and leads the error with
   `MissingImageError` (local images, those named `-v<helper>-r<recipe>` for this daemon first,
   and the build command), tart's error after it. `LocalImages` leaves out run clones,
-  `<name>-building` and the gate's `<image>-check-<tag>`; a new transient VM name greenroom
+  `<name>-building` and the gate's `<image>-check-<tag>[-clone]` (`gateCloneRE`); a new transient VM name greenroom
   makes belongs on that list. "Named for this daemon" is the name only; `image-status` reads the disk.
 - `finishBoot` writes the step before closing `ready`. `manifest.json` is written by
   temp file and rename.
