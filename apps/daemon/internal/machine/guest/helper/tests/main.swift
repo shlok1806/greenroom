@@ -146,6 +146,14 @@ let tests: [(String, () -> Void)] = [
     ("expectations pass on what was observed", testExpectationsPassOnWhatWasObserved),
     ("a secret is never observed", testASecretIsNeverObserved),
     ("observed is exact and null when absent", testObservedIsExactAndNullWhenAbsent),
+    ("a name or bundle id matches an app of any policy", testANameOrBundleIDMatchesAnAppOfAnyPolicy),
+    ("a partial name never lands on a background process", testAPartialNameNeverLandsOnABackgroundProcess),
+    ("a regular app wins a name it shares", testARegularAppWinsANameItShares),
+    ("with no name the focused app counts only when regular or the menu bar owner",
+     testWithNoNameTheFocusedAppCountsOnlyWhenARegularAppOrTheMenuBarOwner),
+    ("the running list marks accessory apps", testTheRunningListMarksAccessoryApps),
+    ("a stale frontmost does not count when the app says it is inactive",
+     testAStaleFrontmostDoesNotCountWhenTheAppSaysItIsInactive),
 ]
 
 for (name, test) in tests {

@@ -63,28 +63,57 @@ let containerRoles: Set<String> = [
 
 let toggleRoles: Set<String> = ["AXRadioButton", "AXCheckBox", "AXSwitch", "AXToggle"]
 
-/// Finds the application to read: a name or bundle id if given, else the frontmost.
+/// A running application as `logic/AppChoice.swift` weighs it.
+func candidate(_ app: NSRunningApplication) -> AppCandidate {
+    let policy: AppPolicy
+    switch app.activationPolicy {
+    case .regular: policy = .regular
+    case .accessory: policy = .accessory
+    default: policy = .prohibited
+    }
+    return AppCandidate(pid: app.processIdentifier, name: app.localizedName ?? "", bundleId: app.bundleIdentifier ?? "", policy: policy)
+}
+
+/// Finds the application to read: the one a name or bundle id names, whatever its activation
+/// policy (a menu bar app is `LSUIElement`, #223), else the one a person sees in front
+/// (`defaultApp`, #209).
 func targetApp(_ name: String?) throws -> NSRunningApplication {
-    let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+    let running = NSWorkspace.shared.runningApplications.filter { !$0.isTerminated }
+    let candidates = running.map(candidate)
     if let name, !name.isEmpty {
-        let wanted = name.lowercased()
-        if let app = apps.first(where: { $0.localizedName?.lowercased() == wanted || $0.bundleIdentifier?.lowercased() == wanted })
-            ?? apps.first(where: { ($0.localizedName?.lowercased() ?? "").contains(wanted) }) {
+        if let match = matchApp(name, in: candidates),
+           let app = running.first(where: { $0.processIdentifier == match.pid }) {
             return app
         }
-        throw Failure("no running application named \(name); running: \(apps.compactMap(\.localizedName).joined(separator: ", "))")
+        // Owners and layers need no permission (Desktop.swift).
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let owners = Set(windows.filter { $0[kCGWindowLayer as String] as? Int == 0 }.compactMap { $0[kCGWindowOwnerPID as String] as? Int32 })
+        let listed = candidates.map { app in
+            var app = app
+            app.hasWindow = owners.contains(app.pid)
+            return app
+        }
+        throw Failure("no running application named \(name); running: \(runningAppsList(listed))")
     }
     // The system-wide element knows focus now; NSWorkspace can lag a launch.
+    var focusedApp: NSRunningApplication?
     var focused: CFTypeRef?
     if AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedApplicationAttribute as CFString, &focused) == .success,
        let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() {
         var pid: pid_t = 0
         // swiftlint:disable:next force_cast
-        if AXUIElementGetPid(focused as! AXUIElement, &pid) == .success, let app = NSRunningApplication(processIdentifier: pid) {
-            return app
+        if AXUIElementGetPid(focused as! AXUIElement, &pid) == .success {
+            focusedApp = NSRunningApplication(processIdentifier: pid)
         }
     }
-    if let app = NSWorkspace.shared.frontmostApplication { return app }
+    let menuBarOwner = NSWorkspace.shared.menuBarOwningApplication
+    let frontmost = NSWorkspace.shared.frontmostApplication
+    guard let chosen = defaultApp(focused: focusedApp.map(candidate), menuBarOwner: menuBarOwner.map(candidate),
+                                  frontmost: frontmost.map(candidate))
+    else { throw Failure("no frontmost application") }
+    for app in [focusedApp, menuBarOwner, frontmost] {
+        if let app, app.processIdentifier == chosen.pid { return app }
+    }
     throw Failure("no frontmost application")
 }
 
@@ -187,6 +216,9 @@ func uiTree(_ request: UIRequest) throws -> [String: Any] {
 
     return [
         "app": ["name": app.localizedName ?? "", "bundleId": app.bundleIdentifier ?? "", "pid": Int(app.processIdentifier)],
+        // Regular apps only: the verifier judges an app gone when it leaves this list (ADR
+        // 0028), so an accessory app read by name is never judged gone, and the guest's many
+        // agents stay out of every outline. A not-found error lists accessory apps instead.
         "apps": NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap(\.localizedName),
         "screen": ["width": Int(screen.width), "height": Int(screen.height)],
         "elements": elements,

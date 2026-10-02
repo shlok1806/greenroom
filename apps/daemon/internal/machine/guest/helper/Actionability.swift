@@ -352,7 +352,12 @@ private enum Front {
 /// second, within the checks' time) for the window server to agree.
 private func bringToFront(_ look: Look, until end: DispatchTime) -> Front {
     let front = NSWorkspace.shared.frontmostApplication
-    if front?.processIdentifier == look.pid { return .already }
+    let running = NSRunningApplication(processIdentifier: look.pid)
+    // The agent's frontmost application can be stale (`isInFront`).
+    if isInFront(pid: look.pid, isActive: running?.isActive, frontNow: front?.processIdentifier,
+                 frontAtStart: front?.processIdentifier) {
+        return .already
+    }
     let app = AXUIElementCreateApplication(look.pid)
     AXUIElementSetMessagingTimeout(app, actionMessagingTimeout)
     // Through accessibility first: a background process's NSRunningApplication.activate may be
@@ -362,12 +367,12 @@ private func bringToFront(_ look: Look, until end: DispatchTime) -> Front {
         AXUIElementPerformAction(window, kAXRaiseAction as CFString)
         AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
     }
-    let running = NSRunningApplication(processIdentifier: look.pid)
     var limit = DispatchTime.now() + .milliseconds(500)
     if end < limit { limit = end }
     var asked = false
     while true {
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier == look.pid || running?.isActive == true {
+        if isInFront(pid: look.pid, isActive: running?.isActive,
+                     frontNow: NSWorkspace.shared.frontmostApplication?.processIdentifier, frontAtStart: front?.processIdentifier) {
             return .activated(running?.localizedName ?? processName(look.pid))
         }
         if DispatchTime.now() >= limit { break }

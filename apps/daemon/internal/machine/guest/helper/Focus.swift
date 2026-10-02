@@ -40,14 +40,17 @@ func focus(_ action: Action) throws {
         AXUIElementPerformAction(window, kAXRaiseAction as CFString)
         AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
     }
-    if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid { return }
+    // NSWorkspace's frontmost application can be stale in the long-lived agent (`isInFront`).
+    let frontAtStart = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    if frontAtStart == pid && running.isActive { return }
     // Through accessibility first: a background process's NSRunningApplication.activate is
     // declined by the cooperative activation of macOS 14 and later.
     AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
     let deadline = Date().addingTimeInterval(focusWait)
     var asked = false
     while Date() < deadline {
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid || running.isActive {
+        if isInFront(pid: pid, isActive: running.isActive, frontNow: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                     frontAtStart: frontAtStart) {
             usleep(50_000) // the window server orders the raised window with the activation
             return
         }

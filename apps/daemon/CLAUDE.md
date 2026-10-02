@@ -17,6 +17,7 @@ go test ./internal/machine -run TestFoo
 go test -tags tart -run TestEndToEnd -v -timeout 10m .         # real VM
 go test -tags tart -run TestEndToEndSession -v -timeout 12m .  # guest pty, ^C, a 3 MB flood and close in a real VM
 go test -tags tart -run TestEndToEndVerifierApprovesARunBuiltApp -v -timeout 15m .  # the verifier's TCC approval (ADR 0044)
+go test -tags tart -run TestEndToEndAccessoryApps -v -timeout 25m .  # an LSUIElement app by name, and the no-app read (#223, #209); two VMs in turn
 go test -tags tart -run TestEndToEndAPromptStopsTheVerifiersCommand -v -timeout 15m .  # a TCC prompt stops the verifier's exec (ADR 0047)
 go test -tags tart -count=1 -timeout 45m ./...  # whole VM suite, as CI runs it
 # every e2e test clones the local GREENROOM_BASE_IMAGE (default greenroom-base), never pulls Cirrus
@@ -442,8 +443,7 @@ Boot and lifecycle
   controls, scripts or otherwise touches it: a TCC.db write only prevents the *next* Apple
   Event, measured live it does not cancel a prompt already on screen. `ExecWait` looks at the
   desktop (`attachDesktopIfRunning`, `desktopcheck.go`'s `readDesktop`/`Report`, not
-  `machine_ui`, which only reads the frontmost regular app and cannot see a system prompt,
-  issue #223) whenever a command has not returned within its wait, exactly the shape of a
+  `machine_ui`, which reads one app's windows and cannot see a system prompt) whenever a command has not returned within its wait, exactly the shape of a
   stall on an unanswered prompt; a finding lands in the exec result's `desktop` field and the
   machine's own `Desktop`, never auto-clicked or closed.
 - A prompt stops the verifier's command (ADR 0047, issue #283, `execprompt.go`). The look is
@@ -1066,6 +1066,22 @@ UI tree (ADR 0012)
   bar and bare layout skipped, capped at `limit` (default 250, verifier 200, max 1000).
   It needs Accessibility, which the image grants to tart-guest-agent; the helper inherits
   it. No lease. Every read is a `machine_ui` step with the whole tree.
+- Which app (`targetApp` in `helper/Tree.swift`, pure rules in `helper/logic/AppChoice.swift`,
+  issues #223 and #209; the toolkit's `appTarget`, `frontmostInfo` and waits share it). A name
+  or bundle id matches any running app whatever its activation policy: exact name or bundle id
+  first (a background process only by an exact name or bundle id), then a name containing it,
+  regular apps winning a tie. With no name, the AX-focused app counts only when it is regular or owns the
+  menu bar, else `menuBarOwningApplication`, then `frontmostApplication`: an accessory process
+  (AccessibilityUIServer, a launcher's non-activating panel) can hold AX focus while a regular
+  app is in front. So an accessory app is read only by name, even while its window is in front.
+  The not-found error lists accessory apps marked `(accessory)`, those with an on-screen layer-0
+  window first, at most 20 (a clean base guest runs over 20 windowless agents, and without the
+  ordering an app launched last fell past the cap). Measured on greenroom-base-v10-r4: a probe
+  started through `tart exec` gets `kAXErrorCannotComplete` (-25204) for the system-wide
+  focused application, so there the menu bar owner decides. The tree's `apps`
+  and `--desktop`'s apps stay regular only: ADR 0028's quit judgement and the boot allowlist
+  read them, and a guest runs dozens of accessory agents. `TestEndToEndAccessoryApps`
+  (`e2e_targetapp_test.go`, both paths) proves it on a real guest with an `LSUIElement` fixture.
 - Text that is not drawn (ADR 0027, `render.go`). A read whose tree has a text element (a
   title, label or value on anything but a window-sized container, `unmarkedRoles`) captures
   the screen once with `captureScreen` and, concurrently, `--desktop`'s window list, then
@@ -1090,6 +1106,12 @@ UI tree (ADR 0012)
   window under the point, wait up to 1 s), then a click carrying the pid and the element's size,
   which the helper moves to the nearest point of the element that app owns (`clickPoints`) or
   refuses naming the cover ("covered by Dock"). A click by x and y is never moved.
+  In the long-lived agent `NSWorkspace.frontmostApplication` can be stale (measured: it still
+  named an accessory app after Finder was activated over it, while that app's `isActive` said
+  false, and `focus` returned at once, so the click hit Finder's window). `focus` and the
+  toolkit's `bringToFront` trust it only with `isActive` agreeing, or once it changed to the app
+  during their wait (`isInFront`, `helper/logic/FrontCheck.swift`); never go back to the
+  frontmost pid alone.
   `machine_type`, `machine_key` and `machine_scroll` take `app` (`Focused`); input still goes to
   the frontmost app without it. A verifier click after a
   screen handover is refused until it reads again (`ErrStaleLook`, issue #124). `UITree.Outline` is the text both
