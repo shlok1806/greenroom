@@ -21,6 +21,8 @@ func desktop() -> [String: Any] {
             "width": b["Width"] as? Double ?? 0, "height": b["Height"] as? Double ?? 0,
         ]
     }
+    // Regular apps only: the boot check compares them with an allowlist of bundle ids, and the
+    // guest runs dozens of accessory agents. `targetApp` reads accessory apps by name.
     let apps: [[String: Any]] = NSWorkspace.shared.runningApplications
         .filter { $0.activationPolicy == .regular }
         .map { ["name": $0.localizedName ?? "", "bundleId": $0.bundleIdentifier ?? "", "pid": Int($0.processIdentifier)] }

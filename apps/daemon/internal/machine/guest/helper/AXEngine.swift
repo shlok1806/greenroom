@@ -266,8 +266,8 @@ func appTarget(pid: pid_t) -> AppTarget? {
         root: root)
 }
 
-/// The application a request names (by name or bundle id), else the one with the focus, else
-/// the frontmost. `not_found` names the applications there are.
+/// The application a request names (by name or bundle id, whatever its activation policy), else
+/// the one in front (`targetApp`). `not_found` names the applications there are.
 func appTarget(named name: String?) throws -> AppTarget {
     let running: NSRunningApplication
     do {
