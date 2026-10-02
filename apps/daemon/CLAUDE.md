@@ -1069,8 +1069,8 @@ UI tree (ADR 0012)
 - Which app (`targetApp` in `helper/Tree.swift`, pure rules in `helper/logic/AppChoice.swift`,
   issues #223 and #209; the toolkit's `appTarget`, `frontmostInfo` and waits share it). A name
   or bundle id matches any running app whatever its activation policy: exact name or bundle id
-  first (a background process only by its exact name), then a name containing it, regular apps
-  winning a tie. With no name, the AX-focused app counts only when it is regular or owns the
+  first (a background process only by an exact name or bundle id), then a name containing it,
+  regular apps winning a tie. With no name, the AX-focused app counts only when it is regular or owns the
   menu bar, else `menuBarOwningApplication`, then `frontmostApplication`: an accessory process
   (AccessibilityUIServer, a launcher's non-activating panel) can hold AX focus while a regular
   app is in front. So an accessory app is read only by name, even while its window is in front.
