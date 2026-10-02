@@ -1,7 +1,7 @@
 import CoreGraphics
 
 /// The guest's screen as a picture: how many pixels it has and how many points of the guest's
-/// desktop they show (root ADR 0045). A 1x guest's picture has as many pixels as points; a
+/// desktop they show (root ADR 0046). A 1x guest's picture has as many pixels as points; a
 /// Retina guest's twice as many each way.
 struct ScreenShape: Equatable, Sendable {
     var pixels: CGSize
@@ -28,7 +28,7 @@ struct ScreenShape: Equatable, Sendable {
     var isEmpty: Bool { pixels.width <= 0 || pixels.height <= 0 || points.width <= 0 || points.height <= 0 }
 }
 
-/// How large the guest's screen is drawn (root ADR 0045). Never resampled up by a fraction:
+/// How large the guest's screen is drawn (root ADR 0046). Never resampled up by a fraction:
 /// its largest size is one picture pixel per display pixel, or the guest's natural size (one
 /// guest point per host point) when that is larger, which is then a whole multiple. Smaller
 /// rooms get it smaller, scaled to fit. Sizes are whole display pixels.

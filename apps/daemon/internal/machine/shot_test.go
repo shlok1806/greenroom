@@ -57,7 +57,7 @@ func TestAScreenshotReportsItsOwnSizeAndScale(t *testing.T) {
 	}
 }
 
-// A guest's pixel density follows the host's main display (ADR 0045): the same 1024x768 point
+// A guest's pixel density follows the host's main display (ADR 0046): the same 1024x768 point
 // desktop is 1024 or 2048 pixels wide. Clicks aimed from a screenshot, or from the UI tree, land
 // on the same guest point either way, because fractions become points and never pixels.
 func TestClicksLandOnTheSamePointAt1xAnd2x(t *testing.T) {

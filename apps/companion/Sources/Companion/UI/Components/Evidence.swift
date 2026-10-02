@@ -67,7 +67,7 @@ struct EvidenceFrame: View {
             case .image(let image):
                 Image(nsImage: image)
                     .resizable()
-                    // At a whole multiple of its pixels a filter only blurs (root ADR 0045).
+                    // At a whole multiple of its pixels a filter only blurs (root ADR 0046).
                     .interpolation(PicturePlacement.isWholeMultiple(image.pixelSize, drawn: drawn, scale: displayScale) ? .none : .high)
                     .aspectRatio(contentMode: .fill)
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { drawn = $0 }

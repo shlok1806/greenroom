@@ -29,7 +29,7 @@ final class LiveScreen {
     private(set) var phase: Phase = .connecting
     /// In pixels, for the letterbox: from HELLO, then from each FORMAT.
     private(set) var pixelSize: CGSize?
-    /// The guest's screen as a picture (root ADR 0045): HELLO's points and pixels.
+    /// The guest's screen as a picture (root ADR 0046): HELLO's points and pixels.
     private(set) var shape: ScreenShape?
 
     let runId: String
@@ -156,7 +156,7 @@ enum LiveScreenError: Error, LocalizedError {
     var errorDescription: String? { "The picture could not be decoded." }
 }
 
-/// The live picture's decoder and layer (root ADR 0045). VideoToolbox decodes each frame to a
+/// The live picture's decoder and layer (root ADR 0046). VideoToolbox decodes each frame to a
 /// BGRA buffer, and `ScreenRenderer` draws the newest one into `layer` at the layer's drawable
 /// size: copied, pixel-repeated or Lanczos, never stretched by the compositor. Decoding and
 /// drawing run on `queue`, in order, off the main thread; the host view only places the layer

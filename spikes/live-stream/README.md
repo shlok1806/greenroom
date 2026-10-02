@@ -1,7 +1,7 @@
 # Live stream quality
 
 `measure.py` measures one running VM's live screen (ADR 0011) straight from the guest
-helper, the bytes the daemon relays unchanged, for issue #249 and root ADR 0045.
+helper, the bytes the daemon relays unchanged, for issue #249 and root ADR 0046.
 Throwaway: nothing imports it. Needs `tart`, `ffmpeg` and python3 with numpy.
 
 ```sh
@@ -23,5 +23,5 @@ It opens TextEdit on a page of small text, runs `greenroom-input --serve` over
 
 `-env KEY=VALUE` passes an environment variable to the helper, for an experimental build
 that reads one. The decoded frames and screenshots are written to `-out` beside
-`result.json`. The guest's density follows the host's main display (ADR 0045); to measure
+`result.json`. The guest's density follows the host's main display (ADR 0046); to measure
 another, `tart set <vm> --display 2048x1536px` gives that many pixels at 1x.

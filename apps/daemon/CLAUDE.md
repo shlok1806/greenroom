@@ -1094,8 +1094,8 @@ Live screen (ADR 0011)
   the cached FORMAT, and resumes at the next keyframe. Every new viewer and every drop sends
   KEYFRAME: a still screen sends nothing on its own.
 - LOG goes to the daemon log, never to viewers. HELLO is logged once per stream with its
-  `screen`, `pixels` and `scale` (`describeHello`, root ADR 0045).
-- The guest's pixel density is the host's, not ours (root ADR 0045): the image's display is
+  `screen`, `pixels` and `scale` (`describeHello`, root ADR 0046).
+- The guest's pixel density is the host's, not ours (root ADR 0046): the image's display is
   1024x768 in Tart's default unit, points, and Tart sizes a macOS VM's display from the host's
   main display (`NSScreen.main`), so a guest is 2048x1536 pixels at 2x when that display is
   Retina and 1024x768 at 1x when it is not (a laptop in clamshell mode on an external

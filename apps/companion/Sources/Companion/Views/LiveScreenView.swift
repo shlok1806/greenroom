@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Shows a `LiveScreen`'s layer. The layer is placed on the rectangle `ScreenGeometry.fitted`
 /// gives, so the picture and the fractions `InputSurface` sends cannot disagree about the
-/// letterbox, snapped to whole display pixels (root ADR 0045).
+/// letterbox, snapped to whole display pixels (root ADR 0046).
 struct LiveScreenView: NSViewRepresentable {
     let output: VideoOutput
     /// In pixels; zero until the stream says.

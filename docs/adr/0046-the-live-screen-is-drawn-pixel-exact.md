@@ -1,4 +1,4 @@
-# 0045. The live screen is drawn pixel-exact
+# 0046. The live screen is drawn pixel-exact
 
 Date: 2026-10-01
 Status: accepted. Amends ADR 0011 decision 3 (the Companion's decoder and display layer).

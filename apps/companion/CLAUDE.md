@@ -2,7 +2,7 @@
 
 SwiftPM macOS app that watches runs, speaks into their conversation and can take a
 machine's screen. Vocabulary and invariants: `CONTEXT.md`. Decisions: ADR 0006
-(messages), 0007 (the app), 0008 (recording), 0009 (control), 0011 (live screen), 0045 (the
+(messages), 0007 (the app), 0008 (recording), 0009 (control), 0011 (live screen), 0046 (the
 live screen drawn pixel-exact), and the
 package's own `docs/adr/0001` (the run window, superseded by 0004), `0002` (one derived
 run state, colour meanings, verdict trust, the snapshot tool), `0003` (verdict actions, one
@@ -331,7 +331,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   decoder and layer are only touched on `VideoOutput`'s queue. A decoder failure reconnects,
   because a new connection is how the daemon is asked for a keyframe; it is noticed when the
   next sample is enqueued, so a still screen keeps its last picture until then.
-- The live picture is drawn pixel-exact (root ADR 0045). `VideoOutput` decodes with
+- The live picture is drawn pixel-exact (root ADR 0046). `VideoOutput` decodes with
   VideoToolbox to BGRA and `ScreenRenderer` draws the newest frame into a `CAMetalLayer`:
   `ScreenFilter` copies at the drawable's own size, repeats whole pixels at a whole multiple
   and uses Lanczos (`MPSImageLanczosScale`) otherwise. Never hand the frame to the compositor
@@ -343,7 +343,7 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   (`VideoOutput.place`), which also redraws a still screen after a resize. Do not size the
   layer any other way; the stage resizing (a zoom, the steps opening) only changes the
   view's bounds.
-- The stage sizes the picture by `PicturePlacement` (root ADR 0045): at most one picture
+- The stage sizes the picture by `PicturePlacement` (root ADR 0046): at most one picture
   pixel per display pixel, or the guest's natural size when that is larger, and smaller only
   to fit. It reads the run's `ScreenShape` from `RunStore.screenShapes` (the live screen's
   HELLO, else the first recorded frame shown), for live and recorded pictures alike, so

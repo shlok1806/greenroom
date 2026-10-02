@@ -159,7 +159,7 @@ final class RunStore: PilotHost {
     /// An accept or dispute shown as made but not yet sent: it waits out its undo
     /// (companion ADR 0005), since the daemon cannot take a recorded message back.
     private(set) var verdictUndo = UndoWindow<PendingVerdictChoice>()
-    /// Each run's screen as a picture (root ADR 0045): what its live screen's HELLO said, else
+    /// Each run's screen as a picture (root ADR 0046): what its live screen's HELLO said, else
     /// the size of the first recorded frame shown. The stage sizes the run's picture by it, live
     /// or recorded alike, so following live and scrubbing never change its size.
     private(set) var screenShapes: [String: ScreenShape] = [:]
@@ -827,7 +827,7 @@ final class RunStore: PilotHost {
         }
     }
 
-    /// Records a run's screen shape (root ADR 0045): a live screen's always, a recorded
+    /// Records a run's screen shape (root ADR 0046): a live screen's always, a recorded
     /// frame's only while nothing better is known.
     func noteScreen(_ shape: ScreenShape, runId: String, live: Bool) {
         guard !shape.isEmpty, live || !liveShapes.contains(runId) else { return }

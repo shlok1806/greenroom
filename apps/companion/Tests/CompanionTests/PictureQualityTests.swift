@@ -4,7 +4,7 @@ import XCTest
 
 @testable import Companion
 
-/// The live picture is drawn pixel-exact (root ADR 0045): placed at a size that needs no
+/// The live picture is drawn pixel-exact (root ADR 0046): placed at a size that needs no
 /// fractional upscale, and drawn by copy, whole-pixel repeat or Lanczos, never a stretch.
 final class PictureQualityTests: XCTestCase {
     private let oneX = ScreenShape(pixels: CGSize(width: 1024, height: 768), points: CGSize(width: 1024, height: 768))

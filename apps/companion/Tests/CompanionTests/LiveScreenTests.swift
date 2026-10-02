@@ -16,7 +16,7 @@ final class LiveScreenTests: XCTestCase {
         return try reader.append(SyntheticScreen.wire(encoded, width: 1280, height: 960))
     }
 
-    /// The app decodes the stream itself (root ADR 0045), so no window or awake display is
+    /// The app decodes the stream itself (root ADR 0046), so no window or awake display is
     /// needed to see what it would draw.
     func testAStreamDecodesAtItsPixelSizeAndStatesItsShape() async throws {
         let source = FakeScreenSource(try messages())

@@ -30,7 +30,7 @@ struct StageView: View {
             let chrome: CGFloat = 12 + captionHeight + (strip ? 20 + TimelineBar.height : 0)
             let tall = geo.size.height - padding.top - Gap.x16 - chrome
             let room = max(120, min(geo.size.width - padding.horizontal * 2, tall * 4 / 3))
-            // The picture at its sharpest size (root ADR 0045) once the run's screen is known,
+            // The picture at its sharpest size (root ADR 0046) once the run's screen is known,
             // else the whole room.
             let placed = shell.store.screenShapes[summary.runId].map {
                 PicturePlacement.size($0, in: CGSize(width: room, height: room * 3 / 4), scale: displayScale)
@@ -337,7 +337,7 @@ struct StorePicture<Content: View>: View {
     }
 
     /// A recorded frame says how big the run's screen is until its live screen does (root
-    /// ADR 0045). A screenshot artifact does not: it may be at another size than the frames.
+    /// ADR 0046). A screenshot artifact does not: it may be at another size than the frames.
     private func noteShape(_ image: NSImage) {
         guard !picture.isScreenshot else { return }
         store.noteScreen(ScreenShape(picture: image.pixelSize), runId: runId, live: false)

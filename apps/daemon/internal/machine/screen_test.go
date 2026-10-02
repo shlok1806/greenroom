@@ -383,7 +383,7 @@ func TestInputUsesExecOnceTheScreenStops(t *testing.T) {
 	}
 }
 
-// The log says how dense the live screen is, and why a 1x guest is 1x (ADR 0045).
+// The log says how dense the live screen is, and why a 1x guest is 1x (ADR 0046).
 func TestHelloIsLoggedWithItsDensity(t *testing.T) {
 	cases := []struct {
 		hello, text string

@@ -328,7 +328,7 @@ type screenHelloBody struct {
 }
 
 // describeHello is the log line for a live screen's HELLO: its size and pixel density (ADR
-// 0045). A guest at 1x is a host whose main display is not Retina: Tart sizes the guest's
+// 0046). A guest at 1x is a host whose main display is not Retina: Tart sizes the guest's
 // display in that display's points, so its text is drawn at 1x however the Companion draws it.
 func describeHello(payload []byte) (string, []any) {
 	var h screenHelloBody

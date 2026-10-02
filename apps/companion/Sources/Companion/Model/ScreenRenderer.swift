@@ -3,7 +3,7 @@ import CoreVideo
 import Metal
 import MetalPerformanceShaders
 
-/// How a decoded frame becomes a drawable's pixels (root ADR 0045): copied at its own size,
+/// How a decoded frame becomes a drawable's pixels (root ADR 0046): copied at its own size,
 /// each pixel repeated at a whole multiple of it, and Lanczos otherwise. Never a bilinear
 /// stretch, which is what blurred small text.
 enum ScreenFilter: Equatable, Sendable {
