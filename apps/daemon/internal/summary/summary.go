@@ -31,6 +31,7 @@ const (
 	Failed       State = "failed"        // the current verdict is a fail
 	Inconclusive State = "inconclusive"  // the current verdict could not decide
 	Stopped      State = "stopped"       // the run is over with no outcome
+	DidNotStart  State = "did-not-start" // the Mac never became ready (root ADR 0049)
 )
 
 // Word is the status word a UI shows for s.
@@ -56,12 +57,14 @@ func (s State) Word() string {
 		return "Inconclusive"
 	case Stopped:
 		return "Stopped"
+	case DidNotStart:
+		return "Did not start"
 	}
 	return string(s)
 }
 
 // States is the whole vocabulary, in the order a run usually meets it.
-var States = []State{Starting, Ready, Checking, Paused, NotAnswering, Restarting, Passed, Failed, Inconclusive, Stopped}
+var States = []State{Starting, Ready, Checking, Paused, NotAnswering, Restarting, Passed, Failed, Inconclusive, Stopped, DidNotStart}
 
 // Group is where a run sits in a list (root ADR 0036).
 type Group string
@@ -266,7 +269,10 @@ type Input struct {
 	Steps     []machine.Step
 	Frames    []machine.Frame
 	LastFrame *machine.Frame
-	Now       time.Time
+	// StartFailure is why the run's Mac never became ready (machine.StepLog.StartFailure,
+	// root ADR 0049), nil when it did. Given apart from Steps, which a closed run leaves out.
+	StartFailure *machine.StartFailure
+	Now          time.Time
 }
 
 // LiveMachine is what the summary needs of a live machine.
@@ -502,6 +508,9 @@ func state(in Input, f derived) (State, time.Time) {
 		}
 	}
 	open := in.open()
+	if !open && in.StartFailure != nil {
+		return DidNotStart, stoppedSince(in)
+	}
 	if open && !f.lookSince.IsZero() {
 		return NotAnswering, f.lookSince
 	}
@@ -587,6 +596,9 @@ func tone(in Input, st State) Tone {
 		if reviewWaits(in) || acceptedByHuman(in) {
 			return ToneFail
 		}
+	case DidNotStart:
+		// Nothing else tells a person that a run they started never ran (root ADR 0049).
+		return ToneFail
 	}
 	return ToneQuiet
 }

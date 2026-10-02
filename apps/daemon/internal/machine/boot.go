@@ -53,7 +53,7 @@ func (m *Manager) finishBoot(boot context.Context, mc *Machine, started time.Tim
 		m.Log.Warn("cannot write the run manifest", "runId", mc.RunID, "err", uerr)
 	}
 	timings["status"], timings["ip"], timings["bootSeconds"] = mc.Status, ip, mc.BootSeconds
-	seq := mc.rec.step("machine_boot", nil, timings, err, started)
+	seq := mc.rec.step(StepBoot, nil, timings, err, started)
 	close(mc.ready)
 	m.emitStep(mc.RunID, seq)
 	if err != nil {

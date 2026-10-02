@@ -161,6 +161,10 @@ func (a *api) summaryInput(runID string, mc *machine.Machine, store *session.Sto
 			a.log.Warn("cannot read a run's steps for its summary", "runId", runID, "err", err)
 		}
 		in.Steps = steps
+		in.StartFailure = machine.StartFailureOf(steps)
+	} else {
+		// The light read the run list makes; a closed run's summary is cached after it.
+		in.StartFailure = a.stepLog(runID).StartFailure
 	}
 	return in
 }

@@ -13,6 +13,9 @@ import Foundation
 /// A status word's stable id (the ADR's vocabulary).
 enum SummaryState: Hashable, Sendable {
     case starting, ready, checking, paused, notAnswering, restarting, passed, failed, inconclusive, stopped
+    /// `did-not-start`: the run's Mac never became ready (root ADR 0049). A failure, never a
+    /// verdict: no checks, no failing check.
+    case didNotStart
     case unknown(String)
 
     init(_ raw: String) {
@@ -27,6 +30,7 @@ enum SummaryState: Hashable, Sendable {
         case "failed": self = .failed
         case "inconclusive": self = .inconclusive
         case "stopped": self = .stopped
+        case "did-not-start": self = .didNotStart
         default: self = .unknown(raw)
         }
     }

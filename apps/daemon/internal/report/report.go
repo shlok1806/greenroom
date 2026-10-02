@@ -77,7 +77,10 @@ type Report struct {
 	CreatedAt   time.Time       `json:"createdAt"`
 	DestroyedAt *time.Time      `json:"destroyedAt,omitempty"`
 	Steps       int             `json:"steps"`
-	Verdict     *Verdict        `json:"verdict"`
+	// StartError is why the run's Mac never became ready, its failed machine_create or
+	// machine_boot step's error (root ADR 0049); absent when it did.
+	StartError string   `json:"startError,omitempty"`
+	Verdict    *Verdict `json:"verdict"`
 	// Scope is what the verdict certifies and what it does not (ADR 0024 point 6).
 	Scope string `json:"scope"`
 }
@@ -146,6 +149,9 @@ func Build(in Input) (Report, error) {
 
 	r := Report{RunID: b.runID, CreatedAt: man.CreatedAt, DestroyedAt: man.DestroyedAt, Steps: len(steps),
 		Models: runModels(man, in.Models), Finish: finishOf(in.Messages, man)}
+	if f := machine.StartFailureOf(steps); f != nil {
+		r.StartError = f.Error
+	}
 	if in.Verdict.Status != session.None && in.Verdict.Seq > 0 {
 		r.Verdict = b.verdict(in.Verdict, in.Messages)
 	}

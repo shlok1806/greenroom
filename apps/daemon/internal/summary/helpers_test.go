@@ -227,6 +227,8 @@ func (b *builder) build() Input {
 	if err != nil {
 		b.t.Fatal(err)
 	}
+	// The api reads it from the same step log (machine.StepLog.StartFailure).
+	b.in.StartFailure = machine.StartFailureOf(b.in.Steps)
 	b.in.Verdict = store.Verdict()
 	if st := store.Finished(); st != nil && b.in.Finish == nil {
 		b.in.Finish = st

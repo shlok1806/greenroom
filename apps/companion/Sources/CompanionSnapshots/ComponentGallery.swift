@@ -32,6 +32,13 @@ struct ComponentGallery: View {
                             .frame(width: 232, height: Metrics.runRowHeight, alignment: .leading).padding(.leading, Gap.x8)
                     }
                     labeled("Stopped", width: 248) { RunRowView(model: row("UnitConvert: result size", .stopped, .secondary, "1d"), selected: false) }
+                    // Made by the app's own rule from the daemon's state and tone (root ADR 0049).
+                    labeled("Did not start", width: 248) {
+                        let now = Date()
+                        RunRowView(model: RunRowModel(Summary(runId: "dns", name: "TipSplit: round each share", state: .didNotStart,
+                                                              status: "Did not start", tone: .fail, group: .done,
+                                                              since: now.addingTimeInterval(-3 * 3600)), now: now), selected: false)
+                    }
                 }
             }
             section("Check row") {

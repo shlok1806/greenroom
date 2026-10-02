@@ -90,8 +90,14 @@ func figmaRuns(t *testing.T) []Input {
 		accept(session.Human, 200).finish(session.OutcomeVerified, 210).event("machine destroyed", 212).ended(212).
 		frame(170, 0).now(2 * 24 * 3600)
 
+	// Not a Figma screen: a create whose image was not on the host (issue #286, root ADR 0049).
+	didNotStart := newRun(t, "20260922-190455-a1b2c3d4e5f60718").named("TipSplit: round each share", "claude-code").
+		step(machine.StepCreate, 0, map[string]any{"image": "greenroom-lean-a"}, nil,
+			`tart clone greenroom-lean-a greenroom-20260922-190455-a1b2c3d4e5f60718: exit status 2: the specified VM "greenroom-lean-a" does not exist`).
+		ended(0).now(2 * 24 * 3600)
+
 	var out []Input
-	for _, b := range []*builder{tipSplit, wordCount, unitConvert, paused, notAnsweringRun, starting, done} {
+	for _, b := range []*builder{tipSplit, wordCount, unitConvert, paused, notAnsweringRun, starting, done, didNotStart} {
 		out = append(out, b.build())
 	}
 	return out
@@ -312,6 +318,10 @@ func statusRuns(t *testing.T) []Input {
 		newRun(t, "e").live(machine.Failed).event("machine failed to boot: tart clone: exit status 1", 5).build(),
 		newRun(t, "f").task(tipTask, 10).verdict("pass", 20, pass("a", "x", "y")).accept(session.Coder, 21).finish(session.OutcomeVerified, 30).ended(31).build(),
 		newRun(t, "g").task(tipTask, 10).event("human destroyed the machine", 20).event("machine destroyed", 21).ended(21).build(),
+		newRun(t, "h").step(machine.StepCreate, 0, nil, nil, "tart clone greenroom-lean-a greenroom-h: exit status 2").ended(0).build(),
+		newRun(t, "i").live(machine.Failed).step(machine.StepCreate, 0, nil, nil, "").
+			step(machine.StepBoot, 180, nil, nil, "timed out waiting for the guest agent (machine_wait)").
+			event("machine failed: timed out waiting for the guest agent", 180).build(),
 	}
 }
 

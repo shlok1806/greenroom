@@ -168,6 +168,41 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 			want{Stopped, Done, ToneQuiet, "", nil, "The Mac did not restart. Its files are kept.", "-", ""},
 		},
 		{
+			"a reboot that failed after a boot that worked started once, so it is Stopped",
+			func(b *builder) *builder {
+				return b.live(machine.Failed).step(machine.StepCreate, 0, nil, nil, "").step(machine.StepBoot, 40, nil, nil, "").
+					task(tipTask, 60).event("machine failed to reboot: tart run exited", 300)
+			},
+			want{Stopped, Done, ToneQuiet, "", nil, "The Mac did not restart. Its files are kept.", "-", ""},
+		},
+		{
+			"a create whose clone failed Did not start, in the fail tone, with nothing to do (issue #286)",
+			func(b *builder) *builder {
+				return b.step(machine.StepCreate, 0, map[string]any{"image": "greenroom-lean-a"}, nil,
+					`tart clone greenroom-lean-a greenroom-x: exit status 2: the specified VM "greenroom-lean-a" does not exist`).ended(0)
+			},
+			want{DidNotStart, Done, ToneFail, "", nil, "The Mac could not be created.", "-", ""},
+		},
+		{
+			"a boot that failed Did not start while its machine is still held",
+			func(b *builder) *builder {
+				return b.live(machine.Failed).step(machine.StepCreate, 0, nil, nil, "").
+					step(machine.StepBoot, 180, nil, nil, "timed out waiting for the guest agent").
+					event("machine failed: timed out waiting for the guest agent", 180)
+			},
+			want{DidNotStart, Done, ToneFail, "", nil, "The Mac did not finish starting.", "-", ""},
+		},
+		{
+			"a boot that failed still Did not start after a person destroyed the machine",
+			func(b *builder) *builder {
+				return b.step(machine.StepCreate, 0, nil, nil, "").
+					step(machine.StepBoot, 180, nil, nil, "timed out waiting for the guest agent").
+					event("machine failed: timed out waiting for the guest agent", 180).
+					event("human destroyed the machine", 200).ended(200)
+			},
+			want{DidNotStart, Done, ToneFail, "", nil, "The Mac did not finish starting.", "-", ""},
+		},
+		{
 			"a machine low on files needs you while it keeps checking, and offers a plain restart",
 			func(b *builder) *builder {
 				return b.live(machine.Ready).lowOnFiles().event("machine is ready", 40).task(tipTask, 60)
@@ -378,7 +413,7 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 
 // Every word of the vocabulary is reachable, and nothing else is: the table above covers each.
 func TestTheVocabularyIsFixed(t *testing.T) {
-	want := []string{"Starting", "Ready", "Checking", "Paused", "Not answering", "Restarting", "Passed", "Failed", "Inconclusive", "Stopped"}
+	want := []string{"Starting", "Ready", "Checking", "Paused", "Not answering", "Restarting", "Passed", "Failed", "Inconclusive", "Stopped", "Did not start"}
 	var got []string
 	for _, s := range States {
 		got = append(got, s.Word())
@@ -636,5 +671,22 @@ func TestNowNamesEachKindOfStepInPlainWords(t *testing.T) {
 				t.Errorf("now = %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// A Mac that never started says so as its end, whatever came after it (root ADR 0049).
+func TestAMacThatNeverStartedSaysItDidNotStart(t *testing.T) {
+	s := newRun(t, "r1").step(machine.StepCreate, 0, nil, nil, "").
+		step(machine.StepBoot, 180, nil, nil, "timed out waiting for the guest agent").
+		event("machine failed: timed out waiting for the guest agent", 180).
+		event("human destroyed the machine", 200).ended(200).derive()
+	if s.Machine.Status != "off" || s.Machine.Ended != "The Mac did not start." {
+		t.Errorf("machine = %+v, want off and \"The Mac did not start.\"", s.Machine)
+	}
+	if s.PrimaryAction != nil || len(s.SecondaryActions) != 0 {
+		t.Errorf("actions = %v, %v; want none", s.PrimaryAction, s.SecondaryActions)
+	}
+	if s.EndedAt == nil || !s.EndedAt.Equal(at(200)) || !s.Since.Equal(at(200)) {
+		t.Errorf("ended %v since %v, want both at its end", s.EndedAt, s.Since)
 	}
 }

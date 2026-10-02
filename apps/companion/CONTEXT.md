@@ -6,7 +6,7 @@ are in the root `CONTEXT-MAP.md`.
 ## Glossary
 
 - **Run**: a row in the sidebar (`RunSummary`), a `RunDetail` once opened. A finished run
-  has no machine and is read-only. Named by its **task**, the first `task` message.
+  has no machine and is read-only; so has a failed one (see Phase). Named by its **task**, the first `task` message.
 - **Stage**: the run's main column: the Screen, with the Steps as a timeline under it on a
   wide window (tabs in the round-2 window). The conversation column sits beside it.
 - **Verdict card**: the current verdict pinned above the conversation, headed by its state
@@ -16,7 +16,11 @@ are in the root `CONTEXT-MAP.md`.
   or message for 5 minutes. **Ended** says how: destroyed by you, destroyed by the coding
   agent, or machine lost (its VM stopped under the run). A machine the daemon is
   **rebooting** (`machine_reboot`, daemon ADR 0004) is in the booting phase and says
-  Rebooting: the same machine coming up again on the same disk, never ended.
+  Rebooting: the same machine coming up again on the same disk, never ended. **Failed** is a
+  run whose Mac never became ready: its create or its boot failed (root ADR 0049). It stays
+  failed once the machine is gone: the run list says `failed`, never `finished`, and the
+  summary says **Did not start** (`did-not-start`) in the fail colour. A failed reboot is
+  not one: that Mac started once.
 - **Done**: a run the coding agent finished with `run_finish` (root ADR 0034), with its
   **outcome**: `Verified` (an accepted pass on this run), `Unverified` or `Abandoned`, a
   summary and a ref (branch, commit, PR). Done outranks the phase; the machine may still

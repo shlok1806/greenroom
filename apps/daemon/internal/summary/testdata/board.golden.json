@@ -387,7 +387,7 @@
     {
       "id": "done",
       "title": "Done",
-      "count": 1,
+      "count": 2,
       "runs": [
         {
           "runId": "20260922-221040-5566778899aabbcc",
@@ -433,6 +433,37 @@
             "at": "2026-09-23T04:44:28Z"
           },
           "updatedAt": "2026-09-23T04:45:10Z"
+        },
+        {
+          "runId": "20260922-190455-a1b2c3d4e5f60718",
+          "name": "TipSplit: round each share",
+          "source": "Claude Code",
+          "state": "did-not-start",
+          "status": "Did not start",
+          "tone": "fail",
+          "group": "done",
+          "detail": "The Mac could not be created.",
+          "since": "2026-09-23T04:41:38Z",
+          "startedAt": "2026-09-23T04:41:38Z",
+          "endedAt": "2026-09-23T04:41:38Z",
+          "elapsedSeconds": 0,
+          "checks": {
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "pending": 0,
+            "current": null,
+            "items": []
+          },
+          "failing": null,
+          "primaryAction": null,
+          "secondaryActions": [],
+          "machine": {
+            "status": "off",
+            "ended": "The Mac did not start."
+          },
+          "lastFrame": null,
+          "updatedAt": "2026-09-23T04:41:38Z"
         }
       ]
     }

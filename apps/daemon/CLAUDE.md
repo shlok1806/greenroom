@@ -239,8 +239,9 @@ Each layer depends only on the ones below. Keep it that way.
   is pure over an `Input` the caller gathers (manifest, live machine, messages, verdict,
   steps, frames); `NewBoard` groups. Below `api` and `mcpserver` (which uses `Name` to cut
   `machine_create`'s name), above `machine` and `session`. The status vocabulary, the groups
-  and the action ids are the ADR's table: a new state is a row there and a case in
-  `TestEveryStatusHasItsGroupActionAndWords`. Every string must stay plain words:
+  and the action ids are the ADR's table (plus ADR 0049's `did-not-start`, read from
+  `Input.StartFailure`, which the api fills from the step log even when it reads no steps): a
+  new state is a row there and a case in `TestEveryStatusHasItsGroupActionAndWords`. Every string must stay plain words:
   `TestNoSummaryUsesAToolNameTimingOrInternalTerm` lists what is forbidden, and verifier prose
   it quotes goes through `plain`. The rules it reads by text: the bridge's "machine is ready",
   "machine rebooted and is ready", "machine failed" (and "machine failed to reboot"),
@@ -348,11 +349,18 @@ Boot and lifecycle
   `by`, the `destroyed` event's `By`/`Via` (the bridge's `destroyedText`, which keeps the
   "machine destroyed" prefix) and an info log line; `session.Finish.By` records the finisher.
 - `machine_create` takes an optional `name` (cut to five words by `summary.Name`) and records
-  it with the calling client's name as the manifest's `name` and `source`
-  (`Manager.RecordLabel`, ADR 0036). The server is stateless, so an older-protocol client's
-  `clientInfo` never reaches a tool call: `clientName` falls back to the User-Agent's first
-  product, skipping HTTP libraries' (`genericAgents`). A label that cannot be written is
-  logged; the create stands.
+  it with the calling client's name as the manifest's `name` and `source` (ADR 0036). They go
+  into the first manifest (`Manager.CreateLabeled`, `machine.Label`), before the clone, so a
+  create that fails keeps them too (ADR 0049). The server is stateless, so an older-protocol
+  client's `clientInfo` never reaches a tool call: `clientName` falls back to the User-Agent's
+  first product, skipping HTTP libraries' (`genericAgents`).
+- A run whose Mac never became ready (ADR 0049, issue #286) is told by its step log alone:
+  an errored `machine_create` or `machine_boot` step (`machine.StartFailureOf`,
+  `StepLog.StartFailure`; `StepCreate`, `StepBoot`). No new record is written, so runs already
+  on disk read the same way. `/api/runs` lists such a run as `failed` with `startError`, never
+  `finished`; the summary says Did not start; the report is headed Did not start unless the
+  coding agent finished it. A failed `machine_reboot` is not one, and a boot a destroy cut
+  short records no `machine_boot` step. Renaming either step breaks all three.
 - `machine_create` returns `booting` at once; callers poll `machine_wait` (capped at 50 s,
   under Claude Code's 60 s first-byte timeout). `agent_wait`, `machine_exec`,
   `machine_exec_wait` and `machine_reboot` have the same cap. No tool may block longer.

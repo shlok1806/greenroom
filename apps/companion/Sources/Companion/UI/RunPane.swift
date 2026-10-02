@@ -350,6 +350,7 @@ struct ChecksColumn: View {
         switch summary.state {
         case .checking: "The verifier lists its checks before it acts."
         case .stopped: "This run ended before the verifier checked anything."
+        case .didNotStart: "The Mac never started, so nothing was checked."
         default: "No checks for this run."
         }
     }
