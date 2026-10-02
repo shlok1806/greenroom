@@ -143,6 +143,8 @@ enum StageContent: Equatable, Sendable {
         case .notAnswering, .restarting:
             if let last = s.lastFrame { return .picture(last, mark: nil, markColor: .fail, dimmed: true) }
             return .none("No picture yet")
+        case .didNotStart:
+            return .none("The Mac did not start, so there is no picture")
         default:
             break
         }

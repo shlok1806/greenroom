@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -286,5 +287,52 @@ func TestMarkdownKeepsFieldsOnTheirLines(t *testing.T) {
 	}
 	if got := quote("one\n\ntwo </details>"); got != "> one\n>\n> two &lt;/details>" {
 		t.Errorf("quote = %q", got)
+	}
+}
+
+// A run whose Mac never became ready says it did not start, not that the coding agent has not
+// finished it (issue #286, root ADR 0049); a finish still outranks it.
+func TestARunWhoseMacNeverStartedSaysItDidNotStart(t *testing.T) {
+	clone := `tart clone greenroom-lean-a greenroom-x: exit status 2: the specified VM "greenroom-lean-a" does not exist`
+	dir := writeRun(t, `{"seq":1,"at":"2026-09-27T10:00:00Z","tool":"machine_create","input":{"image":"greenroom-lean-a"},"error":`+strconv.Quote(clone)+`,"durationMs":31}`)
+	rep, err := Build(Input{Dir: dir, Verdict: session.VerdictState{Status: session.None}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.StartError != clone {
+		t.Errorf("startError = %q, want the create's error", rep.StartError)
+	}
+	md := rep.Markdown()
+	for _, want := range []string{
+		"## Greenroom: Did not start\n\n",
+		"- **Outcome:** did not start: the machine never became ready: `" + clone + "`\n",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "Not finished") || strings.Contains(md, "run_finish") {
+		t.Errorf("markdown blames the coding agent for a run it never got:\n%s", md)
+	}
+
+	f := session.Finish{Outcome: session.OutcomeAbandoned, Summary: "No machine.", At: time.Date(2026, 9, 27, 11, 0, 0, 0, time.UTC)}
+	msgs := []session.Message{{Seq: 1, From: session.System, Kind: session.Event, Text: session.FinishText(f), Finish: &f}}
+	rep, err = Build(Input{Dir: dir, Messages: msgs, Verdict: session.VerdictState{Status: session.None}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	md = rep.Markdown()
+	for _, want := range []string{"## Greenroom: Abandoned\n", "- **Machine:** never became ready: `" + clone + "`\n"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("finished: markdown lacks %q:\n%s", want, md)
+		}
+	}
+
+	// A machine_reboot that failed is not a start that failed: that Mac was ready once.
+	dir = writeRun(t, `{"seq":1,"at":"2026-09-27T10:00:00Z","tool":"machine_create","durationMs":31}`,
+		`{"seq":2,"at":"2026-09-27T10:00:40Z","tool":"machine_boot","durationMs":40000}`,
+		`{"seq":3,"at":"2026-09-27T10:05:00Z","tool":"machine_reboot","error":"tart run exited","durationMs":9000}`)
+	if rep, err = Build(Input{Dir: dir, Verdict: session.VerdictState{Status: session.None}}); err != nil || rep.StartError != "" {
+		t.Errorf("a failed reboot: startError %q, err %v; want none", rep.StartError, err)
 	}
 }

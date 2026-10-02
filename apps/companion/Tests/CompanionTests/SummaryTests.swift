@@ -26,6 +26,7 @@ final class SummaryTests: XCTestCase {
     private let todoNotAnswering = "20260923-070129-9f00e1a4b27c3d65"
     private let longestPaused = "20260923-060011-44c1d0e9a2b3f581"
     private let keepsText = "20260922-221040-5566778899aabbcc"
+    private let didNotStart = "20260922-190455-a1b2c3d4e5f60718"
 
     // MARK: Decoding
 
@@ -33,7 +34,7 @@ final class SummaryTests: XCTestCase {
         let board = try Self.golden()
         XCTAssertEqual(board.groups.map(\.id), [.needsYou, .running, .done])
         XCTAssertEqual(board.macs, SummaryMacs(free: 2, total: 3, text: "2 of 3 Macs free"))
-        XCTAssertEqual(board.runs.count, 7)
+        XCTAssertEqual(board.runs.count, 8)
     }
 
     func testTheFailedRunCarriesItsChecksValuesAndProof() throws {
@@ -100,7 +101,7 @@ final class SummaryTests: XCTestCase {
         XCTAssertFalse(board.groups[1].runs.contains { $0.runId == unitConvert })
         XCTAssertEqual(board.groups[0].count, board.groups[0].runs.count)
         XCTAssertEqual(board.macs.free, 1)
-        XCTAssertEqual(board.runs.count, 7, "a move adds no run")
+        XCTAssertEqual(board.runs.count, 8, "a move adds no run")
 
         let fresh = Summary(runId: "new", name: "New run", since: Date(timeIntervalSince1970: 4_100_000_000))
         XCTAssertEqual(board.applying(fresh, macs: nil).groups[1].runs.first?.runId, "new")
@@ -167,7 +168,7 @@ final class SummaryTests: XCTestCase {
         XCTAssertEqual(items.first, .heading(.needsYou))
         XCTAssertTrue(items.contains(.heading(.done)))
         let runs = items.filter { if case .run = $0 { true } else { false } }
-        XCTAssertEqual(runs.count, 7)
+        XCTAssertEqual(runs.count, 8)
         XCTAssertEqual(SidebarLayout.step(from: nil, by: 1, in: items), board.groups[0].runs.first?.runId)
         let last = try XCTUnwrap(board.runs.last?.runId)
         XCTAssertEqual(SidebarLayout.step(from: last, by: 1, in: items), last, "down at the end stays")
@@ -215,6 +216,37 @@ final class SummaryTests: XCTestCase {
         let paused = HeaderModel(try XCTUnwrap(board.summary(longestPaused)), now: now)
         XCTAssertEqual(paused.primary?.label, "Continue")
         XCTAssertEqual(paused.line, "The verifier ran out of time. Continue lets it go on.")
+    }
+
+    /// A run whose Mac never started (root ADR 0049, issue #286) reads as a failure, never as
+    /// an ordinary finished run: the failed glyph in the fail colour, its word, its sentence.
+    func testARunWhoseMacNeverStartedIsAFailedRowAndHeader() throws {
+        let board = try Self.golden()
+        let s = try XCTUnwrap(board.summary(didNotStart))
+        XCTAssertEqual(s.state, .didNotStart)
+        XCTAssertEqual(s.group, .done)
+        XCTAssertEqual(s.tone, .fail)
+        XCTAssertEqual(s.machine.ended, "The Mac did not start.")
+        XCTAssertNil(s.primaryAction)
+        XCTAssertFalse(s.state.isOutcome, "no verdict, so no checks to show")
+        XCTAssertFalse(s.state.isWorking)
+
+        let row = RunRowModel(s, now: now)
+        XCTAssertEqual(row.glyph, .failed)
+        XCTAssertEqual(row.glyphColor, .fail)
+        XCTAssertEqual(row.accessibilityLabel, "TipSplit: round each share, Did not start, \(row.meta)")
+        XCTAssertFalse(row.meta.contains(":"), "a done run shows its age: \(row.meta)")
+
+        let header = HeaderModel(s, now: now)
+        XCTAssertEqual(header.status, "Did not start")
+        XCTAssertEqual(header.glyph, .failed)
+        XCTAssertEqual(header.line, "The Mac could not be created.")
+        XCTAssertEqual(header.tally, "")
+        XCTAssertNil(header.primary)
+
+        XCTAssertEqual(StageContent.of(s, check: nil, pickedFrame: nil, liveWanted: false, framesHeld: []),
+                       .none("The Mac did not start, so there is no picture"))
+        XCTAssertTrue(SidebarSearch.matches(s, needle: "did not start", task: nil))
     }
 
     func testTheNowLineKeepsANamesCapital() {

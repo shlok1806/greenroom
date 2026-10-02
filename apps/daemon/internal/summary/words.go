@@ -43,6 +43,11 @@ func detail(in Input, f derived, st State) string {
 		}
 	case Stopped:
 		return stoppedSentence(in)
+	case DidNotStart:
+		if in.StartFailure.Tool == machine.StepCreate {
+			return "The Mac could not be created."
+		}
+		return "The Mac did not finish starting."
 	}
 	return ""
 }
@@ -123,6 +128,10 @@ func stoppedSentence(in Input) string {
 func machineEnd(in Input) string {
 	if in.Machine != nil && in.Machine.Status != machine.Failed {
 		return ""
+	}
+	if in.StartFailure != nil {
+		// Whatever came after (a destroy of the failed machine), it never ran (root ADR 0049).
+		return "The Mac did not start."
 	}
 	for i := len(in.Messages) - 1; i >= 0; i-- {
 		m := in.Messages[i]

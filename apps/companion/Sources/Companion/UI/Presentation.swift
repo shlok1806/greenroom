@@ -40,7 +40,8 @@ extension SummaryState {
         case .paused: .paused
         case .notAnswering: .warning
         case .passed: .passed
-        case .failed: .failed
+        // A Mac that never started is a failure, drawn as one (root ADR 0049).
+        case .failed, .didNotStart: .failed
         case .inconclusive, .stopped, .unknown: .stopped
         }
     }

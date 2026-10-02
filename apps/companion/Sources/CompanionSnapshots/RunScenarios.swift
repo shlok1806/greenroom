@@ -10,6 +10,8 @@ import SwiftUI
 @MainActor
 enum RunScenarios {
     typealias F = StateFixtures
+    /// The golden board's create that failed (root ADR 0049).
+    static let didNotStart = "20260922-190455-a1b2c3d4e5f60718"
 
     static func scenarios(base: URL?) -> [RedesignHarness.Scenario] {
         typealias S = RedesignHarness.Scenario
@@ -68,6 +70,12 @@ enum RunScenarios {
                 await window(size, base: base, state: .failed, now: at(.failed), prepare: { $0.settingsOpen = true })
             },
             stateScenario("r15-done", .done),
+            // The golden board's run whose Mac never started (root ADR 0049): the stage and the
+            // Checks tab say so. Needs that run in the daemon's root to open its record.
+            S(name: "r15b-did-not-start", sizes: [.regular], dark: true, countFrom: 248) { size in
+                await window(size, base: base, state: .done, select: didNotStart, now: at(.done),
+                             prepare: { $0.show(.checks) })
+            },
             // Redesign 7: the player and the inspector.
             S(name: "r16-more-menu", sizes: [.regular], dark: true, countFrom: 248) { size in
                 await window(size, base: base, state: .failed, now: at(.failed), prepare: { shell in

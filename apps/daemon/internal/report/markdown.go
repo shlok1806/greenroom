@@ -14,11 +14,22 @@ func (r Report) Markdown() string {
 	var b strings.Builder
 	w := func(format string, args ...any) { fmt.Fprintf(&b, format, args...) }
 
-	w("## Greenroom: %s\n\n", outcomeTitle(r.Finish))
-	if r.Finish != nil {
-		w("%s\n\n", oneLine(r.Finish.Summary))
+	// A run whose Mac never started says so, unless the coding agent finished it: its word on
+	// the run outranks (root ADR 0049).
+	notStarted := r.StartError != "" && r.Finish == nil
+	if notStarted {
+		w("## Greenroom: Did not start\n\n")
+		w("- **Outcome:** did not start: the machine never became ready: %s\n", code(r.StartError))
+	} else {
+		w("## Greenroom: %s\n\n", outcomeTitle(r.Finish))
+		if r.Finish != nil {
+			w("%s\n\n", oneLine(r.Finish.Summary))
+		}
+		w("- **Outcome:** %s\n", outcomeLine(r.Finish))
 	}
-	w("- **Outcome:** %s\n", outcomeLine(r.Finish))
+	if r.StartError != "" && !notStarted {
+		w("- **Machine:** never became ready: %s\n", code(r.StartError))
+	}
 	if r.Finish != nil && r.Finish.Ref != nil && !r.Finish.Ref.IsZero() {
 		w("- **Ref:** %s\n", refLine(*r.Finish.Ref))
 	}

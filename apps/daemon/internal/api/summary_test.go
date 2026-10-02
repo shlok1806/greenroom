@@ -148,10 +148,12 @@ func TestTheBoardGroupsEveryRunAndCountsFreeMacs(t *testing.T) {
 
 func TestTheSummaryUsesTheNameAndClientTheRunWasCreatedWith(t *testing.T) {
 	h := newHarness(t)
-	runID := h.create()
-	if err := h.mgr.RecordLabel(runID, "TipSplit: split the bill", "claude-code"); err != nil {
+	mc, err := h.mgr.CreateLabeled(context.Background(), "ghcr.io/example/base:latest",
+		machine.Label{Name: "TipSplit: split the bill", Source: "claude-code"})
+	if err != nil {
 		t.Fatal(err)
 	}
+	runID := mc.RunID
 	if s := h.summary(runID); s.Name != "TipSplit: split the bill" || s.Source != "Claude Code" {
 		t.Errorf("name %q source %q", s.Name, s.Source)
 	}

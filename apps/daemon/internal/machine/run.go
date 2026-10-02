@@ -266,6 +266,43 @@ type StepLog struct {
 	// Last is when the newest step ended (start plus duration), so a long
 	// final build does not date the run's last activity too early.
 	Last time.Time
+	// StartFailure is why the run's Mac never became ready, nil when it did or nothing says
+	// it failed (root ADR 0049).
+	StartFailure *StartFailure
+}
+
+// StartFailure is the step that kept a run's Mac from ever becoming ready: an errored
+// machine_create (the clone or the start failed) or machine_boot (the guest never answered).
+type StartFailure struct {
+	Tool  string `json:"tool"` // StepCreate or StepBoot
+	Error string `json:"error"`
+}
+
+// The steps that take a run's Mac to ready.
+const (
+	StepCreate = "machine_create"
+	StepBoot   = "machine_boot"
+)
+
+// startFailure is the failure one step records, nil when the step is not one that starts the
+// Mac or it did not fail. A failed machine_reboot is not one: that Mac started once.
+func startFailure(tool, err string) *StartFailure {
+	if err == "" || (tool != StepCreate && tool != StepBoot) {
+		return nil
+	}
+	return &StartFailure{Tool: tool, Error: err}
+}
+
+// StartFailureOf is why the run whose steps these are never had a ready Mac (root ADR 0049):
+// its first errored machine_create or machine_boot step, nil when there is none. A boot a
+// destroy cut short records no machine_boot step, so it is not a failure.
+func StartFailureOf(steps []Step) *StartFailure {
+	for _, s := range steps {
+		if f := startFailure(s.Tool, s.Error); f != nil {
+			return f
+		}
+	}
+	return nil
 }
 
 // ReadStepLog summarises steps.jsonl, decoding only the fields it needs.
@@ -284,6 +321,8 @@ func ReadStepLog(dir string) (StepLog, error) {
 			Seq        int       `json:"seq"`
 			At         time.Time `json:"at"`
 			DurationMS int64     `json:"durationMs"`
+			Tool       string    `json:"tool"`
+			Error      string    `json:"error"`
 		}
 		if err := json.Unmarshal(line, &s); err != nil {
 			if !terminated {
@@ -293,6 +332,9 @@ func ReadStepLog(dir string) (StepLog, error) {
 		}
 		out.Count++
 		out.Highest = max(out.Highest, s.Seq)
+		if out.StartFailure == nil {
+			out.StartFailure = startFailure(s.Tool, s.Error)
+		}
 		if end := s.At.Add(time.Duration(s.DurationMS) * time.Millisecond); end.After(out.Last) {
 			out.Last = end
 		}

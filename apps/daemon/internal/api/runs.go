@@ -32,12 +32,18 @@ type RunSummary struct {
 	Finish *session.Finish `json:"finish"`
 	// Models is who verifies the run, from its manifest (issue #154); absent in older runs.
 	Models *machine.Models `json:"models,omitempty"`
+	// StartError is why the run's Mac never became ready, the error of its failed
+	// machine_create or machine_boot step (root ADR 0049); absent when it did.
+	StartError string `json:"startError,omitempty"`
 }
 
 // Statuses of a run with no live machine; a live one reports its machine.Status.
 const (
 	statusFinished = "finished"
-	statusFailed   = "failed" // no readable manifest
+	// statusFailed is a run whose Mac never became ready (root ADR 0049), the word a live
+	// machine whose boot failed already reports (machine.Failed), or one with no readable
+	// manifest.
+	statusFailed = string(machine.Failed)
 )
 
 // RunDetail is one run in full: the on-disk manifest, overlaid with the live machine and the conversation's verdict.
@@ -89,6 +95,9 @@ func (a *api) summary(runID string, mc *machine.Machine) RunSummary {
 	// Count steps.jsonl: manifest.Steps is a high-water mark, and the list must agree with /steps.
 	steps := a.stepLog(runID)
 	s.Steps = steps.Count
+	if f := steps.StartFailure; f != nil {
+		s.Status, s.StartError = statusFailed, f.Error
+	}
 	s.Task = a.runTask(runID)
 	if mc != nil {
 		s.Status, s.Image, s.IP = string(mc.Status), mc.Image, mc.IP

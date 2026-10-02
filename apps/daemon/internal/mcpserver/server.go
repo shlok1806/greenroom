@@ -82,13 +82,11 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 		if image == "" {
 			image = defaultImage
 		}
-		mc, err := mgr.Create(ctx, image)
+		// The label goes into the first manifest, so a create that fails keeps its name too
+		// (root ADR 0049).
+		mc, err := mgr.CreateLabeled(ctx, image, machine.Label{Name: runName(in.Name), Source: clientName(req)})
 		if err != nil {
 			return nil, nil, err
-		}
-		// The run is made; a label that cannot be written costs only its name in lists.
-		if err := mgr.RecordLabel(mc.RunID, runName(in.Name), clientName(req)); err != nil {
-			mgr.Log.Warn("cannot record the run's name", "runId", mc.RunID, "err", err)
 		}
 		return nil, mc, nil
 	})

@@ -431,6 +431,11 @@ func newRunID() string {
 // Create clones image and starts it, returning at once in Booting state.
 // Readiness is tracked in the background; use Wait to block for it.
 func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
+	return m.CreateLabeled(ctx, image, Label{})
+}
+
+// CreateLabeled is Create recording label with the run, whether or not the create succeeds.
+func (m *Manager) CreateLabeled(ctx context.Context, image string, label Label) (*Machine, error) {
 	m.createMu.Lock()
 	defer m.createMu.Unlock()
 
@@ -446,12 +451,13 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 	m.mu.Lock()
 	models := m.models
 	m.mu.Unlock()
-	rec, err := newRecorder(dir, Manifest{RunID: runID, Image: image, MachineName: name, CreatedAt: started.UTC(), Models: models}, m.Log)
+	rec, err := newRecorder(dir, Manifest{RunID: runID, Image: image, MachineName: name, CreatedAt: started.UTC(),
+		Models: models, Name: label.Name, Source: label.Source}, m.Log)
 	if err != nil {
 		return nil, err
 	}
 	fail := func(err error) (*Machine, error) {
-		rec.step("machine_create", input, nil, err, started)
+		rec.step(StepCreate, input, nil, err, started)
 		rec.markEnded()
 		return nil, err
 	}
@@ -496,7 +502,7 @@ func (m *Manager) Create(ctx context.Context, image string) (*Machine, error) {
 		m.cleanupVM(name)
 		return fail(err)
 	}
-	seq := rec.step("machine_create", input, map[string]any{"runId": runID, "machineName": name, "status": Booting}, nil, started)
+	seq := rec.step(StepCreate, input, map[string]any{"runId": runID, "machineName": name, "status": Booting}, nil, started)
 	m.emitStep(runID, seq)
 	created := m.snapshot(mc)
 	m.emit(LifecycleEvent{Kind: "created", RunID: runID, Machine: created})

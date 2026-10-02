@@ -227,10 +227,16 @@ struct ShimmerText: View {
             .overlay(alignment: .leading) {
                 if !reduceMotion {
                     Clocked { seconds in
-                        LinearGradient(stops: ShimmerText.stops, startPoint: .leading, endPoint: .trailing)
-                            .frame(width: width * 2)
-                            .offset(x: ShimmerText.offset(at: seconds, width: width))
-                            .frame(width: width, alignment: .leading)
+                        // Tiled, as CSS repeats a background: the offset runs past both ends
+                        // of the word, and one gradient alone left part of it undrawn.
+                        HStack(spacing: 0) {
+                            ForEach(0..<3, id: \.self) { _ in
+                                LinearGradient(stops: ShimmerText.stops, startPoint: .leading, endPoint: .trailing)
+                                    .frame(width: width * 2)
+                            }
+                        }
+                        .offset(x: ShimmerText.offset(at: seconds, width: width) - width * 2)
+                        .frame(width: width, alignment: .leading)
                             .mask(alignment: .leading) { Text(text).textStyle(style) }
                     }
                     .allowsHitTesting(false)
