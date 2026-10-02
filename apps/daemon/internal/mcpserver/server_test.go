@@ -573,6 +573,45 @@ func TestExecBoundsItsOutputAndSaysHowMuchWasLeftOut(t *testing.T) {
 	}
 }
 
+// Issue #227: a file truncated under a writer that kept its offset (tee without -a) reads back
+// as a run of NUL bytes before the new text. The result collapses the run into one marker and
+// says so, instead of returning thousands of escapes; the run record keeps the bytes.
+func TestExecCollapsesALongRunOfNULBytes(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	body := strings.Repeat("\x00", 4096) + "GET /api 200\n"
+	if err := os.WriteFile(filepath.Join(h.control, "exec-stdout"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	res := h.call("machine_exec", map[string]any{"runId": runID, "command": "cat ~/vmkit/proxy.log"}, &out)
+	if want := "[greenroom: 4096 NUL bytes]GET /api 200\n"; out["stdout"] != want {
+		t.Errorf("stdout = %.120q, want %q", out["stdout"], want)
+	}
+	if out["stdoutNulsCollapsed"] != true || out["stdoutNulBytes"] != 4096.0 || out["stdoutBytes"] != float64(len(body)) {
+		t.Errorf("stdoutNulsCollapsed %v, stdoutNulBytes %v, stdoutBytes %v; want true, 4096 and %d",
+			out["stdoutNulsCollapsed"], out["stdoutNulBytes"], out["stdoutBytes"], len(body))
+	}
+	if _, ok := out["stderrNulsCollapsed"]; ok {
+		t.Errorf("stderr had no NUL bytes but is flagged: %v", out)
+	}
+	if strings.Contains(text(res), `\u0000`) {
+		t.Errorf("the text content still carries NUL escapes: %.200s", text(res))
+	}
+	steps, err := machine.ReadSteps(filepath.Join(h.root, "runs", runID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range steps {
+		if s.Tool != "machine_exec" {
+			continue
+		}
+		if o, _ := s.Output.(map[string]any); o == nil || o["stdout"] != body {
+			t.Errorf("the run record did not keep the raw output: %.80q", o["stdout"])
+		}
+	}
+}
+
 // A small output is whole and not marked truncated.
 func TestExecKeepsASmallOutputWhole(t *testing.T) {
 	h := newHarness(t)
@@ -602,7 +641,8 @@ func TestExecDescriptionStatesItsLimitsAndTheWaitTool(t *testing.T) {
 			continue
 		}
 		for _, want := range []string{"first 8 KiB and last 24 KiB", "stdoutBytes", "machine_exec_wait", "execId", "max 50", "machine_session_start", "not interactive",
-			"read toolchain in machine_wait", "Never delete, skip or exclude a project's existing tests"} {
+			"read toolchain in machine_wait", "Never delete, skip or exclude a project's existing tests",
+			"16 or more NUL bytes", "stdoutNulsCollapsed", "stdoutNulBytes"} {
 			if !strings.Contains(tool.Description, want) {
 				t.Errorf("machine_exec's description does not mention %q:\n%s", want, tool.Description)
 			}

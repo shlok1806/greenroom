@@ -176,12 +176,8 @@ func verdictLine(v *Verdict) string {
 	if v.Status == session.Accepted && v.AcceptedBy != "" {
 		s += " by " + string(v.AcceptedBy)
 	}
-	switch v.Disputes {
-	case 0:
-	case 1:
-		s += ", after 1 dispute"
-	default:
-		s += fmt.Sprintf(", after %d disputes", v.Disputes)
+	if v.Disputes > 0 {
+		s += ", after " + count(v.Disputes, "dispute")
 	}
 	return s
 }
@@ -207,11 +203,19 @@ func modelsLine(m Models) string {
 }
 
 func (r Report) runLine() string {
-	s := fmt.Sprintf("%s, %d steps, created %s", code(r.RunID), r.Steps, stamp(r.CreatedAt))
+	s := fmt.Sprintf("%s, %s, created %s", code(r.RunID), count(r.Steps, "step"), stamp(r.CreatedAt))
 	if r.DestroyedAt != nil {
 		s += ", machine destroyed " + stamp(*r.DestroyedAt)
 	}
 	return s
+}
+
+// count is n and noun, plural unless n is one: "1 step", "0 steps", "3 steps" (issue #297).
+func count(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func stamp(t time.Time) string {

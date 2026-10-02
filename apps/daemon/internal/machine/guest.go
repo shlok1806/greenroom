@@ -24,17 +24,24 @@ const recordLimit = 64 * 1024
 // most ExecHeadLimit plus ExecTailLimit bytes each (issue #29); the Bytes
 // fields are what the command wrote in full.
 type ExecResult struct {
-	ExecID          string  `json:"execId,omitempty"`
-	Stdout          string  `json:"stdout"`
-	Stderr          string  `json:"stderr"`
-	StdoutBytes     int64   `json:"stdoutBytes"`
-	StderrBytes     int64   `json:"stderrBytes"`
-	StdoutTruncated bool    `json:"stdoutTruncated,omitempty"`
-	StderrTruncated bool    `json:"stderrTruncated,omitempty"`
-	ExitCode        int     `json:"exitCode"`
-	TimedOut        bool    `json:"timedOut,omitempty"` // the guest killed the command at its timeout; the output is what it printed until then
-	Seconds         float64 `json:"seconds"`
-	Step            int     `json:"step"` // its number in steps.jsonl
+	ExecID          string `json:"execId,omitempty"`
+	Stdout          string `json:"stdout"`
+	Stderr          string `json:"stderr"`
+	StdoutBytes     int64  `json:"stdoutBytes"`
+	StderrBytes     int64  `json:"stderrBytes"`
+	StdoutTruncated bool   `json:"stdoutTruncated,omitempty"`
+	StderrTruncated bool   `json:"stderrTruncated,omitempty"`
+	// StdoutNulsCollapsed and StderrNulsCollapsed say a run of at least NULRunMin NUL bytes in
+	// that stream was replaced by a "[greenroom: N NUL bytes]" marker (issue #227);
+	// StdoutNulBytes and StderrNulBytes count the NUL bytes replaced.
+	StdoutNulsCollapsed bool    `json:"stdoutNulsCollapsed,omitempty"`
+	StderrNulsCollapsed bool    `json:"stderrNulsCollapsed,omitempty"`
+	StdoutNulBytes      int64   `json:"stdoutNulBytes,omitempty"`
+	StderrNulBytes      int64   `json:"stderrNulBytes,omitempty"`
+	ExitCode            int     `json:"exitCode"`
+	TimedOut            bool    `json:"timedOut,omitempty"` // the guest killed the command at its timeout; the output is what it printed until then
+	Seconds             float64 `json:"seconds"`
+	Step                int     `json:"step"` // its number in steps.jsonl
 	// StoppedForPrompt says ExecWatched ended the command because a prompt it had not reported
 	// before was on screen (ADR 0047); Desktop is what the screen showed, prompts included.
 	StoppedForPrompt bool           `json:"stoppedForPrompt,omitempty"`

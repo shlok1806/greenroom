@@ -35,18 +35,25 @@ const maxKeptExecs = 32
 // ExecStatus is where a started command stands: still running, or finished
 // with its result. ExitCode is absent while it runs.
 type ExecStatus struct {
-	ExecID          string  `json:"execId"`
-	Running         bool    `json:"running"`
-	ExitCode        *int    `json:"exitCode,omitempty"`
-	Stdout          string  `json:"stdout"`
-	Stderr          string  `json:"stderr"`
-	StdoutBytes     int64   `json:"stdoutBytes"`
-	StderrBytes     int64   `json:"stderrBytes"`
-	StdoutTruncated bool    `json:"stdoutTruncated,omitempty"`
-	StderrTruncated bool    `json:"stderrTruncated,omitempty"`
-	TimedOut        bool    `json:"timedOut,omitempty"`
-	Seconds         float64 `json:"seconds"` // so far, while it runs
-	Step            int     `json:"step"`    // the command's step in steps.jsonl, written when it ends
+	ExecID          string `json:"execId"`
+	Running         bool   `json:"running"`
+	ExitCode        *int   `json:"exitCode,omitempty"`
+	Stdout          string `json:"stdout"`
+	Stderr          string `json:"stderr"`
+	StdoutBytes     int64  `json:"stdoutBytes"`
+	StderrBytes     int64  `json:"stderrBytes"`
+	StdoutTruncated bool   `json:"stdoutTruncated,omitempty"`
+	StderrTruncated bool   `json:"stderrTruncated,omitempty"`
+	// StdoutNulsCollapsed and StderrNulsCollapsed say a run of at least NULRunMin NUL bytes in
+	// that stream was replaced by a "[greenroom: N NUL bytes]" marker (issue #227);
+	// StdoutNulBytes and StderrNulBytes count the NUL bytes replaced.
+	StdoutNulsCollapsed bool    `json:"stdoutNulsCollapsed,omitempty"`
+	StderrNulsCollapsed bool    `json:"stderrNulsCollapsed,omitempty"`
+	StdoutNulBytes      int64   `json:"stdoutNulBytes,omitempty"`
+	StderrNulBytes      int64   `json:"stderrNulBytes,omitempty"`
+	TimedOut            bool    `json:"timedOut,omitempty"`
+	Seconds             float64 `json:"seconds"` // so far, while it runs
+	Step                int     `json:"step"`    // the command's step in steps.jsonl, written when it ends
 	// Desktop is set only when Running is true and something besides the clean desktop is on
 	// screen (ADR 0038, issue #252): a command that has not returned within its wait may be
 	// blocked on a system prompt nothing has answered. Never set for a finished command; never
@@ -90,6 +97,8 @@ func (j *execJob) status() ExecStatus {
 		ExecID: j.id, Stdout: r.Stdout, Stderr: r.Stderr,
 		StdoutBytes: r.StdoutBytes, StderrBytes: r.StderrBytes,
 		StdoutTruncated: r.StdoutTruncated, StderrTruncated: r.StderrTruncated,
+		StdoutNulsCollapsed: r.StdoutNulsCollapsed, StderrNulsCollapsed: r.StderrNulsCollapsed,
+		StdoutNulBytes: r.StdoutNulBytes, StderrNulBytes: r.StderrNulBytes,
 		TimedOut: r.TimedOut, Seconds: r.Seconds, Step: r.Step,
 	}
 	if j.err == nil {
@@ -210,9 +219,11 @@ func (m *Manager) startExec(ctx context.Context, runID, by, command, cwd string,
 		if r := j.stoppedFor.Load(); r != nil {
 			out.StoppedForPrompt, out.Desktop = true, r
 		}
+		// The record keeps the bytes as the command wrote them; callers get long NUL runs
+		// collapsed (issue #227).
 		mc.rec.completeAs(j.step, by, nil, "machine_exec", map[string]any{"command": command, "cwd": cwd, "execId": id},
 			truncatedForLog(out), err, j.started)
-		j.res, j.err = out, err
+		j.res, j.err = out.forCaller(), err
 		close(j.done)
 		m.emitStep(mc.RunID, j.step)
 	}()

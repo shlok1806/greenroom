@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -330,6 +331,63 @@ func TestAFinishedSessionReportsItsExitCode(t *testing.T) {
 	}
 	if raw["error"] != nil {
 		t.Errorf("a non-zero exit was reported as a tart failure: %v", raw["error"])
+	}
+}
+
+// Issue #227: a session's output with a long run of NUL bytes comes back with the run collapsed
+// into a marker, flagged and counted, as machine_exec's does.
+func TestASessionReadCollapsesALongRunOfNULBytes(t *testing.T) {
+	h := newHarness(t)
+	runID := h.ready()
+	if err := os.WriteFile(filepath.Join(h.control, "session-output"), []byte(strings.Repeat("\x00", 4096)+"ready\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testsupport.Flag(t, h.control, "session-exits")
+	id := h.startSession(runID, "cat proxy.log")
+
+	var output string
+	var nulBytes float64
+	flagged := false
+	raw := map[string]any{}
+	for i := 0; i < 20 && (i == 0 || raw["running"] == true || raw["pending"] != 0.0); i++ {
+		raw = map[string]any{}
+		h.call("machine_session_read", map[string]any{"runId": runID, "sessionId": id, "waitSeconds": 1}, &raw)
+		s, _ := raw["output"].(string)
+		output += s
+		n, _ := raw["nulBytes"].(float64)
+		nulBytes += n
+		flagged = flagged || raw["nulsCollapsed"] == true
+	}
+	if !strings.Contains(output, "[greenroom: 4096 NUL bytes]ready") || strings.Contains(output, "\x00") {
+		t.Errorf("output = %.120q, want the NUL run as one marker before ready", output)
+	}
+	if !flagged || nulBytes != 4096 {
+		t.Errorf("nulsCollapsed %v, nulBytes %v; want true and 4096", flagged, nulBytes)
+	}
+}
+
+// Issue #227: a file a session writes through `tee` keeps the session's offset, so truncating it
+// elsewhere leaves NULs. The descriptions say how to avoid that and how such output comes back.
+func TestTheSessionDescriptionsExplainRedirectedOutputAndNULRuns(t *testing.T) {
+	h := newHarness(t)
+	res, err := h.session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		"machine_session_start": {"keeps its write offset", "tee -a", "start it again"},
+		"machine_session_read":  {"16 or more NUL bytes", "nulsCollapsed", "nulBytes"},
+	}
+	for _, tool := range res.Tools {
+		for _, w := range want[tool.Name] {
+			if !strings.Contains(tool.Description, w) {
+				t.Errorf("%s's description does not mention %q:\n%s", tool.Name, w, tool.Description)
+			}
+		}
+		delete(want, tool.Name)
+	}
+	if len(want) > 0 {
+		t.Errorf("tools missing: %v", want)
 	}
 }
 

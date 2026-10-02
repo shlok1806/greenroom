@@ -207,11 +207,13 @@ func New(mgr *machine.Manager, defaultImage string, reg *session.Registry, opts 
 			"machine_session_start. stdout and stderr each keep their first %d KiB and last %d KiB; when bytes "+
 			"were left out, stdoutTruncated or stderrTruncated is true, a marker line in the text says where, "+
 			"and stdoutBytes and stderrBytes give the full sizes. To see more of a big output, write it to a "+
-			"file in the guest and read parts of it (grep, tail, sed -n). "+
+			"file in the guest and read parts of it (grep, tail, sed -n). A run of %d or more NUL bytes comes back "+
+			"as one marker such as [greenroom: 4096 NUL bytes], with stdoutNulsCollapsed or stderrNulsCollapsed true "+
+			"and stdoutNulBytes or stderrNulBytes counting the NUL bytes replaced; the run record keeps them. "+
 			"Before running a project's tests, read toolchain in machine_wait's result: it says whether this "+
 			"machine's image can run XCTest and swift-testing. Never delete, skip or exclude a project's existing "+
 			"tests to get a green run; if the machine cannot run them, say so.",
-			machine.ExecHeadLimit/1024, machine.ExecTailLimit/1024),
+			machine.ExecHeadLimit/1024, machine.ExecTailLimit/1024, machine.NULRunMin),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in execIn) (*mcp.CallToolResult, machine.ExecStatus, error) {
 		timeout := 10 * time.Minute
 		if in.TimeoutSeconds > 0 {

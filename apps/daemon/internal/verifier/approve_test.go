@@ -189,6 +189,34 @@ func writeControlFile(t *testing.T, control, name, body string) {
 	}
 }
 
+// Issue #227: the verifier's own machine_exec result carries a long NUL run as one marker, not as
+// thousands of escapes in its context.
+func TestTheVerifiersExecResultCollapsesALongRunOfNULBytes(t *testing.T) {
+	mgr, runID, control := ready(t)
+	writeControlFile(t, control, "exec-stdout", strings.Repeat("\x00", 4096)+"GET /api 200\n")
+	model := &scriptedModel{replies: []string{
+		toolCall("machine_exec", map[string]any{"command": "cat proxy.log"}),
+		toolCall("reply", map[string]any{"text": "The log has one request."}),
+	}}
+	v := newVerifier(t, mgr, model.start(t))
+	store := openStore(t, mgr, runID)
+	post(t, store, session.Message{From: session.Human, Kind: session.Note, Text: "read the proxy log"})
+
+	if _, err := v.Turn(context.Background(), runID, store); err != nil {
+		t.Fatalf("Turn: %v", err)
+	}
+	prog := messagesOfKind(store, session.Progress)
+	if len(prog) != 1 {
+		t.Fatalf("%d progress messages, want the command", len(prog))
+	}
+	if got := prog[0].Text; !strings.Contains(got, "[greenroom: 4096 NUL bytes]GET /api 200") || strings.Contains(got, "\x00") {
+		t.Errorf("the command's result does not carry the NUL run as one marker: %.300q", got)
+	}
+	if req := model.request(t, 2); strings.Contains(req, `\u0000`) {
+		t.Errorf("the model's context still carries NUL escapes: %.300s", req)
+	}
+}
+
 func TestPromptWaitCoversThePromptsLifetime(t *testing.T) {
 	for _, c := range []struct {
 		seconds float64
