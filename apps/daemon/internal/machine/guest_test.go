@@ -473,7 +473,8 @@ func TestExecWrapperRunsLogAsTheCommandNotTheZshBuiltin(t *testing.T) {
 func TestExecRunsTheCommandThroughTheWrapper(t *testing.T) {
 	mgr, _, control := newTestManager(t)
 	mc := readyMachine(t, mgr)
-	if _, err := mgr.Exec(context.Background(), mc.RunID, "./App & xyz-token", "~/work", 10*time.Second); err != nil {
+	res, err := mgr.Exec(context.Background(), mc.RunID, "./App & xyz-token", "~/work", 10*time.Second)
+	if err != nil {
 		t.Fatalf("Exec: %v", err)
 	}
 	var execs []string
@@ -482,7 +483,8 @@ func TestExecRunsTheCommandThroughTheWrapper(t *testing.T) {
 			execs = append(execs, line)
 		}
 	}
-	if want := "exec -i " + mc.Name + " /bin/sh -s greenroom-exec 10"; len(execs) != 1 || execs[0] != want {
+	// The execId is the last argument, so ExecWatched's stop can find this wrapper (ADR 0047).
+	if want := "exec -i " + mc.Name + " /bin/sh -s greenroom-exec 10 " + res.ExecID; len(execs) != 1 || execs[0] != want {
 		t.Errorf("machine_exec ran %q, want exactly %q", execs, want)
 	}
 	if calls := testsupport.Calls(t, control); strings.Contains(calls, "xyz-token") || strings.Contains(calls, "disable log") {

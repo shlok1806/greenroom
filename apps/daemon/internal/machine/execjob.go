@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -66,6 +67,9 @@ type execJob struct {
 
 	// abort ends a running command with cause as its error, as machine_reboot does (reboot.go).
 	abort context.CancelCauseFunc
+	// stoppedFor is what was on screen when ExecWatched stopped the command for a prompt (ADR
+	// 0047); set before the stop, read once the command has ended.
+	stoppedFor atomic.Pointer[DesktopReport]
 }
 
 func (j *execJob) finished() bool {
@@ -133,42 +137,24 @@ func (m *Manager) ExecWait(ctx context.Context, runID, execID string, wait time.
 	}
 }
 
-// execDesktopLookTimeout bounds the extra look attachDesktopIfRunning takes: long enough for
-// one screen read (a tart exec round trip), short enough not to make an already-slow poll
-// much slower. It runs on its own budget, not the caller's ctx, which may be nearly spent.
+// execDesktopLookTimeout bounds the extra look lookAtDesktop takes: long enough for one screen
+// read (a tart exec round trip), short enough not to make an already-slow poll much slower.
 const execDesktopLookTimeout = 8 * time.Second
 
 // attachDesktopIfRunning looks at the screen when st reports a command still running (ADR
 // 0038, issue #252): that is exactly the shape of a stall on a system prompt (TCC, a crash
 // dialog, Software Update) nothing has answered, which machine_ui cannot see (it reads only
-// the frontmost regular app's accessibility tree; issue #223). It reuses the same window-level
-// check the dialog gate and boot's snapshot already use (desktopcheck.go): every on-screen
-// window regardless of which process owns it. A clean desktop, or a look that fails, leaves st
-// untouched, so this never punishes a command that is simply slow. It never clicks or closes
-// anything (ADR 0018 point 4); it only says what is on screen, in the exec result and in the
-// machine's own Desktop field, which machine_wait and the Companion already read.
+// the frontmost regular app's accessibility tree; issue #223). The look (lookAtDesktop) is the
+// one ExecWatched takes for the verifier (ADR 0047); here the command is never stopped, since
+// the caller collects it with machine_exec_wait and decides. A clean desktop, or a look that
+// fails, leaves st untouched, so this never punishes a command that is simply slow.
 func (m *Manager) attachDesktopIfRunning(mc *Machine, st ExecStatus) ExecStatus {
 	if !st.Running {
 		return st
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), execDesktopLookTimeout)
-	defer cancel()
-	d, err := readDesktop(ctx, m.tart, mc.Name)
-	if err != nil {
-		return st
+	if r, _ := m.lookAtDesktop(mc, st.ExecID); r != nil {
+		st.Desktop = r
 	}
-	r := d.Report()
-	if r.Clean {
-		return st
-	}
-	st.Desktop = &r
-	m.mu.Lock()
-	mc.Desktop = &r
-	m.mu.Unlock()
-	m.Log.Warn("a command is still running with something besides the desktop on screen; it may be blocked on a "+
-		"system prompt that greenroom never auto-clicks or closes (ADR 0018)",
-		"runId", mc.RunID, "execId", st.ExecID, "found", strings.Join(r.Findings(), "; "))
-	m.emit(LifecycleEvent{Kind: "desktop", RunID: mc.RunID, Machine: m.snapshot(mc)})
 	return st
 }
 
@@ -213,7 +199,7 @@ func (m *Manager) startExec(ctx context.Context, runID, by, command, cwd string,
 		var stdout, stderr headTail
 		// The wrapper and the command go on stdin, never in a guest argv (issue #128).
 		code, err := m.tart.ExecInputTo(jobCtx, strings.NewReader(execScript(script)), &stdout, &stderr, mc.Name,
-			append(slices.Clone(execShell), strconv.Itoa(guestSeconds))...)
+			append(slices.Clone(execShell), strconv.Itoa(guestSeconds), id)...)
 		if cause := context.Cause(base); err != nil && cause != nil && !errors.Is(cause, context.Canceled) {
 			err = cause // aborted, as by a reboot: say why rather than "context canceled"
 		}
@@ -221,6 +207,9 @@ func (m *Manager) startExec(ctx context.Context, runID, by, command, cwd string,
 		out.Stdout, out.StdoutBytes, out.StdoutTruncated = stdout.result()
 		out.Stderr, out.StderrBytes, out.StderrTruncated = stderr.result()
 		out.TimedOut = err == nil && code == execTimedOutExit && strings.Contains(out.Stderr, execTimedOutNote)
+		if r := j.stoppedFor.Load(); r != nil {
+			out.StoppedForPrompt, out.Desktop = true, r
+		}
 		mc.rec.completeAs(j.step, by, nil, "machine_exec", map[string]any{"command": command, "cwd": cwd, "execId": id},
 			truncatedForLog(out), err, j.started)
 		j.res, j.err = out, err

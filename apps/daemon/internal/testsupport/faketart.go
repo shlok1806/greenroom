@@ -30,6 +30,7 @@ import (
 //	exec-codes          `tart exec` exits with the next line of this file (consumed), then 0
 //	exec-sleep          machine_exec's command takes this many seconds
 //	exec-stdout         machine_exec's command prints this file and exits 0
+//	prompt-text         what the prompt text read prints: "<pid>\t<text>" lines (ADR 0047)
 //	agent-down          `tart exec` fails as if the guest agent is unreachable
 //	ssh-down            the in-guest sshd probe is refused
 //	fail-input-install  compiling the guest input helper fails
@@ -61,6 +62,8 @@ import (
 // (greenroom-session.<id> and .pid, ADR 0017), stopped (after stop or delete) and stop-<name>
 // (after `tart stop <name>`). A `tart run <name>` after a stop of that name removes both, so
 // the VM boots again as machine_reboot's does (daemon ADR 0004).
+// A watched exec's stop (greenroom-exec-stop, ADR 0047) appends its signal to exec-stops and
+// writes exec-stopped, which ends a command sleeping on exec-sleep with exit 143.
 // `--serve` runs the fake live screen helper; its own control files are listed in fakescreen.go.
 // `--agent` runs the fake guest agent; its own control files are listed in fakeagent.go.
 // machine_pull's probe and tar (greenroom-pull-probe, greenroom-pull-tar) run for real on the
@@ -209,6 +212,16 @@ case "$sub" in
     case "$*" in
       *greenroom-crash-report*) cat "$C/crash-report" 2>/dev/null; exit 0 ;;
     esac
+    # A watched exec's prompt text read and its stop (machine/execprompt.go, ADR 0047). The stop
+    # is matched before machine_exec's own "greenroom-exec" below, whose name it contains.
+    case "$*" in
+      *greenroom-prompt-text*) cat "$C/prompt-text" 2>/dev/null; exit 0 ;;
+      *greenroom-exec-stop*)
+        eval "sig=\${$#}"
+        echo "$sig" >> "$C/exec-stops"
+        : > "$C/exec-stopped"
+        exit 0 ;;
+    esac
     case "$*" in
       *"greenroom-input"*"--desktop"*)
         if [ -f "$C/desktop.json" ]; then cat "$C/desktop.json"; else
@@ -282,7 +295,11 @@ case "$sub" in
         # kills the host exec of a running command).
         if [ -f "$C/exec-sleep" ]; then
           n=$(($(cat "$C/exec-sleep") * 10)); i=0
-          while [ "$i" -lt "$n" ]; do sleep 0.1; i=$((i + 1)); done
+          while [ "$i" -lt "$n" ]; do
+            # Stopped (exec-stopped, written by the stop above): exits as the wrapper does on TERM.
+            if [ -f "$C/exec-stopped" ]; then rm -f "$C/exec-stopped"; echo "output before the stop"; exit 143; fi
+            sleep 0.1; i=$((i + 1))
+          done
         fi
         [ -f "$C/exec-stdout" ] && { cat "$C/exec-stdout"; exit 0; } ;;
     esac

@@ -926,6 +926,57 @@
             "error": {
               "type": "string"
             },
+            "prompts": {
+              "items": {
+                "properties": {
+                  "alpha": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "layer": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "owner",
+                  "pid",
+                  "layer",
+                  "alpha",
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
             "unexpectedApps": {
               "items": {
                 "properties": {
@@ -1131,7 +1182,7 @@
     }
   },
   {
-    "description": "Run a shell command inside the machine and return stdout, stderr and the exit code. The shell is a login zsh that is not interactive (zsh -lc). One call waits at most waitSeconds (default 45, max 50, under MCP clients' 60 s limit on a call): a command still going then comes back with running true, no exitCode, and an execId, and it keeps running; collect its result with machine_exec_wait. running true also carries desktop when something besides the clean desktop is on screen: the command may be blocked on a system prompt (TCC, a crash dialog) nothing has answered, which greenroom never auto-clicks or closes; approve the app first (machine_approve_control for an Apple Events or other TCC prompt, machine_approve_capture for a screen-capture one) or tell a person. A command returns when its shell exits: it may leave a process running in the background (./App \u0026), whose later output is not returned; an app started so is not made frontmost, so pass app to machine_type or machine_key, or click one of its elements, which brings it to the front. Output arrives when the command ends, never while it runs; to watch a build or type into a program, use machine_session_start. stdout and stderr each keep their first 8 KiB and last 24 KiB; when bytes were left out, stdoutTruncated or stderrTruncated is true, a marker line in the text says where, and stdoutBytes and stderrBytes give the full sizes. To see more of a big output, write it to a file in the guest and read parts of it (grep, tail, sed -n). Before running a project's tests, read toolchain in machine_wait's result: it says whether this machine's image can run XCTest and swift-testing. Never delete, skip or exclude a project's existing tests to get a green run; if the machine cannot run them, say so.",
+    "description": "Run a shell command inside the machine and return stdout, stderr and the exit code. The shell is a login zsh that is not interactive (zsh -lc). One call waits at most waitSeconds (default 45, max 50, under MCP clients' 60 s limit on a call): a command still going then comes back with running true, no exitCode, and an execId, and it keeps running; collect its result with machine_exec_wait. running true also carries desktop when something besides the clean desktop is on screen: the command may be blocked on a system prompt (TCC, a crash dialog) nothing has answered, which greenroom never auto-clicks or closes, and desktop.prompts says what each prompt says. A TCC prompt stays until it is answered or times out, about 2 minutes after it appeared, whatever happens to the command, and its timeout undoes an approval made while it is up: once it is gone, approve the app (machine_approve_control for an Apple Events or other TCC prompt, machine_approve_capture for a screen-capture one) and run the command again, or tell a person. A command returns when its shell exits: it may leave a process running in the background (./App \u0026), whose later output is not returned; an app started so is not made frontmost, so pass app to machine_type or machine_key, or click one of its elements, which brings it to the front. Output arrives when the command ends, never while it runs; to watch a build or type into a program, use machine_session_start. stdout and stderr each keep their first 8 KiB and last 24 KiB; when bytes were left out, stdoutTruncated or stderrTruncated is true, a marker line in the text says where, and stdoutBytes and stderrBytes give the full sizes. To see more of a big output, write it to a file in the guest and read parts of it (grep, tail, sed -n). Before running a project's tests, read toolchain in machine_wait's result: it says whether this machine's image can run XCTest and swift-testing. Never delete, skip or exclude a project's existing tests to get a green run; if the machine cannot run them, say so.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1172,6 +1223,57 @@
             },
             "error": {
               "type": "string"
+            },
+            "prompts": {
+              "items": {
+                "properties": {
+                  "alpha": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "layer": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "owner",
+                  "pid",
+                  "layer",
+                  "alpha",
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
             },
             "unexpectedApps": {
               "items": {
@@ -1342,6 +1444,57 @@
             },
             "error": {
               "type": "string"
+            },
+            "prompts": {
+              "items": {
+                "properties": {
+                  "alpha": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "layer": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "owner",
+                  "pid",
+                  "layer",
+                  "alpha",
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
             },
             "unexpectedApps": {
               "items": {
@@ -1739,6 +1892,57 @@
                   "error": {
                     "type": "string"
                   },
+                  "prompts": {
+                    "items": {
+                      "properties": {
+                        "alpha": {
+                          "type": "number"
+                        },
+                        "height": {
+                          "type": "number"
+                        },
+                        "layer": {
+                          "type": "integer"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "owner": {
+                          "type": "string"
+                        },
+                        "pid": {
+                          "type": "integer"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "width": {
+                          "type": "number"
+                        },
+                        "x": {
+                          "type": "number"
+                        },
+                        "y": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "owner",
+                        "pid",
+                        "layer",
+                        "alpha",
+                        "x",
+                        "y",
+                        "width",
+                        "height"
+                      ],
+                      "type": "object"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
                   "unexpectedApps": {
                     "items": {
                       "properties": {
@@ -2072,6 +2276,57 @@
             },
             "error": {
               "type": "string"
+            },
+            "prompts": {
+              "items": {
+                "properties": {
+                  "alpha": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "layer": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "owner",
+                  "pid",
+                  "layer",
+                  "alpha",
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
             },
             "unexpectedApps": {
               "items": {
@@ -2953,6 +3208,57 @@
             },
             "error": {
               "type": "string"
+            },
+            "prompts": {
+              "items": {
+                "properties": {
+                  "alpha": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "layer": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "pid": {
+                    "type": "integer"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "type": "number"
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "owner",
+                  "pid",
+                  "layer",
+                  "alpha",
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
             },
             "unexpectedApps": {
               "items": {

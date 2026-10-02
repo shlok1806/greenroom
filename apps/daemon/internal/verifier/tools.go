@@ -281,7 +281,7 @@ func (v *Verifier) machineTool(ctx context.Context, runID string, call nim.ToolC
 		if touchesTCCDatabase(in.Command) {
 			return tccDatabaseRefusal, 0
 		}
-		res, err := v.mgr.ExecAs(ctx, runID, machine.HolderVerifier, in.Command, in.Cwd, execTimeout)
+		res, err := v.mgr.ExecWatched(ctx, runID, machine.HolderVerifier, in.Command, in.Cwd, execTimeout)
 		if err != nil {
 			return "error: " + err.Error(), res.Step
 		}
@@ -590,8 +590,12 @@ func keyLabel(key string, mods []string) string {
 
 // execResultText is the command result both brains report.
 func execResultText(res machine.ExecResult) string {
-	return fmt.Sprintf("step %d\nexit code %d\nstdout:\n%s\nstderr:\n%s",
+	text := fmt.Sprintf("step %d\nexit code %d\nstdout:\n%s\nstderr:\n%s",
 		res.Step, res.ExitCode, clamp(res.Stdout), clamp(res.Stderr))
+	if res.StoppedForPrompt {
+		text += "\n" + promptStopText(res)
+	}
+	return text
 }
 
 // clamp keeps both ends of long output: the command near the start, the

@@ -35,6 +35,10 @@ type ExecResult struct {
 	TimedOut        bool    `json:"timedOut,omitempty"` // the guest killed the command at its timeout; the output is what it printed until then
 	Seconds         float64 `json:"seconds"`
 	Step            int     `json:"step"` // its number in steps.jsonl
+	// StoppedForPrompt says ExecWatched ended the command because a prompt it had not reported
+	// before was on screen (ADR 0047); Desktop is what the screen showed, prompts included.
+	StoppedForPrompt bool           `json:"stoppedForPrompt,omitempty"`
+	Desktop          *DesktopReport `json:"desktop,omitempty"`
 }
 
 // execTimedOutExit and execTimedOutNote are how the exec wrapper reports a timeout.
@@ -75,11 +79,12 @@ func (m *Manager) ExecAs(ctx context.Context, runID, by, command, cwd string, ti
 }
 
 // execShell is the guest command machine_exec runs, followed by the timeout in
-// seconds: /bin/sh reading execScript from stdin (tart exec -i). Neither the
-// wrapper nor the command is in any argv, so the guest's ps shows
-// `/bin/sh -s greenroom-exec 600` and a `pgrep -f <pattern>` run through
+// seconds and the execId: /bin/sh reading execScript from stdin (tart exec -i).
+// Neither the wrapper nor the command is in any argv, so the guest's ps shows
+// `/bin/sh -s greenroom-exec 600 <execId>` and a `pgrep -f <pattern>` run through
 // machine_exec cannot match its own wrapper (issue #128). "greenroom-exec" is
-// only $1, a name for the listing; the timeout is $2.
+// only $1, a name for the listing; the timeout is $2; $3 is the execId, which
+// only ExecWatched's stop reads (it finds this wrapper by it, ADR 0047).
 var execShell = []string{"/bin/sh", "-s", "greenroom-exec"}
 
 // execWrapperHead and execWrapperTail are the wrapper execScript puts around a
