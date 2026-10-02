@@ -59,9 +59,11 @@ written after the create returned, and a failed create returns no run.
 
 4. **The report says it.** A run whose Mac did not start and that the coding agent did not
    finish is headed `Did not start`, its outcome line is "did not start: the machine never became
-   ready (<the error>)", and its JSON carries `startError`. A finish still outranks it in the
+   ready: <the error>", and its JSON carries `startError`. A finish still outranks it in the
    heading and outcome (the agent's word on the run), and the report adds a Machine line with the
-   error.
+   error. The summary does not defer to a finish: it never words the finish's outcome as its
+   status (a finish with no verdict is Stopped), so a run whose Mac did not start reads Did not
+   start there whether or not the agent finished it, and the list says `failed` either way.
 
 5. **A failed create keeps its name.** `machine_create` hands its name and client to
    `Manager.CreateLabeled`, which writes them into the first manifest before the clone, so a run that never started is listed by the name

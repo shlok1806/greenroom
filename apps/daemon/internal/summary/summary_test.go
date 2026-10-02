@@ -203,6 +203,16 @@ func TestEveryStatusHasItsGroupActionAndWords(t *testing.T) {
 			want{DidNotStart, Done, ToneFail, "", nil, "The Mac did not finish starting.", "-", ""},
 		},
 		{
+			"a boot that failed still Did not start once the coding agent finished the run",
+			func(b *builder) *builder {
+				return b.step(machine.StepCreate, 0, nil, nil, "").
+					step(machine.StepBoot, 180, nil, nil, "timed out waiting for the guest agent").
+					event("machine failed: timed out waiting for the guest agent", 180).
+					task(tipTask, 190).finish(session.OutcomeAbandoned, 200).ended(201)
+			},
+			want{DidNotStart, Done, ToneFail, "", nil, "The Mac did not finish starting.", "-", ""},
+		},
+		{
 			"a machine low on files needs you while it keeps checking, and offers a plain restart",
 			func(b *builder) *builder {
 				return b.live(machine.Ready).lowOnFiles().event("machine is ready", 40).task(tipTask, 60)

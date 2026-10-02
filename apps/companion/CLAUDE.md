@@ -162,6 +162,9 @@ swift build && GREENROOM_SNAPSHOT=<dir> GREENROOM_SNAPSHOT_RUN=<run id> \
   at once never read each other's theme or pane (they share one defaults domain).
   Scenarios 52 to 54 seed `run_finish` (root ADR 0034) onto the pass, fail and input runs
   (`makeFinished`: the finish on the row and detail, the event before "machine destroyed").
+  `r15b-did-not-start` (root ADR 0049) opens the golden board's failed create
+  `20260922-190455-a1b2c3d4e5f60718`; give the daemon's root a run directory with that id (a
+  manifest and one errored `machine_create` step) or its record does not load.
   Scenarios 41 to 45 are verifier bench verdicts exactly as recorded: copy
   `~/.greenroom/bench/runs` and `~/.greenroom/bench-0027/runs` into the daemon's root
   (`cp -cR`, an APFS clone, costs no disk).
