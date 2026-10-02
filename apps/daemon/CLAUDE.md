@@ -647,6 +647,15 @@ Exec
   with `stdoutBytes`/`stderrBytes` and `*Truncated` (issue #29). `tart.ExecTo` streams
   into that bounded writer, so no output is ever held whole. The tool description quotes
   the limits; change both together.
+- Long NUL runs (issue #227, `nulruns.go`): every run of `NULRunMin` (16) or more NUL bytes in
+  what a caller reads becomes `[greenroom: N NUL bytes]`, with `*NulsCollapsed` and
+  `*NulBytes` (`nulsCollapsed`/`nulBytes` on a session read). It is applied after the head and
+  tail cut, so `*Bytes` and the cut's marker still count raw bytes, and only on the way out:
+  `startExec` records the raw result and keeps `forCaller()`'s copy as the job's, so MCP, the
+  verifier and the manual brain all read it; `SessionRead` collapses after recording. The run
+  record keeps the bytes as written. Any new path that hands guest output to a client or a
+  model goes through `CollapseNULs` too. The marker is not an escape: the counts are what say
+  a run was collapsed, since a command could print the same text.
 - A `cwd` or sync `dest` of `~` or `~/x` means the guest home (`homeRelative`). Both are
   otherwise shell-quoted, so a tilde would never expand and rsync would make a dir `~`.
 
@@ -1318,7 +1327,11 @@ Interactive sessions (`machine_session_*`)
   exec, so `machine_session_start` never waits on the guest for it.
 - The size (40x120) is fixed at start; there is no resize from the host.
 - Output buffer is the last 1 MiB, read by absolute offset; reads cap at 256 KiB and
-  report `dropped` and `pending`. `cleanTTY` strips escapes on the way out.
+  report `dropped` and `pending`. `cleanTTY` strips escapes on the way out, and long NUL runs
+  are collapsed after the read is recorded (see Exec).
+- A file a session writes through a redirect (`cmd | tee log`) keeps the session's offset, so
+  `: > log` from another call leaves a NUL hole (issue #227). `machine_session_start`'s
+  description says to append (`tee -a`) or restart the session; keep it.
 - A finished session's read carries `exitCode` (tart forwards the guest's), absent while
   running and when tart itself failed (`error`) (issue #62).
 - `forgetLocked` is the only way a machine leaves the map, and it detaches its sessions so

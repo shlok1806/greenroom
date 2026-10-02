@@ -141,6 +141,11 @@ type SessionReadResult struct {
 	// Error is why tart ended the session; empty for a command that finished.
 	Error string `json:"error,omitempty"`
 	Step  int    `json:"step"`
+	// NulsCollapsed says a run of at least NULRunMin NUL bytes in Output was replaced by a
+	// "[greenroom: N NUL bytes]" marker (issue #227); NulBytes counts the NUL bytes replaced.
+	// FromByte and NextByte still count the session's bytes as written.
+	NulsCollapsed bool  `json:"nulsCollapsed,omitempty"`
+	NulBytes      int64 `json:"nulBytes,omitempty"`
 }
 
 // SessionCloseResult confirms a session is gone.
@@ -462,6 +467,9 @@ func (m *Manager) SessionRead(ctx context.Context, runID, sessionID string, wait
 	if err != nil {
 		return SessionReadResult{}, err
 	}
+	// The record keeps the bytes; the caller gets long NUL runs collapsed (issue #227).
+	out.Output, out.NulBytes = CollapseNULs(out.Output)
+	out.NulsCollapsed = out.NulBytes > 0
 	return out, nil
 }
 

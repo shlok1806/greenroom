@@ -336,3 +336,24 @@ func TestARunWhoseMacNeverStartedSaysItDidNotStart(t *testing.T) {
 		t.Errorf("a failed reboot: startError %q, err %v; want none", rep.StartError, err)
 	}
 }
+
+// A count of one is singular: "1 step", never "1 steps" (issue #297).
+func TestCountsAreSingularForOne(t *testing.T) {
+	for _, tc := range []struct {
+		steps int
+		want  string
+	}{{0, "`r`, 0 steps, created"}, {1, "`r`, 1 step, created"}, {2, "`r`, 2 steps, created"}} {
+		if got := (Report{RunID: "r", Steps: tc.steps}).runLine(); !strings.HasPrefix(got, tc.want) {
+			t.Errorf("runLine with %d steps = %q, want it to start %q", tc.steps, got, tc.want)
+		}
+	}
+	for disputes, want := range map[int]string{
+		0: "pass (message 4), proposed",
+		1: "pass (message 4), proposed, after 1 dispute",
+		3: "pass (message 4), proposed, after 3 disputes",
+	} {
+		if got := verdictLine(&Verdict{Verdict: "pass", Seq: 4, Status: session.Proposed, Disputes: disputes}); got != want {
+			t.Errorf("verdictLine with %d disputes = %q, want %q", disputes, got, want)
+		}
+	}
+}
