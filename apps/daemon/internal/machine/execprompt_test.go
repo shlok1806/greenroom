@@ -25,7 +25,7 @@ const (
  {"owner":"UserNotificationCenter","name":"","layer":8,"alpha":1,"x":382,"y":118,"width":260,"height":256,"pid":1132},
  {"owner":"Dock","name":"Dock","layer":20,"alpha":1,"x":0,"y":0,"width":1024,"height":768,"pid":386}],
  "apps":[{"name":"Finder","bundleId":"com.apple.finder","pid":391}]}`
-	tccPromptText = "1132\t“tart-guest-agent” wants access to control “PromptCheck”. Allowing control will provide " +
+	tccPromptText = "1132\t/System/Library/CoreServices/UserNotificationCenter.app/Contents/MacOS/UserNotificationCenter\t“tart-guest-agent” wants access to control “PromptCheck”. Allowing control will provide " +
 		"access to documents and data in “PromptCheck”, and to perform actions within that app. \n"
 )
 
@@ -46,6 +46,45 @@ func TestReportFindsAPromptButNotAnAppsOwnAlertAMenuOrABanner(t *testing.T) {
 	}
 	if r.Clean || len(r.UnexpectedWindows) != 5 {
 		t.Errorf("every unexpected window is still a finding: %+v", r.UnexpectedWindows)
+	}
+}
+
+func TestOnlyMacOSItselfDrawsAPrompt(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/System/Library/CoreServices/UserNotificationCenter.app/Contents/MacOS/UserNotificationCenter":                           true,
+		"/System/Library/Frameworks/Security.framework/Versions/A/MachServices/SecurityAgent.bundle/Contents/MacOS/SecurityAgent": true,
+		"/usr/libexec/universalaccessd":                                true,
+		"/usr/local/bin/helper":                                        false,
+		"/Users/admin/work/MenuApp/MenuApp.app/Contents/MacOS/MenuApp": false,
+		"/Applications/Xcode.app/Contents/MacOS/Xcode":                 false,
+		"/Systemish/x": false,
+	} {
+		if got := systemExecutable(path); got != want {
+			t.Errorf("systemExecutable(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// An accessory app under test (a menu bar app, issue #223) is not a regular app, so its own alert
+// at layer 8 has a prompt's shape. It is that app's business, not a prompt nobody will answer: a
+// command running while it is up is left alone, and the window is still reported as unexpected.
+func TestExecWatchedLeavesACommandAloneUnderAnAccessoryAppsOwnAlert(t *testing.T) {
+	mgr, mc, control := watchedMachine(t)
+	writeControl(t, control, "exec-sleep", "1")
+	writeControl(t, control, "desktop.json", `{"windows":[
+ {"owner":"MenuApp","name":"","layer":8,"alpha":1,"x":382,"y":118,"width":260,"height":120,"pid":2200}],
+ "apps":[{"name":"Finder","bundleId":"com.apple.finder","pid":391}]}`)
+	writeControl(t, control, "prompt-text", "2200\t/Users/admin/work/MenuApp/MenuApp.app/Contents/MacOS/MenuApp\tDelete the item?\n")
+	res, err := mgr.ExecWatched(context.Background(), mc.RunID, HolderVerifier, "sleep 1", "", time.Minute)
+	if err != nil || res.StoppedForPrompt || res.ExitCode != 0 {
+		t.Fatalf("a command was stopped for an accessory app's own alert: %+v, %v", res, err)
+	}
+	live, _ := mgr.get(mc.RunID)
+	mgr.mu.Lock()
+	desktop := live.Desktop
+	mgr.mu.Unlock()
+	if desktop == nil || len(desktop.UnexpectedWindows) != 1 || len(desktop.Prompts) != 0 {
+		t.Errorf("want the alert as an unexpected window and no prompt: %+v", desktop)
 	}
 }
 
@@ -185,9 +224,10 @@ func TestExecWaitReportsThePromptAndNeverStopsTheCommand(t *testing.T) {
 	}
 }
 
-// The stop script, for real on the host's sh and zsh: it finds the wrapper by its execId, ends
-// the command's whole process group (a child included), and the wrapper still prints the output
-// so far and exits as the command did. Another wrapper's command is left alone.
+// The stop script, for real on the host's sh and zsh: it finds the command by the pid its wrapper
+// wrote under its execId, ends the command's whole process group (a child included, and a command
+// that exec'd another program), and the wrapper still prints the output so far and exits as the
+// command did. Another wrapper's command is left alone.
 func TestStopExecScriptEndsOnlyItsOwnCommand(t *testing.T) {
 	if _, err := os.Stat("/bin/zsh"); err != nil {
 		t.Skip("no /bin/zsh")
@@ -207,8 +247,12 @@ func TestStopExecScriptEndsOnlyItsOwnCommand(t *testing.T) {
 		t.Cleanup(func() { _ = cmd.Process.Kill() })
 		return cmd, &out, done
 	}
-	_, out, done := start("aaaa11112222", `echo before; sleep 50 & echo $! > "$HOME/child"; wait`)
-	_, _, otherDone := start("bbbb33334444", `sleep 50`)
+	// Fresh ids, as the daemon's: a temp dir a killed earlier run left behind must not match.
+	id, otherID, execID := mustExecID(t), mustExecID(t), mustExecID(t)
+	_, out, done := start(id, `echo before; sleep 50 & echo $! > "$HOME/child"; wait`)
+	_, _, otherDone := start(otherID, `sleep 50`)
+	// A command that execs another program is no longer zsh, and is stopped all the same.
+	_, _, execDone := start(execID, `exec sleep 50`)
 
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -220,8 +264,19 @@ func TestStopExecScriptEndsOnlyItsOwnCommand(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if out, err := exec.Command("/bin/sh", "-c", stopExecScript, "greenroom-exec-stop", "aaaa11112222", "TERM").CombinedOutput(); err != nil {
-		t.Fatalf("stop script: %v: %s", err, out)
+	for _, stop := range []string{id, execID} {
+		if out, err := exec.Command("/bin/sh", "-c", stopExecScript, "greenroom-exec-stop", stop, "TERM").CombinedOutput(); err != nil {
+			t.Fatalf("stop script: %v: %s", err, out)
+		}
+	}
+	select {
+	case err := <-execDone:
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 143 {
+			t.Errorf("the stopped wrapper of an exec'd command ended with %v, want exit 143 (TERM)", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stop did not end a command that exec'd another program")
 	}
 	select {
 	case err := <-done:
@@ -247,5 +302,25 @@ func TestStopExecScriptEndsOnlyItsOwnCommand(t *testing.T) {
 	case err := <-otherDone:
 		t.Errorf("another wrapper's command was stopped too: %v", err)
 	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func mustExecID(t *testing.T) string {
+	t.Helper()
+	id, err := newExecID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// The stop refuses an execId that is not hex, so it can never be made to glob or signal anything
+// but a wrapper's own command.
+func TestStopExecScriptIgnoresAnExecIDThatIsNotHex(t *testing.T) {
+	for _, id := range []string{"", "*", "../x", "ab cd", "ABCDEF"} {
+		out, err := exec.Command("/bin/sh", "-c", "set -x; "+stopExecScript, "greenroom-exec-stop", id, "TERM").CombinedOutput()
+		if err != nil || strings.Contains(string(out), "kill") {
+			t.Errorf("stop with execId %q: %v\n%s", id, err, out)
+		}
 	}
 }

@@ -84,7 +84,8 @@ func (m *Manager) ExecAs(ctx context.Context, runID, by, command, cwd string, ti
 // `/bin/sh -s greenroom-exec 600 <execId>` and a `pgrep -f <pattern>` run through
 // machine_exec cannot match its own wrapper (issue #128). "greenroom-exec" is
 // only $1, a name for the listing; the timeout is $2; $3 is the execId, which
-// only ExecWatched's stop reads (it finds this wrapper by it, ADR 0047).
+// names the wrapper's temp dir (/tmp/greenroom-exec.<execId>.XXXXXX), where it
+// writes its login zsh's pid for ExecWatched's stop to find (ADR 0047).
 var execShell = []string{"/bin/sh", "-s", "greenroom-exec"}
 
 // execWrapperHead and execWrapperTail are the wrapper execScript puts around a
@@ -101,7 +102,7 @@ var execShell = []string{"/bin/sh", "-s", "greenroom-exec"}
 // as `zsh -c` ran it: parsed whole before any of it runs, $0 and no positional
 // parameters as before, `return` ending it. Its errors say "(eval):N:" where
 // they said "zsh:N:". The argv holds only the short temp path, which mktemp
-// makes from letters and digits, so it needs no quoting.
+// makes from letters and digits (and the execId, hex), so it needs no quoting.
 //
 // $2 is the timeout in seconds, 0 for none. The host cannot kill a guest
 // process (killing tart exec leaves it running, issue #28), so the guest does:
@@ -120,11 +121,12 @@ var execShell = []string{"/bin/sh", "-s", "greenroom-exec"}
 // numbers in zsh's errors stay as they were.
 const (
 	execWrapperHead = `exec 3>&2 2>/dev/null
-d=$(mktemp -d /tmp/greenroom-exec.XXXXXX) || exit 125
+d=$(mktemp -d "/tmp/greenroom-exec.${3:-x}.XXXXXX") || exit 125
 `
 	execWrapperTail = `set -m
 /bin/zsh -lc "disable log 2>/dev/null; eval \"\$(<$d/cmd)\"" >"$d/out" 2>"$d/err" </dev/null 3>&- &
 z=$!
+echo "$z" >"$d/pid"
 w=
 if [ "${2:-0}" -gt 0 ]; then
   (sleep "$2"; : >"$d/timedout"; kill -TERM -"$z"; sleep 5; kill -KILL -"$z") >/dev/null 2>&1 </dev/null 3>&- &

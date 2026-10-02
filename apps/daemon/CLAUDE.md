@@ -441,14 +441,19 @@ Boot and lifecycle
 - A prompt stops the verifier's command (ADR 0047, issue #283, `execprompt.go`). The look is
   `lookAtDesktop`, shared by `ExecWait` and `ExecWatched`; its report's `prompts` are unexpected
   windows at layers 8 to 19 drawn by a process that is not a running regular app (by pid), not
-  Notification Center, each with its text read through System Events (`promptTextScript`; join the
-  texts in AppleScript, never by splitting on ", ", which a TCC prompt's own text contains). The
+  Notification Center, and (`readPrompts`) whose executable is part of macOS (`systemExecutable`:
+  `/System`, or `/usr` but not `/usr/local`; an accessory app's own alert is not a prompt, and
+  one whose path cannot be read is kept), each with its text read through System Events
+  (`promptTextScript`; join the texts in AppleScript, never by splitting on ", ", which a TCC
+  prompt's own text contains). The
   verifier's `machine_exec` and the manual brain's `run` use `ExecWatched`: a look every
   `promptLook` (15 s, `WithPromptLook`), and on a prompt no earlier stop reported it stops the
-  command in the guest (`stopExecScript`: the wrapper found by its execId argument, TERM then KILL
-  to its zsh's process group) and returns `stoppedForPrompt` and `desktop`. A stopped prompt is
-  remembered (`Machine.promptsSeen`, by owner, pid and text) until a look no longer finds it, so
-  the verifier's wait for it to go is not stopped too. MCP's `ExecWait` never stops a command.
+  command in the guest (`stopExecScript`: TERM then KILL to the process group of the zsh whose pid
+  the wrapper wrote in its temp dir, `/tmp/greenroom-exec.<execId>.XXXXXX/pid`; never find it by
+  process name, a command may `exec` another program) and returns `stoppedForPrompt` and
+  `desktop`. A prompt whose stop did end the command is remembered (`Machine.promptsSeen`, by
+  owner, pid and text) until a look no longer finds it, so the verifier's wait for it to go is not
+  stopped too. MCP's `ExecWait` never stops a command.
   Measured live: the prompt outlives the command that raised it and the app it names, times out
   120 s after it appeared, and that timeout writes a denial over any approval made while it was
   up. So the verifier's result says to wait it out, then approve, then rerun (`promptStopText`);
@@ -616,7 +621,7 @@ Exec
   `detachLocked`, or aborted by a reboot with `errExecRebooted` as its error
   (`execJob.abort`). Its step is claimed at start and written when it ends. The verifier's
   `Manager.ExecWatched` blocks on the same job (and stops it on a prompt, ADR 0047). The execId
-  in the wrapper's argv is only for that stop to find it.
+  in the wrapper's argv only names its temp dir, where it writes its zsh's pid for that stop.
 - Each stream keeps its first `ExecHeadLimit` (8 KiB) and last `ExecTailLimit` (24 KiB),
   with `stdoutBytes`/`stderrBytes` and `*Truncated` (issue #29). `tart.ExecTo` streams
   into that bounded writer, so no output is ever held whole. The tool description quotes

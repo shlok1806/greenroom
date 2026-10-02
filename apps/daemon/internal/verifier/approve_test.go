@@ -119,7 +119,7 @@ func TestTheVerifierMayNotWriteTCCDatabasesThroughMachineExec(t *testing.T) {
 const (
 	promptScreen = `{"windows":[{"owner":"UserNotificationCenter","name":"","layer":8,"alpha":1,"x":382,"y":118,"width":260,"height":256,"pid":1132}],
  "apps":[{"name":"Finder","bundleId":"com.apple.finder","pid":391}]}`
-	promptText = "1132\t“tart-guest-agent” wants access to control “TestApp”. Allowing control will provide access " +
+	promptText = "1132\t/System/Library/CoreServices/UserNotificationCenter.app/Contents/MacOS/UserNotificationCenter\t“tart-guest-agent” wants access to control “TestApp”. Allowing control will provide access " +
 		"to documents and data in “TestApp”, and to perform actions within that app. \n"
 )
 

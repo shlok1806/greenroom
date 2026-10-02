@@ -29,14 +29,15 @@ const execStopGrace = 5 * time.Second
 // promptTextTimeout bounds reading what the prompts on screen say.
 const promptTextTimeout = 10 * time.Second
 
-// promptTextScript prints, for each pid in its arguments, the pid, a tab and the static texts of
-// that process's windows on one line, read through System Events (Apple Events to System Events
-// are granted in the image, ADR 0038 point 1). machine_ui cannot read it: it reads only regular
-// apps, and the process that draws a TCC prompt is not one (issue #223). The texts are joined in
-// AppleScript, never by splitting its list on ", ", which a prompt's own text contains. A failed
-// read prints the pid alone.
+// promptTextScript prints, for each pid in its arguments, one line: the pid, a tab, the path of
+// the process's executable, a tab, and the static texts of that process's windows, read through
+// System Events (Apple Events to System Events are granted in the image, ADR 0038 point 1).
+// machine_ui cannot read them: it reads only regular apps, and the process that draws a TCC
+// prompt is not one (issue #223). The texts are joined in AppleScript, never by splitting its
+// list on ", ", which a prompt's own text contains. A read that fails leaves its field empty.
 const promptTextScript = `: greenroom-prompt-text
 for p in "$@"; do
+  x=$(/bin/ps -o comm= -p "$p" 2>/dev/null | tr '\n\t' '  ')
   t=$(/usr/bin/osascript -e 'on run argv' -e 'set out to ""' -e 'with timeout of 5 seconds' \
     -e 'tell application "System Events" to set vals to value of every static text of every window of (first process whose unix id is ((item 1 of argv) as integer))' \
     -e 'end timeout' \
@@ -44,13 +45,26 @@ for p in "$@"; do
     -e 'if s is not missing value then set out to out & s & linefeed' \
     -e 'end repeat' -e 'end repeat' -e 'return out' -e 'end run' \
     "$p" 2>/dev/null | tr '\n\t' '  ')
-  printf '%s\t%s\n' "$p" "$t"
+  printf '%s\t%s\t%s\n' "$p" "$x" "$t"
 done
 `
 
-// readPromptTexts fills each prompt's Text from the guest. A prompt whose text cannot be read
-// keeps an empty one; the window alone is still reported.
-func (m *Manager) readPromptTexts(ctx context.Context, vm string, prompts []DesktopPrompt) {
+// systemExecutable reports whether path is part of macOS itself: under /System, or under /usr
+// but not /usr/local, both on the sealed system volume. Every process that draws a TCC,
+// Gatekeeper, authorization or crash prompt is (UserNotificationCenter, CoreServicesUIAgent,
+// SecurityAgent); an app built, synced or installed in a run never is.
+func systemExecutable(path string) bool {
+	return strings.HasPrefix(path, "/System/") ||
+		(strings.HasPrefix(path, "/usr/") && !strings.HasPrefix(path, "/usr/local/"))
+}
+
+// readPrompts reads what each prompt says and which executable draws it, and returns the prompts
+// macOS itself draws, each with its text. A window at a prompt's level from any other process
+// that is not a regular app (an accessory or menu bar app's own alert, issue #223) is that app's
+// business: it stays in the report's unexpected windows, but it is not a prompt, so it never
+// stops a command and nobody is told to wait for it to time out. A prompt whose process or text
+// cannot be read is kept, text empty: missing a real prompt costs the command its whole timeout.
+func (m *Manager) readPrompts(ctx context.Context, vm string, prompts []DesktopPrompt) []DesktopPrompt {
 	ctx, cancel := context.WithTimeout(ctx, promptTextTimeout)
 	defer cancel()
 	args := []string{"/bin/sh", "-c", promptTextScript, "greenroom-prompt-text"}
@@ -62,22 +76,30 @@ func (m *Manager) readPromptTexts(ctx context.Context, vm string, prompts []Desk
 		}
 	}
 	if len(seen) == 0 {
-		return
+		return prompts
 	}
 	res, err := m.tart.Exec(ctx, vm, args...)
 	if err != nil {
-		return
+		return prompts
 	}
-	texts := map[int]string{}
+	type read struct{ path, text string }
+	reads := map[int]read{}
 	for _, line := range strings.Split(res.Stdout, "\n") {
-		pid, text, ok := strings.Cut(line, "\t")
-		if n, err := strconv.Atoi(pid); ok && err == nil {
-			texts[n] = cleanPromptText(text)
+		f := strings.SplitN(line, "\t", 3)
+		if n, err := strconv.Atoi(f[0]); err == nil && len(f) == 3 {
+			reads[n] = read{path: strings.TrimSpace(f[1]), text: cleanPromptText(f[2])}
 		}
 	}
-	for i := range prompts {
-		prompts[i].Text = texts[prompts[i].PID]
+	var out []DesktopPrompt
+	for _, p := range prompts {
+		r := reads[p.PID]
+		if r.path != "" && !systemExecutable(r.path) {
+			continue
+		}
+		p.Text = r.text
+		out = append(out, p)
 	}
+	return out
 }
 
 // cleanPromptText is the texts of a prompt's windows on one line, its runs of spaces collapsed.
@@ -103,7 +125,7 @@ func (m *Manager) lookAtDesktop(mc *Machine, execID string) (r *DesktopReport, o
 		return nil, true
 	}
 	r = &rep
-	m.readPromptTexts(context.Background(), mc.Name, r.Prompts)
+	r.Prompts = m.readPrompts(context.Background(), mc.Name, r.Prompts)
 	m.mu.Lock()
 	same := mc.Desktop != nil && reflect.DeepEqual(*mc.Desktop, *r)
 	mc.Desktop = r
@@ -202,22 +224,35 @@ func (m *Manager) ExecWatched(ctx context.Context, runID, by, command, cwd strin
 				continue // nothing is known; a failed look neither stops the command nor forgets a prompt
 			}
 			if fresh := m.newPrompts(mc, r); len(fresh) > 0 {
-				m.markPromptsSeen(mc, r)
 				j.stoppedFor.Store(r)
 				m.stopExec(mc, j)
+				// A command that ended on its own while this look ran was not stopped and its
+				// result does not name the prompt, so the prompt is not remembered either: the
+				// next command it blocks is stopped and told.
+				if j.res.StoppedForPrompt {
+					m.markPromptsSeen(mc, r)
+				}
 				return j.res, j.err
 			}
 		}
 	}
 }
 
-// stopExecScript ends the command a greenroom-exec wrapper runs for execId $1 with signal $2: the
-// wrapper is found by its argv (`/bin/sh -s greenroom-exec <secs> <execId>`, guest.go), and its
-// login zsh, which `set -m` made a process group leader, is signalled as a group, so the
-// command's children go with it. The wrapper then prints the output so far and exits as usual.
+// stopExecScript ends the command a greenroom-exec wrapper runs for execId $1 with signal $2. The
+// wrapper names its temp dir by the execId and writes there the pid of its login zsh, which
+// `set -m` made a process group leader (guest.go); that group, the one the timeout watchdog
+// signals, is signalled, so the command's children go with it. It goes by the pid the wrapper
+// wrote, not by a process name, so a command that execs another program (`exec osascript ...`)
+// is still found, and nothing outside that group, such as the wrapper or the guest agent, is
+// ever signalled. The wrapper then prints the output so far and exits as usual. The file goes
+// with the temp dir once the wrapper is done, so a stop after that finds nothing.
 const stopExecScript = `: greenroom-exec-stop
-for p in $(pgrep -f "^/bin/sh -s greenroom-exec [0-9]+ $1\$"); do
-  for z in $(pgrep -P "$p" -x zsh); do kill -"$2" -"$z" 2>/dev/null; done
+case $1 in ''|*[!0-9a-f]*) exit 0 ;; esac
+for f in /tmp/greenroom-exec."$1".*/pid; do
+  [ -f "$f" ] || continue
+  z=$(cat "$f")
+  case $z in ''|*[!0-9]*) continue ;; esac
+  kill -"$2" -"$z" 2>/dev/null
 done
 exit 0
 `

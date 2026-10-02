@@ -44,10 +44,17 @@ Measured on the same guest, the facts the decision rests on:
 The look ADR 0038 point 3 added is one function both exec paths call (`lookAtDesktop`). It reads
 every on-screen window as before, and the desktop report gains `prompts`: each unexpected window
 at a modal panel or alert level (layers 8 to 19) drawn by a process that is not a regular app
-(not one of the report's running apps), Notification Center's banners excepted. Each prompt
-carries its text, read through System Events by the drawing process's pid. A regular app's own
-alert, a menu (layer 101) and a floating panel (layer 3) are not prompts. The text read is best
-effort: when it fails the prompt is still reported, by owner and frame.
+(not one of the report's running apps), Notification Center's banners excepted. The look then
+reads, by the drawing process's pid, its executable's path (`ps`) and the window's text (through
+System Events), and keeps only the windows macOS itself draws: an executable under `/System`, or
+under `/usr` but not `/usr/local`, on the sealed system volume. Every process that draws a TCC,
+Gatekeeper, authorization or crash prompt lives there (`UserNotificationCenter`,
+`CoreServicesUIAgent`, `SecurityAgent`), and an app built, synced or installed in a run never
+does. So a regular app's own alert, an accessory or menu bar app's own alert (issue #223's apps,
+which are not regular apps either), a menu (layer 101) and a floating panel (layer 3) are not
+prompts; each stays an unexpected window in the report. The read is best effort: when it fails
+the window is kept as a prompt, by owner and frame, since missing a real prompt costs a command
+its whole timeout.
 
 ### 2. The verifier's exec looks while it waits, and stops the command on a new prompt
 
@@ -69,15 +76,20 @@ The command is stopped, not left running, because:
 - What the command printed so far comes back in the result, as at a timeout.
 
 The stop is the guest's: the wrapper's argv now ends with the execId
-(`/bin/sh -s greenroom-exec <secs> <execId>`), a script finds that wrapper with `pgrep -f`, and
-sends TERM to its login zsh's process group (the same group the timeout watchdog signals, so the
-command's children go too), then KILL after 5 s, then the host cancels its own tart exec. The
-wrapper prints the output so far and exits 143.
+(`/bin/sh -s greenroom-exec <secs> <execId>`), the wrapper names its temp dir by it
+(`/tmp/greenroom-exec.<execId>.XXXXXX`) and writes there the pid of its login zsh. A script reads
+that pid and sends TERM to the zsh's process group (the same group the timeout watchdog signals,
+so the command's children go too), then KILL after 5 s, then the host cancels its own tart exec.
+The wrapper prints the output so far and exits 143. The stop goes by that recorded pid, never by a
+process name, so a command that `exec`s another program is stopped too, and it signals only that
+group, never the wrapper's or the guest agent's. It refuses an execId that is not hex.
 
 A prompt stops one command. The verifier's wait for it to go (`sleep`), or anything else it runs
 while it is up, is not stopped for the same prompt: a prompt is keyed by its process and its text,
 and forgotten once a look no longer finds it, so the same request raised again later stops a
-command again. A look that fails changes nothing.
+command again. A prompt is remembered only when its stop did end the command: a command that
+ended on its own while the look ran returns its own result, and the next command the prompt
+blocks is stopped and told. A look that fails changes nothing.
 
 Neither path answers, clicks or closes the prompt (ADR 0018 point 4). The decision to allow an
 app stays an explicit, recorded call (ADR 0044).
@@ -99,9 +111,11 @@ approval made while a prompt is up is undone when it times out.
   same osascript answered `0`.
 - Every verifier command longer than 15 s pays one screen read per 15 s, and a text read only
   while a prompt is on screen. A finding equal to the last one is not logged or sent again.
-- A verifier command that runs an app in the foreground which shows its own alert is not
-  stopped (the alert's owner is a regular app). An accessory app's modal panel at layer 8 is a
-  prompt by this rule and stops the command; the result names it, so it reads as what it is.
+- A verifier command is not stopped for an app's own alert, whether the app is a regular one or
+  an accessory or menu bar app (the alert's executable is not part of macOS). Such an alert never
+  times out, so telling the verifier to wait for it would loop. A prompt drawn by a third-party
+  process outside the system volume is missed the same way; none of the prompts this ADR is about
+  are.
 - `promptLifetime` (2 minutes) is measured for the Apple Events prompt. Other TCC prompts may
   live longer; the verifier's instructions say to check with a screenshot and wait again.
 - The extra argv field shows in the guest's `ps` (a short hex id). A `pgrep -f` through

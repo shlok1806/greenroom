@@ -51,8 +51,8 @@ type DesktopReport struct {
 	UnexpectedApps    []DesktopApp    `json:"unexpectedApps,omitempty"`
 	// Prompts are the unexpected windows that look like a system prompt waiting for an answer
 	// (ADR 0047): at a modal panel or alert level, drawn by a process that is not a regular app.
-	// Each is also in UnexpectedWindows. Text is filled only by a look during a command
-	// (execprompt.go); boot's check leaves it empty.
+	// Each is also in UnexpectedWindows. A look during a command (execprompt.go) also keeps only
+	// those macOS itself draws and fills their Text; boot's check does neither.
 	Prompts []DesktopPrompt `json:"prompts,omitempty"`
 	Error   string          `json:"error,omitempty"` // the check could not run; nothing is known
 }

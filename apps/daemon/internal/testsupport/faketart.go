@@ -30,7 +30,7 @@ import (
 //	exec-codes          `tart exec` exits with the next line of this file (consumed), then 0
 //	exec-sleep          machine_exec's command takes this many seconds
 //	exec-stdout         machine_exec's command prints this file and exits 0
-//	prompt-text         what the prompt text read prints: "<pid>\t<text>" lines (ADR 0047)
+//	prompt-text         what the prompt text read prints: "<pid>\t<executable>\t<text>" lines (ADR 0047)
 //	agent-down          `tart exec` fails as if the guest agent is unreachable
 //	ssh-down            the in-guest sshd probe is refused
 //	fail-input-install  compiling the guest input helper fails
